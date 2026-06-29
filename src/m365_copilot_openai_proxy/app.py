@@ -73,7 +73,7 @@ def create_app(
             return await call_next(request)
         # Skip auth for admin page and health endpoints
         path = request.url.path
-        if path in ("/favicon.ico", "/healthz", "/v1/token/status", "/v1/token/update", "/v1/token/auto-capture", "/v1/cookie/inject", "/v1/chromium/login-status", "/admin/login"):
+        if path in ("/", "/favicon.ico", "/healthz", "/v1/token/status", "/v1/token/update", "/v1/token/auto-capture", "/v1/cookie/inject", "/v1/chromium/login-status", "/admin/login"):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
         match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
