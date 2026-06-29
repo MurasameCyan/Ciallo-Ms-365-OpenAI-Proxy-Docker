@@ -1,0 +1,31 @@
+[project]
+name = "m365-copilot-openai-proxy"
+version = "0.1.0"
+description = "OpenAI-compatible shim for Microsoft 365 Copilot Chat"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.116.0,<1.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "pydantic-settings>=2.10.0,<3.0.0",
+    "uvicorn>=0.35.0,<1.0.0",
+    "websockets>=12.0,<15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0,<9.0.0",
+]
+
+[project.scripts]
+copilot-openai-proxy = "m365_copilot_openai_proxy.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/m365_copilot_openai_proxy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

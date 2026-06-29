@@ -1,0 +1,23 @@
+services:
+  copilot-proxy:
+    # 使用 GitHub Actions 构建的 GHCR 镜像
+    # 替换 <OWNER> 为你的 GitHub 用户名
+    image: ghcr.io/murasamecyan/m365-copilot-openai-proxy:latest
+    container_name: m365-copilot-proxy
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # 持久化 Chrome profile（保存 M365 登录状态，无需每次重新登录）
+      - chrome-profile:/chrome-profile
+    environment:
+      - AUTO_REFRESH=true
+      - REFRESH_BEFORE_SECONDS=300
+      - CHROME_CDP_PORT=9222
+    restart: unless-stopped
+    # Chrome headless 需要足够的共享内存
+    shm_size: "1gb"
+
+volumes:
+  chrome-profile:
