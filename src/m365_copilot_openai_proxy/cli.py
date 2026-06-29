@@ -4,9 +4,11 @@ import argparse
 import asyncio
 import json
 import logging
-import msvcrt
+import platform
 import re
+import select
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -357,15 +359,25 @@ def launch_edge_command(args: argparse.Namespace) -> None:
 def _launch_debug_edge(cdp_port: int) -> None:
     profile_dir = Path.home() / ".m365-copilot-openai-proxy" / "edge-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
+
+    if platform.system() == "Windows":
+        edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+    elif platform.system() == "Darwin":
+        edge_path = "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+    else:
+        # Linux: try chromium first, then edge
+        import shutil
+        edge_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("microsoft-edge") or shutil.which("microsoft-edge-stable") or "chromium"
+
     subprocess.Popen([
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        edge_path,
         f"--remote-debugging-port={cdp_port}",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
         "https://m365.cloud.microsoft/chat",
     ])
-    print(f"Edge launched with remote debugging on port {cdp_port}.")
-    print(f"Dedicated Edge profile: {profile_dir}")
+    print(f"Browser launched with remote debugging on port {cdp_port}.")
+    print(f"Dedicated profile: {profile_dir}")
     print("Sign in to M365 Copilot in that window once, then retry refresh.")
 
 
@@ -443,16 +455,29 @@ def serve_command(args: argparse.Namespace) -> None:
 
         action = None
         while thread.is_alive():
-            if msvcrt.kbhit():
-                key = msvcrt.getwch().lower()
-                if key == "q":
-                    action = "quit"
-                    server.should_exit = True
-                    break
-                elif key == "r":
-                    action = "refresh"
-                    server.should_exit = True
-                    break
+            if platform.system() == "Windows":
+                import msvcrt as _msvcrt
+                if _msvcrt.kbhit():
+                    key = _msvcrt.getwch().lower()
+                    if key == "q":
+                        action = "quit"
+                        server.should_exit = True
+                        break
+                    elif key == "r":
+                        action = "refresh"
+                        server.should_exit = True
+                        break
+            else:
+                if select.select([sys.stdin], [], [], 0.05)[0]:
+                    key = sys.stdin.readline().strip().lower()
+                    if key == "q":
+                        action = "quit"
+                        server.should_exit = True
+                        break
+                    elif key == "r":
+                        action = "refresh"
+                        server.should_exit = True
+                        break
             time.sleep(0.05)
 
         stop_auto_refresh.set()

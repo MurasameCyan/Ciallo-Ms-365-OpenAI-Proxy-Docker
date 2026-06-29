@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import Settings
@@ -31,6 +33,29 @@ def create_app(
     app.state.copilot_client_factory = copilot_client_factory or (
         lambda: SubstrateCopilotClient(app.state.token_store.get(), resolved_settings.time_zone)
     )
+
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "x-m365-session-id"],
+        max_age=86400,
+    )
+
+    # API Key authentication middleware
+    @app.middleware("http")
+    async def api_key_auth(request: Request, call_next):
+        if not resolved_settings.api_key:
+            return await call_next(request)
+        auth = request.headers.get("Authorization", "")
+        match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
+        if match and match.group(1) == resolved_settings.api_key:
+            return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={"error": {"message": "Invalid API key", "type": "auth_error"}},
+        )
 
     def get_settings() -> Settings:
         return app.state.settings
