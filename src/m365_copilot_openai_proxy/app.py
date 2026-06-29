@@ -570,35 +570,35 @@ a:hover{text-decoration:underline}
 </head>
 <body>
 <div class="container">
-<h1>M365 Copilot Proxy</h1>
+<h1>M365 Copilot Proxy <button id="lang-toggle" onclick="toggleLang()" style="font-size:12px;padding:2px 8px;border:1px solid #475569;border-radius:4px;background:#1e293b;color:#94a3b8;cursor:pointer;vertical-align:middle;margin-left:8px">EN</button></h1>
 
 <div class="card">
-<h2>Update Token</h2>
-<p style="color:#64748b;font-size:.85rem;margin-bottom:.75rem">Paste the access_token value or the full wss:// URL from <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a></p>
+<h2 data-i18n="title_update_token">更新 Token</h2>
+<p style="color:#64748b;font-size:.85rem;margin-bottom:.75rem"><span data-i18n="desc_paste_token">粘贴 access_token 值或完整的 wss:// URL，来自</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a></p>
 <textarea id="token-input" placeholder="eyJ0eXAiOiJKV1QiLCJhbGci...&#10;&#10;or full URL:&#10;wss://substrate.office.com/m365Copilot/Chathub/...?access_token=eyJ..."></textarea>
 <div style="display:flex;gap:.75rem;margin-bottom:.25rem">
-<button id="btn-update" onclick="updateToken()">Update Token</button>
-<button id="btn-check" onclick="checkLogin()" style="background:linear-gradient(135deg,#f59e0b,#d97706)">Check Login</button>
-<button id="btn-auto" onclick="autoCapture()" style="background:linear-gradient(135deg,#22c55e,#059669)">Auto Capture</button>
+<button id="btn-update" onclick="updateToken()" data-i18n="btn_update">更新 Token</button>
+<button id="btn-check" onclick="checkLogin()" style="background:linear-gradient(135deg,#f59e0b,#d97706)" data-i18n="btn_check_login">检查登录</button>
+<button id="btn-auto" onclick="autoCapture()" style="background:linear-gradient(135deg,#22c55e,#059669)" data-i18n="btn_auto_capture">自动捕获</button>
 </div>
 <div id="update-msg" class="msg"></div>
 </div>
 
 <div class="card">
-<h2>Token & Login Status</h2>
-<div id="status-content"><span style="color:#64748b">Loading...</span></div>
+<h2 data-i18n="title_status">Token 与登录状态</h2>
+<div id="status-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 <div style="border-top:1px solid #334155;margin:.75rem 0"></div>
-<div id="chromium-status"><span style="color:#64748b">Loading...</span></div>
+<div id="chromium-status"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
 <div class="card">
-<h2>Quick Start</h2>
+<h2 data-i18n="title_quick_start">快速开始</h2>
 <p style="color:#94a3b8;font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
-<strong style="color:#22c55e">Recommended:</strong> Install the Tampermonkey script (<a href="https://raw.githubusercontent.com/MurasameCyan/M365-Copilot-OpenAI-Proxy/main/get_token.js" target="_blank">get_token.js</a>), open <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>, type something to trigger WebSocket, then click <strong>Push Token</strong> in the script panel.<br>
-<strong style="color:#f59e0b">Alternative:</strong> Manually copy the <code>access_token</code> from the WebSocket URL in DevTools (Network &rarr; WS &rarr; wss://substrate.office.com/...), then paste above.
+<strong style="color:#22c55e" data-i18n="qs_recommended">推荐：</strong><span data-i18n="qs_install_script">安装油猴脚本（</span><a href="https://raw.githubusercontent.com/MurasameCyan/M365-Copilot-OpenAI-Proxy/main/docker/get_token.js" target="_blank">get_token.js</a>），<span data-i18n="qs_open_copilot">打开</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>，<span data-i18n="qs_type_trigger">输入内容触发 WebSocket，然后在脚本面板点击</span> <strong data-i18n="qs_push_token">推送 Token</strong>。<br>
+<strong style="color:#f59e0b" data-i18n="qs_alternative">备选：</strong><span data-i18n="qs_manual_copy">在 DevTools（Network → WS → wss://substrate.office.com/...）中手动复制 </span><code>access_token</code>，<span data-i18n="qs_paste_above">然后粘贴到上方。</span>
 </p>
 <div class="api-info" style="margin-top:.5rem">
-<strong style="color:#e2e8f0">API Endpoints</strong><br><br>
+<strong style="color:#e2e8f0" data-i18n="title_api_endpoints">API 端点</strong><br><br>
 GET  /healthz<br>
 GET  /v1/token/status<br>
 POST /v1/token/update<br>
@@ -613,6 +613,59 @@ POST /v1/messages
 </div>
 
 <script>
+const i18n={
+  zh:{
+    title_update_token:'更新 Token',btn_update:'更新 Token',btn_check_login:'检查登录',btn_auto_capture:'自动捕获',
+    title_status:'Token 与登录状态',loading:'加载中...',
+    title_quick_start:'快速开始',qs_recommended:'推荐：',qs_install_script:'安装油猴脚本（',
+    qs_open_copilot:'打开',qs_type_trigger:'输入内容触发 WebSocket，然后在脚本面板点击',qs_push_token:'推送 Token',
+    qs_alternative:'备选：',qs_manual_copy:'在 DevTools（Network → WS → wss://substrate.office.com/...）中手动复制 ',
+    qs_paste_above:'然后粘贴到上方。',title_api_endpoints:'API 端点',
+    desc_paste_token:'粘贴 access_token 值或完整的 wss:// URL，来自',
+    valid:'有效',invalid:'无效',expires:'过期时间',remaining:'剩余',error:'错误',
+    login:'登录',logged_in:'已登录',not_logged_in:'未登录（仅手动推送 Token）',
+    page:'页面',title:'标题',chromium_not_running:'Chromium 未运行',
+    capturing:'捕获中...',auto_captured:'自动捕获成功！剩余：',auto_capture_failed:'自动捕获失败',
+    check_login:'检查登录中...',login_ok:'Chromium 已登录！自动刷新已启用。',
+    login_not_ok:'未登录。请先使用油猴脚本推送 Cookie。',check_failed:'检查失败：',
+    capturing_btn:'捕获中...',check_btn:'检查中...',
+    status_yes:'是',status_no:'否',
+  },
+  en:{
+    title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
+    title_status:'Token & Login Status',loading:'Loading...',
+    title_quick_start:'Quick Start',qs_recommended:'Recommended:',qs_install_script:'Install the Tampermonkey script (',
+    qs_open_copilot:'open',qs_type_trigger:'type something to trigger WebSocket, then click',qs_push_token:'Push Token',
+    qs_alternative:'Alternative:',qs_manual_copy:'Manually copy the ',
+    qs_paste_above:'from DevTools (Network → WS → wss://substrate.office.com/...), then paste above.',title_api_endpoints:'API Endpoints',
+    desc_paste_token:'Paste the access_token value or the full wss:// URL from',
+    valid:'Valid',invalid:'Invalid',expires:'Expires',remaining:'Remaining',error:'Error',
+    login:'Login',logged_in:'Logged In',not_logged_in:'Not Logged In (auto-refresh only)',
+    page:'Page',title:'Title',chromium_not_running:'Chromium Not Running',
+    capturing:'Capturing...',auto_captured:'Auto-captured! Remaining: ',auto_capture_failed:'Auto-capture failed',
+    check_login:'Checking...',login_ok:'Chromium is logged in! Auto-refresh is active.',
+    login_not_ok:'Not logged in. Use Tampermonkey script to push cookies first.',check_failed:'Check failed: ',
+    capturing_btn:'Capturing...',check_btn:'Checking...',
+    status_yes:'Yes',status_no:'No',
+  }
+};
+let lang=localStorage.getItem('lang')||'zh';
+function t(key){return i18n[lang][key]||key}
+function toggleLang(){
+  lang=lang==='zh'?'en':'zh';
+  localStorage.setItem('lang',lang);
+  applyLang();
+}
+function applyLang(){
+  document.getElementById('lang-toggle').textContent=lang==='zh'?'EN':'中';
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key=el.getAttribute('data-i18n');
+    if(i18n[lang][key])el.textContent=i18n[lang][key];
+  });
+  loadStatus();loadChromiumStatus();
+}
+applyLang();
+
 async function loadStatus(){
   try{
     const r=await fetch('/v1/token/status');
@@ -621,10 +674,10 @@ async function loadStatus(){
     const cls=v?'valid':'invalid';
     const exp=d.expires_at?new Date(d.expires_at).toLocaleString():'N/A';
     document.getElementById('status-content').innerHTML=
-      '<div class="status-row"><span class="status-label">Valid</span><span class="status-value '+cls+'">'+(v?'Yes':'No')+'</span></div>'+
-      '<div class="status-row"><span class="status-label">Expires</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+exp+'</span></div>'+
-      '<div class="status-row"><span class="status-label">Remaining</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+fmtSec(d.seconds_remaining)+'</span></div>'+
-      (d.error?'<div class="status-row"><span class="status-label">Error</span><span class="status-value invalid">'+d.error+'</span></div>':'');
+      '<div class="status-row"><span class="status-label">'+t('valid')+'</span><span class="status-value '+cls+'">'+(v?t('status_yes'):t('status_no'))+'</span></div>'+
+      '<div class="status-row"><span class="status-label">'+t('expires')+'</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+exp+'</span></div>'+
+      '<div class="status-row"><span class="status-label">'+t('remaining')+'</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+fmtSec(d.seconds_remaining)+'</span></div>'+
+      (d.error?'<div class="status-row"><span class="status-label">'+t('error')+'</span><span class="status-value invalid">'+d.error+'</span></div>':'');
   }catch(e){
     document.getElementById('status-content').innerHTML='<span class="invalid">Failed to load</span>';
   }
@@ -635,14 +688,14 @@ async function loadChromiumStatus(){
     const r=await fetch('/v1/chromium/login-status');
     const d=await r.json();
     if(!d.chromium_running){
-      document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">Not Running</span></div>';
+      document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">'+t('chromium_not_running')+'</span></div>';
       return;
     }
     const logCls=d.logged_in?'valid':('warn');
-    const logText=d.logged_in?'Logged In':'Not Logged In (auto-refresh only)';
-    let html='<div class="status-row"><span class="status-label">Login</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
-    if(d.url)html+='<div class="status-row"><span class="status-label">Page</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+d.url+'</span></div>';
-    if(d.title)html+='<div class="status-row"><span class="status-label">Title</span><span class="status-value" style="font-size:.75rem">'+d.title+'</span></div>';
+    const logText=d.logged_in?t('logged_in'):t('not_logged_in');
+    let html='<div class="status-row"><span class="status-label">'+t('login')+'</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
+    if(d.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+d.url+'</span></div>';
+    if(d.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+d.title+'</span></div>';
     document.getElementById('chromium-status').innerHTML=html;
   }catch(e){
     document.getElementById('chromium-status').innerHTML='<span class="invalid">Failed to load</span>';
@@ -659,19 +712,19 @@ async function updateToken(){
   const input=document.getElementById('token-input').value.trim();
   const msg=document.getElementById('update-msg');
   const btn=document.getElementById('btn-update');
-  if(!input){msg.className='msg err';msg.textContent='Please paste a token';return}
+  if(!input){msg.className='msg err';msg.textContent=lang==='zh'?'请粘贴 Token':'Please paste a token';return}
   btn.disabled=true;msg.className='msg';msg.textContent='';
   try{
     const r=await fetch('/v1/token/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:input})});
     const d=await r.json();
     if(r.ok){
-      msg.className='msg ok';msg.textContent='Token updated! Remaining: '+fmtSec(d.token_status?.seconds_remaining);
+      msg.className='msg ok';msg.textContent=(lang==='zh'?'Token 已更新！剩余：':'Token updated! Remaining: ')+fmtSec(d.token_status?.seconds_remaining);
       document.getElementById('token-input').value='';
       loadStatus();
     }else{
-      msg.className='msg err';msg.textContent=d.error||'Update failed';
+      msg.className='msg err';msg.textContent=d.error?.message||d.error||(lang==='zh'?'更新失败':'Update failed');
     }
-  }catch(e){msg.className='msg err';msg.textContent='Network error: '+e}
+  }catch(e){msg.className='msg err';msg.textContent=(lang==='zh'?'网络错误：':'Network error: ')+e}
   finally{btn.disabled=false}
 }
 
@@ -681,31 +734,31 @@ async function autoCapture(){
   const upd=document.getElementById('btn-update');
   btn.disabled=true;upd.disabled=true;
   msg.className='msg';msg.textContent='';
-  btn.textContent='Capturing...';
+  btn.textContent=t('capturing_btn');
   try{
     const r=await fetch('/v1/token/auto-capture',{method:'POST'});
     const d=await r.json();
     if(r.ok){
-      msg.className='msg ok';msg.textContent='Auto-captured! Remaining: '+fmtSec(d.token_status?.seconds_remaining);
+      msg.className='msg ok';msg.textContent=t('auto_captured')+fmtSec(d.token_status?.seconds_remaining);
       loadStatus();
     }else{
-      msg.className='msg err';msg.textContent=d.error?.message||d.error||'Auto-capture failed';
+      msg.className='msg err';msg.textContent=d.error?.message||d.error||t('auto_capture_failed');
     }
-  }catch(e){msg.className='msg err';msg.textContent='Network error: '+e}
-  finally{btn.disabled=false;upd.disabled=false;btn.textContent='Auto Capture'}
+  }catch(e){msg.className='msg err';msg.textContent=(lang==='zh'?'网络错误：':'Network error: ')+e}
+  finally{btn.disabled=false;upd.disabled=false;btn.textContent=t('btn_auto_capture')}
 }
 
 async function checkLogin(){
   loadChromiumStatus();
   const msg=document.getElementById('update-msg');
-  msg.className='msg';msg.textContent='Checking...';
+  msg.className='msg';msg.textContent=t('check_login');
   await new Promise(r=>setTimeout(r,1500));
   try{
     const r=await fetch('/v1/chromium/login-status');
     const d=await r.json();
     msg.className=d.logged_in?'msg ok':'msg err';
-    msg.textContent=d.logged_in?'Chromium is logged in! Auto-refresh is active.':'Not logged in. Use Tampermonkey script to push cookies first.';
-  }catch(e){msg.className='msg err';msg.textContent='Check failed: '+e}
+    msg.textContent=d.logged_in?t('login_ok'):t('login_not_ok');
+  }catch(e){msg.className='msg err';msg.textContent=t('check_failed')+e}
 }
 
 loadStatus();
