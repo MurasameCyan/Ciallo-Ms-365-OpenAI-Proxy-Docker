@@ -4,8 +4,12 @@
 // @version      4.0
 // @description  拦截 M365 Copilot Substrate WebSocket 连接，提取 access_token；通过 GM_cookie 获取完整 Cookie（含 httpOnly）推送到代理服务实现 Chromium 登录
 // @match        https://m365.cloud.microsoft/*
+// @match        https://login.microsoftonline.com/*
+// @match        https://www.office.com/*
+// @match        https://microsoft.com/*
 // @grant        GM_cookie
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      *
 // ==/UserScript==
 
@@ -26,9 +30,11 @@
     // Store the latest token
     let latestToken = '';
 
-    // Intercept WebSocket construction
-    const OrigWebSocket = window.WebSocket;
-    window.WebSocket = function(url, protocols) {
+    // Intercept WebSocket construction on the real page (not in sandbox)
+    const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+
+    const OrigWebSocket = pageWindow.WebSocket;
+    pageWindow.WebSocket = function(url, protocols) {
         const match = url.match(SUBSTRATE_WS_RE);
         if (match) {
             latestToken = match[1];
@@ -36,11 +42,11 @@
         }
         return new OrigWebSocket(url, protocols);
     };
-    window.WebSocket.prototype = OrigWebSocket.prototype;
-    window.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
-    window.WebSocket.OPEN = OrigWebSocket.OPEN;
-    window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
-    window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
+    pageWindow.WebSocket.prototype = OrigWebSocket.prototype;
+    pageWindow.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+    pageWindow.WebSocket.OPEN = OrigWebSocket.OPEN;
+    pageWindow.WebSocket.CLOSING = OrigWebSocket.CLOSING;
+    pageWindow.WebSocket.CLOSED = OrigWebSocket.CLOSED;
 
     function getProxyBase() {
         const input = document.getElementById('m365-proxy-url');
@@ -74,15 +80,39 @@
         const allCookies = [];
         const seen = new Set();
 
-        for (const url of COOKIE_DOMAINS) {
+        // First try the current page URL (always has permission)
+        const currentUrl = location.href;
+
+        for (const url of [...COOKIE_DOMAINS, currentUrl]) {
             try {
-                const cookies = await new Promise((resolve, reject) => {
-                    GM_cookie.list({ url: url }, (cookies, error) => {
-                        if (error) reject(error);
-                        else resolve(cookies || []);
+                let cookies = null;
+                // Try callback-based GM_cookie.list first (more widely supported)
+                if (typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
+                    cookies = await new Promise((resolve) => {
+                        const timer = setTimeout(() => resolve([]), 3000);
+                        try {
+                            GM_cookie.list({ url: url }, (c, err) => {
+                                clearTimeout(timer);
+                                if (err) { console.warn(`GM_cookie.list error for ${url}:`, err); resolve([]); }
+                                else resolve(c || []);
+                            });
+                        } catch(e) { clearTimeout(timer); console.warn(`GM_cookie.list exception for ${url}:`, e); resolve([]); }
                     });
-                });
-                for (const c of cookies) {
+                }
+                // Try promise-based GM.cookie.list() as fallback
+                else if (typeof GM !== 'undefined' && GM.cookie && typeof GM.cookie.list === 'function') {
+                    try {
+                        cookies = await GM.cookie.list({ url: url });
+                    } catch (e) {
+                        console.warn(`GM.cookie.list error for ${url}:`, e);
+                        cookies = [];
+                    }
+                } else {
+                    continue;
+                }
+
+                console.log(`[M365 Proxy] Cookies for ${url}:`, cookies ? cookies.length : 0);
+                for (const c of (cookies || [])) {
                     const key = c.name + '@' + c.domain;
                     if (!seen.has(key)) {
                         seen.add(key);
@@ -99,15 +129,17 @@
                     }
                 }
             } catch (e) {
-                console.warn(`GM_cookie.list failed for ${url}:`, e);
+                console.warn(`Cookie listing failed for ${url}:`, e);
             }
         }
+        console.log(`[M365 Proxy] Total cookies collected:`, allCookies.length, '(httpOnly:', allCookies.filter(c=>c.httpOnly).length, ')');
         return allCookies;
     }
 
     // Check if GM_cookie is available
     function hasGMCookie() {
-        return typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function';
+        return (typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') ||
+               (typeof GM !== 'undefined' && GM.cookie && typeof GM.cookie.list === 'function');
     }
 
     // Push Token to proxy
@@ -298,7 +330,7 @@
     }
 
     // Show panel on demand via keyboard shortcut (Ctrl+Shift+M)
-    document.addEventListener('keydown', (e) => {
+    pageWindow.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.shiftKey && e.key === 'M') {
             showPanel();
         }

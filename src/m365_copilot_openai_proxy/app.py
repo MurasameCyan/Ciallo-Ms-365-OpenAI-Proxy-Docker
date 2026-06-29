@@ -194,12 +194,16 @@ def create_app(
                         "secure": cookie.get("secure", True),
                         "httpOnly": cookie.get("httpOnly", False),
                     }
-                    if cookie.get("sameSite"):
-                        ss = cookie["sameSite"].capitalize()
-                        if ss in ("Strict", "Lax", "None"):
-                            cookie_params["sameSite"] = ss
-                    if cookie.get("expirationDate"):
-                        cookie_params["expires"] = cookie["expirationDate"]
+                    ss = cookie.get("sameSite", "")
+                    if ss:
+                        ss_cap = ss.capitalize()
+                        if ss_cap in ("Strict", "Lax", "None"):
+                            cookie_params["sameSite"] = ss_cap
+                    # sameSite=None requires secure=true in CDP
+                    if cookie_params.get("sameSite") == "None":
+                        cookie_params["secure"] = True
+                    if cookie.get("expirationDate") or cookie.get("expires"):
+                        cookie_params["expires"] = cookie.get("expirationDate") or cookie.get("expires")
                     await ws.send(json.dumps({"id": 100 + i, "method": "Network.setCookie", "params": cookie_params}))
                     try:
                         resp = await _async.wait_for(ws.recv(), timeout=5)
@@ -209,11 +213,20 @@ def create_app(
                     except (_async.TimeoutError, Exception):
                         pass
 
-                await ws.send(json.dumps({"id": 999, "method": "Page.reload"}))
+                # Navigate to M365 chat (full load, not just reload)
+                await ws.send(json.dumps({"id": 998, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+                # Wait for page to load and potentially complete auth redirect
+                await _async.sleep(8)
+                # Drain any pending CDP messages
+                try:
+                    while True:
+                        await _async.wait_for(ws.recv(), timeout=0.5)
+                except (_async.TimeoutError, Exception):
+                    pass
         except Exception as exc:
             return _json_err(502, f"CDP cookie injection failed: {exc}")
 
-        return {"status": "ok", "message": f"Injected {injected}/{len(cookies)} cookies. Page reloading.", "injected": injected, "total": len(cookies)}
+        return {"status": "ok", "message": f"Injected {injected}/{len(cookies)} cookies. Page navigating to M365...", "injected": injected, "total": len(cookies)}
 
     @app.get("/v1/chromium/login-status")
     async def chromium_login_status() -> dict:
