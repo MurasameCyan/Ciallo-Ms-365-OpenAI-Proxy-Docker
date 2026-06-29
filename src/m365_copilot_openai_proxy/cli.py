@@ -226,24 +226,51 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
     # First try: reload the page — Copilot reconnects WebSocket on page load
     await ws.send(json.dumps({"id": 3, "method": "Page.reload", "params": {"ignoreCache": True}}))
     deadline = asyncio.get_running_loop().time() + 15
+    nudge_sent = False
     while asyncio.get_running_loop().time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=1)
         except asyncio.TimeoutError:
-            # After 5 seconds of no WebSocket, try typing to trigger connection
-            if asyncio.get_running_loop().time() > deadline - 10:
-                await ws.send(json.dumps({"id": 3, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
-                await asyncio.sleep(0.3)
-                await ws.send(json.dumps({"id": 4, "method": "Input.insertText", "params": {"text": "hi"}}))
-                await asyncio.sleep(0.2)
-                # Press Enter to send (triggers WebSocket reliably)
+            # After 5 seconds of no WebSocket, simulate real keyboard typing
+            if not nudge_sent and asyncio.get_running_loop().time() > deadline - 10:
+                nudge_sent = True
+                # Focus input box via JS
+                await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
+                await asyncio.sleep(0.5)
+                # Simulate real key press: keyDown → char → keyUp
+                # This triggers the same DOM events as a real user typing
+                await ws.send(json.dumps({
+                    "id": 11, "method": "Input.dispatchKeyEvent",
+                    "params": {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"}
+                }))
+                await ws.send(json.dumps({
+                    "id": 12, "method": "Input.dispatchKeyEvent",
+                    "params": {"type": "char", "text": "a", "key": "a"}
+                }))
+                await ws.send(json.dumps({
+                    "id": 13, "method": "Input.dispatchKeyEvent",
+                    "params": {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"}
+                }))
+                await asyncio.sleep(0.1)
+                # Wait and check if WebSocket appears; if not, try Enter after 2s
+                await asyncio.sleep(2)
+                # Select all + delete to clear the character without sending
+                await ws.send(json.dumps({
+                    "id": 14, "method": "Input.dispatchKeyEvent",
+                    "params": {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA", "modifiers": 2}
+                }))
+                await ws.send(json.dumps({
+                    "id": 15, "method": "Input.dispatchKeyEvent",
+                    "params": {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA", "modifiers": 2}
+                }))
+                await asyncio.sleep(0.1)
                 for evt_type in ("keyDown", "keyUp"):
                     await ws.send(json.dumps({
-                        "id": 5 if evt_type == "keyDown" else 6,
+                        "id": 16 if evt_type == "keyDown" else 17,
                         "method": "Input.dispatchKeyEvent",
-                        "params": {"type": evt_type, "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13, "key": "Enter", "code": "Enter"},
+                        "params": {"type": evt_type, "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8, "key": "Backspace", "code": "Backspace"}
                     }))
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)
             continue
         msg = json.loads(raw)
         if msg.get("method") != "Network.webSocketCreated":
@@ -256,6 +283,11 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
             continue
         token = match.group(1)
         if _is_substrate_token(token):
+            # Clear any typed text via JS
+            await ws.send(json.dumps({
+                "id": 20, "method": "Runtime.evaluate",
+                "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}
+            }))
             return token
 
 
