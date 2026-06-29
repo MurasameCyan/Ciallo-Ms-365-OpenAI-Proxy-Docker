@@ -570,11 +570,11 @@ a:hover{text-decoration:underline}
 </head>
 <body>
 <div class="container">
-<h1>Ciallo Ms-365 OpenAI Proxy <button id="lang-toggle" onclick="toggleLang()" style="font-size:12px;padding:2px 8px;border:1px solid #475569;border-radius:4px;background:#1e293b;color:#94a3b8;cursor:pointer;vertical-align:middle;margin-left:8px">EN</button></h1>
+<h1>Ciallo Ms-365 OpenAI Proxy <button id="lang-toggle" onclick="toggleLang()" style="font-size:13px;padding:4px 12px;border:1px solid rgba(139,92,246,0.4);border-radius:20px;background:linear-gradient(135deg,rgba(6,182,212,0.15),rgba(139,92,246,0.15));color:#a78bfa;cursor:pointer;vertical-align:middle;margin-left:10px;transition:all .2s;backdrop-filter:blur(4px)">&#127760; EN</button></h1>
 
 <div class="card">
 <h2 data-i18n="title_update_token">更新 Token</h2>
-<p style="color:#64748b;font-size:.85rem;margin-bottom:.75rem"><span data-i18n="desc_paste_token">粘贴 access_token 值或完整的 wss:// URL，来自</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a></p>
+<p style="color:#64748b;font-size:.85rem;margin-bottom:.75rem" data-i18n="desc_paste_token">粘贴 access_token 值或完整的 wss:// URL</p>
 <textarea id="token-input" placeholder="eyJ0eXAiOiJKV1QiLCJhbGci...&#10;&#10;or full URL:&#10;wss://substrate.office.com/m365Copilot/Chathub/...?access_token=eyJ..."></textarea>
 <div style="display:flex;gap:.75rem;margin-bottom:.25rem">
 <button id="btn-update" onclick="updateToken()" data-i18n="btn_update">更新 Token</button>
@@ -638,7 +638,7 @@ const i18n={
     qs_open_copilot:'open',qs_type_trigger:'type something to trigger WebSocket, then click',qs_push_token:'Push Token',
     qs_alternative:'Alternative:',qs_manual_copy:'Manually copy the ',
     qs_paste_above:'from DevTools (Network → WS → wss://substrate.office.com/...), then paste above.',title_api_endpoints:'API Endpoints',
-    desc_paste_token:'Paste the access_token value or the full wss:// URL from',
+    desc_paste_token:'Paste the access_token value or the full wss:// URL',
     valid:'Valid',invalid:'Invalid',expires:'Expires',remaining:'Remaining',error:'Error',
     login:'Login',logged_in:'Logged In',not_logged_in:'Not Logged In (auto-refresh only)',
     page:'Page',title:'Title',chromium_not_running:'Chromium Not Running',
@@ -657,7 +657,7 @@ function toggleLang(){
   applyLang();
 }
 function applyLang(){
-  document.getElementById('lang-toggle').textContent=lang==='zh'?'EN':'中';
+  document.getElementById('lang-toggle').innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中';
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
