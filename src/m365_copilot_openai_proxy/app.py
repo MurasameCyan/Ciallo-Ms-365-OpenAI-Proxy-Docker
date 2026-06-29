@@ -570,7 +570,7 @@ a:hover{text-decoration:underline}
 </head>
 <body>
 <div class="container">
-<h1>Ciallo Ms-365 OpenAI Proxy <button id="lang-toggle" onclick="toggleLang()" style="font-size:13px;padding:4px 12px;border:1px solid rgba(139,92,246,0.4);border-radius:20px;background:linear-gradient(135deg,rgba(6,182,212,0.15),rgba(139,92,246,0.15));color:#a78bfa;cursor:pointer;vertical-align:middle;margin-left:10px;transition:all .2s;backdrop-filter:blur(4px)">&#127760; EN</button></h1>
+<h1>Ciallo Ms-365 OpenAI Proxy <button id="lang-toggle" onclick="toggleLang()" style="font-size:14px;padding:5px 14px;border:1px solid rgba(139,92,246,0.5);border-radius:20px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));cursor:pointer;vertical-align:middle;margin-left:12px;transition:all .2s;letter-spacing:1px;font-weight:600;line-height:1">&#127760; EN</button></h1>
 
 <div class="card">
 <h2 data-i18n="title_update_token">更新 Token</h2>
@@ -657,7 +657,21 @@ function toggleLang(){
   applyLang();
 }
 function applyLang(){
-  document.getElementById('lang-toggle').innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中';
+  const btn=document.getElementById('lang-toggle');
+  btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
+  btn.style.color='transparent';
+  btn.style.background='linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18))';
+  btn.style.webkitBackgroundClip='padding-box';
+  // Apply gradient text color matching h1
+  const txt=btn.childNodes[btn.childNodes.length-1];
+  if(txt&&txt.nodeType===3){
+    const span=document.createElement('span');
+    span.textContent=txt.textContent;
+    span.style.background='linear-gradient(135deg,#06b6d4,#8b5cf6)';
+    span.style.webkitBackgroundClip='text';
+    span.style.webkitTextFillColor='transparent';
+    txt.replaceWith(span);
+  }
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
