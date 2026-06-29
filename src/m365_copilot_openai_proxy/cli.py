@@ -65,6 +65,7 @@ _CDP_NUDGE_JS = """
     const input = document.querySelector('[aria-label="Message Copilot"], textarea, [contenteditable="true"], [role="textbox"]');
     if (!input) return false;
     input.focus();
+    input.click();
     return true;
 })()
 """
@@ -202,31 +203,27 @@ def _startup_capture_loop(cdp_port: int, timeout_seconds: int) -> None:
 
 async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
     await ws.send(json.dumps({"id": 2, "method": "Network.enable"}))
+    # Focus the input box
     await ws.send(json.dumps({"id": 3, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
-    await ws.send(json.dumps({"id": 4, "method": "Input.insertText", "params": {"text": " "}}))
-    await ws.send(json.dumps({
-        "id": 5,
-        "method": "Input.dispatchKeyEvent",
-        "params": {
-            "type": "keyDown",
-            "windowsVirtualKeyCode": 8,
-            "nativeVirtualKeyCode": 8,
-            "key": "Backspace",
-            "code": "Backspace",
-        },
-    }))
-    await ws.send(json.dumps({
-        "id": 6,
-        "method": "Input.dispatchKeyEvent",
-        "params": {
-            "type": "keyUp",
-            "windowsVirtualKeyCode": 8,
-            "nativeVirtualKeyCode": 8,
-            "key": "Backspace",
-            "code": "Backspace",
-        },
-    }))
-    deadline = asyncio.get_running_loop().time() + 10
+    await asyncio.sleep(0.5)
+    # Type "hi" to trigger Copilot
+    await ws.send(json.dumps({"id": 4, "method": "Input.insertText", "params": {"text": "hi"}}))
+    await asyncio.sleep(0.3)
+    # Press Enter to send
+    for evt_type in ("keyDown", "keyUp"):
+        await ws.send(json.dumps({
+            "id": 5 if evt_type == "keyDown" else 6,
+            "method": "Input.dispatchKeyEvent",
+            "params": {
+                "type": evt_type,
+                "windowsVirtualKeyCode": 13,
+                "nativeVirtualKeyCode": 13,
+                "key": "Enter",
+                "code": "Enter",
+            },
+        }))
+        await asyncio.sleep(0.1)
+    deadline = asyncio.get_running_loop().time() + 15
     while asyncio.get_running_loop().time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=1)
