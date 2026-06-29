@@ -3,20 +3,21 @@
 将 Microsoft 365 Copilot 暴露为 OpenAI 兼容 API 的 Docker 代理服务。
 
 基于 [m365-copilot-openai-proxy](https://github.com/nicolai-anyhoa/m365-copilot-openai-proxy) 项目，封装为 Docker 镜像，支持：
+
 - Chromium headless 自动刷新 Token
 - 多架构镜像 (amd64 + arm64)
 - GitHub Actions 自动构建发布到 GHCR
 
 ## API 端点
 
-| 端点 | 说明 |
-|---|---|
-| `GET /healthz` | 健康检查 + Token 状态 |
-| `GET /token/status` | Token 有效性与过期时间 |
-| `GET /v1/models` | 模型列表 |
+| 端点                          | 说明                                |
+| ----------------------------- | ----------------------------------- |
+| `GET /healthz`              | 健康检查 + Token 状态               |
+| `GET /token/status`         | Token 有效性与过期时间              |
+| `GET /v1/models`            | 模型列表                            |
 | `POST /v1/chat/completions` | OpenAI Chat Completions（支持流式） |
-| `POST /v1/responses` | OpenAI Responses API（支持流式） |
-| `POST /v1/messages` | Anthropic Messages API（支持流式） |
+| `POST /v1/responses`        | OpenAI Responses API（支持流式）    |
+| `POST /v1/messages`         | Anthropic Messages API（支持流式）  |
 
 ## 快速部署
 
@@ -51,23 +52,23 @@ docker compose logs -f
 
 ## 环境变量
 
-| 变量 | 必需 | 默认值 | 说明 |
-|---|---|---|---|
-| `M365_ACCESS_TOKEN` | 否* | — | Substrate Token，留空则由 Chromium 自动捕获 |
-| `M365_TIME_ZONE` | 否 | `Asia/Tokyo` | 发送给 Copilot 的时区 |
-| `M365_MODEL_ALIAS` | 否 | `m365-copilot` | 模型名称 |
-| `AUTO_REFRESH` | 否 | `true` | 是否自动刷新 Token |
-| `REFRESH_BEFORE_SECONDS` | 否 | `300` | Token 过期前多少秒开始刷新 |
-| `CHROME_CDP_PORT` | 否 | `9222` | Chromium CDP 端口 |
+| 变量                       | 必需 | 默认值           | 说明                                        |
+| -------------------------- | ---- | ---------------- | ------------------------------------------- |
+| `M365_ACCESS_TOKEN`      | 否*  | —               | Substrate Token，留空则由 Chromium 自动捕获 |
+| `M365_TIME_ZONE`         | 否   | `Asia/Tokyo`   | 发送给 Copilot 的时区                       |
+| `M365_MODEL_ALIAS`       | 否   | `m365-copilot` | 模型名称                                    |
+| `AUTO_REFRESH`           | 否   | `true`         | 是否自动刷新 Token                          |
+| `REFRESH_BEFORE_SECONDS` | 否   | `300`          | Token 过期前多少秒开始刷新                  |
+| `CHROME_CDP_PORT`        | 否   | `9222`         | Chromium CDP 端口                           |
 
 ## 客户端配置
 
-| 设置 | 值 |
-|---|---|
-| Base URL | `http://your-server:8000/v1` |
-| API Key | `dummy` |
-| Model | `m365-copilot` |
-| Persistent model | `m365-copilot:persist` |
+| 设置             | 值                             |
+| ---------------- | ------------------------------ |
+| Base URL         | `http://your-server:8000/v1` |
+| API Key          | `dummy`                      |
+| Model            | `m365-copilot`               |
+| Persistent model | `m365-copilot:persist`       |
 
 ### Claude Code
 
