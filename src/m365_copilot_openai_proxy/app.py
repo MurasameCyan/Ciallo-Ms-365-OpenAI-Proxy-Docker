@@ -137,8 +137,7 @@ def create_app(
         """Auto-capture token from Chromium CDP running inside the container."""
         import asyncio
         from .cli import _cdp_extract_token, _write_token
-        cdp_port = int(resolved_settings.api_key or "9222")  # not api_key, get from env
-        cdp_port = 9222  # always use default CDP port inside container
+        cdp_port = 9222
         try:
             token = await _cdp_extract_token(cdp_port, allow_nudge=True)
         except Exception as exc:

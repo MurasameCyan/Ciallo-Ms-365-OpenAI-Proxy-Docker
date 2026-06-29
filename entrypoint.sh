@@ -47,7 +47,7 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
     # Wait for Chrome CDP to be ready
     echo "Waiting for Chromium CDP on port $CDP_PORT ..."
     for i in $(seq 1 30); do
-        if curl -s "http://localhost:$CDP_PORT/json" > /dev/null 2>&1; then
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:$CDP_PORT/json', timeout=2)" 2>/dev/null; then
             echo "Chromium CDP ready."
             break
         fi
