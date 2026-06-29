@@ -39,6 +39,9 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
         --disable-background-networking \
         --disable-sync \
         --no-default-browser-check \
+        --disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI \
+        --disable-breakpad \
+        --no-experiments \
         "https://m365.cloud.microsoft/chat" &
 
     CHROME_PID=$!
