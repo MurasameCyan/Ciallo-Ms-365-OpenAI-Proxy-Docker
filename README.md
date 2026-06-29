@@ -2,7 +2,8 @@
 
 将 Microsoft 365 Copilot 暴露为 OpenAI 兼容 API 的 Docker 代理服务。
 
-基于 [m365-copilot-openai-proxy](https://github.com/nicolai-anyhoa/m365-copilot-openai-proxy) 项目，封装为 Docker 镜像，支持：
+基于 [m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy) 项目，封装为 Docker 镜像，支持：
+
 - Chromium headless 自动刷新 Token
 - 多架构镜像 (amd64 + arm64)
 - GitHub Actions 自动构建发布到 GHCR
@@ -65,12 +66,12 @@ docker compose logs -f
 
 ## 客户端配置
 
-| 设置             | 值                             |
-| ---------------- | ------------------------------ |
-| Base URL         | `http://your-server:8000/v1` |
+| 设置             | 值                                                |
+| ---------------- | ------------------------------------------------- |
+| Base URL         | `http://your-server:8000/v1`                    |
 | API Key          | 你设置的 `API_KEY` 值（如未设置则填 `dummy`） |
-| Model            | `m365-copilot`               |
-| Persistent model | `m365-copilot:persist`       |
+| Model            | `m365-copilot`                                  |
+| Persistent model | `m365-copilot:persist`                          |
 
 ### Claude Code
 
