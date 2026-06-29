@@ -594,7 +594,7 @@ a:hover{text-decoration:underline}
 <div class="card">
 <h2>Quick Start</h2>
 <p style="color:#94a3b8;font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
-<strong style="color:#22c55e">Recommended:</strong> Install the Tampermonkey script (<a href="https://raw.githubusercontent.com/MurasameCyan/M365-Copilot-OpenAI-Proxy/main/docker/get_token.js" target="_blank">get_token.js</a>), open <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>, type something to trigger WebSocket, then click <strong>Push Token</strong> in the script panel.<br>
+<strong style="color:#22c55e">Recommended:</strong> Install the Tampermonkey script (<a href="https://raw.githubusercontent.com/MurasameCyan/M365-Copilot-OpenAI-Proxy/main/get_token.js" target="_blank">get_token.js</a>), open <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>, type something to trigger WebSocket, then click <strong>Push Token</strong> in the script panel.<br>
 <strong style="color:#f59e0b">Alternative:</strong> Manually copy the <code>access_token</code> from the WebSocket URL in DevTools (Network &rarr; WS &rarr; wss://substrate.office.com/...), then paste above.
 </p>
 <div class="api-info" style="margin-top:.5rem">

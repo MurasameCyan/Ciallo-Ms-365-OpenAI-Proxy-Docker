@@ -60,6 +60,24 @@ _CDP_JS = """
 })()
 """
 
+_CDP_DELETE_MSG_JS = """
+(() => {
+    // Find and click the "more options" / delete button on the latest user message
+    const msgs = document.querySelectorAll('[data-content-length], [aria-label*="Delete"], button[title*="Delete"], button[title*="删除"]');
+    // Try clicking "more options" on the last user message, then delete
+    const moreBtns = document.querySelectorAll('button[aria-label*="More"], button[aria-label*="更多"], button[title*="More options"]');
+    if (moreBtns.length > 0) {
+        const last = moreBtns[moreBtns.length - 1];
+        last.click();
+        setTimeout(() => {
+            const delBtn = document.querySelector('button[aria-label*="Delete"], button[aria-label*="删除"], [data-testid*="delete"]');
+            if (delBtn) delBtn.click();
+        }, 500);
+    }
+    return true;
+})()
+"""
+
 _CDP_NUDGE_JS = """
 (() => {
     const input = document.querySelector('[aria-label="Message Copilot"], textarea, [contenteditable="true"], [role="textbox"]');
@@ -141,6 +159,8 @@ async def _wait_for_substrate_websocket_token(ws, deadline: float) -> str | None
             continue
         token = match.group(1)
         if _is_substrate_token(token):
+            # Try to delete the "hi" message via JS
+            await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": _CDP_DELETE_MSG_JS}}))
             return token
     return None
 
