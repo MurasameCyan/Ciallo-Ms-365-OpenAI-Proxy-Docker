@@ -42,7 +42,7 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
         --disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI \
         --disable-breakpad \
         --no-experiments \
-        "https://m365.cloud.microsoft/chat" &
+        "https://m365.cloud.microsoft/chat" 2>&1 | grep -v -E '(dbus|system_bus_socket|DEPRECATED_ENDPOINT|NameHasOwner|Properties\.GetAll)' &
 
     CHROME_PID=$!
     echo "Chromium started with PID $CHROME_PID"
