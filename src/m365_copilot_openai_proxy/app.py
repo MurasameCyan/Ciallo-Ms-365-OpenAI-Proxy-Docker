@@ -689,7 +689,7 @@ async function autoCapture(){
       msg.className='msg ok';msg.textContent='Auto-captured! Remaining: '+fmtSec(d.token_status?.seconds_remaining);
       loadStatus();
     }else{
-      msg.className='msg err';msg.textContent=d.error||'Auto-capture failed';
+      msg.className='msg err';msg.textContent=d.error?.message||d.error||'Auto-capture failed';
     }
   }catch(e){msg.className='msg err';msg.textContent='Network error: '+e}
   finally{btn.disabled=false;upd.disabled=false;btn.textContent='Auto Capture'}
