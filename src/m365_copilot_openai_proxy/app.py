@@ -44,23 +44,33 @@ def create_app(
         max_age=86400,
     )
 
-    # API Key authentication middleware
+    # API Key authentication middleware (runs after CORS)
     @app.middleware("http")
     async def api_key_auth(request: Request, call_next):
+        # Always handle preflight first
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        # Add CORS headers to all responses from this middleware
+        def with_cors(resp):
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, x-m365-session-id"
+            resp.headers["Access-Control-Max-Age"] = "86400"
+            return resp
         if not resolved_settings.api_key:
             return await call_next(request)
         # Skip auth for admin page and health endpoints
         path = request.url.path
-        if path in ("/", "/healthz", "/v1/token/status", "/v1/token/update", "/v1/token/auto-capture", "/v1/cookie/inject"):
+        if path in ("/", "/healthz", "/v1/token/status", "/v1/token/update", "/v1/token/auto-capture", "/v1/cookie/inject", "/v1/chromium/login-status"):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
         match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
         if match and match.group(1) == resolved_settings.api_key:
             return await call_next(request)
-        return JSONResponse(
+        return with_cors(JSONResponse(
             status_code=401,
             content={"error": {"message": "Invalid API key", "type": "auth_error"}},
-        )
+        ))
 
     def get_settings() -> Settings:
         return app.state.settings
@@ -188,6 +198,60 @@ def create_app(
             return JSONResponse(status_code=502, content={"error": f"CDP cookie injection failed: {exc}"})
 
         return {"status": "ok", "message": f"Injected {injected}/{len(cookies)} cookies. Page reloading.", "injected": injected, "total": len(cookies)}
+
+    @app.get("/v1/chromium/login-status")
+    async def chromium_login_status() -> dict:
+        """Check if Chromium is logged in to M365 Copilot."""
+        import httpx as _httpx
+        import websockets as _ws
+        import asyncio as _async
+
+        cdp_port = 9222
+        # Check CDP availability
+        try:
+            async with _httpx.AsyncClient(timeout=3) as client:
+                tabs = (await client.get(f"http://localhost:{cdp_port}/json")).json()
+        except Exception:
+            return {"chromium_running": False, "logged_in": False, "url": None, "title": None}
+
+        # Find M365 tab
+        tab = next((t for t in tabs if t.get("type") == "page" and "m365.cloud.microsoft" in t.get("url", "")), None)
+        if not tab:
+            tab = next((t for t in tabs if t.get("type") == "page"), None)
+
+        if not tab:
+            return {"chromium_running": True, "logged_in": False, "url": None, "title": None}
+
+        # Try to detect login state via CDP
+        logged_in = False
+        page_title = tab.get("title", "")
+        page_url = tab.get("url", "")
+        try:
+            async with _ws.connect(tab["webSocketDebuggerUrl"]) as ws:
+                # Get page cookies for M365 domain
+                await ws.send(json.dumps({"id": 1, "method": "Network.getCookies", "params": {"urls": ["https://m365.cloud.microsoft"]}}))
+                resp = await _async.wait_for(ws.recv(), timeout=5)
+                result = json.loads(resp)
+                cookies = result.get("result", {}).get("cookies", [])
+                # Check for authentication cookies
+                auth_cookie_names = {"SignInStateCookie", "ESTSAUTH", "ESTSAUTHPERSISTENT", "brcap", "MUID"}
+                found = any(c.get("name", "") in auth_cookie_names for c in cookies)
+                # Also check URL — if redirected to login page, not logged in
+                if "login.microsoftonline.com" in page_url or "login.windows.net" in page_url:
+                    logged_in = False
+                elif found or "m365.cloud.microsoft/chat" in page_url:
+                    logged_in = True
+                else:
+                    logged_in = False
+        except Exception:
+            logged_in = "m365.cloud.microsoft/chat" in page_url
+
+        return {
+            "chromium_running": True,
+            "logged_in": logged_in,
+            "url": page_url,
+            "title": page_title,
+        }
 
     @app.get("/", response_class=HTMLResponse)
     async def admin_page() -> str:
@@ -472,6 +536,11 @@ a:hover{text-decoration:underline}
 <h1>M365 Copilot Proxy</h1>
 
 <div class="card">
+<h2>Chromium Status</h2>
+<div id="chromium-status"><span style="color:#64748b">Loading...</span></div>
+</div>
+
+<div class="card">
 <h2>Token Status</h2>
 <div id="status-content"><span style="color:#64748b">Loading...</span></div>
 </div>
@@ -529,6 +598,26 @@ async function loadStatus(){
       (d.error?'<div class="status-row"><span class="status-label">Error</span><span class="status-value invalid">'+d.error+'</span></div>':'');
   }catch(e){
     document.getElementById('status-content').innerHTML='<span class="invalid">Failed to load</span>';
+  }
+}
+
+async function loadChromiumStatus(){
+  try{
+    const r=await fetch('/v1/chromium/login-status');
+    const d=await r.json();
+    if(!d.chromium_running){
+      document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">Not Running</span></div>';
+      return;
+    }
+    const logCls=d.logged_in?'valid':'invalid';
+    const logText=d.logged_in?'Logged In':'Not Logged In';
+    let html='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value valid">Running</span></div>';
+    html+='<div class="status-row"><span class="status-label">Login</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
+    if(d.url)html+='<div class="status-row"><span class="status-label">Page</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+d.url+'</span></div>';
+    if(d.title)html+='<div class="status-row"><span class="status-label">Title</span><span class="status-value" style="font-size:.75rem">'+d.title+'</span></div>';
+    document.getElementById('chromium-status').innerHTML=html;
+  }catch(e){
+    document.getElementById('chromium-status').innerHTML='<span class="invalid">Failed to load</span>';
   }
 }
 
@@ -602,7 +691,9 @@ async function injectCookies(){
 }
 
 loadStatus();
+loadChromiumStatus();
 setInterval(loadStatus,60000);
+setInterval(loadChromiumStatus,60000);
 </script>
 </body>
 </html>"""
