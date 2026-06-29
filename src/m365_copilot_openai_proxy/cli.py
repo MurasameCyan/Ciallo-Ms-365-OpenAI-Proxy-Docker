@@ -203,26 +203,21 @@ def _startup_capture_loop(cdp_port: int, timeout_seconds: int) -> None:
 
 async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
     await ws.send(json.dumps({"id": 2, "method": "Network.enable"}))
-    # Focus the input box
+    # Focus and click the input box
     await ws.send(json.dumps({"id": 3, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
-    await asyncio.sleep(0.5)
-    # Type "hi" to trigger Copilot
-    await ws.send(json.dumps({"id": 4, "method": "Input.insertText", "params": {"text": "hi"}}))
     await asyncio.sleep(0.3)
-    # Press Enter to send
-    for evt_type in ("keyDown", "keyUp"):
-        await ws.send(json.dumps({
-            "id": 5 if evt_type == "keyDown" else 6,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
-                "type": evt_type,
-                "windowsVirtualKeyCode": 13,
-                "nativeVirtualKeyCode": 13,
-                "key": "Enter",
-                "code": "Enter",
-            },
-        }))
-        await asyncio.sleep(0.1)
+    # Click on the input area to activate it
+    await ws.send(json.dumps({
+        "id": 4, "method": "Input.dispatchMouseEvent",
+        "params": {"type": "mousePressed", "x": 400, "y": 600, "button": "left", "clickCount": 1}
+    }))
+    await ws.send(json.dumps({
+        "id": 5, "method": "Input.dispatchMouseEvent",
+        "params": {"type": "mouseReleased", "x": 400, "y": 600, "button": "left", "clickCount": 1}
+    }))
+    await asyncio.sleep(0.3)
+    # Type a single letter to trigger WebSocket (typing triggers the connection)
+    await ws.send(json.dumps({"id": 6, "method": "Input.insertText", "params": {"text": "a"}}))
     deadline = asyncio.get_running_loop().time() + 15
     while asyncio.get_running_loop().time() < deadline:
         try:
@@ -240,7 +235,15 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
             continue
         token = match.group(1)
         if _is_substrate_token(token):
+            # Clear the input box via JS after capturing token
+            await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {
+                "expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"
+            }}))
             return token
+    # Timeout: still clear the input
+    await ws.send(json.dumps({"id": 21, "method": "Runtime.evaluate", "params": {
+        "expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"
+    }}))
     return None
 
 

