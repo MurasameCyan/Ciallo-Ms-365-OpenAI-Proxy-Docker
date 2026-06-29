@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from .config import Settings
 from .session_store import PersistentSession, PersistentSessionStore
@@ -275,6 +275,11 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def admin_page() -> str:
         return _ADMIN_HTML
+
+    @app.get("/favicon.ico")
+    async def favicon():
+        from starlette.responses import Response
+        return Response(status_code=204)
 
     @app.get("/v1/models")
     async def list_models(settings: Settings = Depends(get_settings)) -> dict:
@@ -624,8 +629,8 @@ async function loadChromiumStatus(){
       document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">Not Running</span></div>';
       return;
     }
-    const logCls=d.logged_in?'valid':'invalid';
-    const logText=d.logged_in?'Logged In':'Not Logged In';
+    const logCls=d.logged_in?'valid':('warn');
+    const logText=d.logged_in?'Logged In':'Not Logged In (auto-refresh only)';
     let html='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value valid">Running</span></div>';
     html+='<div class="status-row"><span class="status-label">Login</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
     if(d.url)html+='<div class="status-row"><span class="status-label">Page</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+d.url+'</span></div>';
