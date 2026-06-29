@@ -7,6 +7,9 @@ AUTO_REFRESH="${AUTO_REFRESH:-true}"
 # Create Chrome profile directory
 mkdir -p "$CHROME_PROFILE"
 
+# Remove stale lock files from previous container runs
+rm -f "$CHROME_PROFILE/SingletonLock" "$CHROME_PROFILE/SingletonCookie" "$CHROME_PROFILE/SingletonSocket" 2>/dev/null
+
 # Detect Chromium binary (name varies by distro)
 if command -v chromium &> /dev/null; then
     CHROME_BIN="chromium"
@@ -58,12 +61,13 @@ else
 fi
 
 # Build serve command arguments
-SERVE_ARGS="--host 0.0.0.0 --port 8000"
+# Use --no-launch-edge to prevent Python from launching another Chromium instance
+SERVE_ARGS="--host 0.0.0.0 --port 8000 --no-launch-edge"
 
 if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
     SERVE_ARGS="$SERVE_ARGS --cdp-port $CDP_PORT --refresh-before-seconds ${REFRESH_BEFORE_SECONDS:-300}"
 else
-    SERVE_ARGS="$SERVE_ARGS --no-auto-refresh --no-launch-edge --no-capture-on-start"
+    SERVE_ARGS="$SERVE_ARGS --no-auto-refresh --no-capture-on-start"
 fi
 
 # If no token is set, log a hint
