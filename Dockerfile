@@ -10,7 +10,8 @@ RUN apt-get update && \
         fonts-wqy-zenhei \
         gosu \
         curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "Chromium version: $(chromium --version || echo 'unknown')"
 
 # Install uv package manager
 RUN pip install --no-cache-dir uv

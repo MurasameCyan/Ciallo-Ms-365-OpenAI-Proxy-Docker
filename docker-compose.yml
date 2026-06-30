@@ -8,7 +8,8 @@ services:
       - .env
     volumes:
       - chrome-profile:/chrome-profile
-      - token-data:/home/app/token
+    tmpfs:
+      - /home/app/token:mode=0700,uid=1000,gid=1000,size=1M
     restart: unless-stopped
     shm_size: "1gb"
     deploy:
@@ -22,4 +23,3 @@ services:
 
 volumes:
   chrome-profile:
-  token-data:

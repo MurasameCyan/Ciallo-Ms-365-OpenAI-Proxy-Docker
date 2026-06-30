@@ -11,11 +11,31 @@ from typing import Any
 
 SUBSTRATE_AUDIENCE_PREFIX = "https://substrate.office.com/"
 
-# Token storage: prefer isolated token file under TOKEN_DIR volume,
-# fall back to reading from .env for backward compatibility
-_TOKEN_DIR = Path(os.environ.get("TOKEN_DIR", "/home/app/token"))
-_TOKEN_FILE = _TOKEN_DIR / "token"
+# Token storage paths — initialized lazily via init_token_dir() or from TOKEN_DIR env var
+_TOKEN_DIR: Path | None = None
+_TOKEN_FILE: Path | None = None
 _ENV_PATH = Path(".env")
+
+
+def _get_token_dir() -> Path:
+    global _TOKEN_DIR
+    if _TOKEN_DIR is None:
+        _TOKEN_DIR = Path(os.environ.get("TOKEN_DIR", "/home/app/token"))
+    return _TOKEN_DIR
+
+
+def _get_token_file() -> Path:
+    global _TOKEN_FILE
+    if _TOKEN_FILE is None:
+        _TOKEN_FILE = _get_token_dir() / "token"
+    return _TOKEN_FILE
+
+
+def init_token_dir(token_dir: str) -> None:
+    """Initialize token directory from Settings (called once at app startup)."""
+    global _TOKEN_DIR, _TOKEN_FILE
+    _TOKEN_DIR = Path(token_dir)
+    _TOKEN_FILE = _TOKEN_DIR / "token"
 
 
 def decode_jwt_payload(token: str) -> dict[str, Any]:
@@ -94,7 +114,7 @@ def read_token() -> str | None:
     """Read token from isolated token file first, then fall back to .env."""
     # Try isolated token file (TOKEN_DIR volume)
     try:
-        token = _TOKEN_FILE.read_text(encoding="utf-8").strip()
+        token = _get_token_file().read_text(encoding="utf-8").strip()
         if token:
             return token
     except FileNotFoundError:
@@ -105,10 +125,12 @@ def read_token() -> str | None:
 
 def write_token(token: str) -> None:
     """Write token to isolated token file on TOKEN_DIR volume."""
-    _TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-    _TOKEN_FILE.write_text(token, encoding="utf-8")
+    token_dir = _get_token_dir()
+    token_file = _get_token_file()
+    token_dir.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(token, encoding="utf-8")
     try:
-        _TOKEN_FILE.chmod(0o600)
+        token_file.chmod(0o600)
     except OSError:
         pass
 
