@@ -195,7 +195,7 @@ def create_app(
         if err: return err
         status = app.state.token_store.status()
         status["auto_refresh"] = app.state.auto_refresh_enabled
-        status["username"] = getattr(app.state, 'username', '') or None
+        status["username"] = (getattr(app.state, 'username', '') or None) if len(getattr(app.state, 'username', '')) > 1 else None
         return status
 
     @app.post("/admin/token/auto-refresh-toggle")
@@ -225,7 +225,7 @@ def create_app(
         # Update in-memory store
         app.state.token_store._token = token
         app.state.token_store._mtime_ns = None
-        if username:
+        if username and len(username) > 1:
             app.state.username = username
             write_username(username)
         return {"status": "ok", "message": "Token updated", "token_status": app.state.token_store.status()}
@@ -420,7 +420,7 @@ def create_app(
                             msg = json.loads(raw_msg)
                             if msg.get("id") == next_id:
                                 name_val = msg.get("result", {}).get("result", {}).get("value")
-                                if name_val and isinstance(name_val, str):
+                                if name_val and isinstance(name_val, str) and len(name_val.strip()) > 1:
                                     username = name_val.strip()
                                     app.state.username = username
                                     write_username(username)

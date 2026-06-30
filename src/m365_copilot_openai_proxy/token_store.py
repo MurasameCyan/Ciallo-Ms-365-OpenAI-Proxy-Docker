@@ -137,6 +137,9 @@ def write_token(token: str) -> None:
 
 def write_username(username: str) -> None:
     """Write username to the token directory for persistence across restarts."""
+    # Skip single-character values (avatar initials like "G")
+    if len(username.strip()) <= 1:
+        return
     token_dir = _get_token_dir()
     username_file = token_dir / "username"
     token_dir.mkdir(parents=True, exist_ok=True)
@@ -146,7 +149,9 @@ def write_username(username: str) -> None:
 def read_username() -> str:
     """Read persisted username from the token directory."""
     try:
-        return (_get_token_dir() / "username").read_text(encoding="utf-8").strip()
+        name = (_get_token_dir() / "username").read_text(encoding="utf-8").strip()
+        # Ignore single-character values (avatar initials like "G")
+        return name if len(name) > 1 else ""
     except FileNotFoundError:
         return ""
 
