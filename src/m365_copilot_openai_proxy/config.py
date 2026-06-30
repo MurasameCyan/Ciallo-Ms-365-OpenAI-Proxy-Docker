@@ -15,4 +15,5 @@ class Settings(BaseSettings):
     time_zone: str = Field(default="Asia/Shanghai", alias="M365_TIME_ZONE")
     model_alias: str = Field(default="m365-copilot", alias="M365_MODEL_ALIAS")
     api_key: str = Field(default="", alias="API_KEY")
+    admin_password: str = Field(default="", alias="ADMIN_PASSWORD")
     idle_timeout_minutes: int = Field(default=30, alias="IDLE_TIMEOUT_MINUTES")

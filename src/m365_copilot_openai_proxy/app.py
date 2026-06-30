@@ -37,17 +37,20 @@ def create_app(
     app.state.idle_timeout_minutes = resolved_settings.idle_timeout_minutes
     if not resolved_settings.api_key:
         print("WARNING: API_KEY is not set. All /v1/ API endpoints are open without authentication. Set API_KEY in .env to secure your instance.")
+    _admin_secret = resolved_settings.admin_password or resolved_settings.api_key
+    if not _admin_secret:
+        print("WARNING: Neither API_KEY nor ADMIN_PASSWORD is set. Web admin page is open without authentication. Set ADMIN_PASSWORD in .env to secure it.")
     app.state.copilot_client_factory = copilot_client_factory or (
         lambda: SubstrateCopilotClient(app.state.token_store.get(), resolved_settings.time_zone)
     )
 
     def _admin_cookie_hash() -> str:
-        """Hash of API_KEY used as admin session token."""
-        return hashlib.sha256(("admin:" + resolved_settings.api_key).encode()).hexdigest()[:32]
+        """Hash of admin secret used as admin session token."""
+        return hashlib.sha256(("admin:" + _admin_secret).encode()).hexdigest()[:32]
 
     def _is_admin_authenticated(request: Request) -> bool:
         """Check if the request has a valid admin auth cookie."""
-        if not resolved_settings.api_key:
+        if not _admin_secret:
             return True
         cookie_val = request.cookies.get("admin_auth", "")
         return cookie_val == _admin_cookie_hash()
@@ -161,7 +164,7 @@ def create_app(
 
     def _require_admin(request: Request):
         """Check admin cookie auth; return error response or None."""
-        if resolved_settings.api_key and not _is_admin_authenticated(request):
+        if _admin_secret and not _is_admin_authenticated(request):
             return JSONResponse({"error": {"message": "Admin authentication required", "type": "auth_error"}}, status_code=401)
         return None
 
@@ -370,7 +373,7 @@ def create_app(
     async def admin_login(request: Request) -> Response:
         body = await request.json()
         password = body.get("password", "")
-        if password == resolved_settings.api_key:
+        if password == _admin_secret:
             resp = JSONResponse({"status": "ok"})
             resp.set_cookie("admin_auth", _admin_cookie_hash(), max_age=86400 * 7, httponly=True, samesite="lax", path="/")
             return resp
@@ -378,7 +381,7 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     async def admin_page(request: Request) -> str:
-        if resolved_settings.api_key and not _is_admin_authenticated(request):
+        if _admin_secret and not _is_admin_authenticated(request):
             return _LOGIN_HTML
         return _ADMIN_HTML
 
