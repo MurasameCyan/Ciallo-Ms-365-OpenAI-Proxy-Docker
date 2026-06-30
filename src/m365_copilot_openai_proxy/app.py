@@ -25,6 +25,27 @@ from .translator import translate_anthropic_request, translate_openai_request, t
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
 
+
+def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
+    """Auto-detect conversation session from the request messages.
+
+    Returns (session_id, title):
+    - session_id: stable hash based on the first user message content
+    - title: first ~60 chars of the first user message for display
+    When the user starts a new chat in Trae, the first user message changes -> new session.
+    Agentic tool-result turns reuse the same first user message -> same session.
+    """
+    for msg in request.messages:
+        if msg.role == "user":
+            text = flatten_content(msg.content).strip()
+            if text:
+                sid = "conv_" + hashlib.sha256(text.encode()).hexdigest()[:12]
+                title = text[:60].replace("\n", " ")
+                return sid, title
+    # Fallback: random session
+    return "conv_" + uuid.uuid4().hex[:12], "New conversation"
+
+
 import re as _re
 
 # Primary: fenced ```tool_call blocks. Fallback: ```json blocks that look like a tool call.
