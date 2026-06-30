@@ -902,11 +902,12 @@ def create_app(
         }
         try:
             session = _persistent_session(app, raw_request, request.model, request.user, request)
-            # In explicit persist mode, once the M365 session already has history,
-            # only send the incremental turn (the server remembers the rest).
+            # Whenever we reuse a persistent M365 session that already has history
+            # (both auto mode and explicit :persist mode), the server remembers the
+            # prior turns — so only send the incremental turn instead of resending the
+            # whole transcript on every request.
             incremental = (
-                request.model.endswith(_PERSIST_MODEL_SUFFIX)
-                and session is not None
+                session is not None
                 and session.turn_count > 0
             )
             translated = translate_openai_request(request, incremental=incremental)

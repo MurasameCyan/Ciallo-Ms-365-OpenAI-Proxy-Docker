@@ -46,12 +46,12 @@
             title: 'Ciallo Ms-365 代理',
             proxy_url: '代理地址',
             token: 'Token',
-            token_captured: '✓ 已捕获',
+            token_captured: '✓ Token 可用',
             token_not_captured: '⚠ 尚未捕获',
             copy_token: '复制 Token',
             push_token: '推送 Token',
             cookie_login: 'Cookie 登录',
-            gm_available: '✓ GM_cookie 可用',
+            gm_available: '✓ Cookie 可用',
             gm_unavailable: '⚠ GM_cookie 不可用，请使用 Tampermonkey Beta。',
             push_cookies: '推送全部 Cookie',
             quick_setup: ' 一键配置',
@@ -522,10 +522,6 @@
             document.getElementById('m365-token-panel').remove();
         }
 
-        const gmCookieNote = hasGMCookie()
-        ? '<span style="color:#22c55e">' + tr('gm_available') + '</span>'
-        : '<span style="color:#f59e0b">' + tr('gm_unavailable') + '</span>';
-
         const panel = document.createElement('div');
         panel.id = 'm365-token-panel';
         panel.innerHTML = `
@@ -558,7 +554,13 @@
                 </div>
 
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-bottom:8px;">${ic('bolt')}${tr('quick_setup')}</div>
+                    <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-bottom:8px; display:flex; align-items:center;">
+                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('quick_setup')}</span>
+                        <span style="margin-left:auto; font-weight:500; font-size:10px; display:flex; gap:8px;">
+                            <span style="color:${latestToken ? '#22c55e' : '#f59e0b'};">${tr('token')} ${latestToken ? '&#10003;' : '&#9888;'}</span>
+                            <span style="color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">Cookie ${hasGMCookie() ? '&#10003;' : '&#9888;'}</span>
+                        </span>
+                    </div>
                     <div style="font-size:10px; color:#64748b; margin-bottom:8px;">${tr('quick_setup_desc')}</div>
                     <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
                             border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#06b6d4,#22c55e); color:#fff;
@@ -571,7 +573,7 @@
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <summary style="font-size:12px; color:#38bdf8; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
 
-                    <div style="font-size:11px; color:#94a3b8; margin:10px 0 5px; font-weight:500;">${tr('token')} ${latestToken ? '<span style="color:#22c55e">' + tr('token_captured') + '</span>' : '<span style="color:#f59e0b">' + tr('token_not_captured') + '</span>'}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin:10px 0 5px; font-weight:500; display:flex; align-items:center;"><span>${tr('token')}</span><span style="margin-left:auto; color:${latestToken ? '#22c55e' : '#f59e0b'};">${latestToken ? tr('token_captured') : tr('token_not_captured')}</span></div>
                     <div style="display:flex; gap:8px;">
                         <button id="m365-copy-token" style="flex:1; padding:8px 0; border:none;
                                 border-radius:8px; background:#0ea5e9; color:#fff;
@@ -587,7 +589,7 @@
                         </button>
                     </div>
 
-                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500;">${tr('cookie_login')} ${gmCookieNote}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('cookie_login')}</span><span style="margin-left:auto; color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">${hasGMCookie() ? tr('gm_available') : tr('gm_unavailable')}</span></div>
                     <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
                             border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#7c3aed); color:#fff;
                             cursor:pointer; font-weight:600; font-size:12px;
