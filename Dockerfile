@@ -17,8 +17,8 @@ RUN pip install --no-cache-dir uv
 
 # Create non-root user and directories (merged into single RUN to reduce layers)
 RUN groupadd -r app && useradd -r -g app -d /home/app -s /sbin/nologin app && \
-    mkdir -p /chrome-profile /home/app/token /home/app && \
-    chown -R app:app /chrome-profile /home/app
+    mkdir -p /chrome-profile /home/app/token /home/app /app && \
+    chown -R app:app /chrome-profile /home/app /app
 
 WORKDIR /app
 
@@ -42,14 +42,13 @@ VOLUME /chrome-profile
 # Token storage volume (persist across restarts, isolated from app code)
 VOLUME /home/app/token
 
-# Environment variables (do NOT set M365_ACCESS_TOKEN here — it may leak into image layers)
+# Environment variables (do NOT set M365_ACCESS_TOKEN or ADMIN_PASSWORD here — they may leak into image layers)
 ENV M365_TIME_ZONE="Asia/Shanghai"
 ENV M365_MODEL_ALIAS="m365-copilot"
 ENV CHROME_CDP_PORT=9222
 ENV AUTO_REFRESH="true"
 ENV REFRESH_BEFORE_SECONDS=300
 ENV IDLE_TIMEOUT_MINUTES=30
-ENV ADMIN_PASSWORD=""
 ENV TOKEN_DIR="/home/app/token"
 
 EXPOSE 8000
