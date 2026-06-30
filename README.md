@@ -199,6 +199,12 @@ M365 Copilot 支持多种模型 / 思考模式，由 Substrate 请求中的 `ton
       └─ 按需刷新：启动暂停 → /v1/ 请求同步刷新 → 空闲暂停
 ```
 
+## 预览
+
+![1782854127389](image/README/1782854127389.png)
+
+![1782854190802](image/README/1782854190802.png)
+
 ## License
 
 Apache License 2.0
