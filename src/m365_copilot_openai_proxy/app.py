@@ -300,6 +300,7 @@ def create_app(
     app.state.token_store = AccessTokenStore(resolved_settings.access_token)
     app.state.session_store = PersistentSessionStore()
     app.state.call_log: list[dict] = []  # API call log for web UI display
+    app.state.captured_payloads: list[dict] = []  # Substrate chat payloads captured via get_token.js for mode comparison
     app.state.auto_refresh_enabled = False  # On-demand: only refresh when /v1/ requests come in
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
     app.state.idle_timeout_minutes = resolved_settings.idle_timeout_minutes
@@ -797,6 +798,23 @@ def create_app(
         err = _require_admin(request)
         if err: return err
         return {"logs": getattr(app.state, 'call_log', [])}
+
+    @app.post("/admin/capture-payload")
+    async def capture_payload(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        body = await request.json()
+        payloads = body.get("payloads", [])
+        if not isinstance(payloads, list):
+            return _json_err(400, "payloads must be a list")
+        app.state.captured_payloads = payloads[:20]
+        return {"status": "ok", "count": len(app.state.captured_payloads)}
+
+    @app.get("/admin/capture-payload")
+    async def get_captured_payload(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        return {"payloads": getattr(app.state, 'captured_payloads', [])}
 
     @app.get("/", response_class=HTMLResponse)
     async def admin_page(request: Request) -> str:
@@ -1363,6 +1381,20 @@ POST /v1/messages
 </details>
 </div>
 
+<div class="card">
+<details id="capture-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="title_capture">模式抓包对比</span>
+<span id="capture-count" style="font-size:.75rem;color:#64748b;background:#1e293b;padding:2px 8px;border-radius:8px">0</span>
+<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:.5rem;font-size:.75rem;color:#64748b" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
+<div id="capture-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
+<span style="color:#64748b" data-i18n="no_capture_yet">暂无抓包数据</span>
+</div>
+</details>
+</div>
+
 <script>
 const i18n={
   zh:{
@@ -1393,6 +1425,9 @@ const i18n={
     tool_calls_parsed:'解析出工具调用',
     view_raw:'查看原文',
     copy:'复制',copied:'已复制',copy_record:'复制整条',
+    title_capture:'模式抓包对比',
+    capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
+    no_capture_yet:'暂无抓包数据',
   },
   en:{
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -1422,6 +1457,9 @@ const i18n={
     tool_calls_parsed:'Parsed tool calls',
     view_raw:'View raw',
     copy:'Copy',copied:'Copied',copy_record:'Copy record',
+    title_capture:'Mode Capture Compare',
+    capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
+    no_capture_yet:'No captures yet',
   }
 };
 let lang=localStorage.getItem('lang')||'zh';
@@ -1641,9 +1679,11 @@ async function logoutUser(){
 loadStatus();
 loadChromiumStatus();
 loadCallLog();
+loadCapture();
 setInterval(loadStatus,60000);
 setInterval(loadChromiumStatus,60000);
 setInterval(loadCallLog,5000);
+setInterval(loadCapture,5000);
 
 // Client-side countdown timer
 let _countdownSec=0;
@@ -1720,6 +1760,35 @@ async function loadCallLog(){
     el.querySelectorAll('.copybtn').forEach(function(b){
       b.addEventListener('click',function(){copyCallText(b.getAttribute('data-key'))});
     });
+  }catch(e){}
+}
+async function loadCapture(){
+  try{
+    const r=await fetch('/admin/capture-payload',{credentials:'include'});
+    if(r.status===401){return}
+    const d=await r.json();
+    const ps=d.payloads||[];
+    document.getElementById('capture-count').textContent=ps.length;
+    const el=document.getElementById('capture-content');
+    if(!ps.length){el.innerHTML='<span style="color:#64748b">'+t('no_capture_yet')+'</span>';window.__capSig='';return}
+    const sig=JSON.stringify(ps);
+    if(sig===window.__capSig)return;
+    window.__capSig=sig;
+    const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let html='';
+    for(let i=0;i<ps.length;i++){
+      const p=ps[i];
+      const opts=(p.optionsSets||[]).join(', ');
+      const gpt=p.gptId&&Object.keys(p.gptId).length?JSON.stringify(p.gptId):'-';
+      html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
+        '<div style="color:#38bdf8">'+esc(p.time)+' &nbsp; tone: <b>'+esc(p.tone||'-')+'</b> &nbsp; model: <b>'+esc(p.modelId||'-')+'</b></div>'+
+        '<div style="color:#94a3b8">gptId: '+esc(gpt)+'</div>'+
+        '<div style="color:#64748b;word-break:break-all">optionsSets: '+esc(opts)+'</div>'+
+        '<details style="margin-top:4px"><summary style="cursor:pointer;color:#64748b;font-size:.72rem;list-style:none">'+t('view_raw')+'</summary>'+
+        '<pre style="white-space:pre-wrap;word-break:break-all;background:#0f172a;padding:6px;border-radius:6px;color:#94a3b8;margin-top:2px;font-size:.7rem;max-height:240px;overflow:auto">'+esc(JSON.stringify(p.raw,null,2))+'</pre></details>'+
+        '</div>';
+    }
+    el.innerHTML=html;
   }catch(e){}
 }
 </script>

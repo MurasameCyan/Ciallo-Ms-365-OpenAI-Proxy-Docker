@@ -34,6 +34,10 @@
     // Store the latest token
     let latestToken = '';
 
+    // Store the latest captured chat payloads (for mode-field comparison)
+    // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
+    let capturedPayloads = [];
+
     // Extract current username from page
     function getUsername() {
         try {
@@ -83,11 +87,50 @@
     const OrigWebSocket = pageWindow.WebSocket;
     pageWindow.WebSocket = function(url, protocols) {
         const match = url.match(SUBSTRATE_WS_RE);
+        const ws = new OrigWebSocket(url, protocols);
         if (match) {
             latestToken = match[1];
             showPanel();
+            // Intercept .send() to capture the chat invoke payload (contains the
+            // mode/model selection fields). SignalR frames are JSON + \x1e separator.
+            try {
+                const origSend = ws.send.bind(ws);
+                ws.send = function(data) {
+                    try {
+                        if (typeof data === 'string' && data.indexOf('"target":"chat"') !== -1) {
+                            const clean = data.replace(/\x1e/g, '');
+                            const obj = JSON.parse(clean);
+                            const args = (obj.arguments && obj.arguments[0]) || null;
+                            if (args) {
+                                // Strip the bulky/secret fields we don't need for comparison
+                                const slim = JSON.parse(JSON.stringify(args));
+                                if (slim.message) {
+                                    slim.message = {
+                                        author: slim.message.author,
+                                        messageType: slim.message.messageType,
+                                        experienceType: slim.message.experienceType,
+                                        text: (slim.message.text || '').slice(0, 80),
+                                    };
+                                }
+                                capturedPayloads.unshift({
+                                    time: new Date().toLocaleTimeString(),
+                                    optionsSets: args.optionsSets || [],
+                                    tone: args.tone,
+                                    gptId: args.threadLevelGptId,
+                                    pluginOptions: args.pluginOptions,
+                                    modelId: args.modelId || args.gptId || args.model,
+                                    raw: slim,
+                                });
+                                if (capturedPayloads.length > 10) capturedPayloads.pop();
+                                renderCaptured();
+                            }
+                        }
+                    } catch (e) { /* ignore parse errors */ }
+                    return origSend(data);
+                };
+            } catch (e) { /* ignore */ }
         }
-        return new OrigWebSocket(url, protocols);
+        return ws;
     };
     pageWindow.WebSocket.prototype = OrigWebSocket.prototype;
     pageWindow.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
@@ -297,6 +340,41 @@
         }
     }
 
+    // Push the most recent captured chat payload to the proxy for inspection/comparison
+    async function pushPayload() {
+        const base = getProxyBase();
+        if (!base) { alert('Please enter proxy URL first'); return; }
+        if (!capturedPayloads.length) { alert('No chat payload captured yet. Pick a mode in Copilot and send a message first.'); return; }
+        try {
+            const r = await gmFetch(base + '/admin/capture-payload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ payloads: capturedPayloads })
+            });
+            const d = await r.json();
+            alert(r.ok ? `Pushed ${capturedPayloads.length} payload(s) to proxy.` : `Failed: ${d.error?.message || d.error}`);
+        } catch (e) { alert('Network error: ' + e); }
+    }
+
+    // Render captured payloads into the panel area (if present)
+    function renderCaptured() {
+        const box = document.getElementById('m365-captured');
+        if (!box) return;
+        if (!capturedPayloads.length) {
+            box.innerHTML = '<span style="color:#475569">No chat payload captured yet. Pick a mode and send a message.</span>';
+            return;
+        }
+        box.innerHTML = capturedPayloads.map((p) => {
+            const opts = (p.optionsSets || []).join(', ');
+            const gpt = p.gptId && Object.keys(p.gptId).length ? JSON.stringify(p.gptId) : '-';
+            return `<div style="border-bottom:1px solid #1e293b; padding:6px 0; font-size:10px; line-height:1.5;">
+                <div style="color:#38bdf8;">${p.time} &nbsp; tone: <b>${p.tone || '-'}</b> &nbsp; model: <b>${p.modelId || '-'}</b></div>
+                <div style="color:#94a3b8;">gptId: ${gpt}</div>
+                <div style="color:#64748b; word-break:break-all;">optionsSets: ${opts}</div>
+            </div>`;
+        }).join('');
+    }
+
     function showPanel() {
         if (document.getElementById('m365-token-panel')) {
             document.getElementById('m365-token-panel').remove();
@@ -375,6 +453,20 @@
                     </button>
                 </div>
 
+                <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <div style="font-size:11px; color:#f59e0b; margin-bottom:8px; font-weight:700;">&#128269; Mode Capture</div>
+                    <div style="font-size:10px; color:#64748b; margin-bottom:8px;">Pick a mode (Fast/Think, GPT 5.5/5.2) in Copilot and send a message. The payload fields appear below; push them to the proxy to compare which field controls the mode.</div>
+                    <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
+                        <span style="color:#475569">No chat payload captured yet. Pick a mode and send a message.</span>
+                    </div>
+                    <button id="m365-push-payload" style="width:100%; padding:8px 0; border:none;
+                            border-radius:8px; background:linear-gradient(135deg,#f59e0b,#ef4444); color:#fff;
+                            cursor:pointer; font-weight:600; font-size:12px;
+                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                        &#128228; Push Captured Payloads
+                    </button>
+                </div>
+
                 <div style="border-top:1px solid #1e293b; margin:0; padding-top:12px; display:flex; justify-content:space-between; align-items:center;">
                     <span style="font-size:10px; color:#475569">Ctrl+Shift+M to toggle</span>
                     <button id="m365-close-panel" style="padding:6px 16px; border:1px solid #334155;
@@ -392,7 +484,10 @@
         document.getElementById('m365-push-token').onclick = () => pushToken();
         document.getElementById('m365-push-cookies').onclick = () => pushCookies();
         document.getElementById('m365-one-click').onclick = () => oneClickSetup();
+        const pushPayloadBtn = document.getElementById('m365-push-payload');
+        if (pushPayloadBtn) pushPayloadBtn.onclick = () => pushPayload();
         document.getElementById('m365-close-panel').onclick = () => panel.remove();
+        renderCaptured();
     }
 
     // Show panel on demand via keyboard shortcut (Ctrl+Shift+M)
