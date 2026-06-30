@@ -16,7 +16,6 @@ services:
         limits:
           memory: 2G
           cpus: "2.0"
-          pids: 200
         reservations:
           memory: 512M
           cpus: "0.5"
