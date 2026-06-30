@@ -53,6 +53,14 @@
                 if (t && t.length > 0 && t.length < 80) return t;
             }
         } catch {}
+        try {
+            // Fluent UI text span (class fui-Text fai-bebop) — the username shown in header/sidebar
+            const fus = document.querySelectorAll('span.fui-Text, span[class*="fai-bebop"]');
+            for (const el of fus) {
+                const t = el.textContent.trim();
+                if (t && t.length > 0 && t.length < 80 && !/^(home|copilot|apps|chat|create)$/i.test(t)) return t;
+            }
+        } catch {}
         return '';
     }
 

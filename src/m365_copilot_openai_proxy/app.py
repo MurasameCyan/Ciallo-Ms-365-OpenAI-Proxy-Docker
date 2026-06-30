@@ -195,6 +195,7 @@ def create_app(
         if err: return err
         status = app.state.token_store.status()
         status["auto_refresh"] = app.state.auto_refresh_enabled
+        status["username"] = getattr(app.state, 'username', '') or None
         return status
 
     @app.post("/admin/token/auto-refresh-toggle")
@@ -388,6 +389,11 @@ def create_app(
                             } catch {}
                             try {
                                 const profile = document.querySelector('div[class*="persona"] span, div[class*="UserProfile"] span, img[alt]'); if (profile) { const a = profile.getAttribute('alt') || profile.textContent; if (a && a.trim()) return a.trim(); } } catch {}
+                            try {
+                                const fus = document.querySelectorAll('span.fui-Text, span[class*="fai-bebop"]');
+                                const skip = /^(home|copilot|apps|chat|create|new|file|edit|view|insert|format|tools|help|share|send|save|open|close|settings|back|next|previous|more|menu|search|filter|sort|refresh|delete|cancel|ok|yes|no)$/i;
+                                for (const el of fus) { const t = el.textContent.trim(); if (t && t.length > 0 && t.length < 80 && !skip.test(t)) return t; }
+                            } catch {}
                             return null;
                         })()"""
                         next_id = 2
@@ -924,6 +930,7 @@ const i18n={
     btn_stop_refresh:'停止自动刷新',btn_start_refresh:'启动自动刷新',
     auto_refresh_stopped:'自动刷新已停止',auto_refresh_started:'自动刷新已启动',
     auto_refresh_label:'自动刷新',
+    username_label:'用户名',
   },
   en:{
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -946,6 +953,7 @@ const i18n={
     btn_stop_refresh:'Stop Auto Refresh',btn_start_refresh:'Start Auto Refresh',
     auto_refresh_stopped:'Auto refresh stopped',auto_refresh_started:'Auto refresh started',
     auto_refresh_label:'Auto Refresh',
+    username_label:'Username',
   }
 };
 let lang=localStorage.getItem('lang')||'zh';
@@ -1015,8 +1023,10 @@ async function loadStatus(){
     const v=d.valid;
     const cls=v?'valid':'invalid';
     const exp=d.expires_at?new Date(d.expires_at).toLocaleString():'N/A';
+    if(d.username)window.__m365_username=d.username;
     document.getElementById('status-content').innerHTML=
       '<div class="status-row"><span class="status-label">'+t('valid')+'</span><span class="status-value '+cls+'">'+(v?t('status_yes'):t('status_no'))+'</span></div>'+
+      (d.username?'<div class="status-row"><span class="status-label">'+t('username_label')+'</span><span class="status-value valid">'+d.username+'</span></div>':'')+
       '<div class="status-row"><span class="status-label">'+t('expires')+'</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+exp+'</span></div>'+
       '<div class="status-row"><span class="status-label">'+t('remaining')+'</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+fmtSec(d.seconds_remaining)+'</span></div>'+
       '<div class="status-row"><span class="status-label">'+t('auto_refresh_label')+'</span><span class="status-value '+(d.auto_refresh?'valid':'warn')+'">'+(d.auto_refresh?t('status_yes'):t('status_no'))+'</span></div>'+
@@ -1039,7 +1049,8 @@ async function loadChromiumStatus(){
       return;
     }
     const logCls=d.logged_in?'valid':('warn');
-    const logText=d.logged_in?(d.username?('('+d.username+') '):'')+t('logged_in'):t('not_logged_in');
+    const displayName=d.username||(d.logged_in&&window.__m365_username)||'';
+    const logText=d.logged_in?(displayName?('('+displayName+') '):'')+t('logged_in'):t('not_logged_in');
     let html='<div class="status-row"><span class="status-label">'+t('login')+'</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
     // Show/hide logout button based on login status
     const logoutBtn=document.getElementById('btn-logout');
