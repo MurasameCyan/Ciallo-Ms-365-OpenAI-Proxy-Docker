@@ -643,6 +643,11 @@ def create_app(
             translated = translate_openai_request(request)
             session = _persistent_session(app, raw_request, request.model, request.user)
             if request.stream:
+                # Save call record for streaming (tool_calls_result resolved later)
+                call_record["streaming"] = True
+                app.state.call_log.append(call_record)
+                if len(app.state.call_log) > 100:
+                    app.state.call_log = app.state.call_log[-100:]
                 if request.tools:
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
@@ -652,6 +657,8 @@ def create_app(
                             translated.prompt,
                             translated.additional_context,
                             session,
+                            call_log=app.state.call_log,
+                            call_record=call_record,
                         ),
                         media_type="text/event-stream",
                     )
@@ -854,6 +861,8 @@ async def _openai_stream_with_tools(
     prompt: str,
     additional_context: list[str],
     session: PersistentSession | None = None,
+    call_log: list | None = None,
+    call_record: dict | None = None,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream."""
     _log = logging.getLogger("copilot_proxy")
@@ -866,6 +875,10 @@ async def _openai_stream_with_tools(
     _log.info("[stream_with_tools] full_text len=%d tool_calls=%d", len(full_text), len(tool_calls))
     if tool_calls:
         _log.info("  parsed tool_calls: %s", [tc["function"]["name"] for tc in tool_calls])
+    # Update call record with results
+    if call_record is not None:
+        call_record["response_len"] = len(full_text)
+        call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
 
@@ -1072,8 +1085,9 @@ a:hover{text-decoration:underline}
 <strong style="color:#22c55e" data-i18n="qs_recommended">推荐：</strong><span data-i18n="qs_install_script">安装油猴脚本（</span><a href="https://raw.githubusercontent.com/MurasameCyan/M365-Copilot-OpenAI-Proxy/main/docker/get_token.js" target="_blank">get_token.js</a>），<span data-i18n="qs_open_copilot">打开</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>，<span data-i18n="qs_type_trigger">输入内容触发 WebSocket，然后在脚本面板点击</span> <strong data-i18n="qs_push_token">推送 Token</strong>。<br>
 <strong style="color:#f59e0b" data-i18n="qs_alternative">备选：</strong><span data-i18n="qs_manual_copy">在 DevTools（Network → WS → wss://substrate.office.com/...）中手动复制 </span><code>access_token</code>，<span data-i18n="qs_paste_above">然后粘贴到上方。</span>
 </p>
+<details style="cursor:pointer">
+<summary style="font-weight:600;color:#e2e8f0;list-style:none" data-i18n="title_api_endpoints">API 端点</summary>
 <div class="api-info" style="margin-top:.5rem">
-<strong style="color:#e2e8f0" data-i18n="title_api_endpoints">API 端点</strong><br><br>
 GET  /healthz<br>
 GET  /admin/token/status<br>
 POST /admin/token/update<br>
@@ -1081,11 +1095,13 @@ POST /admin/token/auto-capture<br>
 POST /admin/cookie/inject<br>
 GET  /admin/chromium/login-status<br>
 POST /admin/chromium/logout<br>
+GET  /admin/call-log<br>
 GET  /v1/models<br>
 POST /v1/chat/completions<br>
 POST /v1/responses<br>
 POST /v1/messages
 </div>
+</details>
 </div>
 
 <div class="card">
