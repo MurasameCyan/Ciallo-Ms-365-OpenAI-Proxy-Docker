@@ -792,6 +792,7 @@ applyLang();
 async function loadStatus(){
   try{
     const r=await fetch('/admin/token/status',{credentials:'include'});
+    if(r.status===401){location.reload();return}
     const d=await r.json();
     const v=d.valid;
     const cls=v?'valid':'invalid';
@@ -811,6 +812,7 @@ async function loadStatus(){
 async function loadChromiumStatus(){
   try{
     const r=await fetch('/admin/chromium/login-status',{credentials:'include'});
+    if(r.status===401){location.reload();return}
     const d=await r.json();
     if(!d.chromium_running){
       document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">'+t('chromium_not_running')+'</span></div>';
