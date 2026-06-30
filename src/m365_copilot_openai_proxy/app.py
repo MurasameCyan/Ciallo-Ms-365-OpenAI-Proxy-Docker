@@ -139,7 +139,7 @@ def create_app(
         if not resolved_settings.api_key:
             return await call_next(request)
         # Skip auth for admin page (has its own cookie check) and health endpoints
-        if path in ("/", "/favicon.ico", "/healthz", "/admin/login", "/admin/token/status", "/admin/token/update", "/admin/token/auto-capture", "/admin/token/auto-refresh-toggle", "/admin/cookie/inject", "/admin/chromium/login-status"):
+        if path in ("/", "/favicon.ico", "/healthz", "/admin/login", "/admin/token/status", "/admin/token/update", "/admin/token/auto-capture", "/admin/token/auto-refresh-toggle", "/admin/cookie/inject", "/admin/chromium/login-status", "/admin/chromium/logout"):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
         match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
@@ -352,6 +352,7 @@ def create_app(
         page_title = tab.get("title", "")
         page_url = tab.get("url", "")
         cookie_details = []
+        username = None
         try:
             async with _ws.connect(tab["webSocketDebuggerUrl"]) as ws:
                 # Get page cookies for M365 domain
@@ -370,16 +371,87 @@ def create_app(
                     logged_in = True
                 else:
                     logged_in = False
+                # Extract username from page JS (try displayName, then upn from sessionStorage)
+                if logged_in:
+                    try:
+                        _USER_JS = """(() => {
+                            try { const s = sessionStorage.getItem('ms-m365-shell-session-data'); if (s) { const d = JSON.parse(s); if (d && d.userDisplayName) return d.userDisplayName; if (d && d.upn) return d.upn; } } catch {}
+                            try { const info = document.querySelector('[data-testid="header-person-menu"] span, [aria-label*="Account"] span, button[data-testid="persona"] span'); if (info && info.textContent) return info.textContent.trim(); } catch {}
+                            return null;
+                        })()"""
+                        await ws.send(json.dumps({"id": 2, "method": "Runtime.evaluate", "params": {"expression": _USER_JS}}))
+                        name_resp = await _async.wait_for(ws.recv(), timeout=3)
+                        name_result = json.loads(name_resp)
+                        name_val = name_result.get("result", {}).get("result", {}).get("value")
+                        if name_val and isinstance(name_val, str):
+                            username = name_val.strip()
+                    except Exception:
+                        pass
         except Exception:
             logged_in = "m365.cloud.microsoft/chat" in page_url
 
         return {
             "chromium_running": True,
             "logged_in": logged_in,
+            "username": username,
             "url": page_url,
             "title": page_title,
             "cookies": cookie_details,
         }
+
+    @app.post("/admin/chromium/logout")
+    async def chromium_logout(request: Request) -> dict:
+        """Logout from M365 in Chromium by clearing cookies and navigating to login page."""
+        err = _require_admin(request)
+        if err: return err
+        import httpx as _httpx
+        import websockets as _ws
+        import asyncio as _async
+
+        cdp_port = 9222
+        try:
+            async with _httpx.AsyncClient(timeout=3) as client:
+                tabs = (await client.get(f"http://localhost:{cdp_port}/json")).json()
+        except Exception as exc:
+            return _json_err(502, f"Cannot connect to Chromium CDP: {exc}")
+
+        tab = next((t for t in tabs if t.get("type") == "page" and "m365.cloud.microsoft" in t.get("url", "")), None)
+        if not tab:
+            tab = next((t for t in tabs if t.get("type") == "page"), None)
+        if not tab:
+            return _json_err(404, "No browser tab found in Chromium")
+
+        try:
+            async with _ws.connect(tab["webSocketDebuggerUrl"]) as ws:
+                # Clear all cookies for Microsoft domains
+                await ws.send(json.dumps({"id": 1, "method": "Network.getCookies", "params": {"urls": ["https://m365.cloud.microsoft", "https://login.microsoftonline.com", "https://microsoft.com", "https://office.com"]}}))
+                resp = await _async.wait_for(ws.recv(), timeout=5)
+                result = json.loads(resp)
+                cookies = result.get("result", {}).get("cookies", [])
+                cleared = 0
+                for i, c in enumerate(cookies):
+                    await ws.send(json.dumps({"id": 100 + i, "method": "Network.deleteCookies", "params": {"name": c.get("name", ""), "domain": c.get("domain", "")}}))
+                    try:
+                        await _async.wait_for(ws.recv(), timeout=2)
+                        cleared += 1
+                    except Exception:
+                        pass
+                # Clear sessionStorage and localStorage
+                await ws.send(json.dumps({"id": 500, "method": "Runtime.evaluate", "params": {"expression": "sessionStorage.clear();localStorage.clear();true"}}))
+                try:
+                    await _async.wait_for(ws.recv(), timeout=3)
+                except Exception:
+                    pass
+                # Navigate to login page
+                await ws.send(json.dumps({"id": 501, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+                try:
+                    await _async.wait_for(ws.recv(), timeout=5)
+                except Exception:
+                    pass
+        except Exception as exc:
+            return _json_err(502, f"CDP logout failed: {exc}")
+
+        return {"status": "ok", "message": f"Logged out. Cleared {cleared}/{len(cookies)} cookies."}
 
     @app.post("/admin/login")
     async def admin_login(request: Request) -> Response:
@@ -666,7 +738,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.login-box{background:#1e293b;border-radius:14px;padding:2.5rem;width:360px;border:1px solid #334155;text-align:center}
+.login-box{background:#1e293b;border-radius:14px;padding:2.5rem;width:360px;border:1px solid #334155;text-align:center;position:relative}
 .login-box h1{font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .login-box p{color:#64748b;font-size:.85rem;margin-bottom:1.5rem}
 input{width:100%;padding:.75rem 1rem;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;font-size:.9rem;outline:none;margin-bottom:1rem;transition:border-color .2s}
@@ -676,17 +748,33 @@ button:hover{opacity:.85}
 button:disabled{opacity:.5;cursor:not-allowed}
 .msg{padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none}
 .msg.err{display:block;background:#450a0a;color:#ef4444;border:1px solid #991b1b}
+.lang-btn{position:absolute;top:12px;right:12px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.5);color:#e2e8f0;font-size:12px;padding:4px 12px;border-radius:16px;cursor:pointer;font-weight:600;width:auto}
 </style>
 </head>
 <body>
 <div class="login-box">
+<button class="lang-btn" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
 <h1>Ciallo Ms-365 OpenAI Proxy</h1>
-<p>Enter admin password to continue</p>
-<input id="pw" type="password" placeholder="API Key / Password" autofocus onkeydown="if(event.key==='Enter')doLogin()">
-<button id="btn" onclick="doLogin()">Login</button>
+<p id="login-desc" data-i18n="login_desc">输入管理员密码以继续</p>
+<input id="pw" type="password" placeholder="API Key / 密码" autofocus onkeydown="if(event.key==='Enter')doLogin()">
+<button id="btn" onclick="doLogin()" data-i18n="login_btn">登录</button>
 <div id="msg" class="msg"></div>
 </div>
 <script>
+const i18n={
+  zh:{login_desc:'输入管理员密码以继续',login_btn:'登录',placeholder:'API Key / 密码',login_failed:'登录失败',network_error:'网络错误',wrong_password:'密码错误'},
+  en:{login_desc:'Enter admin password to continue',login_btn:'Login',placeholder:'API Key / Password',login_failed:'Login failed',network_error:'Network error',wrong_password:'Wrong password'}
+};
+let lang=localStorage.getItem('lang')||'zh';
+function t(k){return i18n[lang][k]||k}
+function applyLang(){
+  const btn=document.getElementById('lang-toggle');
+  btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
+  document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(i18n[lang][k])el.textContent=i18n[lang][k]});
+  document.getElementById('pw').placeholder=t('placeholder');
+}
+function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
+applyLang();
 async function doLogin(){
   const pw=document.getElementById('pw').value;
   const btn=document.getElementById('btn');
@@ -695,8 +783,8 @@ async function doLogin(){
   try{
     const r=await fetch('/admin/login',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
     const d=await r.json();
-    if(r.ok){location.reload()}else{msg.className='msg err';msg.textContent=d.error?.message||'Login failed'}
-  }catch(e){msg.className='msg err';msg.textContent='Network error'}
+    if(r.ok){location.reload()}else{msg.className='msg err';msg.textContent=d.error?.message||t('login_failed')}
+  }catch(e){msg.className='msg err';msg.textContent=t('network_error')}
   finally{btn.disabled=false}
 }
 </script>
@@ -723,9 +811,10 @@ h1{font-size:1.5rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#06b6
 .valid{color:#22c55e}.invalid{color:#ef4444}.warn{color:#f59e0b}
 textarea{width:100%;height:120px;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
 textarea:focus{outline:none;border-color:#06b6d4}
-button{background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.7rem 1.5rem;font-size:.9rem;font-weight:600;cursor:pointer;transition:opacity .2s}
+button{background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.55rem .9rem;font-size:.8rem;font-weight:600;cursor:pointer;transition:opacity .2s;white-space:nowrap;flex-shrink:0}
 button:hover{opacity:.85}
 button:disabled{opacity:.5;cursor:not-allowed}
+.btn-bar{display:flex;gap:.5rem;margin-bottom:.25rem;flex-wrap:wrap}
 .msg{padding:.6rem 1rem;border-radius:8px;font-size:.85rem;margin-top:.5rem;display:none}
 .msg.ok{display:block;background:#052e16;color:#22c55e;border:1px solid #166534}
 .msg.err{display:block;background:#450a0a;color:#ef4444;border:1px solid #991b1b}
@@ -742,11 +831,12 @@ a:hover{text-decoration:underline}
 <h2 data-i18n="title_update_token">更新 Token</h2>
 <p style="color:#64748b;font-size:.85rem;margin-bottom:.75rem" data-i18n="desc_paste_token">粘贴 access_token 值或完整的 wss:// URL</p>
 <textarea id="token-input" placeholder="eyJ0eXAiOiJKV1QiLCJhbGci...&#10;&#10;or full URL:&#10;wss://substrate.office.com/m365Copilot/Chathub/...?access_token=eyJ..."></textarea>
-<div style="display:flex;gap:.75rem;margin-bottom:.25rem">
+<div class="btn-bar">
 <button id="btn-update" onclick="updateToken()" data-i18n="btn_update">更新 Token</button>
 <button id="btn-check" onclick="checkLogin()" style="background:linear-gradient(135deg,#f59e0b,#d97706)" data-i18n="btn_check_login">检查登录</button>
 <button id="btn-auto" onclick="autoCapture()" style="background:linear-gradient(135deg,#22c55e,#059669)" data-i18n="btn_auto_capture">自动刷新</button>
 <button id="btn-stop-refresh" onclick="toggleAutoRefresh()" style="display:none"></button>
+<button id="btn-logout" onclick="logoutUser()" style="display:none;background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="btn_logout">登出用户</button>
 </div>
 <div id="update-msg" class="msg"></div>
 </div>
@@ -772,6 +862,7 @@ POST /admin/token/update<br>
 POST /admin/token/auto-capture<br>
 POST /admin/cookie/inject<br>
 GET  /admin/chromium/login-status<br>
+POST /admin/chromium/logout<br>
 GET  /v1/models<br>
 POST /v1/chat/completions<br>
 POST /v1/responses<br>
@@ -791,6 +882,7 @@ const i18n={
     desc_paste_token:'粘贴 access_token 值或完整的 wss:// URL',
     valid:'有效',invalid:'无效',expires:'过期时间',remaining:'剩余',error:'错误',
     login:'登录',logged_in:'已登录',not_logged_in:'未登录（仅手动推送 Token）',
+    btn_logout:'登出用户',logging_out:'登出中...',logout_ok:'已登出',logout_failed:'登出失败',
     page:'页面',title:'标题',chromium_not_running:'Chromium 未运行',
     capturing:'捕获中...',auto_captured:'自动刷新成功！剩余：',auto_capture_failed:'自动刷新失败',
     check_login:'检查登录中...',login_ok:'Chromium 已登录！自动刷新已启用。',
@@ -812,6 +904,7 @@ const i18n={
     desc_paste_token:'Paste the access_token value or the full wss:// URL',
     valid:'Valid',invalid:'Invalid',expires:'Expires',remaining:'Remaining',error:'Error',
     login:'Login',logged_in:'Logged In',not_logged_in:'Not Logged In (auto-refresh only)',
+    btn_logout:'Logout',logging_out:'Logging out...',logout_ok:'Logged out',logout_failed:'Logout failed',
     page:'Page',title:'Title',chromium_not_running:'Chromium Not Running',
     capturing:'Capturing...',auto_captured:'Auto-captured! Remaining: ',auto_capture_failed:'Auto-capture failed',
     check_login:'Checking...',login_ok:'Chromium is logged in! Auto-refresh is active.',
@@ -856,21 +949,29 @@ function applyLang(){
 applyLang();
 
 function showInlineLogin(){
-  document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"><div style="background:#1e293b;border-radius:14px;padding:2.5rem;width:360px;border:1px solid #334155;text-align:center"><h1 style="font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Ciallo Ms-365 OpenAI Proxy</h1><p style="color:#64748b;font-size:.85rem;margin-bottom:1.5rem">Enter admin password to continue</p><input id="pw" type="password" placeholder="API Key / Password" autofocus onkeydown="if(event.key===Enter)doInlineLogin()" style="width:100%;padding:.75rem 1rem;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;font-size:.9rem;outline:none;margin-bottom:1rem"><button onclick="doInlineLogin()" style="width:100%;background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">Login</button><div id="ilm" style="padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none"></div></div></div>';
+  const curLang=localStorage.getItem('lang')||'zh';
+  const li18n={zh:{desc:'输入管理员密码以继续',btn:'登录',ph:'API Key / 密码',fail:'登录失败',neterr:'网络错误'},en:{desc:'Enter admin password to continue',btn:'Login',ph:'API Key / Password',fail:'Login failed',neterr:'Network error'}};
+  const lt=k=>li18n[curLang][k]||k;
+  document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"><div style="background:#1e293b;border-radius:14px;padding:2.5rem;width:360px;border:1px solid #334155;text-align:center;position:relative"><button onclick="toggleInlineLang()" style="position:absolute;top:12px;right:12px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.5);color:#e2e8f0;font-size:12px;padding:4px 12px;border-radius:16px;cursor:pointer;font-weight:600;width:auto">'+(curLang==='zh'?'&#127760; EN':'&#127760; 中文')+'</button><h1 style="font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Ciallo Ms-365 OpenAI Proxy</h1><p style="color:#64748b;font-size:.85rem;margin-bottom:1.5rem">'+lt('desc')+'</p><input id="pw" type="password" placeholder="'+lt('ph')+'" autofocus onkeydown="if(event.key===\'Enter\')doInlineLogin()" style="width:100%;padding:.75rem 1rem;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;font-size:.9rem;outline:none;margin-bottom:1rem"><button onclick="doInlineLogin()" style="width:100%;background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">'+lt('btn')+'</button><div id="ilm" style="padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none"></div></div></div>';
 }
+function toggleInlineLang(){localStorage.setItem('lang',localStorage.getItem('lang')==='zh'?'en':'zh');showInlineLogin()}
 
 async function doInlineLogin(){
   const pw=document.getElementById('pw').value;
-  const btn=document.querySelector('button');
+  const btns=document.querySelectorAll('button');
+  const btn=btns.length>1?btns[btns.length-1]:btns[0];
   const msg=document.getElementById('ilm');
+  const curLang=localStorage.getItem('lang')||'zh';
+  const li18n={zh:{fail:'登录失败',neterr:'网络错误'},en:{fail:'Login failed',neterr:'Network error'}};
+  const lt=k=>li18n[curLang][k]||k;
   btn.disabled=true;msg.style.display='none';
   try{
     const r=await fetch('/admin/login',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
     if(r.ok){location.reload();return}
     const d=await r.json();
     msg.style.display='block';msg.style.background='#450a0a';msg.style.color='#ef4444';msg.style.border='1px solid #991b1b';
-    msg.textContent=d.error?.message||'Login failed';
-  }catch(e){msg.style.display='block';msg.style.background='#450a0a';msg.style.color='#ef4444';msg.style.border='1px solid #991b1b';msg.textContent='Network error'}
+    msg.textContent=d.error?.message||lt('fail');
+  }catch(e){msg.style.display='block';msg.style.background='#450a0a';msg.style.color='#ef4444';msg.style.border='1px solid #991b1b';msg.textContent=lt('neterr')}
   finally{btn.disabled=false}
 }
 
@@ -901,11 +1002,16 @@ async function loadChromiumStatus(){
     const d=await r.json();
     if(!d.chromium_running){
       document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">'+t('chromium_not_running')+'</span></div>';
+      const logoutBtn=document.getElementById('btn-logout');
+      if(logoutBtn)logoutBtn.style.display='none';
       return;
     }
     const logCls=d.logged_in?'valid':('warn');
-    const logText=d.logged_in?t('logged_in'):t('not_logged_in');
+    const logText=d.logged_in?('('+((d.username||'')?d.username:'')+') '+t('logged_in')):t('not_logged_in');
     let html='<div class="status-row"><span class="status-label">'+t('login')+'</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
+    // Show/hide logout button based on login status
+    const logoutBtn=document.getElementById('btn-logout');
+    if(logoutBtn)logoutBtn.style.display=d.logged_in?'inline-block':'none';
     if(d.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+d.url+'</span></div>';
     if(d.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+d.title+'</span></div>';
     document.getElementById('chromium-status').innerHTML=html;
@@ -1002,6 +1108,23 @@ async function checkLogin(){
     msg.className=d.logged_in?'msg ok':'msg err';
     msg.textContent=d.logged_in?t('login_ok'):t('login_not_ok');
   }catch(e){msg.className='msg err';msg.textContent=t('check_failed')+e}
+}
+
+async function logoutUser(){
+  const msg=document.getElementById('update-msg');
+  const btn=document.getElementById('btn-logout');
+  btn.disabled=true;msg.className='msg';msg.textContent=t('logging_out');
+  try{
+    const r=await fetch('/admin/chromium/logout',{method:'POST',credentials:'include'});
+    const d=await r.json();
+    if(r.ok){
+      msg.className='msg ok';msg.textContent=t('logout_ok')+(d.message?' — '+d.message:'');
+      loadChromiumStatus();loadStatus();
+    }else{
+      msg.className='msg err';msg.textContent=d.error?.message||d.error||t('logout_failed');
+    }
+  }catch(e){msg.className='msg err';msg.textContent=(lang==='zh'?'网络错误：':'Network error: ')+e}
+  finally{btn.disabled=false}
 }
 
 loadStatus();
