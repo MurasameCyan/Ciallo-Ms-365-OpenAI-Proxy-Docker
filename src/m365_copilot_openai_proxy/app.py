@@ -108,23 +108,22 @@ def create_app(
         # Track last request time for idle detection & on-demand refresh
         if path.startswith("/v1/"):
             app.state.last_request_time = time.time()
-            # On-demand refresh: if auto_refresh paused and token expired (or no token), refresh synchronously
+            # On-demand refresh: if auto_refresh paused, re-enable it on /v1/ requests
             if not app.state.auto_refresh_enabled:
+                app.state.auto_refresh_enabled = True
                 token = app.state.token_store.get()
-                need_wake = False
+                need_refresh = False
                 if not token:
-                    need_wake = True
+                    need_refresh = True
                 else:
                     try:
                         from .token_store import decode_jwt_payload
                         claims = decode_jwt_payload(token)
                         if time.time() > claims.get("exp", 0):
-                            need_wake = True
+                            need_refresh = True
                     except Exception:
-                        need_wake = True
-                if need_wake:
-                    # Wake up background loop
-                    app.state.auto_refresh_enabled = True
+                        need_refresh = True
+                if need_refresh:
                     # Also refresh synchronously so the request doesn't have to wait for the loop
                     try:
                         from .cli import _cdp_extract_token
