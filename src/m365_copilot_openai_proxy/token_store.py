@@ -156,6 +156,24 @@ def read_username() -> str:
         return ""
 
 
+def write_tone(tone: str) -> None:
+    """Persist the selected conversation tone (mode) across restarts."""
+    tone = (tone or "").strip()
+    if not tone:
+        return
+    token_dir = _get_token_dir()
+    token_dir.mkdir(parents=True, exist_ok=True)
+    (token_dir / "tone").write_text(tone, encoding="utf-8")
+
+
+def read_tone() -> str:
+    """Read persisted conversation tone from the token directory."""
+    try:
+        return (_get_token_dir() / "tone").read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
 def _read_env_token(path: Path) -> str | None:
     try:
         text = path.read_text(encoding="utf-8")

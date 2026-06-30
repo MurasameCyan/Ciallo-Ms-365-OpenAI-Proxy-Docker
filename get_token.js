@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         M365 Copilot Token & Cookie Extractor
 // @namespace    https://m365.cloud.microsoft
-// @version      4.0
+// @version      5.0
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://login.microsoftonline.com/*
@@ -37,6 +37,116 @@
     // Store the latest captured chat payloads (for mode-field comparison)
     // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
     let capturedPayloads = [];
+
+    // ---- i18n (Chinese default, toggle to English, persisted in localStorage) ----
+    let lang = 'zh';
+    try { lang = localStorage.getItem('m365-panel-lang') || 'zh'; } catch (e) {}
+    const I18N = {
+        zh: {
+            title: 'Ciallo Ms-365 代理',
+            proxy_url: '代理地址',
+            token: 'Token',
+            token_captured: '✓ 已捕获',
+            token_not_captured: '⚠ 尚未捕获',
+            copy_token: '复制 Token',
+            push_token: '推送 Token',
+            cookie_login: 'Cookie 登录',
+            gm_available: '✓ GM_cookie 可用',
+            gm_unavailable: '⚠ GM_cookie 不可用，请使用 Tampermonkey Beta。',
+            push_cookies: '推送全部 Cookie',
+            quick_setup: '一键配置',
+            quick_setup_desc: '推送 Cookie + Token 到代理，用于 Chromium 登录和自动刷新',
+            one_click: '一键配置',
+            manual_config: '手动配置',
+            mode_capture: '模式抓包',
+            click_expand: '（点击展开）',
+            mode_capture_desc: '在 Copilot 切换模式（快速/深度、GPT 5.5/5.2）并发送一条消息。下方会显示 payload 字段，推送到代理可对比哪个字段控制模式。',
+            no_capture: '暂无抓包数据。选择模式并发送一条消息。',
+            push_payloads: '推送抓包数据',
+            toggle_hint: 'Ctrl+Shift+M 切换面板',
+            close: '关闭',
+            lang_btn: 'EN',
+            // alerts
+            enter_proxy_first: '请先填写代理地址',
+            no_token_ws: '尚未捕获 Token。在 Copilot 输入内容以触发 WebSocket。',
+            token_pushed: 'Token 已推送！剩余：',
+            failed: '失败：',
+            network_error: '网络错误：',
+            gm_unavailable_alert: 'GM_cookie API 不可用。\n\n请使用 Tampermonkey Beta，或在 Tampermonkey 设置中启用「允许脚本访问 HttpOnly cookie」：\n设置 > 安全 > 「允许脚本访问 cookie」',
+            fetching: '获取中...',
+            pushing: '推送中...',
+            no_cookies: '未找到 Cookie。',
+            cookies_pushed: 'Cookie 已推送！',
+            httponly_included: '（含 httpOnly：',
+            error: '错误：',
+            no_token_copy: '尚未捕获 Token',
+            token_copied: 'Token 已复制！',
+            copy_failed: '复制失败',
+            working: '处理中...',
+            pushing_cookies: '1/2 推送 Cookie...',
+            pushing_token: '2/2 推送 Token...',
+            setup_complete: '配置完成！Token 剩余：',
+            proxy_ready: '秒\n代理已就绪。',
+            token_push_failed: 'Token 推送失败：',
+            no_payload: '暂无抓包数据。先在 Copilot 选择模式并发送一条消息。',
+            pushed_n_payloads: '已推送 {n} 条 payload 到代理。',
+        },
+        en: {
+            title: 'Ciallo Ms-365 Proxy',
+            proxy_url: 'Proxy URL',
+            token: 'Token',
+            token_captured: '✓ captured',
+            token_not_captured: '⚠ not captured yet',
+            copy_token: 'Copy Token',
+            push_token: 'Push Token',
+            cookie_login: 'Cookie Login',
+            gm_available: '✓ GM_cookie available',
+            gm_unavailable: '⚠ GM_cookie unavailable. Use Tampermonkey Beta.',
+            push_cookies: 'Push All Cookies',
+            quick_setup: 'Quick Setup',
+            quick_setup_desc: 'Push cookies + token to proxy for Chromium login and auto-refresh',
+            one_click: 'One-Click Setup',
+            manual_config: 'Manual Config',
+            mode_capture: 'Mode Capture',
+            click_expand: '(click to expand)',
+            mode_capture_desc: 'Pick a mode (Fast/Think, GPT 5.5/5.2) in Copilot and send a message. The payload fields appear below; push them to the proxy to compare which field controls the mode.',
+            no_capture: 'No chat payload captured yet. Pick a mode and send a message.',
+            push_payloads: 'Push Captured Payloads',
+            toggle_hint: 'Ctrl+Shift+M to toggle',
+            close: 'Close',
+            lang_btn: '中文',
+            // alerts
+            enter_proxy_first: 'Please enter proxy URL first',
+            no_token_ws: 'No token captured yet. Type something in Copilot to trigger WebSocket.',
+            token_pushed: 'Token pushed! Remaining: ',
+            failed: 'Failed: ',
+            network_error: 'Network error: ',
+            gm_unavailable_alert: 'GM_cookie API not available.\n\nPlease use Tampermonkey Beta or enable "Allow scripts to access HttpOnly cookies" in Tampermonkey settings:\nSettings > Security > "Allow scripts to access cookies"',
+            fetching: 'Fetching...',
+            pushing: 'Pushing...',
+            no_cookies: 'No cookies found.',
+            cookies_pushed: 'Cookies pushed! ',
+            httponly_included: '(httpOnly included: ',
+            error: 'Error: ',
+            no_token_copy: 'No token captured yet',
+            token_copied: 'Token copied!',
+            copy_failed: 'Copy failed',
+            working: 'Working...',
+            pushing_cookies: '1/2 Pushing cookies...',
+            pushing_token: '2/2 Pushing token...',
+            setup_complete: 'Setup complete! Token remaining: ',
+            proxy_ready: 's\nProxy is ready to use.',
+            token_push_failed: 'Token push failed: ',
+            no_payload: 'No chat payload captured yet. Pick a mode in Copilot and send a message first.',
+            pushed_n_payloads: 'Pushed {n} payload(s) to proxy.',
+        },
+    };
+    function tr(key) { return (I18N[lang] && I18N[lang][key]) || (I18N.en[key]) || key; }
+    function toggleLang() {
+        lang = (lang === 'zh') ? 'en' : 'zh';
+        try { localStorage.setItem('m365-panel-lang', lang); } catch (e) {}
+        showPanel();
+    }
 
     // Extract current username from page
     function getUsername() {
@@ -252,8 +362,8 @@
     // Push Token to proxy
     async function pushToken() {
         const base = getProxyBase();
-        if (!base) { alert('Please enter proxy URL first'); return; }
-        if (!latestToken) { alert('No token captured yet. Type something in Copilot to trigger WebSocket.'); return; }
+        if (!base) { alert(tr('enter_proxy_first')); return; }
+        if (!latestToken) { alert(tr('no_token_ws')); return; }
         const username = getUsername();
         try {
             const r = await gmFetch(base + '/admin/token/update', {
@@ -262,62 +372,62 @@
                 body: JSON.stringify({ token: latestToken, username: username || undefined })
             });
             const d = await r.json();
-            alert(r.ok ? `Token pushed! Remaining: ${d.token_status?.seconds_remaining}s` : `Failed: ${d.error?.message || d.error}`);
-        } catch (e) { alert('Network error: ' + e); }
+            alert(r.ok ? tr('token_pushed') + (d.token_status?.seconds_remaining) + 's' : tr('failed') + (d.error?.message || d.error));
+        } catch (e) { alert(tr('network_error') + e); }
     }
 
     // Push ALL cookies (including httpOnly) to proxy for Chromium login
     async function pushCookies() {
         const base = getProxyBase();
-        if (!base) { alert('Please enter proxy URL first'); return; }
+        if (!base) { alert(tr('enter_proxy_first')); return; }
 
         if (!hasGMCookie()) {
-            alert('GM_cookie API not available.\n\nPlease use Tampermonkey Beta or enable "Allow scripts to access HttpOnly cookies" in Tampermonkey settings:\nSettings > Security > "Allow scripts to access cookies"');
+            alert(tr('gm_unavailable_alert'));
             return;
         }
 
         const btn = document.getElementById('m365-push-cookies');
-        if (btn) { btn.disabled = true; btn.textContent = 'Fetching...'; }
+        if (btn) { btn.disabled = true; btn.textContent = tr('fetching'); }
 
         try {
             const cookies = await getAllCookies();
-            if (!cookies.length) { alert('No cookies found.'); return; }
+            if (!cookies.length) { alert(tr('no_cookies')); return; }
 
-            if (btn) btn.textContent = 'Pushing...';
+            if (btn) btn.textContent = tr('pushing');
             const r = await gmFetch(base + '/admin/cookie/inject', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cookies, username: getUsername() || undefined })
             });
             const d = await r.json();
-            alert(r.ok ? `Cookies pushed! ${d.message}\n(httpOnly included: ${cookies.filter(c => c.httpOnly).length})` : `Failed: ${d.error?.message || d.error}`);
+            alert(r.ok ? tr('cookies_pushed') + d.message + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' : tr('failed') + (d.error?.message || d.error));
         } catch (e) {
-            alert('Error: ' + e);
+            alert(tr('error') + e);
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = 'Push Cookies'; }
+            if (btn) { btn.disabled = false; btn.textContent = tr('push_cookies'); }
         }
     }
 
     // Copy token to clipboard
     function copyToken() {
-        if (!latestToken) { alert('No token captured yet'); return; }
-        navigator.clipboard.writeText(latestToken).then(() => alert('Token copied!')).catch(() => alert('Copy failed'));
+        if (!latestToken) { alert(tr('no_token_copy')); return; }
+        navigator.clipboard.writeText(latestToken).then(() => alert(tr('token_copied'))).catch(() => alert(tr('copy_failed')));
     }
 
     // One-click: push cookies first (to login Chromium), then push token
     async function oneClickSetup() {
         const base = getProxyBase();
-        if (!base) { alert('Please enter proxy URL first'); return; }
-        if (!latestToken) { alert('No token captured yet. Type something in Copilot to trigger WebSocket first.'); return; }
+        if (!base) { alert(tr('enter_proxy_first')); return; }
+        if (!latestToken) { alert(tr('no_token_ws')); return; }
 
         const btn = document.getElementById('m365-one-click');
-        btn.textContent = 'Working...';
+        btn.textContent = tr('working');
         btn.disabled = true;
 
         try {
             // Step 1: Push cookies (if GM_cookie available) to login Chromium
             if (hasGMCookie()) {
-                btn.textContent = '1/2 Pushing cookies...';
+                btn.textContent = tr('pushing_cookies');
                 const cookies = await getAllCookies();
                 if (cookies.length) {
                     await gmFetch(base + '/admin/cookie/inject', {
@@ -340,14 +450,14 @@
             });
             const d = await r.json();
             if (r.ok) {
-                alert(`Setup complete! Token remaining: ${d.token_status?.seconds_remaining}s\nProxy is ready to use.`);
+                alert(tr('setup_complete') + (d.token_status?.seconds_remaining) + tr('proxy_ready'));
             } else {
-                alert('Token push failed: ' + (d.error?.message || d.error));
+                alert(tr('token_push_failed') + (d.error?.message || d.error));
             }
         } catch (e) {
-            alert('Error: ' + e);
+            alert(tr('error') + e);
         } finally {
-            btn.textContent = 'One-Click Setup';
+            btn.textContent = tr('one_click');
             btn.disabled = false;
         }
     }
@@ -355,8 +465,8 @@
     // Push the most recent captured chat payload to the proxy for inspection/comparison
     async function pushPayload() {
         const base = getProxyBase();
-        if (!base) { alert('Please enter proxy URL first'); return; }
-        if (!capturedPayloads.length) { alert('No chat payload captured yet. Pick a mode in Copilot and send a message first.'); return; }
+        if (!base) { alert(tr('enter_proxy_first')); return; }
+        if (!capturedPayloads.length) { alert(tr('no_payload')); return; }
         try {
             const r = await gmFetch(base + '/admin/capture-payload', {
                 method: 'POST',
@@ -364,8 +474,8 @@
                 body: JSON.stringify({ payloads: capturedPayloads })
             });
             const d = await r.json();
-            alert(r.ok ? `Pushed ${capturedPayloads.length} payload(s) to proxy.` : `Failed: ${d.error?.message || d.error}`);
-        } catch (e) { alert('Network error: ' + e); }
+            alert(r.ok ? tr('pushed_n_payloads').replace('{n}', capturedPayloads.length) : tr('failed') + (d.error?.message || d.error));
+        } catch (e) { alert(tr('network_error') + e); }
     }
 
     // Render captured payloads into the panel area (if present)
@@ -373,7 +483,7 @@
         const box = document.getElementById('m365-captured');
         if (!box) return;
         if (!capturedPayloads.length) {
-            box.innerHTML = '<span style="color:#475569">No chat payload captured yet. Pick a mode and send a message.</span>';
+            box.innerHTML = '<span style="color:#475569">' + tr('no_capture') + '</span>';
             return;
         }
         const escHtml = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -397,8 +507,8 @@
         }
 
         const gmCookieNote = hasGMCookie()
-        ? '<span style="color:#22c55e">&#10003; GM_cookie available</span>'
-        : '<span style="color:#f59e0b">&#9888; GM_cookie unavailable. Use Tampermonkey Beta.</span>';
+        ? '<span style="color:#22c55e">' + tr('gm_available') + '</span>'
+        : '<span style="color:#f59e0b">' + tr('gm_unavailable') + '</span>';
 
         const panel = document.createElement('div');
         panel.id = 'm365-token-panel';
@@ -412,11 +522,17 @@
                         backdrop-filter:blur(12px);">
                 <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:#38bdf8;
                             letter-spacing:0.5px; display:flex; align-items:center; gap:8px;">
-                    <span style="font-size:18px">&#9889;</span> Ciallo Ms-365 Proxy
+                    <span style="font-size:18px">&#9889;</span> ${tr('title')}
+                    <button id="m365-lang-toggle" style="margin-left:auto; padding:3px 12px; border:1px solid #334155;
+                            border-radius:8px; background:transparent; color:#38bdf8; cursor:pointer;
+                            font-weight:600; font-size:11px; transition:all 0.2s;"
+                            onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#334155'">
+                        ${tr('lang_btn')}
+                    </button>
                 </div>
 
                 <div style="margin-bottom:12px;">
-                    <div style="font-size:11px; color:#94a3b8; margin-bottom:5px; font-weight:500;">Proxy URL</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-bottom:5px; font-weight:500;">${tr('proxy_url')}</div>
                     <input id="m365-proxy-url" type="text" placeholder="http://your-server:8000"
                         value="${PROXY_BASE}"
                         style="width:100%; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
@@ -425,77 +541,74 @@
                         onfocus="this.style.borderColor='#38bdf8'" onblur="this.style.borderColor='#334155'">
                 </div>
 
-                <div style="font-size:11px; color:#94a3b8; margin-bottom:5px; font-weight:500;">Token <span style="color:#475569">truncated</span></div>
-                <div style="word-break:break-all; max-height:56px; overflow-y:auto;
-                            background:#0f172a; padding:8px 12px; border-radius:8px;
-                            font-size:11px; color:#a8b2d1; line-height:1.5;
-                            border:1px solid #334155;">
-                    ${latestToken ? latestToken.slice(0, 80) + '...' : '<span style="color:#475569">No token captured yet</span>'}
-                </div>
-
-                <div style="margin-top:12px; display:flex; gap:8px;">
-                    <button id="m365-copy-token" style="flex:1; padding:8px 0; border:none;
-                            border-radius:8px; background:#0ea5e9; color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
-                        &#128203; Copy Token
-                    </button>
-                    <button id="m365-push-token" style="flex:1; padding:8px 0; border:none;
-                            border-radius:8px; background:#22c55e; color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
-                        &#128228; Push Token
-                    </button>
-                </div>
-
-                <div style="border-top:1px solid #1e293b; margin:14px 0 12px; padding-top:12px;">
-                    <div style="font-size:11px; color:#94a3b8; margin-bottom:8px; font-weight:500;">Cookie Login ${gmCookieNote}</div>
-                    <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#7c3aed); color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
-                        &#127850; Push All Cookies
-                    </button>
-                </div>
-
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <div style="font-size:11px; color:#22c55e; margin-bottom:8px; font-weight:700;">&#9889; Quick Setup</div>
-                    <div style="font-size:10px; color:#64748b; margin-bottom:8px;">Push cookies + token to proxy for Chromium login and auto-refresh</div>
+                    <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-bottom:8px;">&#9889; ${tr('quick_setup')}</div>
+                    <div style="font-size:10px; color:#64748b; margin-bottom:8px;">${tr('quick_setup_desc')}</div>
                     <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
                             border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#06b6d4,#22c55e); color:#fff;
                             cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
                             transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
-                        &#128640; One-Click Setup
+                        &#128640; ${tr('one_click')}
                     </button>
                 </div>
 
-                <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <div style="font-size:11px; color:#f59e0b; margin-bottom:8px; font-weight:700;">&#128269; Mode Capture</div>
-                    <div style="font-size:10px; color:#64748b; margin-bottom:8px;">Pick a mode (Fast/Think, GPT 5.5/5.2) in Copilot and send a message. The payload fields appear below; push them to the proxy to compare which field controls the mode.</div>
+                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <summary style="font-size:12px; color:#38bdf8; font-weight:700; cursor:pointer; list-style:none; outline:none;">&#9881; ${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
+
+                    <div style="font-size:11px; color:#94a3b8; margin:10px 0 5px; font-weight:500;">${tr('token')} ${latestToken ? '<span style="color:#22c55e">' + tr('token_captured') + '</span>' : '<span style="color:#f59e0b">' + tr('token_not_captured') + '</span>'}</div>
+                    <div style="display:flex; gap:8px;">
+                        <button id="m365-copy-token" style="flex:1; padding:8px 0; border:none;
+                                border-radius:8px; background:#0ea5e9; color:#fff;
+                                cursor:pointer; font-weight:600; font-size:12px;
+                                transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                            &#128203; ${tr('copy_token')}
+                        </button>
+                        <button id="m365-push-token" style="flex:1; padding:8px 0; border:none;
+                                border-radius:8px; background:#22c55e; color:#fff;
+                                cursor:pointer; font-weight:600; font-size:12px;
+                                transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                            &#128228; ${tr('push_token')}
+                        </button>
+                    </div>
+
+                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500;">${tr('cookie_login')} ${gmCookieNote}</div>
+                    <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
+                            border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#7c3aed); color:#fff;
+                            cursor:pointer; font-weight:600; font-size:12px;
+                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                        &#127850; ${tr('push_cookies')}
+                    </button>
+                </details>
+
+                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <summary style="font-size:12px; color:#38bdf8; font-weight:700; cursor:pointer; list-style:none; outline:none;">&#128269; ${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
+                    <div style="font-size:10px; color:#64748b; margin:8px 0;">${tr('mode_capture_desc')}</div>
                     <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
-                        <span style="color:#475569">No chat payload captured yet. Pick a mode and send a message.</span>
+                        <span style="color:#475569">${tr('no_capture')}</span>
                     </div>
                     <button id="m365-push-payload" style="width:100%; padding:8px 0; border:none;
                             border-radius:8px; background:linear-gradient(135deg,#f59e0b,#ef4444); color:#fff;
                             cursor:pointer; font-weight:600; font-size:12px;
                             transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
-                        &#128228; Push Captured Payloads
+                        &#128228; ${tr('push_payloads')}
                     </button>
-                </div>
+                </details>
 
                 <div style="border-top:1px solid #1e293b; margin:0; padding-top:12px; display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:10px; color:#475569">Ctrl+Shift+M to toggle</span>
+                    <span style="font-size:10px; color:#475569">${tr('toggle_hint')}</span>
                     <button id="m365-close-panel" style="padding:6px 16px; border:1px solid #334155;
                             border-radius:8px; background:transparent; color:#94a3b8;
                             cursor:pointer; font-weight:500; font-size:12px;
                             transition:all 0.2s;" onmouseover="this.style.borderColor=#ef4444;this.style.color=#ef4444" onmouseout="this.style.borderColor=#334155;this.style.color=#94a3b8">
-                        Close
+                        ${tr('close')}
                     </button>
                 </div>
             </div>
         `;
         document.body.appendChild(panel);
 
+        const langBtn = document.getElementById('m365-lang-toggle');
+        if (langBtn) langBtn.onclick = () => toggleLang();
         document.getElementById('m365-copy-token').onclick = () => copyToken();
         document.getElementById('m365-push-token').onclick = () => pushToken();
         document.getElementById('m365-push-cookies').onclick = () => pushCookies();

@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from .config import Settings
 from .session_store import PersistentSession, PersistentSessionStore
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
-from .token_store import AccessTokenStore, write_token, write_username, read_username, decode_jwt_payload, init_token_dir
+from .token_store import AccessTokenStore, write_token, write_username, read_username, decode_jwt_payload, init_token_dir, write_tone, read_tone
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
 from .translator import translate_anthropic_request, translate_openai_request, translate_responses_request, flatten_content
 
@@ -305,6 +305,7 @@ def create_app(
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
     app.state.idle_timeout_minutes = resolved_settings.idle_timeout_minutes
     app.state.username = read_username()  # Restore persisted username (set via get_token.js push or CDP extraction)
+    app.state.current_tone = read_tone() or "Magic"  # Restore persisted conversation tone (mode), default "Magic" (Auto)
     if not resolved_settings.api_key:
         print("WARNING: API_KEY is not set. All /v1/ API endpoints are open without authentication. Set API_KEY in .env to secure your instance.")
     _admin_secret = resolved_settings.admin_password or resolved_settings.api_key
@@ -320,7 +321,7 @@ def create_app(
     _LOGIN_LOCKOUT_SEC = 60.0   # lockout duration
 
     app.state.copilot_client_factory = copilot_client_factory or (
-        lambda: SubstrateCopilotClient(app.state.token_store.get(), resolved_settings.time_zone)
+        lambda: SubstrateCopilotClient(app.state.token_store.get(), resolved_settings.time_zone, getattr(app.state, 'current_tone', 'Magic'))
     )
 
     def _is_admin_authenticated(request: Request) -> bool:
@@ -405,7 +406,7 @@ def create_app(
         if not resolved_settings.api_key:
             return await call_next(request)
         # Skip auth for admin page (has its own cookie check) and health endpoints
-        if path in ("/", "/favicon.ico", "/healthz", "/admin/login", "/admin/token/status", "/admin/token/update", "/admin/token/auto-capture", "/admin/token/auto-refresh-toggle", "/admin/cookie/inject", "/admin/chromium/login-status", "/admin/chromium/logout", "/admin/call-log", "/admin/capture-payload"):
+        if path in ("/", "/favicon.ico", "/healthz", "/admin/login", "/admin/token/status", "/admin/token/update", "/admin/token/auto-capture", "/admin/token/auto-refresh-toggle", "/admin/cookie/inject", "/admin/chromium/login-status", "/admin/chromium/logout", "/admin/call-log", "/admin/capture-payload", "/admin/tone"):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
         match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
@@ -815,6 +816,37 @@ def create_app(
         err = _require_admin(request)
         if err: return err
         return {"payloads": getattr(app.state, 'captured_payloads', [])}
+
+    # Conversation tone (mode) options discovered from M365 Copilot's mode picker.
+    # The `tone` field in the Substrate chat payload controls which model/mode is used.
+    _TONE_OPTIONS = [
+        {"value": "Magic", "label": "自动 / Auto"},
+        {"value": "Chat", "label": "快速答复 / Fast"},
+        {"value": "Reasoning", "label": "深度思考 / Think"},
+        {"value": "Gpt_5_5_Chat", "label": "GPT 5.5 快速响应"},
+        {"value": "Gpt_5_5_Reasoning", "label": "GPT 5.5 深度思考"},
+        {"value": "Gpt_5_2_Chat", "label": "GPT 5.2 快速响应"},
+        {"value": "Gpt_5_2_Reasoning", "label": "GPT 5.2 深度思考"},
+    ]
+    _TONE_VALUES = {o["value"] for o in _TONE_OPTIONS}
+
+    @app.get("/admin/tone")
+    async def get_tone(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        return {"tone": getattr(app.state, 'current_tone', 'Magic'), "options": _TONE_OPTIONS}
+
+    @app.post("/admin/tone")
+    async def set_tone(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        body = await request.json()
+        tone = (body.get("tone") or "").strip()
+        if tone not in _TONE_VALUES:
+            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
+        app.state.current_tone = tone
+        write_tone(tone)
+        return {"status": "ok", "tone": tone}
 
     @app.get("/", response_class=HTMLResponse)
     async def admin_page(request: Request) -> str:
@@ -1336,8 +1368,15 @@ a:hover{text-decoration:underline}
 <div class="card">
 <h2 data-i18n="title_status">Token 与 登录状态</h2>
 <div id="status-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
-<div style="border-top:1px solid #334155;margin:.75rem 0"></div>
-<div id="chromium-status"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
+</div>
+
+<div class="card">
+<h2 data-i18n="title_tone">对话模式</h2>
+<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="tone_hint">选择 M365 Copilot 的对话模式（模型），立即生效并持久保存。</div>
+<div style="display:flex;align-items:center;gap:.5rem">
+<select id="tone-select" style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.85rem;outline:none"></select>
+<span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
+</div>
 </div>
 
 <div class="card">
@@ -1360,6 +1399,10 @@ POST /admin/cookie/inject<br>
 GET  /admin/chromium/login-status<br>
 POST /admin/chromium/logout<br>
 GET  /admin/call-log<br>
+GET  /admin/capture-payload<br>
+POST /admin/capture-payload<br>
+GET  /admin/tone<br>
+POST /admin/tone<br>
 GET  /v1/models<br>
 POST /v1/chat/completions<br>
 POST /v1/responses<br>
@@ -1428,6 +1471,9 @@ const i18n={
     title_capture:'模式抓包对比',
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
+    title_tone:'对话模式',
+    tone_hint:'选择 M365 Copilot 的对话模式（模型），立即生效并持久保存。',
+    tone_saved:'已保存',
   },
   en:{
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -1460,6 +1506,9 @@ const i18n={
     title_capture:'Mode Capture Compare',
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
+    title_tone:'Conversation Mode',
+    tone_hint:'Select the M365 Copilot conversation mode (model). Applies immediately and persists across restarts.',
+    tone_saved:'Saved',
   }
 };
 let lang=localStorage.getItem('lang')||'zh';
@@ -1521,22 +1570,50 @@ async function doInlineLogin(){
   finally{btn.disabled=false}
 }
 
+// Merged status: fetch token status + chromium login status, render in fixed order:
+// 用户名 > 登录 > 有效 > 过期时间 > 剩余 > 自动刷新 > 标题 > 页面 > 错误
 async function loadStatus(){
   try{
-    const r=await fetch('/admin/token/status',{credentials:'include'});
-    if(r.status===401){showInlineLogin();return}
-    const d=await r.json();
+    const [tr,cr]=await Promise.all([
+      fetch('/admin/token/status',{credentials:'include'}),
+      fetch('/admin/chromium/login-status',{credentials:'include'}).catch(()=>null),
+    ]);
+    if(tr.status===401){showInlineLogin();return}
+    const d=await tr.json();
+    let c={};
+    if(cr&&cr.ok){try{c=await cr.json()}catch(e){c={}}}
     const v=d.valid;
     const cls=v?'valid':'invalid';
     const exp=d.expires_at?new Date(d.expires_at).toLocaleString():'N/A';
     if(d.username)window.__m365_username=d.username;
-    document.getElementById('status-content').innerHTML=
-      '<div class="status-row"><span class="status-label">'+t('valid')+'</span><span class="status-value '+cls+'">'+(v?t('status_yes'):t('status_no'))+'</span></div>'+
-      (d.username?'<div class="status-row"><span class="status-label">'+t('username_label')+'</span><span class="status-value valid">'+d.username+'</span></div>':'')+
-      '<div class="status-row"><span class="status-label">'+t('expires')+'</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'">'+exp+'</span></div>'+
-      '<div class="status-row"><span class="status-label">'+t('remaining')+'</span><span class="status-value '+(v&&d.seconds_remaining<600?'warn':'')+'"><span id="remaining-sec">'+fmtSec(d.seconds_remaining)+'</span></span></div>'+
-      '<div class="status-row"><span class="status-label">'+t('auto_refresh_label')+'</span><span class="status-value '+(d.auto_refresh?'valid':'warn')+'">'+(d.auto_refresh?t('status_yes'):t('status_no'))+'</span></div>'+
-      (d.error?'<div class="status-row"><span class="status-label">'+t('error')+'</span><span class="status-value invalid">'+d.error+'</span></div>':'');
+    const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
+    const warnCls=(v&&d.seconds_remaining<600)?'warn':'';
+    let html='';
+    // 1. 用户名
+    if(d.username)html+=row(t('username_label'),d.username,'valid');
+    // 2. 登录 (chromium)
+    if(c.chromium_running===false){
+      html+=row(t('login'),t('chromium_not_running'),'invalid');
+    }else if(c.chromium_running){
+      html+=row(t('login'),c.logged_in?t('logged_in'):t('not_logged_in'),c.logged_in?'valid':'warn');
+    }
+    const logoutBtn=document.getElementById('btn-logout');
+    if(logoutBtn)logoutBtn.style.display=c.logged_in?'inline-block':'none';
+    // 3. 有效
+    html+=row(t('valid'),v?t('status_yes'):t('status_no'),cls);
+    // 4. 过期时间
+    html+=row(t('expires'),exp,warnCls);
+    // 5. 剩余
+    html+=row(t('remaining'),'<span id="remaining-sec">'+fmtSec(d.seconds_remaining)+'</span>',warnCls);
+    // 6. 自动刷新
+    html+=row(t('auto_refresh_label'),d.auto_refresh?t('status_yes'):t('status_no'),d.auto_refresh?'valid':'warn');
+    // 7. 标题 (chromium)
+    if(c.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+c.title+'</span></div>';
+    // 8. 页面 (chromium)
+    if(c.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+c.url+'</span></div>';
+    // 9. 错误
+    if(d.error)html+=row(t('error'),d.error,'invalid');
+    document.getElementById('status-content').innerHTML=html;
     startCountdown(d.seconds_remaining||0);
     updateRefreshBtn(d.auto_refresh);
   }catch(e){
@@ -1544,30 +1621,9 @@ async function loadStatus(){
   }
 }
 
-async function loadChromiumStatus(){
-  try{
-    const r=await fetch('/admin/chromium/login-status',{credentials:'include'});
-    if(r.status===401){showInlineLogin();return}
-    const d=await r.json();
-    if(!d.chromium_running){
-      document.getElementById('chromium-status').innerHTML='<div class="status-row"><span class="status-label">Chromium</span><span class="status-value invalid">'+t('chromium_not_running')+'</span></div>';
-      const logoutBtn=document.getElementById('btn-logout');
-      if(logoutBtn)logoutBtn.style.display='none';
-      return;
-    }
-    const logCls=d.logged_in?'valid':('warn');
-    const logText=d.logged_in?t('logged_in'):t('not_logged_in');
-    let html='<div class="status-row"><span class="status-label">'+t('login')+'</span><span class="status-value '+logCls+'">'+logText+'</span></div>';
-    // Show/hide logout button based on login status
-    const logoutBtn=document.getElementById('btn-logout');
-    if(logoutBtn)logoutBtn.style.display=d.logged_in?'inline-block':'none';
-    if(d.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+d.url+'</span></div>';
-    if(d.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+d.title+'</span></div>';
-    document.getElementById('chromium-status').innerHTML=html;
-  }catch(e){
-    document.getElementById('chromium-status').innerHTML='<span class="invalid">Failed to load</span>';
-  }
-}
+// Kept as a thin alias so existing init/interval calls still work; loadStatus now
+// renders both token and chromium status together in the required order.
+async function loadChromiumStatus(){return loadStatus()}
 
 function fmtSec(s){
   if(!s&&s!==0)return'N/A';
@@ -1680,6 +1736,7 @@ loadStatus();
 loadChromiumStatus();
 loadCallLog();
 loadCapture();
+loadTone();
 setInterval(loadStatus,60000);
 setInterval(loadChromiumStatus,60000);
 setInterval(loadCallLog,5000);
@@ -1789,6 +1846,32 @@ async function loadCapture(){
         '</div>';
     }
     el.innerHTML=html;
+  }catch(e){}
+}
+async function loadTone(){
+  try{
+    const r=await fetch('/admin/tone',{credentials:'include'});
+    if(r.status===401){return}
+    const d=await r.json();
+    const sel=document.getElementById('tone-select');
+    if(!sel)return;
+    const cur=d.tone||'Magic';
+    const opts=d.options||[];
+    // Skip re-render if unchanged (avoids resetting an open dropdown)
+    const sig=JSON.stringify(opts)+'|'+cur;
+    if(sig===window.__toneSig)return;
+    window.__toneSig=sig;
+    sel.innerHTML=opts.map(o=>'<option value="'+o.value+'"'+(o.value===cur?' selected':'')+'>'+o.label+'</option>').join('');
+    sel.onchange=()=>saveTone(sel.value);
+  }catch(e){}
+}
+async function saveTone(tone){
+  try{
+    const r=await fetch('/admin/tone',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone})});
+    if(!r.ok)return;
+    window.__toneSig='';
+    const s=document.getElementById('tone-saved');
+    if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
   }catch(e){}
 }
 </script>

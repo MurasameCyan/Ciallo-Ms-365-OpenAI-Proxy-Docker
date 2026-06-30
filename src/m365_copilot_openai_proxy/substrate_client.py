@@ -83,7 +83,7 @@ class SubstrateCopilotError(RuntimeError):
 
 
 class SubstrateCopilotClient:
-    def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai"):
+    def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic"):
         if not access_token:
             raise SubstrateCopilotError(
                 "M365_ACCESS_TOKEN is missing. Start the debug Edge window and let startup token capture complete, "
@@ -91,6 +91,7 @@ class SubstrateCopilotClient:
             )
         self._token = access_token
         self._time_zone = time_zone
+        self._tone = tone or "Magic"
         try:
             claims = decode_jwt_payload(access_token)
         except Exception as exc:
@@ -182,7 +183,7 @@ class SubstrateCopilotClient:
                 },
                 "plugins": [{"Id": "BingWebSearch", "Source": "BuiltIn"}],
                 "isSbsSupported": True,
-                "tone": "Magic",
+                "tone": self._tone,
                 "renderReferencesBehindEOS": True,
             }],
             "invocationId": "0",

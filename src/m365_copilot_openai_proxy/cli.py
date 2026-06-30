@@ -225,14 +225,17 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
     await ws.send(json.dumps({"id": 2, "method": "Network.enable"}))
     # First try: reload the page — Copilot reconnects WebSocket on page load
     await ws.send(json.dumps({"id": 3, "method": "Page.reload", "params": {"ignoreCache": True}}))
-    deadline = asyncio.get_running_loop().time() + 15
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    deadline = start + 15
+    nudge_after = start + 2  # give reload ~2s to auto-reconnect, then nudge instead of idly waiting 5s
     nudge_sent = False
-    while asyncio.get_running_loop().time() < deadline:
+    while loop.time() < deadline:
         try:
-            raw = await asyncio.wait_for(ws.recv(), timeout=1)
+            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
         except asyncio.TimeoutError:
-            # After 5 seconds of no WebSocket, simulate real keyboard typing
-            if not nudge_sent and asyncio.get_running_loop().time() > deadline - 10:
+            # Once the page has had a brief chance to auto-reconnect, simulate real typing
+            if not nudge_sent and loop.time() >= nudge_after:
                 nudge_sent = True
                 # Focus input box via JS
                 await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
@@ -252,8 +255,8 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
                     "params": {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"}
                 }))
                 await asyncio.sleep(0.1)
-                # Wait and check if WebSocket appears; if not, try Enter after 2s
-                await asyncio.sleep(2)
+                # Brief pause to let the WebSocket appear before clearing the char
+                await asyncio.sleep(0.5)
                 # Select all + delete to clear the character without sending
                 await ws.send(json.dumps({
                     "id": 14, "method": "Input.dispatchKeyEvent",
