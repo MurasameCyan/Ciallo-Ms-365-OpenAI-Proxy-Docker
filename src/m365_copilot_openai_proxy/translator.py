@@ -113,6 +113,15 @@ def translate_openai_request(request: OpenAIChatRequest) -> TranslatedRequest:
                 message.tool_call_id,
             )
             transcript_lines.append(f"Tool: {text}")
+            # If this tool result is the last message (agentic loop: the host executed
+            # a tool and sent the result back with no trailing user turn), synthesize a
+            # continuation prompt so the model keeps going instead of erroring out.
+            if is_last:
+                prompt = (
+                    "The tool action you requested has been executed by the host and the "
+                    "result is shown above. Continue the task: if more actions are needed, "
+                    "emit the next tool_call; otherwise give the user your final answer."
+                )
             continue
 
         text = flatten_content(message.content).strip()
@@ -129,6 +138,11 @@ def translate_openai_request(request: OpenAIChatRequest) -> TranslatedRequest:
             if text:
                 tool_call_texts.insert(0, f"Assistant: {text}")
             transcript_lines.append("\n".join(tool_call_texts))
+            if is_last:
+                prompt = (
+                    "Continue the task based on the conversation above. If more actions "
+                    "are needed, emit the next tool_call; otherwise give your final answer."
+                )
             continue
 
         if not text:

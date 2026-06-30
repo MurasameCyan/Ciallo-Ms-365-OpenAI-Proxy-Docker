@@ -103,6 +103,47 @@ def _extract_tool_calls(text: str) -> list[dict]:
     return calls
 
 
+# Prose fallback: model writes "save as `<path>`" then a fenced code block,
+# instead of emitting a tool_call. Detect a file path (with extension) followed
+# by the first fenced code block, and synthesize a Write tool_call.
+_PROSE_PATH_RE = _re.compile(
+    r"`([A-Za-z]:[\\/][^`\n]+?\.[A-Za-z0-9]{1,8}|/[^`\n]+?\.[A-Za-z0-9]{1,8})`"
+)
+_PROSE_CODE_RE = _re.compile(r"```[A-Za-z0-9_+\-]*\s*\n(.*?)```", _re.DOTALL)
+
+
+def _extract_prose_write(text: str, tool_names: set[str]) -> list[dict]:
+    """Fallback: synthesize a Write tool_call from a 'save as <path>' + code block prose.
+
+    Only triggers when a Write-like tool is available and the model produced a file
+    path (with extension) followed by a fenced code block.
+    """
+    if not any(n.lower() == "write" for n in tool_names):
+        return []
+    path_m = _PROSE_PATH_RE.search(text)
+    if not path_m:
+        return []
+    file_path = path_m.group(1).strip()
+    # First fenced code block that appears after the path mention
+    code_m = _PROSE_CODE_RE.search(text, path_m.end())
+    if not code_m:
+        # Try a code block before the path as a fallback
+        code_m = _PROSE_CODE_RE.search(text)
+        if not code_m:
+            return []
+    content = code_m.group(1)
+    # Trim a single trailing newline that fenced blocks usually carry
+    if content.endswith("\n"):
+        content = content[:-1]
+    write_name = next((n for n in tool_names if n.lower() == "write"), "Write")
+    arguments = json.dumps({"file_path": file_path, "content": content}, ensure_ascii=False)
+    return [{
+        "id": f"call_{uuid.uuid4().hex[:24]}",
+        "type": "function",
+        "function": {"name": write_name, "arguments": arguments},
+    }]
+
+
 def _strip_tool_call_blocks(text: str) -> str:
     """Remove tool_call code blocks from text, keeping surrounding content."""
     cleaned = _TOOL_CALL_RE.sub("", text)
@@ -712,6 +753,7 @@ def create_app(
                             session,
                             call_log=app.state.call_log,
                             call_record=call_record,
+                            tool_names={t.function.name for t in request.tools if t.function},
                         ),
                         media_type="text/event-stream",
                     )
@@ -733,6 +775,12 @@ def create_app(
 
         # If request included tools, parse model output for tool_call blocks
         tool_calls = _extract_tool_calls(text) if request.tools else []
+        if not tool_calls and request.tools:
+            # Prose fallback: model described "save as <path>" + code block
+            tool_names = {t.function.name for t in request.tools if t.function}
+            tool_calls = _extract_prose_write(text, tool_names)
+            if tool_calls:
+                _log.info("  prose fallback synthesized Write tool_call")
         _log.info("[/v1/chat/completions] response len=%d tool_calls=%d", len(text), len(tool_calls))
         if tool_calls:
             _log.info("  parsed tool_calls: %s", [tc["function"]["name"] for tc in tool_calls])
@@ -918,6 +966,7 @@ async def _openai_stream_with_tools(
     session: PersistentSession | None = None,
     call_log: list | None = None,
     call_record: dict | None = None,
+    tool_names: set | None = None,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream."""
     _log = logging.getLogger("copilot_proxy")
@@ -927,6 +976,11 @@ async def _openai_stream_with_tools(
     full_text = "".join(chunks)
 
     tool_calls = _extract_tool_calls(full_text)
+    if not tool_calls and tool_names:
+        # Prose fallback: model described "save as <path>" + code block
+        tool_calls = _extract_prose_write(full_text, tool_names)
+        if tool_calls:
+            _log.info("  prose fallback synthesized Write tool_call")
     _log.info("[stream_with_tools] full_text len=%d tool_calls=%d", len(full_text), len(tool_calls))
     if tool_calls:
         _log.info("  parsed tool_calls: %s", [tc["function"]["name"] for tc in tool_calls])
@@ -1206,7 +1260,7 @@ const i18n={
     no_calls_yet:'暂无调用记录',
     tool_calls_parsed:'解析出工具调用',
     view_raw:'查看原文',
-    copy:'复制',copied:'已复制',
+    copy:'复制',copied:'已复制',copy_record:'复制整条',
   },
   en:{
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -1235,7 +1289,7 @@ const i18n={
     no_calls_yet:'No calls yet',
     tool_calls_parsed:'Parsed tool calls',
     view_raw:'View raw',
-    copy:'Copy',copied:'Copied',
+    copy:'Copy',copied:'Copied',copy_record:'Copy record',
   }
 };
 let lang=localStorage.getItem('lang')||'zh';
@@ -1501,18 +1555,29 @@ async function loadCallLog(){
       const tc=l.tools&&l.tools.length?l.tools.join(', '):'—';
       const tr=l.tool_calls_result&&l.tool_calls_result.length?
         '<span style="color:#22c55e">'+t('tool_calls_parsed')+': '+l.tool_calls_result.join(', ')+'</span>':'';
-      const reprKey='r'+i, textKey='x'+i;
+      const reprKey='r'+i, textKey='x'+i, fullKey='f'+i;
       if(l.response_repr!=null)window.__callTexts[reprKey]=l.response_repr;
       if(l.response_text!=null)window.__callTexts[textKey]=l.response_text;
+      // Full single-record text: call info + repr + text
+      const fullParts=[];
+      fullParts.push('time: '+l.time);
+      fullParts.push('mode: '+(l.stream?'stream':'sync'));
+      fullParts.push('tools: '+tc);
+      if(l.tool_calls_result&&l.tool_calls_result.length)fullParts.push('tool_calls_result: '+l.tool_calls_result.join(', '));
+      if(l.response_len!=null)fullParts.push('resp: '+l.response_len+' chars');
+      if(l.response_repr!=null)fullParts.push('repr:\\n'+l.response_repr);
+      if(l.response_text!=null)fullParts.push('text:\\n'+l.response_text);
+      window.__callTexts[fullKey]=fullParts.join('\\n');
       const copyBtn=(key)=>'<button class="copybtn" id="copybtn-'+key+'" data-key="'+key+'" style="padding:2px 8px;font-size:.65rem;margin-left:6px">'+t('copy')+'</button>';
+      const copyFullBtn='<button class="copybtn" id="copybtn-'+fullKey+'" data-key="'+fullKey+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
       const respView=(l.response_repr||l.response_text)?
         '<details style="margin-top:4px"><summary style="cursor:pointer;color:#64748b;font-size:.75rem;list-style:none">'+t('view_raw')+'</summary>'+
         (l.response_repr?'<div style="display:flex;align-items:center;color:#475569;margin-top:4px;font-size:.7rem">repr:'+copyBtn(reprKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:#0f172a;padding:6px;border-radius:6px;color:#94a3b8;margin-top:2px;font-size:.7rem;max-height:200px;overflow:auto">'+esc(l.response_repr)+'</pre>':'')+
         (l.response_text?'<div style="display:flex;align-items:center;color:#475569;margin-top:4px;font-size:.7rem">text:'+copyBtn(textKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:#0f172a;padding:6px;border-radius:6px;color:#e2e8f0;margin-top:2px;font-size:.7rem;max-height:300px;overflow:auto">'+esc(l.response_text)+'</pre>':'')+
         '</details>':'';
       html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0">'+
-        '<div style="display:flex;justify-content:space-between;color:#94a3b8">'+
-        '<span>'+l.time+'</span><span style="color:#475569">'+(l.stream?'stream':'sync')+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;color:#94a3b8">'+
+        '<span>'+l.time+'</span><span style="display:flex;align-items:center;gap:6px"><span style="color:#475569">'+(l.stream?'stream':'sync')+'</span>'+copyFullBtn+'</span></div>'+
         '<div style="color:#e2e8f0;margin-top:2px">tools: <span style="color:#38bdf8">'+tc+'</span></div>'+
         (tr?'<div style="margin-top:2px">'+tr+'</div>':'')+
         (l.response_len?'<div style="color:#475569;margin-top:2px">resp: '+l.response_len+' chars</div>':'')+
