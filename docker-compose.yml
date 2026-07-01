@@ -1,5 +1,5 @@
 services:
-  ciallo-proxy:
+  ciallo-proxy-multi:
     image: ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:multi
     container_name: ciallo-ms365-proxy-multi
     ports:

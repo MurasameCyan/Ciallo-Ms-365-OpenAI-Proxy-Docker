@@ -28,6 +28,27 @@ from .translator import translate_anthropic_request, translate_openai_request, t
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
 
+# Login credential rules (validated server-side; front-end checks are bypassable).
+# Username: letters + digits only. Password: letters, digits, and a safe symbol
+# subset that excludes quotes/backslash/angle brackets/whitespace so credentials
+# can never break out of JSON, HTML attributes, or shell contexts.
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9]{1,32}$")
+_PASSWORD_RE = re.compile(r"^[A-Za-z0-9!#$%&*+\-.:=?@^_~]{6,64}$")
+
+
+def _validate_username(username: str) -> str | None:
+    """Return an error message if the username is invalid, else None."""
+    if not _USERNAME_RE.match(username):
+        return "Username must be 1-32 chars, letters and digits only"
+    return None
+
+
+def _validate_password(password: str) -> str | None:
+    """Return an error message if the password is invalid, else None."""
+    if not _PASSWORD_RE.match(password):
+        return "Password must be 6-64 chars: letters, digits, and safe symbols (!#$%&*+-.:=?@^_~)"
+    return None
+
 
 def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
     """Auto-detect conversation session from the request messages.
@@ -1005,6 +1026,8 @@ def create_app(
             "tone": k.tone,
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
+            "username": k.username,
+            "has_password": bool(k.password_hash),
             "created_at": k.created_at,
             "updated_at": k.updated_at,
         }
@@ -1103,11 +1126,25 @@ def create_app(
         name = str(body.get("name", "")).strip()
         account_id = str(body.get("account_id", "")).strip()
         tone = str(body.get("tone", "Magic")).strip() or "Magic"
+        username = str(body.get("username", "")).strip()
+        password = str(body.get("password", ""))
         if tone not in _TONE_VALUES:
             return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
         if account_id and app.state.account_store.get(account_id) is None:
             return _json_err(404, "Bound account not found")
-        k = app.state.key_store.add(name=name, account_id=account_id, tone=tone)
+        if username:
+            uerr = _validate_username(username)
+            if uerr:
+                return _json_err(400, uerr)
+            if app.state.key_store.resolve_by_login_username(username) is not None:
+                return _json_err(409, "Username already exists")
+            perr = _validate_password(password)
+            if perr:
+                return _json_err(400, perr)
+        elif password:
+            return _json_err(400, "Password requires a username")
+        k = app.state.key_store.add(name=name, account_id=account_id, tone=tone,
+                                    username=username, password=password)
         return {"status": "ok", "key": _key_public(k)}
 
     @app.post("/admin/keys/{key_id}")
@@ -1138,7 +1175,34 @@ def create_app(
             if not isinstance(body["system_prompt"], str):
                 return _json_err(400, "system_prompt must be a string")
             fields["system_prompt"] = body["system_prompt"][:8000]
+        if "username" in body:
+            uname = str(body["username"]).strip()
+            if uname:
+                uerr = _validate_username(uname)
+                if uerr:
+                    return _json_err(400, uerr)
+                existing = app.state.key_store.resolve_by_login_username(uname)
+                if existing is not None and existing.id != key_id:
+                    return _json_err(409, "Username already exists")
+            fields["username"] = uname
+        if "password" in body:
+            if not isinstance(body["password"], str):
+                return _json_err(400, "password must be a string")
+            if body["password"]:
+                perr = _validate_password(body["password"])
+                if perr:
+                    return _json_err(400, perr)
+                fields["password"] = body["password"]
         k = app.state.key_store.update(key_id, **fields)
+        if k is None:
+            return _json_err(404, "Key not found")
+        return {"status": "ok", "key": _key_public(k)}
+
+    @app.post("/admin/keys/{key_id}/regenerate")
+    async def regenerate_key(key_id: str, request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        k = app.state.key_store.regenerate_key(key_id)
         if k is None:
             return _json_err(404, "Key not found")
         return {"status": "ok", "key": _key_public(k)}
@@ -1163,6 +1227,26 @@ def create_app(
         if not m:
             return None
         return app.state.key_store.resolve(m.group(1).strip())
+
+    @app.post("/user/login")
+    async def user_login(request: Request) -> dict:
+        """Exchange a username + password for the caller's raw API key.
+
+        The user page logs in with credentials (not the raw key). On success we
+        hand back the key so the browser keeps using Bearer auth for /user/* and
+        /v1/* — no change needed downstream.
+        """
+        body = await request.json()
+        username = str(body.get("username", "")).strip()
+        password = str(body.get("password", ""))
+        if not username or not password:
+            return _json_err(400, "Username and password are required", "auth_error")
+        k = app.state.key_store.resolve_by_login(username, password)
+        if k is None:
+            return _json_err(401, "Wrong username or password", "auth_error")
+        if not k.enabled:
+            return _json_err(403, "This account is disabled", "auth_error")
+        return {"status": "ok", "key": k.key, "name": k.name or k.username}
 
     @app.get("/user/me")
     async def user_me(request: Request) -> dict:
@@ -1251,6 +1335,17 @@ def create_app(
         else:
             acc = app.state.account_store.update_token(acc_id, token, token_source="manual")
         return {"status": "ok", "token_status": acc.token_status() if acc else None}
+
+    @app.post("/user/regenerate-key")
+    async def user_regenerate_key(request: Request) -> dict:
+        """Let a user rotate their own API key. The key id (and thus account
+        binding, tone/prompt and session history) is preserved; only the secret
+        changes. The browser keeps the new key and re-authenticates with it."""
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        k = app.state.key_store.regenerate_key(k.id)
+        return {"status": "ok", "key": k.key if k else None}
 
     @app.get("/", response_class=HTMLResponse)
     async def user_page(request: Request) -> str:
@@ -1810,13 +1905,45 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .api-info{margin-top:1rem;padding:.75rem;background:#0f172a;border-radius:8px;font-family:monospace;font-size:.8rem;color:#64748b;line-height:1.6}
 a{color:#06b6d4;text-decoration:none}
 a:hover{text-decoration:underline}
+/* ---- multi-tenant sidebar layout ---- */
+body{padding:0}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:220px;flex-shrink:0;background:#111827;border-right:1px solid #1f2937;display:flex;flex-direction:column;padding:1.2rem .8rem;position:sticky;top:0;height:100vh}
+.brand{font-size:1.05rem;font-weight:700;padding:.4rem .6rem 1.2rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.brand span{font-size:11px;-webkit-text-fill-color:#8b5cf6;font-weight:600}
+.nav{display:flex;flex-direction:column;gap:.25rem}
+.nav-item{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;border-radius:10px;color:#94a3b8;cursor:pointer;font-size:.9rem;font-weight:500;transition:all .18s;user-select:none}
+.nav-item:hover{background:#1e293b;color:#e2e8f0;text-decoration:none;transform:translateX(2px)}
+.nav-item.active{background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.22));color:#fff;box-shadow:inset 0 0 0 1px rgba(139,92,246,0.4)}
+.nav-ico{font-size:1.05rem;width:1.4rem;text-align:center}
+.lang-side{margin-top:auto;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.4);color:#e2e8f0;border-radius:20px;padding:.5rem;font-size:.8rem;font-weight:600;letter-spacing:1px}
+.main{flex:1;padding:2rem;overflow-x:hidden}
+.main .container{max-width:820px}
+.main h1{font-size:1.4rem}
+/* view switching: hide all view cards, show active group with fade-in */
+.view-home,.view-users,.view-settings,.view-debug{display:none}
+body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}}
 </style>
 </head>
 <body>
+<div class="layout">
+<aside class="sidebar">
+<div class="brand">Ciallo M365 <span data-i18n="multi_badge">多租户</span></div>
+<nav class="nav">
+<a class="nav-item active" data-nav="home" onclick="switchView('home')"><span class="nav-ico">&#128202;</span><span data-i18n="nav_home">首页总览</span></a>
+<a class="nav-item" data-nav="users" onclick="switchView('users')"><span class="nav-ico">&#128100;</span><span data-i18n="nav_users">用户管理</span></a>
+<a class="nav-item" data-nav="settings" onclick="switchView('settings')"><span class="nav-ico">&#9881;&#65039;</span><span data-i18n="nav_settings">全局设置</span></a>
+<a class="nav-item" data-nav="debug" onclick="switchView('debug')"><span class="nav-ico">&#128295;</span><span data-i18n="nav_debug">调试</span></a>
+</nav>
+<button class="lang-side" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+</aside>
+<main class="main">
 <div class="container">
-<h1>Ciallo Ms-365 OpenAI Proxy <span style="font-size:13px;color:#8b5cf6;font-weight:600" data-i18n="multi_badge">多租户</span> <button id="lang-toggle" onclick="toggleLang()" style="font-size:14px;padding:5px 14px;border:1px solid rgba(139,92,246,0.5);border-radius:20px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));cursor:pointer;vertical-align:middle;margin-left:12px;transition:all .2s;letter-spacing:1px;font-weight:600;line-height:1">&#127760; EN</button></h1>
+<h1 id="view-title" data-i18n="nav_home">首页总览</h1>
 
-<div class="card">
+<div class="card view-home">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <h2 data-i18n="title_accounts" style="margin:0">账户池</h2>
 <button onclick="addAccount()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
@@ -1825,7 +1952,7 @@ a:hover{text-decoration:underline}
 <div id="accounts-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
-<div class="card">
+<div class="card view-users">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <h2 data-i18n="title_keys" style="margin:0">API Key 管理</h2>
 <button onclick="addKey()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建 Key</button>
@@ -1834,7 +1961,7 @@ a:hover{text-decoration:underline}
 <div id="keys-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
-<details class="card">
+<details class="card view-settings">
 <summary style="cursor:pointer;font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_legacy">全局 / 兼容 Token（高级）</span>
 <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
@@ -1854,12 +1981,12 @@ a:hover{text-decoration:underline}
 </div>
 </details>
 
-<div class="card">
+<div class="card view-home">
 <h2 data-i18n="title_status">Token 与 登录状态</h2>
 <div id="status-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
-<div class="card">
+<div class="card view-settings">
 <div style="display:flex;align-items:center;gap:.5rem">
 <h2 data-i18n="title_tone" style="margin:0">对话模式</h2>
 <span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
@@ -1867,7 +1994,7 @@ a:hover{text-decoration:underline}
 </div>
 </div>
 
-<div class="card">
+<div class="card view-settings">
 <details id="tool-prompt-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_tool_prompt">提示词微调</span>
@@ -1885,7 +2012,7 @@ a:hover{text-decoration:underline}
 </details>
 </div>
 
-<div class="card">
+<div class="card view-settings">
 <details id="system-prompt-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_system_prompt">系统级提示词（高级）</span>
@@ -1908,7 +2035,7 @@ a:hover{text-decoration:underline}
 </details>
 </div>
 
-<div class="card">
+<div class="card view-debug">
 <details id="call-log-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_call_log">API 调用记录</span>
@@ -1935,7 +2062,7 @@ a:hover{text-decoration:underline}
 </details>
 </div>
 
-<div class="card">
+<div class="card view-settings">
 <h2 data-i18n="title_quick_start">快速开始</h2>
 <p style="color:#94a3b8;font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
 <strong style="color:#22c55e" data-i18n="qs_recommended">推荐：</strong><span data-i18n="qs_install_script">安装油猴脚本（</span><a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" data-i18n="qs_script_name">一键脚本</a>），<span data-i18n="qs_open_copilot">打开</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>，<span data-i18n="qs_type_trigger">输入内容触发 WebSocket，然后在脚本面板点击</span> <strong data-i18n="qs_push_token">推送 Token</strong>。<br>
@@ -1971,10 +2098,15 @@ POST /v1/messages
 </details>
 </div>
 
+</div>
+</main>
+</div>
+
 <script>
 const i18n={
   zh:{
     multi_badge:'多租户',
+    nav_home:'首页总览',nav_users:'用户管理',nav_settings:'全局设置',nav_debug:'调试',
     title_accounts:'账户池',btn_add_account:'添加账户',
     accounts_hint:'每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。',
     title_keys:'API Key 管理',btn_add_key:'新建 Key',
@@ -1982,6 +2114,10 @@ const i18n={
     title_legacy:'全局 / 兼容 Token（高级）',
     acct_prompt_name:'账户名称（可选）：',acct_prompt_token:'可选：粘贴该账户的 access_token 或 wss:// URL（留空则稍后用 CDP 刷新）：',
     key_prompt_name:'Key 名称（可选，如用户/用途）：',
+    key_prompt_username:'登录用户名（用户用它登录 / 页，可选）：',key_prompt_password:'登录密码：',
+    cred_bad_user:'用户名只能包含英文字母和数字（1-32 位）',cred_bad_pass:'密码 6-64 位，仅限英文字母、数字和安全符号 !#$%&*+-.:=?@^_~',
+    col_login:'登录名',btn_set_login:'设登录',no_login:'未设',
+    btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'推送 Token',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',
@@ -2034,6 +2170,7 @@ const i18n={
   },
   en:{
     multi_badge:'Multi-tenant',
+    nav_home:'Overview',nav_users:'Users',nav_settings:'Settings',nav_debug:'Debug',
     title_accounts:'Account Pool',btn_add_account:'Add Account',
     accounts_hint:'Each account owns an isolated M365 token and Chromium refresh profile. Refresh brings one browser up on demand (serial) and tears it down afterwards.',
     title_keys:'API Key Management',btn_add_key:'New Key',
@@ -2041,6 +2178,10 @@ const i18n={
     title_legacy:'Global / Legacy Token (Advanced)',
     acct_prompt_name:'Account name (optional):',acct_prompt_token:'Optional: paste this account\\u0027s access_token or wss:// URL (leave empty to refresh via CDP later):',
     key_prompt_name:'Key name (optional, e.g. user/purpose):',
+    key_prompt_username:'Login username (user logs into the / page with it, optional):',key_prompt_password:'Login password:',
+    cred_bad_user:'Username must be 1-32 chars, letters and digits only',cred_bad_pass:'Password must be 6-64 chars: letters, digits and safe symbols !#$%&*+-.:=?@^_~',
+    col_login:'Login',btn_set_login:'Set login',no_login:'None',
+    btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Push Token',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',
@@ -2121,8 +2262,22 @@ function applyLang(){
   });
   loadStatus();loadChromiumStatus();loadTone();
   loadAccounts();loadKeys();
+  const vt=document.getElementById('view-title');
+  if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
 }
 applyLang();
+
+// Sidebar view switching: pure front-end, no reload. Persists last view.
+function switchView(view){
+  document.body.setAttribute('data-view',view);
+  localStorage.setItem('admin_view',view);
+  document.querySelectorAll('.nav-item').forEach(el=>{el.classList.toggle('active',el.getAttribute('data-nav')===view)});
+  const vt=document.getElementById('view-title');
+  const map={home:'nav_home',users:'nav_users',settings:'nav_settings',debug:'nav_debug'};
+  const vk=map[view]||'nav_home';
+  if(vt){vt.setAttribute('data-i18n',vk);vt.textContent=(i18n[lang]&&i18n[lang][vk])||vt.textContent}
+}
+switchView(localStorage.getItem('admin_view')||'home');
 
 function showInlineLogin(){
   const curLang=localStorage.getItem('lang')||'zh';
@@ -2389,16 +2544,20 @@ async function loadKeys(){
     __keys=d.keys||[];
     if(!__keys.length){box.innerHTML='<span style="color:#64748b">'+t('no_keys')+'</span>';return}
     let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
-      +'<th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem">'+t('col_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_login')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem">'+t('col_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __keys.forEach(k=>{
       const acc=k.account_id?esc(k.account_name||k.account_id):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
+      const login=k.username?(esc(k.username)+(k.has_password?'':' <span style="color:#f59e0b">('+t('no_login')+')</span>')):('<span style="color:#64748b">'+t('no_login')+'</span>');
       h+='<tr style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
         +'<td style="padding:.4rem">'+esc(k.name||k.id)+'</td>'
+        +'<td style="padding:.4rem;font-size:.78rem">'+login+'</td>'
         +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\')" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button></td>'
         +'<td style="padding:.4rem">'+acc+'</td>'
         +'<td style="padding:.4rem;color:#64748b">'+esc(k.tone)+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">'
+        +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_set_login')+'</button> '
+        +'<button onclick="regenKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_regen_key')+'</button> '
         +'<button onclick="rebindKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_rebind')+'</button> '
         +'<button onclick="toggleKey(\\''+k.id+'\\','+(en?'false':'true')+')" style="font-size:.72rem;padding:3px 8px;background:'+(en?'#b45309':'#059669')+'">'+(en?t('btn_disable'):t('btn_enable'))+'</button> '
         +'<button onclick="delKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
@@ -2408,15 +2567,50 @@ async function loadKeys(){
     box.innerHTML=h;
   }catch(e){}
 }
+// Credential rules mirror the server-side regex (letters/digits for username;
+// letters/digits + safe symbols for password) so users get instant feedback.
+const _USER_RE=/^[A-Za-z0-9]{1,32}$/;
+const _PASS_RE=/^[A-Za-z0-9!#$%&*+\\-.:=?@^_~]{6,64}$/;
+function badCred(username,password){
+  if(username&&!_USER_RE.test(username)){alert(t('cred_bad_user'));return true}
+  if(password&&!_PASS_RE.test(password)){alert(t('cred_bad_pass'));return true}
+  return false;
+}
 async function addKey(){
   const name=prompt(t('key_prompt_name'));
   if(name===null)return;
+  const username=prompt(t('key_prompt_username'))||'';
+  const password=username?(prompt(t('key_prompt_password'))||''):'';
+  if(badCred(username,password))return;
   let account_id='';
   if(__accounts.length){account_id=prompt(t('rebind_prompt')+'\\n'+__accounts.map(a=>a.id+' = '+(a.name||'')).join('\\n'))||''}
   try{
-    const r=await fetch('/admin/keys',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,account_id:account_id})});
+    const r=await fetch('/admin/keys',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,account_id:account_id,username:username,password:password})});
     if(!r.ok){const d=await r.json().catch(()=>({}));alert((d.error&&d.error.message)||'error');return}
     loadKeys();loadAccounts();
+  }catch(e){}
+}
+async function setKeyLogin(id){
+  const username=prompt(t('key_prompt_username'));
+  if(username===null)return;
+  const password=prompt(t('key_prompt_password'));
+  if(password===null)return;
+  if(badCred(username,password))return;
+  try{
+    const r=await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:password})});
+    if(!r.ok){const d=await r.json().catch(()=>({}));alert((d.error&&d.error.message)||'error');return}
+    loadKeys();
+  }catch(e){}
+}
+async function regenKey(id){
+  if(!confirm(t('confirm_regen_key')))return;
+  try{
+    const r=await fetch('/admin/keys/'+id+'/regenerate',{method:'POST',credentials:'include'});
+    if(!r.ok){const d=await r.json().catch(()=>({}));alert((d.error&&d.error.message)||'error');return}
+    const d=await r.json();
+    if(d.key&&d.key.key){try{await navigator.clipboard.writeText(d.key.key)}catch(e){}}
+    alert(t('regen_ok'));
+    loadKeys();
   }catch(e){}
 }
 function copyKey(id){
@@ -2705,8 +2899,9 @@ a{color:#818cf8}
 
   <div id="login-card" class="card">
     <h2 data-i18n="login_title">登录</h2>
-    <div class="hint" data-i18n="login_hint">输入你的 API Key 以管理自己的对话模式、提示词与账户 Token。</div>
-    <input id="apikey" type="password" data-i18n-ph="apikey_ph" placeholder="sk-...">
+    <div class="hint" data-i18n="login_hint">输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。</div>
+    <input id="username" type="text" data-i18n-ph="username_ph" placeholder="用户名" onkeydown="if(event.key==='Enter')doLogin()">
+    <input id="password" type="password" data-i18n-ph="password_ph" placeholder="密码" style="margin-top:.5rem" onkeydown="if(event.key==='Enter')doLogin()">
     <div class="row"><button id="login-btn" onclick="doLogin()" data-i18n="login_btn">登录</button><span id="login-msg" class="msg"></span></div>
   </div>
 
@@ -2742,7 +2937,10 @@ a{color:#818cf8}
     <div class="card">
       <h2 data-i18n="endpoints_title">API 端点</h2>
       <div class="hint">Base URL: <code id="base-url"></code></div>
+      <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_key">复制</button></div>
       <div class="hint" data-i18n="endpoints_hint">在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。</div>
+      <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置我的 API Key</button><span id="regen-msg" class="msg"></span></div>
+      <div class="hint" style="margin-top:.3rem" data-i18n="regen_my_key_hint">重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。</div>
     </div>
   </div>
 </div>
@@ -2751,8 +2949,8 @@ a{color:#818cf8}
 const i18n={
   zh:{
     title:'M365 Copilot 代理 · 用户',
-    login_title:'登录',login_hint:'输入你的 API Key 以管理自己的对话模式、提示词与账户 Token。',
-    apikey_ph:'sk-...',login_btn:'登录',login_failed:'登录失败，请检查 API Key',network_error:'网络错误',
+    login_title:'登录',login_hint:'输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。',
+    username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户与 Token',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',
     push_token_btn:'推送 Token',saved:'已保存',push_ok:'Token 已更新',
@@ -2763,13 +2961,14 @@ const i18n={
     sys_prompt_hint:'覆盖工具调用的基础系统提示词。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。',
     sys_prompt_reset_confirm:'确定要将系统提示词恢复为内置默认吗？当前自定义内容将被清空。',
     endpoints_title:'API 端点',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
+    copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
     logout:'登出',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
     title:'M365 Copilot Proxy · User',
-    login_title:'Login',login_hint:'Enter your API key to manage your own conversation mode, prompts and account token.',
-    apikey_ph:'sk-...',login_btn:'Login',login_failed:'Login failed, check your API key',network_error:'Network error',
+    login_title:'Login',login_hint:'Enter the username and password assigned by the admin to manage your own conversation mode, prompts and account token.',
+    username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account & Token',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',
     push_token_btn:'Push Token',saved:'Saved',push_ok:'Token updated',
@@ -2780,6 +2979,7 @@ const i18n={
     sys_prompt_hint:'Overrides the base system prompt for tool calls. A wrong edit will break tool calling. For advanced debugging only. Leave empty to use the built-in default.',
     sys_prompt_reset_confirm:'Restore the system prompt to the built-in default? Your current custom content will be cleared.',
     endpoints_title:'API Endpoints',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
+    copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
     logout:'Logout',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
@@ -2812,12 +3012,19 @@ function renderToneOptions(){
 }
 function flash(id){const s=document.getElementById(id);if(!s)return;s.textContent=t('saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
 async function doLogin(){
-  const key=document.getElementById('apikey').value.trim();
+  const username=document.getElementById('username').value.trim();
+  const password=document.getElementById('password').value;
   const msg=document.getElementById('login-msg');
-  if(!key)return;
-  localStorage.setItem('user_api_key',key);
-  const ok=await loadMe();
-  if(!ok){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('login_failed');localStorage.removeItem('user_api_key')}
+  if(!username||!password)return;
+  const fail=()=>{msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('login_failed')};
+  try{
+    const r=await fetch('/user/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:password})});
+    if(!r.ok){fail();return}
+    const d=await r.json();
+    localStorage.setItem('user_api_key',d.key);
+    const ok=await loadMe();
+    if(!ok){fail();localStorage.removeItem('user_api_key')}
+  }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
 function logout(){localStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden')}
 async function loadMe(){
@@ -2831,6 +3038,7 @@ async function loadMe(){
     document.getElementById('login-card').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('base-url').textContent=location.origin+'/v1';
+    const mk=document.getElementById('my-key');if(mk)mk.textContent=getKey();
     renderToneOptions();
     document.getElementById('tone').value=d.tone||'Magic';
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
@@ -2849,6 +3057,23 @@ async function loadMe(){
     document.getElementById('account-info').innerHTML=acc;
     return true;
   }catch(e){return false}
+}
+function copyMyKey(){
+  const k=getKey();if(!k)return;
+  navigator.clipboard.writeText(k).then(()=>{const s=document.getElementById('regen-msg');if(s){s.textContent=t('key_copied');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}},()=>{});
+}
+async function regenMyKey(){
+  if(!confirm(t('confirm_regen_my_key')))return;
+  try{
+    const r=await fetch('/user/regenerate-key',{method:'POST',headers:authHeaders()});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d.key){
+      localStorage.setItem('user_api_key',d.key);
+      const mk=document.getElementById('my-key');if(mk)mk.textContent=d.key;
+      const s=document.getElementById('regen-msg');if(s){s.textContent=t('regen_done');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+    }
+  }catch(e){}
 }
 async function pushToken(){
   const token=document.getElementById('acct-token').value.trim();
