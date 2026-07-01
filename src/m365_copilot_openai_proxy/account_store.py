@@ -131,12 +131,12 @@ class AccountStore:
         re-reading their token's JWT claims. Runs once at load; saves if changed."""
         changed = False
         for acc in self._accounts.values():
-            if not acc.email and acc.token:
+            if acc.token:
                 ident_name, email = extract_identity(acc.token)
-                if email:
+                if email and acc.email != email:
                     acc.email = email
                     changed = True
-                if ident_name and not acc.name:
+                if ident_name and acc.name != ident_name:
                     acc.name = ident_name
                     changed = True
         if changed:
@@ -195,7 +195,7 @@ class AccountStore:
             ident_name, email = extract_identity(token)
             if email:
                 acc.email = email
-            if ident_name and not acc.name:
+            if ident_name:
                 acc.name = ident_name
             if token_source is not None:
                 acc.token_source = token_source

@@ -357,6 +357,51 @@ def _update_username_from_token(token: str, state) -> None:
         pass
 
 
+def _load_metrics_history(path: Path) -> list[dict]:
+    """Load the persisted metrics time-series (best-effort, empty on any error)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)][-500:]
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return []
+
+
+def _maybe_snapshot_metrics(app: FastAPI, min_interval: float = 300.0) -> None:
+    """Append a metrics snapshot if enough time has passed since the last one.
+
+    Throttled to `min_interval` seconds and driven by admin polling, so it needs
+    no background task. Keeps the last 500 points and persists best-effort.
+    """
+    now = time.time()
+    if now - getattr(app.state, "metrics_last_snapshot", 0.0) < min_interval:
+        return
+    app.state.metrics_last_snapshot = now
+    keys = app.state.key_store.list()
+    accts = app.state.account_store.list()
+    valid = sum(1 for a in accts if a.token_status().get("valid"))
+    snap = {
+        "ts": now,
+        "users": len(keys),
+        "accounts": len(accts),
+        "enabled_users": sum(1 for k in keys if k.enabled),
+        "valid_accounts": valid,
+        "expired_accounts": len(accts) - valid,
+    }
+    hist = app.state.metrics_history
+    hist.append(snap)
+    if len(hist) > 500:
+        del hist[:-500]
+    try:
+        app.state.metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = app.state.metrics_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(hist, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(app.state.metrics_path)
+    except OSError:
+        pass
+
+
 def create_app(
     settings: Settings | None = None,
     copilot_client_factory: Callable[[], SubstrateCopilotClient] | None = None,
@@ -386,6 +431,12 @@ def create_app(
     )
     app.state.call_log: list[dict] = []  # API call log for web UI display
     app.state.captured_payloads: list[dict] = []  # Substrate chat payloads captured via get_token.js for mode comparison
+    # Metrics time-series for the home dashboard trend chart. Snapshots are taken
+    # lazily (throttled) whenever the admin polls, so no background scheduler is
+    # needed. Persisted so the trend survives restarts.
+    app.state.metrics_path = Path(resolved_settings.token_dir) / "metrics_history.json"
+    app.state.metrics_history: list[dict] = _load_metrics_history(app.state.metrics_path)
+    app.state.metrics_last_snapshot = 0.0
     app.state.auto_refresh_enabled = False  # On-demand: only refresh when /v1/ requests come in
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
     app.state.idle_timeout_minutes = resolved_settings.idle_timeout_minutes
@@ -908,6 +959,40 @@ def create_app(
         if err: return err
         return {"logs": getattr(app.state, 'call_log', [])}
 
+    @app.get("/admin/metrics-history")
+    async def get_metrics_history(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        _maybe_snapshot_metrics(app)  # lazy, throttled snapshot on poll
+        return {"history": getattr(app.state, 'metrics_history', [])}
+
+    @app.get("/admin/stats")
+    async def get_stats(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        now = time.time()
+        logs = getattr(app.state, 'call_log', [])
+        calls_24h = sum(1 for l in logs if (now - l.get("ts", 0)) <= 86400)
+        tone_counts: dict[str, int] = {}
+        for l in logs:
+            tn = l.get("tone") or "Magic"
+            tone_counts[tn] = tone_counts.get(tn, 0) + 1
+        # Soonest-expiring account (valid ones only) for the countdown warning.
+        soonest = None
+        for a in app.state.account_store.list():
+            st = a.token_status()
+            if st.get("valid") and st.get("seconds_remaining") is not None:
+                item = {"name": a.name or a.id, "email": a.email,
+                        "seconds_remaining": st["seconds_remaining"]}
+                if soonest is None or item["seconds_remaining"] < soonest["seconds_remaining"]:
+                    soonest = item
+        return {
+            "calls_total": len(logs),
+            "calls_24h": calls_24h,
+            "tone_counts": tone_counts,
+            "soonest_expiry": soonest,
+        }
+
     @app.post("/admin/capture-payload")
     async def capture_payload(request: Request) -> dict:
         err = _require_admin(request)
@@ -1406,6 +1491,7 @@ def create_app(
         # Record call for web UI
         call_record = {
             "time": time.strftime("%H:%M:%S"),
+            "ts": time.time(),
             "stream": request.stream,
             "tools": [t.function.name for t in request.tools] if request.tools else [],
             "messages": len(request.messages),
@@ -1427,6 +1513,7 @@ def create_app(
             call_record["incremental"] = incremental
             call_record["turn_count"] = session.turn_count if session is not None else None
             _key_obj = getattr(raw_request.state, "api_key_obj", None)
+            call_record["tone"] = (_key_obj.tone if _key_obj is not None else getattr(app.state, 'current_tone', 'Magic')) or 'Magic'
             _system_override = _key_obj.system_prompt if _key_obj is not None else getattr(app.state, 'system_prompt', '')
             translated = translate_openai_request(request, incremental=incremental, system_override=_system_override)
             if request.stream:
@@ -1951,19 +2038,32 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </aside>
 <main class="main">
 <div class="container">
-<h1 id="view-title" data-i18n="nav_home">首页总览</h1>
+<h1 id="view-title" data-i18n="nav_home" style="display:none">首页总览</h1>
 
 <div class="card view-home">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem">
 <h2 data-i18n="dash_title" style="margin:0">运行概览</h2>
 <button onclick="loadKeys();loadAccounts()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
+<div id="dash-warn" class="hide-card" style="margin-bottom:1rem;padding:.6rem .9rem;border-radius:10px;background:#450a0a;border:1px solid #991b1b;color:#fca5a5;font-size:.85rem"></div>
 <div id="dash-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.6rem;margin-bottom:1.1rem"></div>
 <div style="display:flex;gap:1.2rem;flex-wrap:wrap">
 <div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
 <div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_key_status">用户 启用 / 停用</div><div id="dash-donut-key"></div></div>
 <div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_bind_status">用户 绑定 / 未绑定</div><div id="dash-donut-bind"></div></div>
 </div>
+</div>
+
+<div class="card view-home">
+<h2 data-i18n="dash_trend_title" style="margin:0 0 .9rem">趋势</h2>
+<div id="dash-trend"><span style="color:#64748b" data-i18n="dash_no_trend">暂无趋势数据（每 5 分钟采样一次）</span></div>
+</div>
+
+<div class="card view-home">
+<h2 data-i18n="dash_calls_title" style="margin:0 0 .9rem">调用统计</h2>
+<div id="dash-stat-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem;margin-bottom:1rem"></div>
+<div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_tone_share">对话模式占比</div>
+<div id="dash-tone-share"></div>
 </div>
 
 <div class="card view-accounts">
@@ -2143,6 +2243,8 @@ const i18n={
     dash_title:'运行概览',dash_refresh:'刷新',dash_acct_valid:'账户有效 / 过期比',dash_key_status:'用户 启用 / 停用',dash_bind_status:'用户 绑定 / 未绑定',
     dash_kpi_users:'用户数',dash_kpi_accounts:'账户数',dash_kpi_active_users:'启用用户',dash_kpi_valid_accts:'有效账户',dash_kpi_expired_accts:'过期账户',dash_kpi_unbound:'未绑定用户',
     dash_valid:'有效',dash_expired:'过期',dash_bound:'已绑定',
+    dash_trend_title:'趋势',dash_no_trend:'暂无趋势数据（每 5 分钟采样一次）',dash_calls_title:'调用统计',dash_tone_share:'对话模式占比',
+    dash_calls_24h:'近 24h 调用',dash_calls_total:'累计调用',dash_expiry_warn:'账户「{name}」的 Token 将在 {time} 后过期，请尽快刷新。',
     title_accounts:'账户池',btn_add_account:'添加账户',
     accounts_hint:'每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。',
     title_keys:'API Key 管理',btn_add_key:'新建 Key',
@@ -2215,6 +2317,8 @@ const i18n={
     dash_title:'Overview',dash_refresh:'Refresh',dash_acct_valid:'Account valid / expired',dash_key_status:'Users enabled / disabled',dash_bind_status:'Users bound / unbound',
     dash_kpi_users:'Users',dash_kpi_accounts:'Accounts',dash_kpi_active_users:'Enabled users',dash_kpi_valid_accts:'Valid accounts',dash_kpi_expired_accts:'Expired accounts',dash_kpi_unbound:'Unbound users',
     dash_valid:'Valid',dash_expired:'Expired',dash_bound:'Bound',
+    dash_trend_title:'Trend',dash_no_trend:'No trend data yet (sampled every 5 min)',dash_calls_title:'Call Stats',dash_tone_share:'Conversation mode share',
+    dash_calls_24h:'Calls (24h)',dash_calls_total:'Calls total',dash_expiry_warn:'Account "{name}" token expires in {time}. Refresh it soon.',
     title_accounts:'Account Pool',btn_add_account:'Add Account',
     accounts_hint:'Each account owns an isolated M365 token and Chromium refresh profile. Refresh brings one browser up on demand (serial) and tears it down afterwards.',
     title_keys:'API Key Management',btn_add_key:'New Key',
@@ -2572,6 +2676,76 @@ function renderDashboard(){
   const db=document.getElementById('dash-donut-bind');
   if(db)db.innerHTML=donut([{value:keyBound,color:'#38bdf8',label:t('dash_bound')},{value:keyUnbound,color:'#f59e0b',label:t('unbound')}],t('dash_kpi_users'),keys.length);
 }
+// ---- trend line chart (multi-series SVG) ----
+function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
+function lineChart(points,series){
+  // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
+  if(!points||points.length<2)return '<span style="color:#64748b">'+t('dash_no_trend')+'</span>';
+  const W=760,H=200,pl=36,pr=12,pt=12,pb=24;
+  const xs=points.map(p=>p.ts);
+  const xmin=Math.min.apply(null,xs),xmax=Math.max.apply(null,xs);
+  let ymax=1;series.forEach(s=>points.forEach(p=>{if((p[s.key]||0)>ymax)ymax=p[s.key]}));
+  const X=t=>pl+(xmax===xmin?0:(t-xmin)/(xmax-xmin))*(W-pl-pr);
+  const Y=v=>pt+(1-v/ymax)*(H-pt-pb);
+  let g='';
+  // horizontal gridlines + y labels (0, mid, max)
+  [0,0.5,1].forEach(f=>{const v=Math.round(ymax*f);const y=Y(v);g+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="#1f2937"/><text x="'+(pl-6)+'" y="'+(y+3)+'" text-anchor="end" fill="#64748b" font-size="10">'+v+'</text>'});
+  series.forEach(s=>{
+    let d='';points.forEach((p,i)=>{d+=(i?' L':'M')+X(p.ts).toFixed(1)+' '+Y(p[s.key]||0).toFixed(1)});
+    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2"/>';
+  });
+  // x labels: first + last time
+  const tf=ts=>new Date(ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  g+='<text x="'+pl+'" y="'+(H-6)+'" fill="#64748b" font-size="10">'+tf(xmin)+'</text>';
+  g+='<text x="'+(W-pr)+'" y="'+(H-6)+'" text-anchor="end" fill="#64748b" font-size="10">'+tf(xmax)+'</text>';
+  let legend='<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:.5rem">';
+  series.forEach(s=>{legend+='<span style="display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:#cbd5e1"><span style="width:14px;height:3px;background:'+s.color+';display:inline-block;border-radius:2px"></span>'+s.label+'</span>'});
+  legend+='</div>';
+  return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto">'+g+'</svg>'+legend;
+}
+async function loadTrend(){
+  const box=document.getElementById('dash-trend');if(!box)return;
+  try{
+    const r=await fetch('/admin/metrics-history',{credentials:'include'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const h=(d.history||[]).map(p=>({ts:p.ts,users:p.users,accounts:p.accounts,valid_accounts:p.valid_accounts}));
+    box.innerHTML=lineChart(h,[
+      {key:'users',color:'#38bdf8',label:t('dash_kpi_users')},
+      {key:'accounts',color:'#a78bfa',label:t('dash_kpi_accounts')},
+      {key:'valid_accounts',color:'#22c55e',label:t('dash_kpi_valid_accts')}
+    ]);
+  }catch(e){}
+}
+async function loadStats(){
+  const kpi=document.getElementById('dash-stat-kpi');
+  try{
+    const r=await fetch('/admin/stats',{credentials:'include'});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(kpi)kpi.innerHTML=kpiCard(t('dash_calls_24h'),d.calls_24h||0,'#38bdf8')+kpiCard(t('dash_calls_total'),d.calls_total||0,'#a78bfa');
+    // tone share as horizontal bars
+    const tc=d.tone_counts||{};const total=Object.values(tc).reduce((s,v)=>s+v,0);
+    const share=document.getElementById('dash-tone-share');
+    if(share){
+      if(!total){share.innerHTML='<span style="color:#64748b">'+t('no_calls_yet')+'</span>'}
+      else{
+        const pal=['#38bdf8','#a78bfa','#22c55e','#f59e0b','#ef4444','#06b6d4','#e879f9'];
+        const ents=Object.entries(tc).sort((a,b)=>b[1]-a[1]);
+        share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:#cbd5e1"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:#0f172a;border-radius:4px;overflow:hidden;margin-top:2px"><div style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
+      }
+    }
+    // soonest-expiry warning
+    const warn=document.getElementById('dash-warn');
+    if(warn){
+      const s=d.soonest_expiry;
+      if(s&&s.seconds_remaining<3600){
+        warn.classList.remove('hide-card');
+        warn.innerHTML='&#9888; '+t('dash_expiry_warn').replace('{name}',esc(s.name)).replace('{time}',fmtClock(s.seconds_remaining));
+      }else{warn.classList.add('hide-card')}
+    }
+  }catch(e){}
+}
 let __accounts=[];
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
@@ -2621,7 +2795,7 @@ async function loadAccounts(){
       const badge='<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:'+(valid?'#065f46':'#7f1d1d')+';color:'+(valid?'#d1fae5':'#fee2e2')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid #334155;cursor:pointer;'+(sel?'background:#0f2942':'')+'">'
-        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:#64748b;font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:#475569;font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' key</div></td>'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:#64748b;font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:#475569;font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
         +'<td style="padding:.4rem;color:#64748b">'+esc(a.token_source)+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
@@ -2855,10 +3029,14 @@ loadToolPrompt();
 loadSystemPrompt();
 loadAccounts();
 loadKeys();
+loadTrend();
+loadStats();
 setInterval(loadStatus,60000);
 setInterval(loadChromiumStatus,60000);
 setInterval(loadCallLog,5000);
 setInterval(loadCapture,5000);
+setInterval(loadTrend,60000);
+setInterval(loadStats,30000);
 
 // Client-side countdown timer
 let _countdownSec=0;
@@ -3132,31 +3310,40 @@ code{color:#818cf8}
     </div>
 
     <div class="card">
-      <h2 data-i18n="tone_title">对话模式</h2>
-      <div class="row"><select id="tone" onchange="saveTone()"></select><span id="tone-msg" class="msg"></span></div>
-    </div>
-
-    <div class="card">
-      <h2 data-i18n="tool_prompt_title">提示词增强</h2>
-      <div class="hint" data-i18n="tool_prompt_hint">追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。</div>
-      <textarea id="tool-prompt"></textarea>
-      <div class="row"><button onclick="saveToolPrompt()" data-i18n="save">保存</button><span id="tool-msg" class="msg"></span></div>
-    </div>
-
-    <details class="card">
-      <summary style="cursor:pointer;font-weight:600" data-i18n="sys_prompt_title">系统提示词（高级）</summary>
-      <div class="hint" style="margin-top:.6rem" data-i18n="sys_prompt_hint">覆盖工具调用的基础系统提示词。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。</div>
-      <textarea id="sys-prompt"></textarea>
-      <div class="row"><button onclick="saveSysPrompt()" data-i18n="save">保存</button><button class="btn-ghost" onclick="resetSysPrompt()" data-i18n="reset">恢复默认</button><span id="sys-msg" class="msg"></span></div>
-    </details>
-
-    <div class="card">
       <h2 data-i18n="endpoints_title">API 端点</h2>
       <div class="hint">Base URL: <code id="base-url"></code></div>
       <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_key">复制</button></div>
       <div class="hint" data-i18n="endpoints_hint">在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。</div>
       <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置我的 API Key</button><span id="regen-msg" class="msg"></span></div>
       <div class="hint" style="margin-top:.3rem" data-i18n="regen_my_key_hint">重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。</div>
+      <label style="margin-top:1.1rem" data-i18n="tone_title">对话模式</label>
+      <div class="row"><select id="tone" onchange="saveTone()"></select><span id="tone-msg" class="msg"></span></div>
+    </div>
+
+    <div class="card">
+      <h2 data-i18n="prompt_card_title">提示词</h2>
+      <details id="tool-prompt-details" style="cursor:pointer;margin-bottom:.6rem">
+      <summary style="font-size:.95rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+      <span data-i18n="tool_prompt_title">提示词增强</span>
+      <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+      </summary>
+      <div style="margin-top:.75rem">
+      <div class="hint" data-i18n="tool_prompt_hint">追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。</div>
+      <textarea id="tool-prompt"></textarea>
+      <div class="row"><button onclick="saveToolPrompt()" data-i18n="save">保存</button><span id="tool-msg" class="msg"></span></div>
+      </div>
+      </details>
+      <details id="sys-prompt-details" style="cursor:pointer">
+      <summary style="font-size:.95rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+      <span data-i18n="sys_prompt_title">系统提示词（高级）</span>
+      <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+      </summary>
+      <div style="margin-top:.75rem">
+      <div class="hint" data-i18n="sys_prompt_hint">覆盖工具调用的基础系统提示词。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。</div>
+      <textarea id="sys-prompt"></textarea>
+      <div class="row"><button onclick="saveSysPrompt()" data-i18n="save">保存</button><button class="btn-ghost" onclick="resetSysPrompt()" data-i18n="reset">恢复默认</button><span id="sys-msg" class="msg"></span></div>
+      </div>
+      </details>
     </div>
   </div>
 </div>
@@ -3170,7 +3357,7 @@ const i18n={
     account_title:'账户与 Token',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',
     push_token_btn:'推送 Token',saved:'已保存',push_ok:'Token 已更新',
-    tone_title:'对话模式',tool_prompt_title:'提示词增强',
+    tone_title:'对话模式',tool_prompt_title:'提示词增强',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
     sys_prompt_title:'系统提示词（高级）',
@@ -3188,7 +3375,7 @@ const i18n={
     account_title:'Account & Token',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',
     push_token_btn:'Push Token',saved:'Saved',push_ok:'Token updated',
-    tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',
+    tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
     sys_prompt_title:'System Prompt (Advanced)',
