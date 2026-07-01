@@ -573,11 +573,15 @@ def create_app(
         try:
             key_obj = getattr(raw_request.state, "api_key_obj", None)
             account = getattr(raw_request.state, "account", None)
-            # Per-key overrides: bound account's token + the key's own tone /
-            # tool_prompt. Falls back to global app.state when unbound (legacy key).
+            # Per-key overrides: bound account's token + the key's own tone.
+            # Tool prompt: the global app.state.tool_prompt acts as a shared base
+            # that admins set for everyone, and the key's own tool_prompt is
+            # appended on top (global base + user addition).
             token = account.token if account is not None else None
             tone = key_obj.tone if key_obj is not None else None
-            tool_prompt = key_obj.tool_prompt if key_obj is not None else None
+            global_tp = (getattr(app.state, "tool_prompt", "") or "").strip()
+            key_tp = ((key_obj.tool_prompt if key_obj is not None else "") or "").strip()
+            tool_prompt = "\n\n".join(p for p in (global_tp, key_tp) if p) or None
             return app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt)
         except TypeError:
             # Test-injected factory may take no arguments.
@@ -1212,7 +1216,9 @@ def create_app(
         body = await request.json()
         name = str(body.get("name", "")).strip()
         account_id = str(body.get("account_id", "")).strip()
-        tone = str(body.get("tone", "Magic")).strip() or "Magic"
+        # New keys inherit the global default tone (admin's "对话模式（默认）")
+        # unless an explicit tone is provided; the user can override it later.
+        tone = str(body.get("tone", "")).strip() or getattr(app.state, 'current_tone', 'Magic')
         username = str(body.get("username", "")).strip()
         password = str(body.get("password", ""))
         if tone not in _TONE_VALUES:
@@ -1514,7 +1520,10 @@ def create_app(
             call_record["turn_count"] = session.turn_count if session is not None else None
             _key_obj = getattr(raw_request.state, "api_key_obj", None)
             call_record["tone"] = (_key_obj.tone if _key_obj is not None else getattr(app.state, 'current_tone', 'Magic')) or 'Magic'
-            _system_override = _key_obj.system_prompt if _key_obj is not None else getattr(app.state, 'system_prompt', '')
+            # System prompt: the key's own override wins; if the key hasn't set one,
+            # fall back to the global system prompt (admin's "系统提示词（全局）").
+            _key_sp = ((_key_obj.system_prompt if _key_obj is not None else "") or "").strip()
+            _system_override = _key_sp or getattr(app.state, 'system_prompt', '')
             translated = translate_openai_request(request, incremental=incremental, system_override=_system_override)
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
@@ -1915,24 +1924,36 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ciallo Ms-365 OpenAI Proxy</title>
 <style>
+:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--text:#f3f6ff;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.login-box{background:#1e293b;border-radius:14px;padding:2.5rem;width:360px;border:1px solid #334155;text-align:center;position:relative}
-.login-box h1{font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.login-box p{color:#64748b;font-size:.85rem;margin-bottom:1.5rem}
-input{width:100%;padding:.75rem 1rem;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;font-size:.9rem;outline:none;margin-bottom:1rem;transition:border-color .2s}
-input:focus{border-color:#06b6d4}
-button{width:100%;background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.95rem;font-weight:600;cursor:pointer;transition:opacity .2s}
-button:hover{opacity:.85}
-button:disabled{opacity:.5;cursor:not-allowed}
-.msg{padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none}
-.msg.err{display:block;background:#450a0a;color:#ef4444;border:1px solid #991b1b}
-.lang-btn{position:absolute;top:12px;right:12px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.5);color:#e2e8f0;font-size:12px;padding:4px 12px;border-radius:16px;cursor:pointer;font-weight:600;width:auto}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(circle at 20% 20%,rgba(96,242,255,.18),transparent 28%),radial-gradient(circle at 80% 18%,rgba(140,107,255,.22),transparent 24%),radial-gradient(circle at 50% 85%,rgba(255,94,219,.16),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%)}
+.orb{position:fixed;width:340px;height:340px;border-radius:50%;filter:blur(14px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:spin 9s linear infinite,pulse 3.4s ease-in-out infinite;opacity:.5;z-index:0}
+.login-box{position:relative;z-index:2;width:380px;max-width:calc(100vw - 32px);padding:2.6rem;text-align:center;border-radius:28px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,10,24,.76));backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.login-box::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.55),transparent 30%,rgba(255,94,219,.45),rgba(255,215,111,.4));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.9;pointer-events:none}
+.brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgba(96,242,255,.9),rgba(140,107,255,.92));box-shadow:0 0 30px rgba(96,242,255,.4),inset 0 0 22px rgba(255,255,255,.22);overflow:hidden}
+.brand-mark::before,.brand-mark::after{content:"";position:absolute;inset:12px;border-radius:12px;border:1px solid rgba(255,255,255,.34);transform:rotate(16deg)}
+.brand-mark::after{inset:8px;transform:rotate(-12deg);opacity:.58}
+.login-box h1{font-size:1.3rem;margin-bottom:.5rem;letter-spacing:.04em;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.login-box p{color:var(--muted);font-size:.85rem;margin-bottom:1.6rem;letter-spacing:.02em}
+input{width:100%;padding:.8rem 1rem;background:rgba(7,11,27,.7);border:1px solid rgba(255,255,255,.12);border-radius:12px;color:var(--text);font-size:.9rem;outline:none;margin-bottom:1rem;transition:border-color .2s,box-shadow .2s}
+input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
+button{width:100%;color:#050815;border:none;border-radius:12px;padding:.8rem;font-size:.95rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 18px 36px rgba(96,242,255,.28);transition:transform .18s ease,box-shadow .18s ease}
+button:hover{transform:translateY(-2px);box-shadow:0 22px 44px rgba(96,242,255,.4)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.msg{padding:.5rem .75rem;border-radius:10px;font-size:.8rem;margin-top:.75rem;display:none}
+.msg.err{display:block;background:rgba(127,29,29,.5);color:#fecaca;border:1px solid rgba(239,68,68,.5)}
+.lang-btn{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--text);font-size:12px;padding:5px 13px;border-radius:999px;cursor:pointer;font-weight:600;width:auto;box-shadow:none}
+.lang-btn:hover{transform:translateY(-1px)}
+@keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes pulse{50%{scale:1.08;opacity:.68}}
 </style>
 </head>
 <body>
+<div class="orb"></div>
 <div class="login-box">
 <button class="lang-btn" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+<div class="brand-mark" aria-hidden="true"></div>
 <h1>Ciallo Ms-365 OpenAI Proxy</h1>
 <p id="login-desc" data-i18n="login_desc">输入管理员密码以继续</p>
 <input id="pw" type="password" placeholder="API Key / 密码" autofocus onkeydown="if(event.key==='Enter')doLogin()">
@@ -1977,41 +1998,42 @@ _ADMIN_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ciallo Ms-365 OpenAI Proxy</title>
 <style>
+:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:2rem}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;min-height:100vh;padding:2rem;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
 .container{max-width:720px;margin:0 auto}
-h1{font-size:1.5rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.card{background:#1e293b;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid #334155}
-.card h2{font-size:1.1rem;margin-bottom:1rem;color:#e2e8f0}
-.status-row{display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #334155}
+h1{font-size:1.5rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.card{position:relative;background:linear-gradient(180deg,rgba(13,19,45,.78),rgba(7,10,24,.7));border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(16px);box-shadow:0 18px 48px rgba(0,0,0,.36)}
+.card h2{font-size:1.1rem;margin-bottom:1rem;color:#f3f6ff}
+.status-row{display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--line)}
 .status-row:last-child{border:none}
-.status-label{color:#94a3b8;font-size:.9rem}
+.status-label{color:var(--muted);font-size:.9rem}
 .status-value{font-weight:600;font-size:.9rem}
-.valid{color:#22c55e}.invalid{color:#ef4444}.warn{color:#f59e0b}
-textarea{width:100%;height:120px;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
-textarea:focus{outline:none;border-color:#06b6d4}
-button{background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.55rem .9rem;font-size:.8rem;font-weight:600;cursor:pointer;transition:opacity .2s;white-space:nowrap;flex-shrink:0}
-button:hover{opacity:.85}
-button:disabled{opacity:.5;cursor:not-allowed}
+.valid{color:#4ade80}.invalid{color:#f87171}.warn{color:var(--gold)}
+textarea{width:100%;height:120px;background:rgba(7,11,27,.7);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#f3f6ff;padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
+textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14)}
+button{color:#050815;border:none;border-radius:10px;padding:.55rem .9rem;font-size:.8rem;font-weight:700;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease;white-space:nowrap;flex-shrink:0;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22)}
+button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-bar{display:flex;gap:.5rem;margin-bottom:.25rem;flex-wrap:wrap}
-.msg{padding:.6rem 1rem;border-radius:8px;font-size:.85rem;margin-top:.5rem;display:none}
-.msg.ok{display:block;background:#052e16;color:#22c55e;border:1px solid #166534}
-.msg.err{display:block;background:#450a0a;color:#ef4444;border:1px solid #991b1b}
-.api-info{margin-top:1rem;padding:.75rem;background:#0f172a;border-radius:8px;font-family:monospace;font-size:.8rem;color:#64748b;line-height:1.6}
-a{color:#06b6d4;text-decoration:none}
+.msg{padding:.6rem 1rem;border-radius:10px;font-size:.85rem;margin-top:.5rem;display:none}
+.msg.ok{display:block;background:rgba(5,46,22,.6);color:#4ade80;border:1px solid rgba(34,197,94,.4)}
+.msg.err{display:block;background:rgba(69,10,10,.6);color:#fecaca;border:1px solid rgba(239,68,68,.5)}
+.api-info{margin-top:1rem;padding:.75rem;background:rgba(7,11,27,.6);border-radius:10px;font-family:monospace;font-size:.8rem;color:var(--muted);line-height:1.6}
+a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
 /* ---- multi-tenant sidebar layout ---- */
 body{padding:0}
 .layout{display:flex;min-height:100vh}
-.sidebar{width:220px;flex-shrink:0;background:#111827;border-right:1px solid #1f2937;display:flex;flex-direction:column;padding:1.2rem .8rem;position:sticky;top:0;height:100vh}
-.brand{font-size:1.05rem;font-weight:700;padding:.4rem .6rem 1.2rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.brand span{font-size:11px;-webkit-text-fill-color:#8b5cf6;font-weight:600}
+.sidebar{width:220px;flex-shrink:0;background:rgba(6,10,24,.62);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:1.2rem .8rem;position:sticky;top:0;height:100vh;backdrop-filter:blur(16px)}
+.brand{font-size:1.05rem;font-weight:700;padding:.4rem .6rem 1.2rem;background:linear-gradient(135deg,#fff,#8deef7 50%,#ffc6f1);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.brand span{font-size:11px;-webkit-text-fill-color:var(--violet);font-weight:600}
 .nav{display:flex;flex-direction:column;gap:.25rem}
-.nav-item{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;border-radius:10px;color:#94a3b8;cursor:pointer;font-size:.9rem;font-weight:500;transition:all .18s;user-select:none}
-.nav-item:hover{background:#1e293b;color:#e2e8f0;text-decoration:none;transform:translateX(2px)}
-.nav-item.active{background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.22));color:#fff;box-shadow:inset 0 0 0 1px rgba(139,92,246,0.4)}
+.nav-item{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;border-radius:12px;color:var(--muted);cursor:pointer;font-size:.9rem;font-weight:500;transition:all .18s;user-select:none}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#f3f6ff;text-decoration:none;transform:translateX(2px)}
+.nav-item.active{background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.22));color:#fff;box-shadow:inset 0 0 0 1px rgba(140,107,255,.44)}
 .nav-ico{font-size:1.05rem;width:1.4rem;text-align:center}
-.lang-side{margin-top:auto;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.4);color:#e2e8f0;border-radius:20px;padding:.5rem;font-size:.8rem;font-weight:600;letter-spacing:1px}
+.lang-side{margin-top:auto;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#f3f6ff;border-radius:999px;padding:.5rem;font-size:.8rem;font-weight:600;letter-spacing:1px;cursor:pointer}
 .main{flex:1;padding:2rem;overflow-x:hidden}
 .main .container{max-width:820px}
 .main h1{font-size:1.4rem}
@@ -2093,26 +2115,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 <div id="keys-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
-
-<details class="card view-settings">
-<summary style="cursor:pointer;font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
-<span data-i18n="title_legacy">全局 / 兼容 Token（高级）</span>
-<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
-</summary>
-<div style="margin-top:.75rem">
-<h2 data-i18n="title_update_token">更新 Token</h2>
-<p style="color:#64748b;font-size:.85rem;margin-bottom:.75rem" data-i18n="desc_paste_token">粘贴 access_token 值或完整的 wss:// URL</p>
-<textarea id="token-input" placeholder="eyJ0eXAiOiJKV1QiLCJhbGci...&#10;&#10;or full URL:&#10;wss://substrate.office.com/m365Copilot/Chathub/...?access_token=eyJ..."></textarea>
-<div class="btn-bar">
-<button id="btn-update" onclick="updateToken()" data-i18n="btn_update">更新 Token</button>
-<button id="btn-check" onclick="checkLogin()" style="background:linear-gradient(135deg,#f59e0b,#d97706)" data-i18n="btn_check_login">检查登录</button>
-<button id="btn-auto" onclick="autoCapture()" style="background:linear-gradient(135deg,#22c55e,#059669)" data-i18n="btn_auto_capture">自动刷新</button>
-<button id="btn-stop-refresh" onclick="toggleAutoRefresh()" style="display:none"></button>
-<button id="btn-logout" onclick="logoutUser()" style="display:none;background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="btn_logout">登出用户</button>
-</div>
-<div id="update-msg" class="msg"></div>
-</div>
-</details>
 
 <div id="status-card" class="card view-accounts hide-card">
 <h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span> <span id="status-acct-name" style="font-size:.8rem;color:#64748b"></span></h2>
@@ -2257,7 +2259,7 @@ const i18n={
     cred_bad_user:'用户名只能包含英文字母和数字（1-32 位）',cred_bad_pass:'密码 6-64 位，仅限英文字母、数字和安全符号 !#$%&*+-.:=?@^_~',
     kf_create:'创建',kf_cancel:'取消',kf_username_ph:'用户名（选填）',kf_password_ph:'密码（选填，留空则自动生成）',
     key_form_hint:'ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。',network_error:'网络错误',
-    col_login:'登录名',btn_set_login:'设登录',no_login:'未设',
+    col_login:'登录名',btn_set_login:'设置账密',no_login:'未设',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
     col_id:'ID',col_username:'用户名',col_password:'密码',
@@ -2296,16 +2298,16 @@ const i18n={
     title_capture:'模式抓包对比',
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
-    title_tone:'对话模式',
-    tone_hint:'选择 M365 Copilot 的对话模式（模型），立即生效并持久保存。',
+    title_tone:'对话模式（默认）',
+    tone_hint:'设置新建用户的默认对话模式（模型）。此项决定每个新建 Key 的初始模式，用户可在自己的用户页覆盖。立即生效并持久保存。',
     tone_saved:'已保存',
-    title_tool_prompt:'提示词增强',
-    tool_prompt_hint:'追加到工具调用提示词后的自定义指令，用于增强模型的 tool_call 行为。立即生效并持久保存，留空则不追加。',
+    title_tool_prompt:'提示词增强（全局）',
+    tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
     tool_prompt_save:'保存',
     tool_prompt_saved:'已保存',
     prompt_reset:'恢复默认',
-    title_system_prompt:'系统提示词（高级）',
-    system_prompt_hint:'覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。',
+    title_system_prompt:'系统提示词（全局）',
+    system_prompt_hint:'全局系统级提示词：覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则），作用于所有未单独设置系统提示词的用户。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。',
     system_prompt_unlock:'解锁编辑（高级）',
     system_prompt_save:'保存',
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
@@ -2331,7 +2333,7 @@ const i18n={
     cred_bad_user:'Username must be 1-32 chars, letters and digits only',cred_bad_pass:'Password must be 6-64 chars: letters, digits and safe symbols !#$%&*+-.:=?@^_~',
     kf_create:'Create',kf_cancel:'Cancel',kf_username_ph:'Username (optional)',kf_password_ph:'Password (optional, auto-generated if blank)',
     key_form_hint:'ID and API Key are generated automatically. M365 account binding is done by the user pushing a token from the User page.',network_error:'Network error',
-    col_login:'Login',btn_set_login:'Set login',no_login:'None',
+    col_login:'Login',btn_set_login:'Set credentials',no_login:'None',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
     col_id:'ID',col_username:'Username',col_password:'Password',
@@ -2370,16 +2372,16 @@ const i18n={
     title_capture:'Mode Capture Compare',
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
-    title_tone:'Conversation Mode',
-    tone_hint:'Select the M365 Copilot conversation mode (model). Applies immediately and persists across restarts.',
+    title_tone:'Conversation Mode (Default)',
+    tone_hint:'Set the default conversation mode (model) for newly created users. This determines the initial mode of each new key; users can override it on their own page. Applies immediately and persists across restarts.',
     tone_saved:'Saved',
-    title_tool_prompt:'Prompt Enhancement',
-    tool_prompt_hint:'Custom instruction appended after the tool-call prompt to tune the tool_call behavior of the model. Applies immediately and persists across restarts; leave empty to append nothing.',
+    title_tool_prompt:'Prompt Enhancement (Global)',
+    tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
     tool_prompt_save:'Save',
     tool_prompt_saved:'Saved',
     prompt_reset:'Restore default',
-    title_system_prompt:'System Prompt (Advanced)',
-    system_prompt_hint:'Overrides the base system prompt for tool calls (defines the tool_call format and rules). A wrong edit will break tool calling. For advanced debugging only. The dynamic tool list is always appended and is not editable. Leave empty to use the built-in default.',
+    title_system_prompt:'System Prompt (Global)',
+    system_prompt_hint:'Global system prompt: overrides the base system prompt for tool calls (defines the tool_call format and rules) for all users who have not set their own. A wrong edit will break tool calling. For advanced debugging only. The dynamic tool list is always appended and is not editable. Leave empty to use the built-in default.',
     system_prompt_unlock:'Unlock editing (Advanced)',
     system_prompt_save:'Save',
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
@@ -2859,7 +2861,7 @@ async function loadKeys(){
       const uname=k.username?esc(k.username):('<span style="color:#64748b">'+t('no_login')+'</span>');
       const pwd=k.password?('<code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code> <button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button>'):('<span style="color:#64748b">'+t('no_login')+'</span>');
       h+='<tr id="krow-'+k.id+'" style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
-        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#64748b">'+esc(k.id)+'</code></td>'
+        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#64748b">'+esc(k.id.replace(/^key_/,'id_'))+'</code></td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+uname+'</td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+pwd+'</td>'
         +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button></td>'
@@ -3256,32 +3258,33 @@ _USER_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M365 Copilot Proxy - User</title>
 <style>
+:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.5}
+body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;line-height:1.5;min-height:100vh;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
 .wrap{max-width:760px;margin:0 auto;padding:1.5rem 1rem 3rem}
-h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
-.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
-.card h2{font-size:1rem;margin:0 0 .8rem;color:#e2e8f0}
-label{display:block;font-size:.85rem;color:#94a3b8;margin:.6rem 0 .3rem}
-input,select,textarea{width:100%;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s}
-input:focus,select:focus,textarea:focus{outline:none;border-color:#06b6d4}
+.card{position:relative;background:linear-gradient(180deg,rgba(13,19,45,.78),rgba(7,10,24,.7));border:1px solid var(--line);border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(16px);box-shadow:0 18px 48px rgba(0,0,0,.36)}
+.card h2{font-size:1rem;margin:0 0 .8rem;color:#f3f6ff}
+label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .3rem}
+input,select,textarea{width:100%;background:rgba(7,11,27,.7);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#f3f6ff;padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s,box-shadow .2s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
 textarea{resize:vertical;min-height:70px;font-family:monospace}
-button{background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.55rem 1rem;font-size:.85rem;font-weight:600;cursor:pointer;margin-top:.6rem;transition:opacity .2s}
-button:hover{opacity:.85}
-button:disabled{opacity:.5;cursor:not-allowed}
-.btn-ghost{background:#334155;background-image:none}
+button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-size:.85rem;font-weight:700;cursor:pointer;margin-top:.6rem;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22);transition:transform .18s ease,box-shadow .18s ease}
+button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn-ghost{background:rgba(255,255,255,.06);background-image:none;color:#f3f6ff;border:1px solid rgba(255,255,255,.14);box-shadow:none}
 .row{display:flex;gap:.5rem;align-items:center}
 .row>*{margin-top:0}
-.pill{display:inline-block;font-size:.75rem;padding:.15rem .5rem;border-radius:99px;background:#334155;color:#cbd5e1}
-.pill.ok{background:#065f46;color:#d1fae5}
-.pill.bad{background:#7f1d1d;color:#fee2e2}
+.pill{display:inline-block;font-size:.75rem;padding:.15rem .5rem;border-radius:99px;background:rgba(255,255,255,.08);color:#cbd5e1}
+.pill.ok{background:rgba(6,95,70,.6);color:#d1fae5}
+.pill.bad{background:rgba(127,29,29,.6);color:#fee2e2}
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
-.hint{font-size:.8rem;color:#64748b;margin-bottom:.4rem}
+.hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
 .hidden{display:none}
-a{color:#06b6d4;text-decoration:none}
+a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
-code{color:#818cf8}
+code{color:#a5b4fc}
 </style>
 </head>
 <body>
@@ -3316,14 +3319,13 @@ code{color:#818cf8}
       <div class="hint" data-i18n="endpoints_hint">在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。</div>
       <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置我的 API Key</button><span id="regen-msg" class="msg"></span></div>
       <div class="hint" style="margin-top:.3rem" data-i18n="regen_my_key_hint">重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。</div>
-      <label style="margin-top:1.1rem" data-i18n="tone_title">对话模式</label>
-      <div class="row"><select id="tone" onchange="saveTone()"></select><span id="tone-msg" class="msg"></span></div>
+      <label style="margin-top:1.1rem;font-size:1rem;color:#e2e8f0;font-weight:600" data-i18n="tone_title">对话模式</label>
+      <div class="row"><select id="tone" onchange="saveTone()" style="width:150px"></select><span id="tone-msg" class="msg"></span></div>
     </div>
 
     <div class="card">
-      <h2 data-i18n="prompt_card_title">提示词</h2>
-      <details id="tool-prompt-details" style="cursor:pointer;margin-bottom:.6rem">
-      <summary style="font-size:.95rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+      <details id="tool-prompt-details" style="cursor:pointer">
+      <summary style="font-size:1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
       <span data-i18n="tool_prompt_title">提示词增强</span>
       <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
       </summary>
@@ -3333,15 +3335,21 @@ code{color:#818cf8}
       <div class="row"><button onclick="saveToolPrompt()" data-i18n="save">保存</button><span id="tool-msg" class="msg"></span></div>
       </div>
       </details>
+      <hr style="border:none;border-top:1px solid #334155;margin:1.1rem 0">
       <details id="sys-prompt-details" style="cursor:pointer">
-      <summary style="font-size:.95rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+      <summary style="font-size:1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
       <span data-i18n="sys_prompt_title">系统提示词（高级）</span>
       <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
       </summary>
       <div style="margin-top:.75rem">
-      <div class="hint" data-i18n="sys_prompt_hint">覆盖工具调用的基础系统提示词。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。</div>
-      <textarea id="sys-prompt"></textarea>
+      <div class="hint" data-i18n="sys_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。</div>
+      <div id="sys-prompt-locked">
+      <button onclick="unlockSysPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑（高级）</button>
+      </div>
+      <div id="sys-prompt-editor" style="display:none">
+      <textarea id="sys-prompt" style="border-color:#7f1d1d"></textarea>
       <div class="row"><button onclick="saveSysPrompt()" data-i18n="save">保存</button><button class="btn-ghost" onclick="resetSysPrompt()" data-i18n="reset">恢复默认</button><span id="sys-msg" class="msg"></span></div>
+      </div>
       </div>
       </details>
     </div>
@@ -3363,6 +3371,8 @@ const i18n={
     sys_prompt_title:'系统提示词（高级）',
     sys_prompt_hint:'覆盖工具调用的基础系统提示词。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。',
     sys_prompt_reset_confirm:'确定要将系统提示词恢复为内置默认吗？当前自定义内容将被清空。',
+    system_prompt_unlock:'解锁编辑（高级）',
+    system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'API 端点',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
     logout:'登出',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
@@ -3379,8 +3389,10 @@ const i18n={
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
     sys_prompt_title:'System Prompt (Advanced)',
-    sys_prompt_hint:'Overrides the base system prompt for tool calls. A wrong edit will break tool calling. For advanced debugging only. Leave empty to use the built-in default.',
+    sys_prompt_hint:'Overrides the base system prompt for tool calls (defines tool_call format and rules). A wrong edit will break tool calling. For advanced debugging only. Leave empty to use the built-in default.',
     sys_prompt_reset_confirm:'Restore the system prompt to the built-in default? Your current custom content will be cleared.',
+    system_prompt_unlock:'Unlock editing (advanced)',
+    system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'API Endpoints',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
     logout:'Logout',no_account:'No account bound yet. Pushing a token will create one automatically.',
@@ -3493,6 +3505,13 @@ async function saveTone(){
 async function saveToolPrompt(){
   const p=document.getElementById('tool-prompt').value;
   try{await fetch('/user/tool-prompt',{method:'POST',headers:authHeaders(),body:JSON.stringify({tool_prompt:p})});flash('tool-msg')}catch(e){}
+}
+function unlockSysPrompt(){
+  if(!confirm(t('system_prompt_warn')))return;
+  const l=document.getElementById('sys-prompt-locked');
+  const e=document.getElementById('sys-prompt-editor');
+  if(l)l.style.display='none';
+  if(e)e.style.display='block';
 }
 async function saveSysPrompt(){
   const p=document.getElementById('sys-prompt').value;
