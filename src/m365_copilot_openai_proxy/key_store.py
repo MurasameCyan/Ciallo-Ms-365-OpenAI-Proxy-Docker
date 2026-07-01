@@ -40,6 +40,7 @@ class ApiKey:
     password: str = ""  # Stored in plaintext so the admin UI can display it (per admin request).
     password_hash: str = ""
     password_salt: str = ""
+    role: str = "user"  # "user" (self-service only) or "admin" (reserved for elevated rights).
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -99,6 +100,7 @@ class KeyStore:
                     password=raw.get("password", ""),
                     password_hash=raw.get("password_hash", ""),
                     password_salt=raw.get("password_salt", ""),
+                    role=raw.get("role", "user"),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
                 )
@@ -167,7 +169,7 @@ class KeyStore:
 
     def update(self, key_id: str, **fields: Any) -> ApiKey | None:
         """Update mutable fields. Pass password=<str> to (re)set the login password."""
-        allowed = {"name", "account_id", "enabled", "tone", "tool_prompt", "system_prompt", "username"}
+        allowed = {"name", "account_id", "enabled", "tone", "tool_prompt", "system_prompt", "username", "role"}
         with self._lock:
             k = self._keys.get(key_id)
             if k is None:

@@ -151,11 +151,11 @@
             // lightning bolt — Quick Setup (amber)
             bolt: '<svg viewBox="0 0 24 24" width="15" height="15" fill="#f59e0b"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
             // gear — Manual Config (slate blue)
-            gear: '<svg viewBox="0 0 24 24" width="15" height="15" fill="#38bdf8"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4a7 7 0 00-.1-1.2l2-1.6-2-3.5-2.4 1a7 7 0 00-2-1.2l-.4-2.5H9.9l-.4 2.5a7 7 0 00-2 1.2l-2.4-1-2 3.5 2 1.6A7 7 0 003 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.5 2.4-1a7 7 0 002 1.2l.4 2.5h4.2l.4-2.5a7 7 0 002-1.2l2.4 1 2-3.5-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>',
+            gear: '<svg viewBox="0 0 24 24" width="15" height="15" fill="#60f2ff"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4a7 7 0 00-.1-1.2l2-1.6-2-3.5-2.4 1a7 7 0 00-2-1.2l-.4-2.5H9.9l-.4 2.5a7 7 0 00-2 1.2l-2.4-1-2 3.5 2 1.6A7 7 0 003 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.5 2.4-1a7 7 0 002 1.2l.4 2.5h4.2l.4-2.5a7 7 0 002-1.2l2.4 1 2-3.5-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>',
             // crosshair/aperture — Mode Capture (green)
             scope: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#22c55e" stroke-width="2"><circle cx="12" cy="12" r="8"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/><circle cx="12" cy="12" r="2" fill="#22c55e" stroke="none"/></svg>',
             // sparkle/rocket — panel title (sky)
-            spark: '<svg viewBox="0 0 24 24" width="17" height="17" fill="#38bdf8"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2z"/></svg>',
+            spark: '<svg viewBox="0 0 24 24" width="17" height="17" fill="#60f2ff"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2z"/></svg>',
         };
         return '<span style="display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; vertical-align:middle;">' + (svgs[name] || '') + '</span>';
     }
@@ -509,8 +509,8 @@
             const opts = (p.optionsSets || []).join(', ');
             const gpt = p.gptId && Object.keys(p.gptId).length ? JSON.stringify(p.gptId) : '-';
             return `<div style="border-bottom:1px solid #1e293b; padding:6px 0; font-size:10px; line-height:1.5;">
-                <div style="color:#38bdf8;">${p.time} &nbsp; type: <b>${p.frameType}</b> &nbsp; target: <b>${escHtml(p.target)}</b></div>
-                <div style="color:#38bdf8;">tone: <b>${p.tone || '-'}</b> &nbsp; model: <b>${escHtml(p.modelId) || '-'}</b></div>
+                <div style="color:#60f2ff;">${p.time} &nbsp; type: <b>${p.frameType}</b> &nbsp; target: <b>${escHtml(p.target)}</b></div>
+                <div style="color:#60f2ff;">tone: <b>${p.tone || '-'}</b> &nbsp; model: <b>${escHtml(p.modelId) || '-'}</b></div>
                 <div style="color:#94a3b8;">gptId: ${escHtml(gpt)}</div>
                 <div style="color:#64748b; word-break:break-all;">optionsSets: ${escHtml(opts)}</div>
                 <details style="margin-top:3px"><summary style="cursor:pointer; color:#64748b;">raw frame</summary>
@@ -528,19 +528,19 @@
         panel.id = 'm365-token-panel';
         panel.innerHTML = `
             <div style="position:fixed; top:10px; right:10px; z-index:99999;
-                        background:linear-gradient(180deg,#0f172a 0%,#1e293b 100%);
-                        color:#e2e8f0; padding:20px 24px;
-                        border-radius:14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace; font-size:13px;
-                        box-shadow:0 8px 32px rgba(0,0,0,0.6),0 0 0 1px rgba(148,163,184,0.1);
+                        background:linear-gradient(180deg,rgba(13,19,45,0.92) 0%,rgba(7,10,24,0.9) 100%);
+                        color:#f3f6ff; padding:20px 24px;
+                        border-radius:18px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace; font-size:13px;
+                        box-shadow:0 18px 48px rgba(0,0,0,0.55),0 0 0 1px rgba(108,137,255,0.24);
                         max-width:480px; width:calc(100vw - 20px); max-height:90vh; overflow-y:auto;
-                        backdrop-filter:blur(12px);">
-                <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:#38bdf8;
+                        backdrop-filter:blur(16px);">
+                <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:#60f2ff;
                             letter-spacing:0.5px; display:flex; align-items:center; gap:8px;">
                     ${ic('spark')} ${tr('title')}
                     <button id="m365-lang-toggle" style="margin-left:auto; padding:3px 12px; border:1px solid #334155;
-                            border-radius:8px; background:transparent; color:#38bdf8; cursor:pointer;
+                            border-radius:8px; background:transparent; color:#60f2ff; cursor:pointer;
                             font-weight:600; font-size:11px; transition:all 0.2s;"
-                            onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#334155'">
+                            onmouseover="this.style.borderColor='#60f2ff'" onmouseout="this.style.borderColor='#334155'">
                         ${tr('lang_btn')}
                     </button>
                 </div>
@@ -552,11 +552,11 @@
                         style="width:100%; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
                                border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
                                outline:none; transition:border-color 0.2s;"
-                        onfocus="this.style.borderColor='#38bdf8'" onblur="this.style.borderColor='#334155'">
+                        onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
                 </div>
 
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-bottom:8px; display:flex; align-items:center;">
+                    <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:8px; display:flex; align-items:center;">
                         <span style="display:flex; align-items:center;">${ic('bolt')}${tr('quick_setup')}</span>
                         <span style="margin-left:auto; font-weight:500; font-size:10px; display:flex; gap:8px;">
                             <span style="color:${latestToken ? '#22c55e' : '#f59e0b'};">${tr('token')} ${latestToken ? '&#10003;' : '&#9888;'}</span>
@@ -565,7 +565,7 @@
                     </div>
                     <div style="font-size:10px; color:#64748b; margin-bottom:8px;">${tr('quick_setup_desc')}</div>
                     <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#06b6d4,#22c55e); color:#fff;
+                            border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#050815;
                             cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
                             transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
                         &#128640; ${tr('one_click')}
@@ -573,7 +573,7 @@
                 </div>
 
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:12px; color:#38bdf8; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
+                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
 
                     <div style="font-size:11px; color:#94a3b8; margin:10px 0 5px; font-weight:500; display:flex; align-items:center;"><span>${tr('token')}</span><span style="margin-left:auto; color:${latestToken ? '#22c55e' : '#f59e0b'};">${latestToken ? tr('token_captured') : tr('token_not_captured')}</span></div>
                     <div style="display:flex; gap:8px;">
@@ -593,7 +593,7 @@
 
                     <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('cookie_login')}</span><span style="margin-left:auto; color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">${hasGMCookie() ? tr('gm_available') : tr('gm_unavailable')}</span></div>
                     <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#8b5cf6,#7c3aed); color:#fff;
+                            border-radius:8px; background:linear-gradient(135deg,#8c6bff,#7c3aed); color:#fff;
                             cursor:pointer; font-weight:600; font-size:12px;
                             transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
                         &#127850; ${tr('push_cookies')}
@@ -601,7 +601,7 @@
                 </details>
 
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:12px; color:#38bdf8; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
+                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
                     <div style="font-size:10px; color:#64748b; margin:8px 0;">${tr('mode_capture_desc')}</div>
                     <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
                         <span style="color:#475569">${tr('no_capture')}</span>

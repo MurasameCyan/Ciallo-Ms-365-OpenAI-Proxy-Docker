@@ -203,6 +203,19 @@ class AccountStore:
             self._save()
             return acc
 
+    def clear_token(self, acc_id: str) -> Account | None:
+        """Wipe a bound account's token (used by the user "登出 Microsoft" action).
+        The account record itself is kept so the key stays bound; only the M365
+        credential is dropped, forcing a fresh push/sign-in next time."""
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.token = ""
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
     def rename(self, acc_id: str, name: str) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)

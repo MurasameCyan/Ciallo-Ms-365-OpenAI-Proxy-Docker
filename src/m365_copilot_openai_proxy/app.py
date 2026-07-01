@@ -957,6 +957,13 @@ def create_app(
         _login_failures.setdefault(client_ip, []).append(now)
         return JSONResponse({"error": {"message": "Wrong password", "type": "auth_error"}}, status_code=401)
 
+    @app.post("/admin/logout")
+    async def admin_logout(request: Request) -> Response:
+        """Clear the admin_auth cookie so the console requires re-login."""
+        resp = JSONResponse({"status": "ok"})
+        resp.delete_cookie("admin_auth", path="/")
+        return resp
+
     @app.get("/admin/call-log")
     async def get_call_log(request: Request) -> dict:
         err = _require_admin(request)
@@ -1112,6 +1119,7 @@ def create_app(
             "name": k.name,
             "account_id": k.account_id,
             "account_name": acc.name if acc is not None else "",
+            "account_source": acc.token_source if acc is not None else "",
             "enabled": k.enabled,
             "tone": k.tone,
             "tool_prompt": k.tool_prompt,
@@ -1119,6 +1127,7 @@ def create_app(
             "username": k.username,
             "password": k.password,
             "has_password": bool(k.password_hash),
+            "role": k.role,
             "created_at": k.created_at,
             "updated_at": k.updated_at,
         }
@@ -1242,8 +1251,14 @@ def create_app(
                 password = secrets.token_urlsafe(9)
         elif password:
             return _json_err(400, "Password requires a username")
+        role = str(body.get("role", "user")).strip() or "user"
+        if role not in ("user", "admin"):
+            return _json_err(400, "Invalid role. Allowed: user, admin")
         k = app.state.key_store.add(name=name, account_id=account_id, tone=tone,
                                     username=username, password=password)
+        if role != "user":
+            app.state.key_store.update(k.id, role=role)
+            k = app.state.key_store.get(k.id) or k
         return {"status": "ok", "key": _key_public(k)}
 
     @app.post("/admin/keys/{key_id}")
@@ -1292,6 +1307,11 @@ def create_app(
                 if perr:
                     return _json_err(400, perr)
                 fields["password"] = body["password"]
+        if "role" in body:
+            role = str(body["role"]).strip() or "user"
+            if role not in ("user", "admin"):
+                return _json_err(400, "Invalid role. Allowed: user, admin")
+            fields["role"] = role
         k = app.state.key_store.update(key_id, **fields)
         if k is None:
             return _json_err(404, "Key not found")
@@ -1445,6 +1465,18 @@ def create_app(
             return _json_err(401, "Invalid API key", "auth_error")
         k = app.state.key_store.regenerate_key(k.id)
         return {"status": "ok", "key": k.key if k else None}
+
+    @app.post("/user/account/logout")
+    async def user_account_logout(request: Request) -> dict:
+        """Sign the user out of Microsoft: wipe the bound account's M365 token so
+        the credential no longer works until a fresh token is pushed. The account
+        record and key binding are preserved."""
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        if k.account_id and app.state.account_store.get(k.account_id) is not None:
+            app.state.account_store.clear_token(k.account_id)
+        return {"status": "ok"}
 
     @app.get("/", response_class=HTMLResponse)
     async def user_page(request: Request) -> str:
@@ -1998,19 +2030,26 @@ _ADMIN_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ciallo Ms-365 OpenAI Proxy</title>
 <style>
-:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
+:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);
+--bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);
+--text:#f3f6ff;--card:linear-gradient(180deg,rgba(13,19,45,.78),rgba(7,10,24,.7));--surface:rgba(7,11,27,.7);--surface-border:rgba(255,255,255,.12);
+--sidebar:rgba(6,10,24,.62);--nav-hover:rgba(255,255,255,.06);--h1grad:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);--shadow:0 18px 48px rgba(0,0,0,.36);--chip:rgba(255,255,255,.06);--chip-border:rgba(255,255,255,.14)}
+body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);
+--bg:radial-gradient(circle at 18% 12%,rgba(96,180,242,.16),transparent 28%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.14),transparent 26%),radial-gradient(circle at 50% 92%,rgba(255,150,220,.12),transparent 28%),linear-gradient(135deg,#eef2fb 0%,#e6ecf7 45%,#eaf0f9 100%);
+--text:#1f2740;--card:linear-gradient(180deg,rgba(255,255,255,.9),rgba(244,247,253,.82));--surface:rgba(255,255,255,.85);--surface-border:rgba(99,102,180,.28);
+--sidebar:rgba(255,255,255,.72);--nav-hover:rgba(99,102,180,.1);--h1grad:linear-gradient(135deg,#0e7490,#7c3aed 60%,#db2777);--shadow:0 16px 40px rgba(80,100,160,.16);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;min-height:100vh;padding:2rem;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);min-height:100vh;padding:2rem;background:var(--bg);transition:color .25s,background .25s}
 .container{max-width:720px;margin:0 auto}
-h1{font-size:1.5rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.card{position:relative;background:linear-gradient(180deg,rgba(13,19,45,.78),rgba(7,10,24,.7));border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(16px);box-shadow:0 18px 48px rgba(0,0,0,.36)}
-.card h2{font-size:1.1rem;margin-bottom:1rem;color:#f3f6ff}
+h1{font-size:1.5rem;margin-bottom:1.5rem;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.card{position:relative;background:var(--card);border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(16px);box-shadow:var(--shadow)}
+.card h2{font-size:1.1rem;margin-bottom:1rem;color:var(--text)}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--line)}
 .status-row:last-child{border:none}
 .status-label{color:var(--muted);font-size:.9rem}
 .status-value{font-weight:600;font-size:.9rem}
-.valid{color:#4ade80}.invalid{color:#f87171}.warn{color:var(--gold)}
-textarea{width:100%;height:120px;background:rgba(7,11,27,.7);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#f3f6ff;padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
+.valid{color:#3fb970}.invalid{color:#e08a8a}.warn{color:#c99a3a}
+textarea{width:100%;height:120px;background:var(--surface);border:1px solid var(--surface-border);border-radius:10px;color:var(--text);padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
 textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14)}
 button{color:#050815;border:none;border-radius:10px;padding:.55rem .9rem;font-size:.8rem;font-weight:700;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease;white-space:nowrap;flex-shrink:0;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22)}
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
@@ -2019,21 +2058,32 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .msg{padding:.6rem 1rem;border-radius:10px;font-size:.85rem;margin-top:.5rem;display:none}
 .msg.ok{display:block;background:rgba(5,46,22,.6);color:#4ade80;border:1px solid rgba(34,197,94,.4)}
 .msg.err{display:block;background:rgba(69,10,10,.6);color:#fecaca;border:1px solid rgba(239,68,68,.5)}
-.api-info{margin-top:1rem;padding:.75rem;background:rgba(7,11,27,.6);border-radius:10px;font-family:monospace;font-size:.8rem;color:var(--muted);line-height:1.6}
+body[data-theme="light"] .msg.ok{background:rgba(220,252,231,.8);color:#15803d;border-color:rgba(34,197,94,.35)}
+body[data-theme="light"] .msg.err{background:rgba(254,226,226,.8);color:#b91c1c;border-color:rgba(239,68,68,.35)}
+.api-info{margin-top:1rem;padding:.75rem;background:var(--surface);border-radius:10px;font-family:monospace;font-size:.8rem;color:var(--muted);line-height:1.6}
 a{color:var(--cyan);text-decoration:none}
+body[data-theme="light"] a{color:#0e7490}
 a:hover{text-decoration:underline}
 /* ---- multi-tenant sidebar layout ---- */
 body{padding:0}
 .layout{display:flex;min-height:100vh}
-.sidebar{width:220px;flex-shrink:0;background:rgba(6,10,24,.62);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:1.2rem .8rem;position:sticky;top:0;height:100vh;backdrop-filter:blur(16px)}
-.brand{font-size:1.05rem;font-weight:700;padding:.4rem .6rem 1.2rem;background:linear-gradient(135deg,#fff,#8deef7 50%,#ffc6f1);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sidebar{width:220px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:1.2rem .8rem;position:sticky;top:0;height:100vh;backdrop-filter:blur(16px);transition:width .22s ease,padding .22s ease}
+.brand{font-size:1.05rem;font-weight:700;padding:.4rem .6rem 1.2rem;white-space:nowrap;overflow:hidden;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .brand span{font-size:11px;-webkit-text-fill-color:var(--violet);font-weight:600}
 .nav{display:flex;flex-direction:column;gap:.25rem}
-.nav-item{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;border-radius:12px;color:var(--muted);cursor:pointer;font-size:.9rem;font-weight:500;transition:all .18s;user-select:none}
-.nav-item:hover{background:rgba(255,255,255,.06);color:#f3f6ff;text-decoration:none;transform:translateX(2px)}
-.nav-item.active{background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.22));color:#fff;box-shadow:inset 0 0 0 1px rgba(140,107,255,.44)}
-.nav-ico{font-size:1.05rem;width:1.4rem;text-align:center}
-.lang-side{margin-top:auto;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#f3f6ff;border-radius:999px;padding:.5rem;font-size:.8rem;font-weight:600;letter-spacing:1px;cursor:pointer}
+.nav-item{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;border-radius:12px;color:var(--muted);cursor:pointer;font-size:.9rem;font-weight:500;transition:all .18s;user-select:none;white-space:nowrap;overflow:hidden}
+.nav-item:hover{background:var(--nav-hover);color:var(--text);text-decoration:none;transform:translateX(2px)}
+.nav-item.active{background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.22));color:var(--text);box-shadow:inset 0 0 0 1px rgba(140,107,255,.44)}
+.nav-ico{font-size:1.05rem;width:1.4rem;text-align:center;flex-shrink:0}
+.side-tools{margin-top:auto;display:flex;gap:.4rem;align-items:center;justify-content:center;flex-wrap:wrap;padding-top:1rem}
+.icon-btn{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:transform .16s ease,background .16s ease}
+.icon-btn:hover{transform:translateY(-2px);background:var(--nav-hover)}
+/* ---- collapsed sidebar ---- */
+body[data-collapsed="1"] .sidebar{width:64px;padding:1.2rem .5rem}
+body[data-collapsed="1"] .brand span,body[data-collapsed="1"] .nav-item span:not(.nav-ico){display:none}
+body[data-collapsed="1"] .brand{font-size:0;padding:.4rem 0 1.2rem}
+body[data-collapsed="1"] .nav-item{justify-content:center;padding:.6rem 0}
+body[data-collapsed="1"] .side-tools{flex-direction:column}
 .main{flex:1;padding:2rem;overflow-x:hidden}
 .main .container{max-width:820px}
 .main h1{font-size:1.4rem}
@@ -2056,7 +2106,12 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <a class="nav-item" data-nav="settings" onclick="switchView('settings')"><span class="nav-ico">&#9881;&#65039;</span><span data-i18n="nav_settings">全局设置</span></a>
 <a class="nav-item" data-nav="debug" onclick="switchView('debug')"><span class="nav-ico">&#128295;</span><span data-i18n="nav_debug">调试</span></a>
 </nav>
-<button class="lang-side" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+<div class="side-tools">
+<button class="icon-btn" id="lang-toggle" onclick="toggleLang()" title="Language">&#127760;</button>
+<button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Theme">&#127769;</button>
+<button class="icon-btn" id="collapse-toggle" onclick="toggleCollapse()" title="Collapse">&#9776;</button>
+<button class="icon-btn" id="admin-logout" onclick="adminLogout()" title="Logout">&#9211;</button>
+</div>
 </aside>
 <main class="main">
 <div class="container">
@@ -2090,7 +2145,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-accounts">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
-<h2 data-i18n="title_accounts" style="margin:0">账户池</h2>
 <button onclick="addAccount()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
 </div>
 <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
@@ -2099,7 +2153,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-users">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
-<h2 data-i18n="title_keys" style="margin:0">API Key 管理</h2>
 <button onclick="toggleKeyForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建 Key</button>
 </div>
 <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="keys_hint">每个 Key 绑定一个账户，可单独设置对话模式、提示词并随时启用/停用。</div>
@@ -2265,7 +2318,7 @@ const i18n={
     col_id:'ID',col_username:'用户名',col_password:'密码',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'推送 Token',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',
-    valid_short:'有效',invalid_short:'无效',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',
+    valid_short:'有效',invalid_short:'无效',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
     rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
     title_update_token:'更新 Token',btn_update:'更新 Token',btn_check_login:'检查登录',btn_auto_capture:'自动刷新',
@@ -2339,7 +2392,7 @@ const i18n={
     col_id:'ID',col_username:'Username',col_password:'Password',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Push Token',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',
-    valid_short:'Valid',invalid_short:'Invalid',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',
+    valid_short:'Valid',invalid_short:'Invalid',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
     rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -2397,20 +2450,7 @@ function toggleLang(){
 }
 function applyLang(){
   const btn=document.getElementById('lang-toggle');
-  btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
-  btn.style.color='transparent';
-  btn.style.background='linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18))';
-  btn.style.webkitBackgroundClip='padding-box';
-  // Apply gradient text color matching h1
-  const txt=btn.childNodes[btn.childNodes.length-1];
-  if(txt&&txt.nodeType===3){
-    const span=document.createElement('span');
-    span.textContent=txt.textContent;
-    span.style.background='linear-gradient(135deg,#06b6d4,#8b5cf6)';
-    span.style.webkitBackgroundClip='text';
-    span.style.webkitTextFillColor='transparent';
-    txt.replaceWith(span);
-  }
+  if(btn)btn.title=lang==='zh'?'切换语言 / Language':'Language / 切换语言';
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
@@ -2421,6 +2461,36 @@ function applyLang(){
   if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
 }
 applyLang();
+
+// Theme (dark default / soft light), persisted.
+function applyTheme(){
+  const th=localStorage.getItem('admin_theme')||'dark';
+  document.body.setAttribute('data-theme',th);
+  const btn=document.getElementById('theme-toggle');
+  if(btn){btn.innerHTML=th==='light'?'&#9728;':'&#127769;';btn.title=lang==='zh'?'切换主题':'Theme'}
+}
+function toggleTheme(){
+  const th=(localStorage.getItem('admin_theme')||'dark')==='light'?'dark':'light';
+  localStorage.setItem('admin_theme',th);applyTheme();
+}
+applyTheme();
+
+// Collapse sidebar, persisted.
+function applyCollapse(){
+  const c=localStorage.getItem('admin_collapsed')==='1';
+  document.body.setAttribute('data-collapsed',c?'1':'0');
+}
+function toggleCollapse(){
+  localStorage.setItem('admin_collapsed',localStorage.getItem('admin_collapsed')==='1'?'0':'1');
+  applyCollapse();
+}
+applyCollapse();
+
+// Log out of the admin console (clears the admin_auth cookie, then reloads to login).
+async function adminLogout(){
+  try{await fetch('/admin/logout',{method:'POST',credentials:'include'})}catch(e){}
+  location.reload();
+}
 
 // Sidebar view switching: pure front-end, no reload. Persists last view.
 function switchView(view){
@@ -2794,7 +2864,7 @@ async function loadAccounts(){
       const st=a.token_status||{};
       const valid=st.valid;
       const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
-      const badge='<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:'+(valid?'#065f46':'#7f1d1d')+';color:'+(valid?'#d1fae5':'#fee2e2')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
+      const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid #334155;cursor:pointer;'+(sel?'background:#0f2942':'')+'">'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:#64748b;font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:#475569;font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
@@ -2856,7 +2926,7 @@ async function loadKeys(){
     let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
       +'<th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __keys.forEach(k=>{
-      const acc=k.account_id?esc(k.account_name||k.account_id):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
+      const acc=k.account_id?(k.account_source==='manual'?('<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:rgba(96,242,255,.16);color:#60f2ff;border:1px solid rgba(96,242,255,.4)">'+t('acct_token_only')+'</span>'):esc(k.account_name||k.account_id)):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
       const uname=k.username?esc(k.username):('<span style="color:#64748b">'+t('no_login')+'</span>');
       const pwd=k.password?('<code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code> <button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button>'):('<span style="color:#64748b">'+t('no_login')+'</span>');
@@ -3320,7 +3390,7 @@ code{color:#a5b4fc}
       <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置我的 API Key</button><span id="regen-msg" class="msg"></span></div>
       <div class="hint" style="margin-top:.3rem" data-i18n="regen_my_key_hint">重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。</div>
       <label style="margin-top:1.1rem;font-size:1rem;color:#e2e8f0;font-weight:600" data-i18n="tone_title">对话模式</label>
-      <div class="row"><select id="tone" onchange="saveTone()" style="width:150px"></select><span id="tone-msg" class="msg"></span></div>
+      <div class="row"><select id="tone" onchange="saveTone()" style="width:180px;padding-right:34px;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select><span id="tone-msg" class="msg"></span></div>
     </div>
 
     <div class="card">
@@ -3375,7 +3445,7 @@ const i18n={
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'API 端点',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
-    logout:'登出',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -3395,7 +3465,7 @@ const i18n={
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'API Endpoints',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
-    logout:'Logout',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -3403,7 +3473,7 @@ let lang=localStorage.getItem('lang')||'zh';
 let toneOptions=[];
 let sysDefault='';
 function t(k){return i18n[lang][k]||k}
-function getKey(){return localStorage.getItem('user_api_key')||''}
+function getKey(){return sessionStorage.getItem('user_api_key')||''}
 function authHeaders(){return {'Content-Type':'application/json','Authorization':'Bearer '+getKey()}}
 function applyLang(){
   const btn=document.getElementById('lang-toggle');
@@ -3436,12 +3506,12 @@ async function doLogin(){
     const r=await fetch('/user/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:password})});
     if(!r.ok){fail();return}
     const d=await r.json();
-    localStorage.setItem('user_api_key',d.key);
+    sessionStorage.setItem('user_api_key',d.key);
     const ok=await loadMe();
-    if(!ok){fail();localStorage.removeItem('user_api_key')}
+    if(!ok){fail();sessionStorage.removeItem('user_api_key')}
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
-function logout(){localStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden')}
+async function logout(){try{await fetch('/user/account/logout',{method:'POST',headers:authHeaders()})}catch(e){}sessionStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden')}
 async function loadMe(){
   if(!getKey())return false;
   try{
@@ -3484,7 +3554,7 @@ async function regenMyKey(){
     if(!r.ok)return;
     const d=await r.json();
     if(d.key){
-      localStorage.setItem('user_api_key',d.key);
+      sessionStorage.setItem('user_api_key',d.key);
       const mk=document.getElementById('my-key');if(mk)mk.textContent=d.key;
       const s=document.getElementById('regen-msg');if(s){s.textContent=t('regen_done');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
     }
