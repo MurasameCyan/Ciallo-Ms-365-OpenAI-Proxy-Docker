@@ -18,6 +18,7 @@ import uvicorn
 import websockets
 
 from .app import create_app
+from .config import Settings
 from .token_store import decode_jwt_payload, is_substrate_token_claims, read_token as read_token_from_store, write_token as write_token_to_store, write_username, read_username
 
 
@@ -27,6 +28,29 @@ class _SuppressCtrlC(logging.Filter):
 
 
 logging.getLogger("uvicorn.error").addFilter(_SuppressCtrlC())
+
+
+# High-frequency polling endpoints from the web admin page (+ container health
+# check) flood the access log with one INFO line each. Filter them out so the
+# log stays readable; /v1/ API traffic and non-200 responses are kept.
+_NOISY_ACCESS_PATHS = ("/admin/", "/healthz")
+_ACCESS_STATUS_RE = re.compile(r'"\s+(\d{3})\b')
+
+
+class _SuppressPollingAccess(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        # uvicorn access format: '... "GET /admin/tone HTTP/1.1" 200 OK'
+        if any(p in msg for p in _NOISY_ACCESS_PATHS):
+            m = _ACCESS_STATUS_RE.search(msg)
+            # Suppress only successful/redirect polling; keep 4xx/5xx so problems
+            # (e.g. auth failures) stay visible.
+            if m and m.group(1)[0] in ("2", "3"):
+                return False
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccess())
 
 _CDP_JS = """
 (() => {
@@ -478,9 +502,11 @@ def capture_token_command(args: argparse.Namespace) -> None:
 
 def serve_command(args: argparse.Namespace) -> None:
     cdp_port: int = args.cdp_port
+    log_level = Settings().log_level.strip().lower() or "info"
+    logging.getLogger().setLevel(log_level.upper())
     while True:
         app = create_app()
-        config = uvicorn.Config(app, host=args.host, port=args.port)
+        config = uvicorn.Config(app, host=args.host, port=args.port, log_level=log_level)
         server = uvicorn.Server(config)
         stop_auto_refresh = threading.Event()
         auto_refresh_thread = None

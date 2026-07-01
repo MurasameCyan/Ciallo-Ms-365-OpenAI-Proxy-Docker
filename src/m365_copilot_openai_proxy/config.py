@@ -18,3 +18,4 @@ class Settings(BaseSettings):
     admin_password: str = Field(default="", alias="ADMIN_PASSWORD")
     idle_timeout_minutes: int = Field(default=30, alias="IDLE_TIMEOUT_MINUTES")
     token_dir: str = Field(default="/home/app/token", alias="TOKEN_DIR")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")

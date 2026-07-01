@@ -1,5 +1,7 @@
 # Ciallo Ms-365 OpenAI Proxy Docker
 
+来都来了 不点个⭐再走吗~?
+
 将 Microsoft 365 Copilot 暴露为 OpenAI 兼容 API 的 Docker 代理服务。
 
 基于 [m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy)，封装为 Docker 镜像，支持：
@@ -124,6 +126,7 @@ _auto_refresh_loop → 检查 auto_refresh_enabled → 检查空闲时间
 | `REFRESH_BEFORE_SECONDS` | 否           | `300`           | Token 过期前多少秒开始刷新                  |
 | `IDLE_TIMEOUT_MINUTES`   | 否           | `30`            | 空闲多少分钟无请求后暂停自动刷新            |
 | `CHROME_CDP_PORT`        | 否           | `9222`          | Chromium CDP 端口                           |
+| `LOG_LEVEL`              | 否           | `INFO`          | 日志输出等级（DEBUG/INFO/WARNING/ERROR/CRITICAL），Web 轮询与 `/healthz` 始终过滤 |
 
 ## 客户端配置
 
