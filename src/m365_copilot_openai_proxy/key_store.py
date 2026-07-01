@@ -37,12 +37,14 @@ class ApiKey:
     tool_prompt: str = ""
     system_prompt: str = ""
     username: str = ""
+    password: str = ""  # Stored in plaintext so the admin UI can display it (per admin request).
     password_hash: str = ""
     password_salt: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
     def set_password(self, password: str) -> None:
+        self.password = password
         self.password_salt = secrets.token_hex(16)
         self.password_hash = _hash_password(password, self.password_salt)
 
@@ -94,6 +96,7 @@ class KeyStore:
                     tool_prompt=raw.get("tool_prompt", ""),
                     system_prompt=raw.get("system_prompt", ""),
                     username=raw.get("username", ""),
+                    password=raw.get("password", ""),
                     password_hash=raw.get("password_hash", ""),
                     password_salt=raw.get("password_salt", ""),
                     created_at=float(raw.get("created_at", time.time())),

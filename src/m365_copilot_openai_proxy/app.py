@@ -1028,6 +1028,7 @@ def create_app(
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
             "username": k.username,
+            "password": k.password,
             "has_password": bool(k.password_hash),
             "created_at": k.created_at,
             "updated_at": k.updated_at,
@@ -1143,6 +1144,11 @@ def create_app(
                 perr = _validate_password(password)
                 if perr:
                     return _json_err(400, perr)
+            else:
+                # Password left blank: auto-generate one so the user can actually
+                # log in. It's stored/shown in plaintext, so the admin can read it
+                # from the key table and hand it over.
+                password = secrets.token_urlsafe(9)
         elif password:
             return _json_err(400, "Password requires a username")
         k = app.state.key_store.add(name=name, account_id=account_id, tone=tone,
@@ -1923,8 +1929,8 @@ body{padding:0}
 .main .container{max-width:820px}
 .main h1{font-size:1.4rem}
 /* view switching: hide all view cards, show active group with fade-in */
-.view-home,.view-users,.view-settings,.view-debug{display:none}
-body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
+.view-home,.view-users,.view-accounts,.view-settings,.view-debug{display:none}
+body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}}
 </style>
@@ -1936,6 +1942,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <nav class="nav">
 <a class="nav-item active" data-nav="home" onclick="switchView('home')"><span class="nav-ico">&#128202;</span><span data-i18n="nav_home">首页总览</span></a>
 <a class="nav-item" data-nav="users" onclick="switchView('users')"><span class="nav-ico">&#128100;</span><span data-i18n="nav_users">用户管理</span></a>
+<a class="nav-item" data-nav="accounts" onclick="switchView('accounts')"><span class="nav-ico">&#128273;</span><span data-i18n="nav_accounts">账户管理</span></a>
 <a class="nav-item" data-nav="settings" onclick="switchView('settings')"><span class="nav-ico">&#9881;&#65039;</span><span data-i18n="nav_settings">全局设置</span></a>
 <a class="nav-item" data-nav="debug" onclick="switchView('debug')"><span class="nav-ico">&#128295;</span><span data-i18n="nav_debug">调试</span></a>
 </nav>
@@ -1945,13 +1952,13 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="container">
 <h1 id="view-title" data-i18n="nav_home">首页总览</h1>
 
-<div class="card view-home">
+<div class="card view-accounts">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <h2 data-i18n="title_accounts" style="margin:0">账户池</h2>
 <button onclick="addAccount()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
 </div>
 <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
-<div id="accounts-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
+<div id="accounts-content" style="max-height:340px;overflow-y:auto"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
 <div class="card view-users">
@@ -1993,8 +2000,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 </details>
 
-<div class="card view-home">
-<h2 data-i18n="title_status">Token 与 登录状态</h2>
+<div id="status-card" class="card view-accounts" style="display:none">
+<h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span> <span id="status-acct-name" style="font-size:.8rem;color:#64748b"></span></h2>
 <div id="status-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
@@ -2060,7 +2067,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </details>
 </div>
 
-<div class="card">
+<div class="card view-debug">
 <details id="capture-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_capture">模式抓包对比</span>
@@ -2074,7 +2081,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </details>
 </div>
 
-<div class="card view-settings">
+<div class="card view-home">
 <h2 data-i18n="title_quick_start">快速开始</h2>
 <p style="color:#94a3b8;font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
 <strong style="color:#22c55e" data-i18n="qs_recommended">推荐：</strong><span data-i18n="qs_install_script">安装油猴脚本（</span><a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" data-i18n="qs_script_name">一键脚本</a>），<span data-i18n="qs_open_copilot">打开</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>，<span data-i18n="qs_type_trigger">输入内容触发 WebSocket，然后在脚本面板点击</span> <strong data-i18n="qs_push_token">推送 Token</strong>。<br>
@@ -2118,7 +2125,7 @@ POST /v1/messages
 const i18n={
   zh:{
     multi_badge:'多租户',
-    nav_home:'首页总览',nav_users:'用户管理',nav_settings:'全局设置',nav_debug:'调试',
+    nav_home:'首页总览',nav_users:'用户管理',nav_accounts:'账户管理',nav_settings:'全局设置',nav_debug:'调试',
     title_accounts:'账户池',btn_add_account:'添加账户',
     accounts_hint:'每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。',
     title_keys:'API Key 管理',btn_add_key:'新建 Key',
@@ -2129,16 +2136,17 @@ const i18n={
     key_prompt_username:'登录用户名（用户用它登录 / 页，可选）：',key_prompt_password:'登录密码：',
     key_prompt_password_opt:'登录密码（留空则不修改现有密码）：',
     cred_bad_user:'用户名只能包含英文字母和数字（1-32 位）',cred_bad_pass:'密码 6-64 位，仅限英文字母、数字和安全符号 !#$%&*+-.:=?@^_~',
-    kf_create:'创建',kf_cancel:'取消',kf_username_ph:'用户名（选填）',kf_password_ph:'密码（选填，留空则不设登录）',
+    kf_create:'创建',kf_cancel:'取消',kf_username_ph:'用户名（选填）',kf_password_ph:'密码（选填，留空则自动生成）',
     key_form_hint:'ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。',network_error:'网络错误',
     col_login:'登录名',btn_set_login:'设登录',no_login:'未设',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
+    col_id:'ID',col_username:'用户名',col_password:'密码',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'推送 Token',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',
     valid_short:'有效',invalid_short:'无效',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
-    rebind_title:'改绑 M365 账号',rebind_unbind:'（不绑定 / 解绑）',rebind_confirm:'确定',
+    rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
     title_update_token:'更新 Token',btn_update:'更新 Token',btn_check_login:'检查登录',btn_auto_capture:'自动刷新',
     title_status:'Token 与 登录状态',loading:'加载中...',
     title_quick_start:'快速开始',qs_recommended:'推荐：',qs_install_script:'安装油猴脚本（',qs_script_name:'一键脚本',
@@ -2186,7 +2194,7 @@ const i18n={
   },
   en:{
     multi_badge:'Multi-tenant',
-    nav_home:'Overview',nav_users:'Users',nav_settings:'Settings',nav_debug:'Debug',
+    nav_home:'Overview',nav_users:'Users',nav_accounts:'Accounts',nav_settings:'Settings',nav_debug:'Debug',
     title_accounts:'Account Pool',btn_add_account:'Add Account',
     accounts_hint:'Each account owns an isolated M365 token and Chromium refresh profile. Refresh brings one browser up on demand (serial) and tears it down afterwards.',
     title_keys:'API Key Management',btn_add_key:'New Key',
@@ -2197,16 +2205,17 @@ const i18n={
     key_prompt_username:'Login username (user logs into the / page with it, optional):',key_prompt_password:'Login password:',
     key_prompt_password_opt:'Login password (leave empty to keep the current one):',
     cred_bad_user:'Username must be 1-32 chars, letters and digits only',cred_bad_pass:'Password must be 6-64 chars: letters, digits and safe symbols !#$%&*+-.:=?@^_~',
-    kf_create:'Create',kf_cancel:'Cancel',kf_username_ph:'Username (optional)',kf_password_ph:'Password (optional, leave empty for no login)',
+    kf_create:'Create',kf_cancel:'Cancel',kf_username_ph:'Username (optional)',kf_password_ph:'Password (optional, auto-generated if blank)',
     key_form_hint:'ID and API Key are generated automatically. M365 account binding is done by the user pushing a token from the User page.',network_error:'Network error',
     col_login:'Login',btn_set_login:'Set login',no_login:'None',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
+    col_id:'ID',col_username:'Username',col_password:'Password',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Push Token',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',
     valid_short:'Valid',invalid_short:'Invalid',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
-    rebind_title:'Rebind M365 account',rebind_unbind:'(Unbound)',rebind_confirm:'Confirm',
+    rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
     title_status:'Token & Login Status',loading:'Loading...',
     title_quick_start:'Quick Start',qs_recommended:'Recommended:',qs_install_script:'Install the Tampermonkey script (',qs_script_name:'one-click script',
@@ -2293,7 +2302,7 @@ function switchView(view){
   localStorage.setItem('admin_view',view);
   document.querySelectorAll('.nav-item').forEach(el=>{el.classList.toggle('active',el.getAttribute('data-nav')===view)});
   const vt=document.getElementById('view-title');
-  const map={home:'nav_home',users:'nav_users',settings:'nav_settings',debug:'nav_debug'};
+  const map={home:'nav_home',users:'nav_users',accounts:'nav_accounts',settings:'nav_settings',debug:'nav_debug'};
   const vk=map[view]||'nav_home';
   if(vt){vt.setAttribute('data-i18n',vk);vt.textContent=(i18n[lang]&&i18n[lang][vk])||vt.textContent}
 }
@@ -2370,11 +2379,11 @@ async function loadStatus(){
     if(c.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+c.url+'</span></div>';
     // 9. 错误
     if(d.error)html+=row(t('error'),d.error,'invalid');
-    document.getElementById('status-content').innerHTML=html;
+    const sc=document.getElementById('legacy-status-content');if(sc)sc.innerHTML=html;
     startCountdown(d.seconds_remaining||0);
     updateRefreshBtn(d.auto_refresh);
   }catch(e){
-    document.getElementById('status-content').innerHTML='<span class="invalid">Failed to load</span>';
+    const sc=document.getElementById('legacy-status-content');if(sc)sc.innerHTML='<span class="invalid">Failed to load</span>';
   }
 }
 
@@ -2492,6 +2501,36 @@ async function logoutUser(){
 // ============================ Multi-tenant admin JS ============================
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 let __accounts=[];
+let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
+function renderSelectedStatus(){
+  const card=document.getElementById('status-card');
+  const box=document.getElementById('status-content');
+  const nameEl=document.getElementById('status-acct-name');
+  if(!card||!box)return;
+  const a=__accounts.find(x=>x.id===__selectedAccount);
+  if(!a){card.style.display='none';return}
+  card.style.display='block';
+  if(nameEl)nameEl.textContent=(a.name||a.id)+(a.email?' · '+a.email:'');
+  const st=a.token_status||{};
+  const v=st.valid;
+  const exp=st.expires_at?new Date(st.expires_at).toLocaleString():'N/A';
+  const warn=(v&&(st.seconds_remaining||0)<600)?'warn':'';
+  const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
+  let html='';
+  html+=row(t('col_account'),esc(a.name||a.id),'valid');
+  if(a.email)html+=row('Email',esc(a.email),'');
+  html+=row(t('col_token'),esc(a.token_source),'');
+  html+=row(t('valid'),v?t('status_yes'):t('status_no'),v?'valid':'invalid');
+  html+=row(t('expires'),exp,warn);
+  html+=row(t('remaining'),fmtSec(st.seconds_remaining),warn);
+  if(st.error)html+=row(t('error'),esc(st.error),'invalid');
+  box.innerHTML=html;
+}
+function selectAccount(id){
+  __selectedAccount=(__selectedAccount===id)?'':id;
+  localStorage.setItem('admin_sel_account',__selectedAccount);
+  loadAccounts();
+}
 async function loadAccounts(){
   const box=document.getElementById('accounts-content');
   if(!box)return;
@@ -2508,18 +2547,20 @@ async function loadAccounts(){
       const valid=st.valid;
       const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
       const badge='<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:'+(valid?'#065f46':'#7f1d1d')+';color:'+(valid?'#d1fae5':'#fee2e2')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
-      h+='<tr style="border-top:1px solid #334155">'
-        +'<td style="padding:.4rem"><div>'+esc(a.name||a.id)+(a.email?' <span style="color:#64748b;font-size:.72rem">'+esc(a.email)+'</span>':'')+'</div><div style="color:#475569;font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' key</div></td>'
+      const sel=a.id===__selectedAccount;
+      h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid #334155;cursor:pointer;'+(sel?'background:#0f2942':'')+'">'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:#64748b;font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:#475569;font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' key</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
         +'<td style="padding:.4rem;color:#64748b">'+esc(a.token_source)+'</td>'
-        +'<td style="padding:.4rem;text-align:right;white-space:nowrap">'
-        +'<button onclick="refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_refresh')+'</button> '
-        +'<button onclick="pushAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_push_token')+'</button> '
-        +'<button onclick="delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
+        +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
+        +'<button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_refresh')+'</button> '
+        +'<button onclick="event.stopPropagation();pushAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_push_token')+'</button> '
+        +'<button onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>';
     });
     h+='</tbody></table>';
     box.innerHTML=h;
+    renderSelectedStatus();
   }catch(e){}
 }
 async function addAccount(){
@@ -2564,23 +2605,32 @@ async function loadKeys(){
     __keys=d.keys||[];
     if(!__keys.length){box.innerHTML='<span style="color:#64748b">'+t('no_keys')+'</span>';return}
     let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
-      +'<th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_login')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem">'+t('col_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __keys.forEach(k=>{
       const acc=k.account_id?esc(k.account_name||k.account_id):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
-      const login=k.username?(esc(k.username)+(k.has_password?'':' <span style="color:#f59e0b">('+t('no_login')+')</span>')):('<span style="color:#64748b">'+t('no_login')+'</span>');
-      h+='<tr style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
-        +'<td style="padding:.4rem">'+esc(k.name||k.id)+'</td>'
-        +'<td style="padding:.4rem;font-size:.78rem">'+login+'</td>'
-        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\')" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button></td>'
+      const uname=k.username?esc(k.username):('<span style="color:#64748b">'+t('no_login')+'</span>');
+      const pwd=k.password?('<code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code> <button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button>'):('<span style="color:#64748b">'+t('no_login')+'</span>');
+      h+='<tr id="krow-'+k.id+'" style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
+        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#64748b">'+esc(k.id)+'</code></td>'
+        +'<td style="padding:.4rem;font-size:.78rem">'+uname+'</td>'
+        +'<td style="padding:.4rem;font-size:.78rem">'+pwd+'</td>'
+        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button></td>'
         +'<td style="padding:.4rem">'+acc+'</td>'
-        +'<td style="padding:.4rem;color:#64748b">'+esc(k.tone)+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">'
         +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_set_login')+'</button> '
         +'<button onclick="regenKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_regen_key')+'</button> '
         +'<button onclick="rebindKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_rebind')+'</button> '
         +'<button onclick="toggleKey(\\''+k.id+'\\','+(en?'false':'true')+')" style="font-size:.72rem;padding:3px 8px;background:'+(en?'#b45309':'#059669')+'">'+(en?t('btn_disable'):t('btn_enable'))+'</button> '
         +'<button onclick="delKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
+        +'</td></tr>'
+        +'<tr id="kedit-'+k.id+'" style="display:none;background:#0f172a"><td colspan="6" style="padding:.6rem .8rem">'
+        +'<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
+        +'<input id="ke-user-'+k.id+'" value="'+esc(k.username||'')+'" placeholder="'+t('kf_username_ph')+'" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">'
+        +'<input id="ke-pass-'+k.id+'" type="text" placeholder="'+t('key_prompt_password_opt')+'" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">'
+        +'<button onclick="submitKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('rebind_confirm')+'</button>'
+        +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:#334155">'+t('kf_cancel')+'</button>'
+        +'</div><div id="ke-msg-'+k.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
         +'</td></tr>';
     });
     h+='</tbody></table>';
@@ -2634,19 +2684,26 @@ async function submitKey(){
     loadKeys();
   }catch(e){m.textContent=t('network_error')}
 }
-async function setKeyLogin(id){
-  const cur=__keys.find(x=>x.id===id);
-  const username=prompt(t('key_prompt_username'),(cur&&cur.username)||'');
-  if(username===null)return;
-  const password=prompt(t('key_prompt_password_opt'))||'';
-  if(badCred(username,password))return;
+function setKeyLogin(id){
+  const row=document.getElementById('kedit-'+id);if(!row)return;
+  const open=row.style.display==='none';
+  row.style.display=open?'table-row':'none';
+  if(open){const m=document.getElementById('ke-msg-'+id);if(m)m.textContent='';const p=document.getElementById('ke-pass-'+id);if(p)p.value='';const u=document.getElementById('ke-user-'+id);if(u)u.focus()}
+}
+async function submitKeyLogin(id){
+  const u=document.getElementById('ke-user-'+id),p=document.getElementById('ke-pass-'+id),m=document.getElementById('ke-msg-'+id);
+  const username=(u.value||'').trim();
+  const password=p.value||'';
+  m.textContent='';
+  if(username&&!_USER_RE.test(username)){m.textContent=t('cred_bad_user');return}
+  if(password&&!_PASS_RE.test(password)){m.textContent=t('cred_bad_pass');return}
   const body={username:username};
   if(password)body.password=password;
   try{
     const r=await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok){const d=await r.json().catch(()=>({}));alert((d.error&&d.error.message)||'error');return}
+    if(!r.ok){const d=await r.json().catch(()=>({}));m.textContent=(d.error&&d.error.message)||'error';return}
     loadKeys();
-  }catch(e){}
+  }catch(e){m.textContent=t('network_error')}
 }
 async function regenKey(id){
   if(!confirm(t('confirm_regen_key')))return;
@@ -2659,9 +2716,22 @@ async function regenKey(id){
     loadKeys();
   }catch(e){}
 }
-function copyKey(id){
+function _fallbackCopy(text){
+  try{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.focus();ta.select();const ok=document.execCommand('copy');ta.remove();return ok}catch(e){return false}
+}
+function copyText(text,cb){
+  // navigator.clipboard is undefined on insecure (http://ip) origins, so fall
+  // back to the legacy execCommand path there.
+  if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(()=>cb&&cb(true),()=>cb&&cb(_fallbackCopy(text)))}
+  else{cb&&cb(_fallbackCopy(text))}
+}
+function copyKey(id,btn){
   const k=__keys.find(x=>x.id===id);if(!k)return;
-  navigator.clipboard.writeText(k.key).then(()=>{},()=>{});
+  copyText(k.key,ok=>{if(btn){const old=btn.textContent;btn.textContent=t('copied');setTimeout(()=>{btn.textContent=old},1200)}});
+}
+function copyPwd(id,btn){
+  const k=__keys.find(x=>x.id===id);if(!k||!k.password)return;
+  copyText(k.password,ok=>{if(btn){const old=btn.textContent;btn.textContent=t('copied');setTimeout(()=>{btn.textContent=old},1200)}});
 }
 function acctLabel(a){
   const name=a.name||a.id;

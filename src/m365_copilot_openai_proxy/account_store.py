@@ -124,6 +124,23 @@ class AccountStore:
                 )
             except (TypeError, ValueError):
                 continue
+        self._backfill_email()
+
+    def _backfill_email(self) -> None:
+        """Populate email for accounts persisted before the field existed by
+        re-reading their token's JWT claims. Runs once at load; saves if changed."""
+        changed = False
+        for acc in self._accounts.values():
+            if not acc.email and acc.token:
+                ident_name, email = extract_identity(acc.token)
+                if email:
+                    acc.email = email
+                    changed = True
+                if ident_name and not acc.name:
+                    acc.name = ident_name
+                    changed = True
+        if changed:
+            self._save()
 
     def _save(self) -> None:
         if self._persist_path is None:
