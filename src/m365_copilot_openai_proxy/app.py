@@ -1138,9 +1138,10 @@ def create_app(
                 return _json_err(400, uerr)
             if app.state.key_store.resolve_by_login_username(username) is not None:
                 return _json_err(409, "Username already exists")
-            perr = _validate_password(password)
-            if perr:
-                return _json_err(400, perr)
+            if password:
+                perr = _validate_password(password)
+                if perr:
+                    return _json_err(400, perr)
         elif password:
             return _json_err(400, "Password requires a username")
         k = app.state.key_store.add(name=name, account_id=account_id, tone=tone,
@@ -1955,9 +1956,19 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-users">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <h2 data-i18n="title_keys" style="margin:0">API Key 管理</h2>
-<button onclick="addKey()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建 Key</button>
+<button onclick="toggleKeyForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建 Key</button>
 </div>
 <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="keys_hint">每个 Key 绑定一个账户，可单独设置对话模式、提示词并随时启用/停用。</div>
+<div id="key-form" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:.75rem;margin-bottom:.75rem">
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+<input id="kf-username" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">
+<input id="kf-password" type="text" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">
+<button onclick="submitKey()" style="font-size:.8rem;padding:6px 14px" data-i18n="kf_create">创建</button>
+<button onclick="toggleKeyForm(false)" style="font-size:.8rem;padding:6px 14px;background:#334155" data-i18n="kf_cancel">取消</button>
+</div>
+<div style="font-size:.75rem;color:#64748b;margin-top:.5rem" data-i18n="key_form_hint">ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。</div>
+<div id="kf-msg" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>
+</div>
 <div id="keys-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
 
@@ -2115,7 +2126,10 @@ const i18n={
     acct_prompt_name:'账户名称（可选）：',acct_prompt_token:'可选：粘贴该账户的 access_token 或 wss:// URL（留空则稍后用 CDP 刷新）：',
     key_prompt_name:'Key 名称（可选，如用户/用途）：',
     key_prompt_username:'登录用户名（用户用它登录 / 页，可选）：',key_prompt_password:'登录密码：',
+    key_prompt_password_opt:'登录密码（留空则不修改现有密码）：',
     cred_bad_user:'用户名只能包含英文字母和数字（1-32 位）',cred_bad_pass:'密码 6-64 位，仅限英文字母、数字和安全符号 !#$%&*+-.:=?@^_~',
+    kf_create:'创建',kf_cancel:'取消',kf_username_ph:'用户名（选填）',kf_password_ph:'密码（选填，留空则不设登录）',
+    key_form_hint:'ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。',network_error:'网络错误',
     col_login:'登录名',btn_set_login:'设登录',no_login:'未设',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
@@ -2179,7 +2193,10 @@ const i18n={
     acct_prompt_name:'Account name (optional):',acct_prompt_token:'Optional: paste this account\\u0027s access_token or wss:// URL (leave empty to refresh via CDP later):',
     key_prompt_name:'Key name (optional, e.g. user/purpose):',
     key_prompt_username:'Login username (user logs into the / page with it, optional):',key_prompt_password:'Login password:',
+    key_prompt_password_opt:'Login password (leave empty to keep the current one):',
     cred_bad_user:'Username must be 1-32 chars, letters and digits only',cred_bad_pass:'Password must be 6-64 chars: letters, digits and safe symbols !#$%&*+-.:=?@^_~',
+    kf_create:'Create',kf_cancel:'Cancel',kf_username_ph:'Username (optional)',kf_password_ph:'Password (optional, leave empty for no login)',
+    key_form_hint:'ID and API Key are generated automatically. M365 account binding is done by the user pushing a token from the User page.',network_error:'Network error',
     col_login:'Login',btn_set_login:'Set login',no_login:'None',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
@@ -2590,14 +2607,40 @@ async function addKey(){
     loadKeys();loadAccounts();
   }catch(e){}
 }
-async function setKeyLogin(id){
-  const username=prompt(t('key_prompt_username'));
-  if(username===null)return;
-  const password=prompt(t('key_prompt_password'));
-  if(password===null)return;
-  if(badCred(username,password))return;
+function toggleKeyForm(show){
+  const f=document.getElementById('key-form');if(!f)return;
+  const open=(show===undefined)?(f.style.display==='none'):show;
+  f.style.display=open?'block':'none';
+  if(open){
+    const u=document.getElementById('kf-username'),p=document.getElementById('kf-password'),m=document.getElementById('kf-msg');
+    u.placeholder=t('kf_username_ph');p.placeholder=t('kf_password_ph');
+    u.value='';p.value='';m.textContent='';u.focus();
+  }
+}
+async function submitKey(){
+  const u=document.getElementById('kf-username'),p=document.getElementById('kf-password'),m=document.getElementById('kf-msg');
+  const username=(u.value||'').trim();
+  const password=p.value||'';
+  m.textContent='';
+  if(username&&!_USER_RE.test(username)){m.textContent=t('cred_bad_user');return}
+  if(password&&!_PASS_RE.test(password)){m.textContent=t('cred_bad_pass');return}
   try{
-    const r=await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:password})});
+    const r=await fetch('/admin/keys',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:username,username:username,password:password})});
+    if(!r.ok){const d=await r.json().catch(()=>({}));m.textContent=(d.error&&d.error.message)||'error';return}
+    toggleKeyForm(false);
+    loadKeys();
+  }catch(e){m.textContent=t('network_error')}
+}
+async function setKeyLogin(id){
+  const cur=__keys.find(x=>x.id===id);
+  const username=prompt(t('key_prompt_username'),(cur&&cur.username)||'');
+  if(username===null)return;
+  const password=prompt(t('key_prompt_password_opt'))||'';
+  if(badCred(username,password))return;
+  const body={username:username};
+  if(password)body.password=password;
+  try{
+    const r=await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!r.ok){const d=await r.json().catch(()=>({}));alert((d.error&&d.error.message)||'error');return}
     loadKeys();
   }catch(e){}
