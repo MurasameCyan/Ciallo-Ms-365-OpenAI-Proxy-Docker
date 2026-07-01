@@ -1509,12 +1509,12 @@ a:hover{text-decoration:underline}
 </div>
 
 <div class="card">
-<h2 data-i18n="title_tone">对话模式</h2>
-<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="tone_hint">选择 M365 Copilot 的对话模式（模型），立即生效并持久保存。</div>
 <div style="display:flex;align-items:center;gap:.5rem">
-<select id="tone-select" style="flex:1;padding:8px 36px 8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.85rem;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select>
+<h2 data-i18n="title_tone" style="margin:0">对话模式</h2>
 <span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
+<select id="tone-select" style="margin-left:auto;width:220px;max-width:50%;padding:6px 32px 6px 10px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.8rem;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 10px center"></select>
 </div>
+<div style="font-size:.8rem;color:#64748b;margin-top:.5rem" data-i18n="tone_hint">选择 M365 Copilot 的对话模式（模型），立即生效并持久保存。</div>
 </div>
 
 <div class="card">
@@ -1796,22 +1796,22 @@ async function loadStatus(){
     let html='';
     // 1. 用户名
     if(d.username)html+=row(t('username_label'),d.username,'valid');
-    // 2. 登录 (chromium)
+    // 2. 登录 (chromium) — 状态显示为 是/否
     if(c.chromium_running===false){
       html+=row(t('login'),t('chromium_not_running'),'invalid');
     }else if(c.chromium_running){
-      html+=row(t('login'),c.logged_in?t('logged_in'):t('not_logged_in'),c.logged_in?'valid':'warn');
+      html+=row(t('login'),c.logged_in?t('status_yes'):t('status_no'),c.logged_in?'valid':'warn');
     }
     const logoutBtn=document.getElementById('btn-logout');
     if(logoutBtn)logoutBtn.style.display=c.logged_in?'inline-block':'none';
-    // 3. 有效
-    html+=row(t('valid'),v?t('status_yes'):t('status_no'),cls);
-    // 4. 过期时间
-    html+=row(t('expires'),exp,warnCls);
-    // 5. 剩余
-    html+=row(t('remaining'),'<span id="remaining-sec">'+fmtSec(d.seconds_remaining)+'</span>',warnCls);
-    // 6. 自动刷新
+    // 3. 自动刷新（紧跟登录下方）
     html+=row(t('auto_refresh_label'),d.auto_refresh?t('status_yes'):t('status_no'),d.auto_refresh?'valid':'warn');
+    // 4. 有效
+    html+=row(t('valid'),v?t('status_yes'):t('status_no'),cls);
+    // 5. 过期时间
+    html+=row(t('expires'),exp,warnCls);
+    // 6. 剩余
+    html+=row(t('remaining'),'<span id="remaining-sec">'+fmtSec(d.seconds_remaining)+'</span>',warnCls);
     // 7. 标题 (chromium)
     if(c.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+c.title+'</span></div>';
     // 8. 页面 (chromium)
