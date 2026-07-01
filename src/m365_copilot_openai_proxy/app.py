@@ -1931,6 +1931,7 @@ body{padding:0}
 /* view switching: hide all view cards, show active group with fade-in */
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{display:none}
 body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
+.hide-card{display:none !important}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}}
 </style>
@@ -1951,6 +1952,19 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <main class="main">
 <div class="container">
 <h1 id="view-title" data-i18n="nav_home">首页总览</h1>
+
+<div class="card view-home">
+<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem">
+<h2 data-i18n="dash_title" style="margin:0">运行概览</h2>
+<button onclick="loadKeys();loadAccounts()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
+</div>
+<div id="dash-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.6rem;margin-bottom:1.1rem"></div>
+<div style="display:flex;gap:1.2rem;flex-wrap:wrap">
+<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
+<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_key_status">用户 启用 / 停用</div><div id="dash-donut-key"></div></div>
+<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_bind_status">用户 绑定 / 未绑定</div><div id="dash-donut-bind"></div></div>
+</div>
+</div>
 
 <div class="card view-accounts">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
@@ -2000,7 +2014,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 </details>
 
-<div id="status-card" class="card view-accounts" style="display:none">
+<div id="status-card" class="card view-accounts hide-card">
 <h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span> <span id="status-acct-name" style="font-size:.8rem;color:#64748b"></span></h2>
 <div id="status-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
 </div>
@@ -2126,6 +2140,9 @@ const i18n={
   zh:{
     multi_badge:'多租户',
     nav_home:'首页总览',nav_users:'用户管理',nav_accounts:'账户管理',nav_settings:'全局设置',nav_debug:'调试',
+    dash_title:'运行概览',dash_refresh:'刷新',dash_acct_valid:'账户有效 / 过期比',dash_key_status:'用户 启用 / 停用',dash_bind_status:'用户 绑定 / 未绑定',
+    dash_kpi_users:'用户数',dash_kpi_accounts:'账户数',dash_kpi_active_users:'启用用户',dash_kpi_valid_accts:'有效账户',dash_kpi_expired_accts:'过期账户',dash_kpi_unbound:'未绑定用户',
+    dash_valid:'有效',dash_expired:'过期',dash_bound:'已绑定',
     title_accounts:'账户池',btn_add_account:'添加账户',
     accounts_hint:'每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。',
     title_keys:'API Key 管理',btn_add_key:'新建 Key',
@@ -2195,6 +2212,9 @@ const i18n={
   en:{
     multi_badge:'Multi-tenant',
     nav_home:'Overview',nav_users:'Users',nav_accounts:'Accounts',nav_settings:'Settings',nav_debug:'Debug',
+    dash_title:'Overview',dash_refresh:'Refresh',dash_acct_valid:'Account valid / expired',dash_key_status:'Users enabled / disabled',dash_bind_status:'Users bound / unbound',
+    dash_kpi_users:'Users',dash_kpi_accounts:'Accounts',dash_kpi_active_users:'Enabled users',dash_kpi_valid_accts:'Valid accounts',dash_kpi_expired_accts:'Expired accounts',dash_kpi_unbound:'Unbound users',
+    dash_valid:'Valid',dash_expired:'Expired',dash_bound:'Bound',
     title_accounts:'Account Pool',btn_add_account:'Add Account',
     accounts_hint:'Each account owns an isolated M365 token and Chromium refresh profile. Refresh brings one browser up on demand (serial) and tears it down afterwards.',
     title_keys:'API Key Management',btn_add_key:'New Key',
@@ -2500,6 +2520,58 @@ async function logoutUser(){
 
 // ============================ Multi-tenant admin JS ============================
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// ---- home dashboard: pure-SVG KPI + donut charts, no external deps ----
+function kpiCard(label,val,color){
+  return '<div style="background:#0f172a;border:1px solid #1f2937;border-radius:10px;padding:.7rem .8rem">'
+    +'<div style="font-size:1.5rem;font-weight:700;color:'+color+'">'+val+'</div>'
+    +'<div style="font-size:.72rem;color:#94a3b8;margin-top:.15rem">'+label+'</div></div>';
+}
+function donut(parts,centerLabel,centerVal){
+  // parts: [{value,color,label}] — render an SVG ring + legend.
+  const total=parts.reduce((s,p)=>s+p.value,0);
+  const R=52,C=2*Math.PI*R;let off=0;
+  let ring='';
+  if(total<=0){
+    ring='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="#1f2937" stroke-width="14"/>';
+  }else{
+    parts.forEach(p=>{
+      if(p.value<=0)return;
+      const len=C*(p.value/total);
+      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+len+' '+(C-len)+'" dur="0.5s" fill="freeze"/></circle>';
+      off+=len;
+    });
+  }
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">'+ring
+    +'<text x="60" y="56" text-anchor="middle" fill="#e2e8f0" font-size="22" font-weight="700">'+centerVal+'</text>'
+    +'<text x="60" y="74" text-anchor="middle" fill="#64748b" font-size="10">'+centerLabel+'</text></svg>';
+  let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
+  parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1"><span style="width:10px;height:10px;border-radius:2px;background:'+p.color+';display:inline-block"></span>'+p.label+' <b style="color:#e2e8f0">'+p.value+'</b></div>'});
+  legend+='</div>';
+  return '<div style="display:flex;gap:.8rem;align-items:center">'+svg+legend+'</div>';
+}
+function renderDashboard(){
+  const kpi=document.getElementById('dash-kpi');
+  if(!kpi)return;
+  const keys=__keys||[],accts=__accounts||[];
+  const acctValid=accts.filter(a=>a.token_status&&a.token_status.valid).length;
+  const acctExpired=accts.length-acctValid;
+  const keyEnabled=keys.filter(k=>k.enabled).length;
+  const keyDisabled=keys.length-keyEnabled;
+  const keyBound=keys.filter(k=>k.account_id).length;
+  const keyUnbound=keys.length-keyBound;
+  kpi.innerHTML=kpiCard(t('dash_kpi_users'),keys.length,'#38bdf8')
+    +kpiCard(t('dash_kpi_accounts'),accts.length,'#a78bfa')
+    +kpiCard(t('dash_kpi_active_users'),keyEnabled,'#22c55e')
+    +kpiCard(t('dash_kpi_valid_accts'),acctValid,'#22c55e')
+    +kpiCard(t('dash_kpi_expired_accts'),acctExpired,acctExpired?'#f59e0b':'#64748b')
+    +kpiCard(t('dash_kpi_unbound'),keyUnbound,keyUnbound?'#f59e0b':'#64748b');
+  const da=document.getElementById('dash-donut-acct');
+  if(da)da.innerHTML=donut([{value:acctValid,color:'#22c55e',label:t('dash_valid')},{value:acctExpired,color:'#ef4444',label:t('dash_expired')}],t('dash_kpi_accounts'),accts.length);
+  const dk=document.getElementById('dash-donut-key');
+  if(dk)dk.innerHTML=donut([{value:keyEnabled,color:'#22c55e',label:t('btn_enable')},{value:keyDisabled,color:'#64748b',label:t('btn_disable')}],t('dash_kpi_users'),keys.length);
+  const db=document.getElementById('dash-donut-bind');
+  if(db)db.innerHTML=donut([{value:keyBound,color:'#38bdf8',label:t('dash_bound')},{value:keyUnbound,color:'#f59e0b',label:t('unbound')}],t('dash_kpi_users'),keys.length);
+}
 let __accounts=[];
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
@@ -2508,8 +2580,8 @@ function renderSelectedStatus(){
   const nameEl=document.getElementById('status-acct-name');
   if(!card||!box)return;
   const a=__accounts.find(x=>x.id===__selectedAccount);
-  if(!a){card.style.display='none';return}
-  card.style.display='block';
+  if(!a){card.classList.add('hide-card');return}
+  card.classList.remove('hide-card');
   if(nameEl)nameEl.textContent=(a.name||a.id)+(a.email?' · '+a.email:'');
   const st=a.token_status||{};
   const v=st.valid;
@@ -2539,7 +2611,7 @@ async function loadAccounts(){
     if(r.status===401){box.innerHTML='<span style="color:#64748b">'+t('loading')+'</span>';return}
     const d=await r.json();
     __accounts=d.accounts||[];
-    if(!__accounts.length){box.innerHTML='<span style="color:#64748b">'+t('no_accounts')+'</span>';return}
+    if(!__accounts.length){box.innerHTML='<span style="color:#64748b">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
     let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
       +'<th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_status')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __accounts.forEach(a=>{
@@ -2561,6 +2633,7 @@ async function loadAccounts(){
     h+='</tbody></table>';
     box.innerHTML=h;
     renderSelectedStatus();
+    renderDashboard();
   }catch(e){}
 }
 async function addAccount(){
@@ -2603,7 +2676,7 @@ async function loadKeys(){
     if(r.status===401){box.innerHTML='<span style="color:#64748b">'+t('loading')+'</span>';return}
     const d=await r.json();
     __keys=d.keys||[];
-    if(!__keys.length){box.innerHTML='<span style="color:#64748b">'+t('no_keys')+'</span>';return}
+    if(!__keys.length){box.innerHTML='<span style="color:#64748b">'+t('no_keys')+'</span>';renderDashboard();return}
     let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
       +'<th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __keys.forEach(k=>{
@@ -2635,6 +2708,7 @@ async function loadKeys(){
     });
     h+='</tbody></table>';
     box.innerHTML=h;
+    renderDashboard();
   }catch(e){}
 }
 // Credential rules mirror the server-side regex (letters/digits for username;
@@ -3007,16 +3081,18 @@ _USER_HTML = """<!DOCTYPE html>
 *{box-sizing:border-box}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.5}
 .wrap{max-width:760px;margin:0 auto;padding:1.5rem 1rem 3rem}
-h1{font-size:1.3rem;margin:0}
-.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem}
-.card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem}
+h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
 .card h2{font-size:1rem;margin:0 0 .8rem;color:#e2e8f0}
 label{display:block;font-size:.85rem;color:#94a3b8;margin:.6rem 0 .3rem}
-input,select,textarea{width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:.5rem .6rem;font-size:.9rem;font-family:inherit}
-textarea{resize:vertical;min-height:70px}
-button{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:0;border-radius:6px;padding:.5rem 1rem;font-size:.9rem;cursor:pointer;margin-top:.6rem}
+input,select,textarea{width:100%;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#06b6d4}
+textarea{resize:vertical;min-height:70px;font-family:monospace}
+button{background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.55rem 1rem;font-size:.85rem;font-weight:600;cursor:pointer;margin-top:.6rem;transition:opacity .2s}
+button:hover{opacity:.85}
 button:disabled{opacity:.5;cursor:not-allowed}
-.btn-ghost{background:#334155}
+.btn-ghost{background:#334155;background-image:none}
 .row{display:flex;gap:.5rem;align-items:center}
 .row>*{margin-top:0}
 .pill{display:inline-block;font-size:.75rem;padding:.15rem .5rem;border-radius:99px;background:#334155;color:#cbd5e1}
@@ -3025,7 +3101,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:#64748b;margin-bottom:.4rem}
 .hidden{display:none}
-a{color:#818cf8}
+a{color:#06b6d4;text-decoration:none}
+a:hover{text-decoration:underline}
+code{color:#818cf8}
 </style>
 </head>
 <body>
