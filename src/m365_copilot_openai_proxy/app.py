@@ -1431,7 +1431,12 @@ a:hover{text-decoration:underline}
 </div>
 
 <div class="card">
-<h2 data-i18n="title_tool_prompt">工具调用附加指令</h2>
+<details id="tool-prompt-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="title_tool_prompt">提示词微调</span>
+<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:.75rem">
 <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="tool_prompt_hint">追加到工具调用提示词后的自定义指令，用于调教模型的 tool_call 行为。立即生效并持久保存，留空则不追加。</div>
 <textarea id="tool-prompt-input" rows="4" style="width:100%;box-sizing:border-box;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.85rem;font-family:monospace;outline:none;resize:vertical" placeholder=""></textarea>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
@@ -1440,9 +1445,16 @@ a:hover{text-decoration:underline}
 <span id="tool-prompt-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
 </div>
 </div>
+</details>
+</div>
 
 <div class="card">
-<h2 data-i18n="title_system_prompt">系统级提示词（高级）</h2>
+<details id="system-prompt-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="title_system_prompt">系统级提示词（高级）</span>
+<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:.75rem">
 <div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="system_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。</div>
 <div id="system-prompt-locked">
 <button id="system-prompt-unlock" onclick="unlockSystemPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑（高级）</button>
@@ -1455,6 +1467,8 @@ a:hover{text-decoration:underline}
 <span id="system-prompt-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
 </div>
 </div>
+</div>
+</details>
 </div>
 
 <div class="card">
@@ -1556,12 +1570,12 @@ const i18n={
     title_tone:'对话模式',
     tone_hint:'选择 M365 Copilot 的对话模式（模型），立即生效并持久保存。',
     tone_saved:'已保存',
-    title_tool_prompt:'工具调用附加指令',
-    tool_prompt_hint:'追加到工具调用提示词后的自定义指令，用于调教模型的 tool_call 行为。立即生效并持久保存，留空则不追加。',
+    title_tool_prompt:'提示词增强',
+    tool_prompt_hint:'追加到工具调用提示词后的自定义指令，用于增强模型的 tool_call 行为。立即生效并持久保存，留空则不追加。',
     tool_prompt_save:'保存',
     tool_prompt_saved:'已保存',
     prompt_reset:'恢复默认',
-    title_system_prompt:'系统级提示词（高级）',
+    title_system_prompt:'系统提示词（高级）',
     system_prompt_hint:'覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。',
     system_prompt_unlock:'解锁编辑（高级）',
     system_prompt_save:'保存',
@@ -1602,7 +1616,7 @@ const i18n={
     title_tone:'Conversation Mode',
     tone_hint:'Select the M365 Copilot conversation mode (model). Applies immediately and persists across restarts.',
     tone_saved:'Saved',
-    title_tool_prompt:'Extra Tool-Call Instruction',
+    title_tool_prompt:'Prompt Enhancement',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt to tune the tool_call behavior of the model. Applies immediately and persists across restarts; leave empty to append nothing.',
     tool_prompt_save:'Save',
     tool_prompt_saved:'Saved',
