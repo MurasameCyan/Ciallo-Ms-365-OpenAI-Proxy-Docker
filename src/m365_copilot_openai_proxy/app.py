@@ -1004,11 +1004,32 @@ def create_app(
             "soonest_expiry": soonest,
         }
 
+    # Max accepted capture-payload body size (bytes). Cheap DoS guard: reject
+    # oversized pushes before reading them into memory.
+    _CAPTURE_MAX_BYTES = 256 * 1024
+
     @app.post("/admin/capture-payload")
     async def capture_payload(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        body = await request.json()
+        # Gate first, parse last — reject cheaply before touching the body.
+        # The Tampermonkey script pushes cross-origin and cannot carry the
+        # admin cookie, so the debug-page toggle is the gate here (not admin
+        # auth): when off, every push is rejected outright.
+        if not getattr(app.state, "capture_enabled", False):
+            return _json_err(403, "capture receiving is disabled")
+        # body size limit (avoid parsing huge junk payloads)
+        try:
+            clen = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            clen = 0
+        if clen > _CAPTURE_MAX_BYTES:
+            return _json_err(413, "payload too large")
+        raw = await request.body()
+        if len(raw) > _CAPTURE_MAX_BYTES:
+            return _json_err(413, "payload too large")
+        try:
+            body = json.loads(raw or b"{}")
+        except (ValueError, TypeError):
+            return _json_err(400, "invalid json")
         payloads = body.get("payloads", [])
         if not isinstance(payloads, list):
             return _json_err(400, "payloads must be a list")
@@ -1020,6 +1041,23 @@ def create_app(
         err = _require_admin(request)
         if err: return err
         return {"payloads": getattr(app.state, 'captured_payloads', [])}
+
+    @app.get("/admin/capture-toggle")
+    async def get_capture_toggle(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        return {"enabled": bool(getattr(app.state, "capture_enabled", False))}
+
+    @app.post("/admin/capture-toggle")
+    async def set_capture_toggle(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        try:
+            body = await request.json()
+        except (ValueError, TypeError):
+            body = {}
+        app.state.capture_enabled = bool(body.get("enabled"))
+        return {"enabled": app.state.capture_enabled}
 
     # Conversation tone (mode) options discovered from M365 Copilot's mode picker.
     # The `tone` field in the Substrate chat payload controls which model/mode is used.
@@ -2033,11 +2071,13 @@ _ADMIN_HTML = """<!DOCTYPE html>
 :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);
 --bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);
 --text:#f3f6ff;--card:linear-gradient(180deg,rgba(13,19,45,.78),rgba(7,10,24,.7));--surface:rgba(7,11,27,.7);--surface-border:rgba(255,255,255,.12);
---sidebar:rgba(6,10,24,.62);--nav-hover:rgba(255,255,255,.06);--h1grad:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);--shadow:0 18px 48px rgba(0,0,0,.36);--chip:rgba(255,255,255,.06);--chip-border:rgba(255,255,255,.14)}
+--sidebar:rgba(6,10,24,.62);--nav-hover:rgba(255,255,255,.06);--h1grad:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);--shadow:0 18px 48px rgba(0,0,0,.36);--chip:rgba(255,255,255,.06);--chip-border:rgba(255,255,255,.14);
+--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2);--track:rgba(255,255,255,.08);--grid:rgba(148,163,220,.16);--strong:#eaf0ff;--faint:#8a97c4}
 body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);
 --bg:radial-gradient(circle at 18% 12%,rgba(96,180,242,.16),transparent 28%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.14),transparent 26%),radial-gradient(circle at 50% 92%,rgba(255,150,220,.12),transparent 28%),linear-gradient(135deg,#eef2fb 0%,#e6ecf7 45%,#eaf0f9 100%);
 --text:#1f2740;--card:linear-gradient(180deg,rgba(255,255,255,.9),rgba(244,247,253,.82));--surface:rgba(255,255,255,.85);--surface-border:rgba(99,102,180,.28);
---sidebar:rgba(255,255,255,.72);--nav-hover:rgba(99,102,180,.1);--h1grad:linear-gradient(135deg,#0e7490,#7c3aed 60%,#db2777);--shadow:0 16px 40px rgba(80,100,160,.16);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22)}
+--sidebar:rgba(255,255,255,.72);--nav-hover:rgba(99,102,180,.1);--h1grad:linear-gradient(135deg,#0e7490,#7c3aed 60%,#db2777);--shadow:0 16px 40px rgba(80,100,160,.16);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22);
+--inner:rgba(255,255,255,.7);--inner-border:rgba(99,102,180,.2);--track:rgba(99,102,180,.14);--grid:rgba(99,102,180,.18);--strong:#243049;--faint:#7581a3}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);min-height:100vh;padding:2rem;background:var(--bg);transition:color .25s,background .25s}
 .container{max-width:720px;margin:0 auto}
@@ -2078,6 +2118,13 @@ body{padding:0}
 .side-tools{margin-top:auto;display:flex;gap:.4rem;align-items:center;justify-content:center;flex-wrap:wrap;padding-top:1rem}
 .icon-btn{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:transform .16s ease,background .16s ease}
 .icon-btn:hover{transform:translateY(-2px);background:var(--nav-hover)}
+/* ---- glass toggle switch ---- */
+.switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;inset:0;cursor:pointer;background:var(--track);border:1px solid var(--inner-border);border-radius:99px;transition:.25s;box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}
+.switch .slider:before{content:"";position:absolute;height:18px;width:18px;left:2px;top:2px;border-radius:50%;background:linear-gradient(180deg,#fff,#dfe6ff);box-shadow:0 2px 5px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.7);transition:.25s}
+.switch input:checked+.slider{background:linear-gradient(135deg,var(--cyan),var(--violet));border-color:transparent;box-shadow:0 0 12px rgba(96,242,255,.5),inset 0 1px 2px rgba(255,255,255,.25)}
+.switch input:checked+.slider:before{transform:translateX(20px)}
 /* ---- collapsed sidebar ---- */
 body[data-collapsed="1"] .sidebar{width:64px;padding:1.2rem .5rem}
 body[data-collapsed="1"] .brand span,body[data-collapsed="1"] .nav-item span:not(.nav-ico){display:none}
@@ -2107,9 +2154,9 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <a class="nav-item" data-nav="debug" onclick="switchView('debug')"><span class="nav-ico">&#128295;</span><span data-i18n="nav_debug">调试</span></a>
 </nav>
 <div class="side-tools">
-<button class="icon-btn" id="lang-toggle" onclick="toggleLang()" title="Language">&#127760;</button>
-<button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Theme">&#127769;</button>
 <button class="icon-btn" id="collapse-toggle" onclick="toggleCollapse()" title="Collapse">&#9776;</button>
+<button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" title="Theme">&#127769;</button>
+<button class="icon-btn" id="lang-toggle" onclick="toggleLang()" title="Language">&#127760;</button>
 <button class="icon-btn" id="admin-logout" onclick="adminLogout()" title="Logout">&#9211;</button>
 </div>
 </aside>
@@ -2125,21 +2172,21 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div id="dash-warn" class="hide-card" style="margin-bottom:1rem;padding:.6rem .9rem;border-radius:10px;background:#450a0a;border:1px solid #991b1b;color:#fca5a5;font-size:.85rem"></div>
 <div id="dash-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.6rem;margin-bottom:1.1rem"></div>
 <div style="display:flex;gap:1.2rem;flex-wrap:wrap">
-<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
-<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_key_status">用户 启用 / 停用</div><div id="dash-donut-key"></div></div>
-<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_bind_status">用户 绑定 / 未绑定</div><div id="dash-donut-bind"></div></div>
+<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
+<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_key_status">用户 启用 / 停用</div><div id="dash-donut-key"></div></div>
+<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_bind_status">用户 绑定 / 未绑定</div><div id="dash-donut-bind"></div></div>
 </div>
 </div>
 
 <div class="card view-home">
 <h2 data-i18n="dash_trend_title" style="margin:0 0 .9rem">趋势</h2>
-<div id="dash-trend"><span style="color:#64748b" data-i18n="dash_no_trend">暂无趋势数据（每 5 分钟采样一次）</span></div>
+<div id="dash-trend"><span style="color:var(--faint)" data-i18n="dash_no_trend">暂无趋势数据（每 5 分钟采样一次）</span></div>
 </div>
 
 <div class="card view-home">
 <h2 data-i18n="dash_calls_title" style="margin:0 0 .9rem">调用统计</h2>
 <div id="dash-stat-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem;margin-bottom:1rem"></div>
-<div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem" data-i18n="dash_tone_share">对话模式占比</div>
+<div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_tone_share">对话模式占比</div>
 <div id="dash-tone-share"></div>
 </div>
 
@@ -2147,50 +2194,50 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <button onclick="addAccount()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
 </div>
-<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
-<div id="accounts-content" style="max-height:340px;overflow-y:auto"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
+<div id="accounts-content" style="max-height:340px;overflow-y:auto"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
 
 <div class="card view-users">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <button onclick="toggleKeyForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建 Key</button>
 </div>
-<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="keys_hint">每个 Key 绑定一个账户，可单独设置对话模式、提示词并随时启用/停用。</div>
-<div id="key-form" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:.75rem;margin-bottom:.75rem">
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="keys_hint">每个 Key 绑定一个账户，可单独设置对话模式、提示词并随时启用/停用。</div>
+<div id="key-form" style="display:none;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;padding:.75rem;margin-bottom:.75rem">
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-<input id="kf-username" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">
-<input id="kf-password" type="text" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">
+<input id="kf-username" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
+<input id="kf-password" type="text" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
 <button onclick="submitKey()" style="font-size:.8rem;padding:6px 14px" data-i18n="kf_create">创建</button>
-<button onclick="toggleKeyForm(false)" style="font-size:.8rem;padding:6px 14px;background:#334155" data-i18n="kf_cancel">取消</button>
+<button onclick="toggleKeyForm(false)" style="font-size:.8rem;padding:6px 14px;background:var(--chip)" data-i18n="kf_cancel">取消</button>
 </div>
-<div style="font-size:.75rem;color:#64748b;margin-top:.5rem" data-i18n="key_form_hint">ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。</div>
+<div style="font-size:.75rem;color:var(--faint);margin-top:.5rem" data-i18n="key_form_hint">ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。</div>
 <div id="kf-msg" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>
 </div>
-<div id="keys-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
+<div id="keys-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
 
 <div id="status-card" class="card view-accounts hide-card">
-<h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span> <span id="status-acct-name" style="font-size:.8rem;color:#64748b"></span></h2>
-<div id="status-content"><span style="color:#64748b" data-i18n="loading">加载中...</span></div>
+<h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span> <span id="status-acct-name" style="font-size:.8rem;color:var(--faint)"></span></h2>
+<div id="status-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
 
 <div class="card view-settings">
 <div style="display:flex;align-items:center;gap:.5rem">
 <h2 data-i18n="title_tone" style="margin:0">对话模式</h2>
 <span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
-<select id="tone-select" style="margin-left:auto;width:150px;max-width:50%;padding:6px 32px 6px 10px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.8rem;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 10px center"></select>
+<select id="tone-select" style="margin-left:auto;width:150px;max-width:50%;padding:6px 32px 6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.8rem;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 10px center"></select>
 </div>
 </div>
 
 <div class="card view-settings">
 <details id="tool-prompt-details" style="cursor:pointer">
-<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_tool_prompt">提示词微调</span>
-<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="margin-top:.75rem">
-<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="tool_prompt_hint">追加到工具调用提示词后的自定义指令，用于调教模型的 tool_call 行为。立即生效并持久保存，留空则不追加。</div>
-<textarea id="tool-prompt-input" rows="4" style="width:100%;box-sizing:border-box;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.85rem;font-family:monospace;outline:none;resize:vertical" placeholder=""></textarea>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="tool_prompt_hint">追加到工具调用提示词后的自定义指令，用于调教模型的 tool_call 行为。立即生效并持久保存，留空则不追加。</div>
+<textarea id="tool-prompt-input" rows="4" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical" placeholder=""></textarea>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
 <button id="tool-prompt-save" onclick="saveToolPrompt()" data-i18n="tool_prompt_save">保存</button>
 <button id="tool-prompt-reset" onclick="resetToolPrompt()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
@@ -2202,17 +2249,17 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-settings">
 <details id="system-prompt-details" style="cursor:pointer">
-<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_system_prompt">系统级提示词（高级）</span>
-<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="margin-top:.75rem">
-<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem" data-i18n="system_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。</div>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="system_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。</div>
 <div id="system-prompt-locked">
 <button id="system-prompt-unlock" onclick="unlockSystemPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑（高级）</button>
 </div>
 <div id="system-prompt-editor" style="display:none">
-<textarea id="system-prompt-input" rows="10" style="width:100%;box-sizing:border-box;padding:8px 12px;background:#0f172a;border:1px solid #7f1d1d;border-radius:8px;color:#e2e8f0;font-size:.8rem;font-family:monospace;outline:none;resize:vertical" placeholder=""></textarea>
+<textarea id="system-prompt-input" rows="10" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid #7f1d1d;border-radius:8px;color:var(--strong);font-size:.8rem;font-family:monospace;outline:none;resize:vertical" placeholder=""></textarea>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
 <button id="system-prompt-save" onclick="saveSystemPrompt()" data-i18n="system_prompt_save">保存</button>
 <button id="system-prompt-reset" onclick="resetSystemPrompt()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
@@ -2225,41 +2272,47 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-debug">
 <details id="call-log-details" style="cursor:pointer">
-<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_call_log">API 调用记录</span>
-<span id="call-log-count" style="font-size:.75rem;color:#64748b;background:#1e293b;padding:2px 8px;border-radius:8px">0</span>
-<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:var(--inner);padding:2px 8px;border-radius:8px">0</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div id="call-log-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
-<span style="color:#64748b" data-i18n="no_calls_yet">暂无调用记录</span>
+<span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
 </details>
 </div>
 
 <div class="card view-debug">
 <details id="capture-details" style="cursor:pointer">
-<summary style="font-size:1.1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_capture">模式抓包对比</span>
-<span id="capture-count" style="font-size:.75rem;color:#64748b;background:#1e293b;padding:2px 8px;border-radius:8px">0</span>
-<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span id="capture-count" style="font-size:.75rem;color:var(--faint);background:var(--inner);padding:2px 8px;border-radius:8px">0</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="margin-top:.5rem;font-size:.75rem;color:#64748b" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
+<div style="margin-top:.5rem;font-size:.75rem;color:var(--faint)" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
 <div id="capture-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
-<span style="color:#64748b" data-i18n="no_capture_yet">暂无抓包数据</span>
+<span style="color:var(--faint)" data-i18n="no_capture_yet">暂无抓包数据</span>
 </div>
 </details>
 </div>
 
-<div class="card view-home">
-<h2 data-i18n="title_quick_start">快速开始</h2>
-<p style="color:#94a3b8;font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
-<strong style="color:#22c55e" data-i18n="qs_recommended">推荐：</strong><span data-i18n="qs_install_script">安装油猴脚本（</span><a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" data-i18n="qs_script_name">一键脚本</a>），<span data-i18n="qs_open_copilot">打开</span> <a href="https://m365.cloud.microsoft/chat" target="_blank">M365 Copilot</a>，<span data-i18n="qs_type_trigger">输入内容触发 WebSocket，然后在脚本面板点击</span> <strong data-i18n="qs_push_token">推送 Token</strong>。<br>
-<strong style="color:#f59e0b" data-i18n="qs_alternative">备选：</strong><span data-i18n="qs_manual_copy">在 DevTools（Network → WS → wss://substrate.office.com/...）中手动复制 </span><code>access_token</code>，<span data-i18n="qs_paste_above">然后粘贴到上方。</span>
+<div class="card view-debug">
+<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;flex-wrap:wrap">
+<h2 data-i18n="dbg_guide_title" style="margin:0">调试指南</h2>
+<label style="margin-left:auto;display:flex;align-items:center;gap:.5rem;cursor:pointer">
+<span style="font-size:.8rem;color:var(--muted)" data-i18n="dbg_capture_recv">接收抓包</span>
+<span class="switch"><input type="checkbox" id="capture-toggle" onchange="toggleCapture(this.checked)"><span class="slider"></span></span>
+</label>
+</div>
+<p style="color:var(--muted);font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
+<span data-i18n="dbg_capture_desc">开启「接收抓包」后才会接受油猴脚本推送的模式抓包数据；关闭时后端直接拒绝，避免无关数据写入。调试完请关闭。</span><br>
+<span data-i18n="dbg_capture_steps">调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。</span>
 </p>
 <details style="cursor:pointer">
-<summary style="font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+<summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_api_endpoints">API 端点</span>
-<span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div class="api-info" style="margin-top:.5rem">
 GET  /healthz<br>
@@ -2351,6 +2404,9 @@ const i18n={
     title_capture:'模式抓包对比',
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
+    dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',
+    dbg_capture_desc:'开启「接收抓包」后才会接受油猴脚本推送的模式抓包数据；关闭时后端直接拒绝，避免无关数据写入。调试完请关闭。',
+    dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（默认）',
     tone_hint:'设置新建用户的默认对话模式（模型）。此项决定每个新建 Key 的初始模式，用户可在自己的用户页覆盖。立即生效并持久保存。',
     tone_saved:'已保存',
@@ -2425,6 +2481,9 @@ const i18n={
     title_capture:'Mode Capture Compare',
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
+    dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',
+    dbg_capture_desc:'Only when "Receive captures" is on will the backend accept capture payloads pushed by the Tampermonkey script; when off, the backend rejects them outright to avoid stray data. Turn it off after debugging.',
+    dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (Default)',
     tone_hint:'Set the default conversation mode (model) for newly created users. This determines the initial mode of each new key; users can override it on their own page. Applies immediately and persists across restarts.',
     tone_saved:'Saved',
@@ -2492,6 +2551,15 @@ async function adminLogout(){
   location.reload();
 }
 
+// Debug: toggle whether the backend accepts pushed capture payloads.
+async function loadCaptureToggle(){
+  const el=document.getElementById('capture-toggle');if(!el)return;
+  try{const r=await fetch('/admin/capture-toggle',{credentials:'include'});if(r.ok){const d=await r.json();el.checked=!!d.enabled}}catch(e){}
+}
+async function toggleCapture(on){
+  try{await fetch('/admin/capture-toggle',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!!on})})}catch(e){}
+}
+
 // Sidebar view switching: pure front-end, no reload. Persists last view.
 function switchView(view){
   document.body.setAttribute('data-view',view);
@@ -2501,6 +2569,7 @@ function switchView(view){
   const map={home:'nav_home',users:'nav_users',accounts:'nav_accounts',settings:'nav_settings',debug:'nav_debug'};
   const vk=map[view]||'nav_home';
   if(vt){vt.setAttribute('data-i18n',vk);vt.textContent=(i18n[lang]&&i18n[lang][vk])||vt.textContent}
+  if(view==='debug')loadCaptureToggle();
 }
 switchView(localStorage.getItem('admin_view')||'home');
 
@@ -2508,7 +2577,7 @@ function showInlineLogin(){
   const curLang=localStorage.getItem('lang')||'zh';
   const li18n={zh:{desc:'输入管理员密码以继续',btn:'登录',ph:'API Key / 密码'},en:{desc:'Enter admin password to continue',btn:'Login',ph:'API Key / Password'}};
   const lt=k=>li18n[curLang][k]||k;
-  document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"><div style="background:#1e293b;border-radius:14px;padding:2.5rem 2.5rem 2.5rem 2.5rem;width:360px;border:1px solid #334155;text-align:center;position:relative"><button onclick="toggleInlineLang()" style="position:absolute;top:12px;right:12px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.5);color:#e2e8f0;font-size:12px;padding:4px 12px;border-radius:16px;cursor:pointer;font-weight:600;width:auto">'+(curLang==='zh'?'&#127760; EN':'&#127760; 中文')+'</button><h1 style="font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Ciallo Ms-365 OpenAI Proxy</h1><p style="color:#64748b;font-size:.85rem;margin-bottom:1.5rem">'+lt('desc')+'</p><input id="pw" type="password" placeholder="'+lt('ph')+'" autofocus style="width:100%;padding:.75rem 1rem;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0;font-size:.9rem;outline:none;margin-bottom:1rem"><button onclick="doInlineLogin()" style="width:100%;background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">'+lt('btn')+'</button><div id="ilm" style="padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none"></div></div></div>';
+  document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--inner);color:var(--strong);font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"><div style="background:var(--inner);border-radius:14px;padding:2.5rem 2.5rem 2.5rem 2.5rem;width:360px;border:1px solid var(--inner-border);text-align:center;position:relative"><button onclick="toggleInlineLang()" style="position:absolute;top:12px;right:12px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.5);color:var(--strong);font-size:12px;padding:4px 12px;border-radius:16px;cursor:pointer;font-weight:600;width:auto">'+(curLang==='zh'?'&#127760; EN':'&#127760; 中文')+'</button><h1 style="font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Ciallo Ms-365 OpenAI Proxy</h1><p style="color:var(--faint);font-size:.85rem;margin-bottom:1.5rem">'+lt('desc')+'</p><input id="pw" type="password" placeholder="'+lt('ph')+'" autofocus style="width:100%;padding:.75rem 1rem;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.9rem;outline:none;margin-bottom:1rem"><button onclick="doInlineLogin()" style="width:100%;background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">'+lt('btn')+'</button><div id="ilm" style="padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none"></div></div></div>';
   document.getElementById('pw').addEventListener('keydown',function(e){if(e.key==='Enter')doInlineLogin()});
 }
 function toggleInlineLang(){localStorage.setItem('lang',localStorage.getItem('lang')==='zh'?'en':'zh');showInlineLogin()}
@@ -2698,30 +2767,38 @@ async function logoutUser(){
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 // ---- home dashboard: pure-SVG KPI + donut charts, no external deps ----
 function kpiCard(label,val,color){
-  return '<div style="background:#0f172a;border:1px solid #1f2937;border-radius:10px;padding:.7rem .8rem">'
+  return '<div style="background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;padding:.7rem .8rem">'
     +'<div style="font-size:1.5rem;font-weight:700;color:'+color+'">'+val+'</div>'
-    +'<div style="font-size:.72rem;color:#94a3b8;margin-top:.15rem">'+label+'</div></div>';
+    +'<div style="font-size:.72rem;color:var(--muted);margin-top:.15rem">'+label+'</div></div>';
 }
 function donut(parts,centerLabel,centerVal){
-  // parts: [{value,color,label}] — render an SVG ring + legend.
+  // parts: [{value,color,label}] — render a glassy SVG ring + legend.
   const total=parts.reduce((s,p)=>s+p.value,0);
   const R=52,C=2*Math.PI*R;let off=0;
+  const uid='d'+Math.random().toString(36).slice(2,8);
+  // glass defs: soft drop shadow + glossy top highlight overlay
+  let defs='<defs>'
+    +'<filter id="'+uid+'sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.28"/></filter>'
+    +'<linearGradient id="'+uid+'gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
+    +'</defs>';
   let ring='';
-  if(total<=0){
-    ring='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="#1f2937" stroke-width="14"/>';
-  }else{
+  // base track ring (glass groove)
+  ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="var(--track)" stroke-width="15"/>';
+  if(total>0){
     parts.forEach(p=>{
       if(p.value<=0)return;
       const len=C*(p.value/total);
-      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+len+' '+(C-len)+'" dur="0.5s" fill="freeze"/></circle>';
+      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.92"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+len+' '+(C-len)+'" dur="0.5s" fill="freeze"/></circle>';
       off+=len;
     });
   }
-  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">'+ring
-    +'<text x="60" y="56" text-anchor="middle" fill="#e2e8f0" font-size="22" font-weight="700">'+centerVal+'</text>'
-    +'<text x="60" y="74" text-anchor="middle" fill="#64748b" font-size="10">'+centerLabel+'</text></svg>';
+  // glossy highlight arc over the top of the ring for a glass sheen
+  const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">'+defs+ring+sheen
+    +'<text x="60" y="56" text-anchor="middle" fill="var(--strong)" font-size="22" font-weight="700">'+centerVal+'</text>'
+    +'<text x="60" y="74" text-anchor="middle" fill="var(--faint)" font-size="10">'+centerLabel+'</text></svg>';
   let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
-  parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1"><span style="width:10px;height:10px;border-radius:2px;background:'+p.color+';display:inline-block"></span>'+p.label+' <b style="color:#e2e8f0">'+p.value+'</b></div>'});
+  parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
   legend+='</div>';
   return '<div style="display:flex;gap:.8rem;align-items:center">'+svg+legend+'</div>';
 }
@@ -2752,7 +2829,7 @@ function renderDashboard(){
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
-  if(!points||points.length<2)return '<span style="color:#64748b">'+t('dash_no_trend')+'</span>';
+  if(!points||points.length<2)return '<span style="color:var(--faint)">'+t('dash_no_trend')+'</span>';
   const W=760,H=200,pl=36,pr=12,pt=12,pb=24;
   const xs=points.map(p=>p.ts);
   const xmin=Math.min.apply(null,xs),xmax=Math.max.apply(null,xs);
@@ -2761,17 +2838,17 @@ function lineChart(points,series){
   const Y=v=>pt+(1-v/ymax)*(H-pt-pb);
   let g='';
   // horizontal gridlines + y labels (0, mid, max)
-  [0,0.5,1].forEach(f=>{const v=Math.round(ymax*f);const y=Y(v);g+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="#1f2937"/><text x="'+(pl-6)+'" y="'+(y+3)+'" text-anchor="end" fill="#64748b" font-size="10">'+v+'</text>'});
+  [0,0.5,1].forEach(f=>{const v=Math.round(ymax*f);const y=Y(v);g+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="var(--grid)"/><text x="'+(pl-6)+'" y="'+(y+3)+'" text-anchor="end" fill="var(--faint)" font-size="10">'+v+'</text>'});
   series.forEach(s=>{
     let d='';points.forEach((p,i)=>{d+=(i?' L':'M')+X(p.ts).toFixed(1)+' '+Y(p[s.key]||0).toFixed(1)});
     g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2"/>';
   });
   // x labels: first + last time
   const tf=ts=>new Date(ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-  g+='<text x="'+pl+'" y="'+(H-6)+'" fill="#64748b" font-size="10">'+tf(xmin)+'</text>';
-  g+='<text x="'+(W-pr)+'" y="'+(H-6)+'" text-anchor="end" fill="#64748b" font-size="10">'+tf(xmax)+'</text>';
+  g+='<text x="'+pl+'" y="'+(H-6)+'" fill="var(--faint)" font-size="10">'+tf(xmin)+'</text>';
+  g+='<text x="'+(W-pr)+'" y="'+(H-6)+'" text-anchor="end" fill="var(--faint)" font-size="10">'+tf(xmax)+'</text>';
   let legend='<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:.5rem">';
-  series.forEach(s=>{legend+='<span style="display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:#cbd5e1"><span style="width:14px;height:3px;background:'+s.color+';display:inline-block;border-radius:2px"></span>'+s.label+'</span>'});
+  series.forEach(s=>{legend+='<span style="display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:var(--muted)"><span style="width:14px;height:3px;background:'+s.color+';display:inline-block;border-radius:2px"></span>'+s.label+'</span>'});
   legend+='</div>';
   return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto">'+g+'</svg>'+legend;
 }
@@ -2800,11 +2877,11 @@ async function loadStats(){
     const tc=d.tone_counts||{};const total=Object.values(tc).reduce((s,v)=>s+v,0);
     const share=document.getElementById('dash-tone-share');
     if(share){
-      if(!total){share.innerHTML='<span style="color:#64748b">'+t('no_calls_yet')+'</span>'}
+      if(!total){share.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>'}
       else{
         const pal=['#38bdf8','#a78bfa','#22c55e','#f59e0b','#ef4444','#06b6d4','#e879f9'];
         const ents=Object.entries(tc).sort((a,b)=>b[1]-a[1]);
-        share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:#cbd5e1"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:#0f172a;border-radius:4px;overflow:hidden;margin-top:2px"><div style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
+        share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted)"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:var(--track);border-radius:4px;overflow:hidden;margin-top:2px"><div style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
       }
     }
     // soonest-expiry warning
@@ -2854,11 +2931,11 @@ async function loadAccounts(){
   if(!box)return;
   try{
     const r=await fetch('/admin/accounts',{credentials:'include'});
-    if(r.status===401){box.innerHTML='<span style="color:#64748b">'+t('loading')+'</span>';return}
+    if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
     const d=await r.json();
     __accounts=d.accounts||[];
-    if(!__accounts.length){box.innerHTML='<span style="color:#64748b">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
-    let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
+    if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
+    let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:var(--muted);text-align:left">'
       +'<th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_status')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __accounts.forEach(a=>{
       const st=a.token_status||{};
@@ -2866,13 +2943,13 @@ async function loadAccounts(){
       const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const sel=a.id===__selectedAccount;
-      h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid #334155;cursor:pointer;'+(sel?'background:#0f2942':'')+'">'
-        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:#64748b;font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:#475569;font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
+      h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer;'+(sel?'background:var(--nav-hover)':'')+'">'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
-        +'<td style="padding:.4rem;color:#64748b">'+esc(a.token_source)+'</td>'
+        +'<td style="padding:.4rem;color:var(--faint)">'+esc(a.token_source)+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
         +'<button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_refresh')+'</button> '
-        +'<button onclick="event.stopPropagation();pushAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_push_token')+'</button> '
+        +'<button onclick="event.stopPropagation();pushAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_push_token')+'</button> '
         +'<button onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>';
     });
@@ -2919,36 +2996,36 @@ async function loadKeys(){
   if(!box)return;
   try{
     const r=await fetch('/admin/keys',{credentials:'include'});
-    if(r.status===401){box.innerHTML='<span style="color:#64748b">'+t('loading')+'</span>';return}
+    if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
     const d=await r.json();
     __keys=d.keys||[];
-    if(!__keys.length){box.innerHTML='<span style="color:#64748b">'+t('no_keys')+'</span>';renderDashboard();return}
-    let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:#94a3b8;text-align:left">'
+    if(!__keys.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_keys')+'</span>';renderDashboard();return}
+    let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:var(--muted);text-align:left">'
       +'<th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __keys.forEach(k=>{
       const acc=k.account_id?(k.account_source==='manual'?('<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:rgba(96,242,255,.16);color:#60f2ff;border:1px solid rgba(96,242,255,.4)">'+t('acct_token_only')+'</span>'):esc(k.account_name||k.account_id)):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
-      const uname=k.username?esc(k.username):('<span style="color:#64748b">'+t('no_login')+'</span>');
-      const pwd=k.password?('<code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code> <button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button>'):('<span style="color:#64748b">'+t('no_login')+'</span>');
+      const uname=k.username?esc(k.username):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
+      const pwd=k.password?('<code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code> <button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:var(--chip)">'+t('btn_copy')+'</button>'):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
       h+='<tr id="krow-'+k.id+'" style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
-        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#64748b">'+esc(k.id.replace(/^key_/,'id_'))+'</code></td>'
+        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:var(--faint)">'+esc(k.id.replace(/^key_/,'id_'))+'</code></td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+uname+'</td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+pwd+'</td>'
-        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:#334155">'+t('btn_copy')+'</button></td>'
+        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:var(--chip)">'+t('btn_copy')+'</button></td>'
         +'<td style="padding:.4rem">'+acc+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">'
-        +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_set_login')+'</button> '
-        +'<button onclick="regenKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_regen_key')+'</button> '
-        +'<button onclick="rebindKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:#334155">'+t('btn_rebind')+'</button> '
+        +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_set_login')+'</button> '
+        +'<button onclick="regenKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_regen_key')+'</button> '
+        +'<button onclick="rebindKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_rebind')+'</button> '
         +'<button onclick="toggleKey(\\''+k.id+'\\','+(en?'false':'true')+')" style="font-size:.72rem;padding:3px 8px;background:'+(en?'#b45309':'#059669')+'">'+(en?t('btn_disable'):t('btn_enable'))+'</button> '
         +'<button onclick="delKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'
-        +'<tr id="kedit-'+k.id+'" style="display:none;background:#0f172a"><td colspan="6" style="padding:.6rem .8rem">'
+        +'<tr id="kedit-'+k.id+'" style="display:none;background:var(--inner)"><td colspan="6" style="padding:.6rem .8rem">'
         +'<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
-        +'<input id="ke-user-'+k.id+'" value="'+esc(k.username||'')+'" placeholder="'+t('kf_username_ph')+'" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">'
-        +'<input id="ke-pass-'+k.id+'" type="text" placeholder="'+t('key_prompt_password_opt')+'" style="flex:1;min-width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.82rem;outline:none">'
+        +'<input id="ke-user-'+k.id+'" value="'+esc(k.username||'')+'" placeholder="'+t('kf_username_ph')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
+        +'<input id="ke-pass-'+k.id+'" type="text" placeholder="'+t('key_prompt_password_opt')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
         +'<button onclick="submitKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('rebind_confirm')+'</button>'
-        +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:#334155">'+t('kf_cancel')+'</button>'
+        +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
         +'</div><div id="ke-msg-'+k.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
         +'</td></tr>';
     });
@@ -3064,11 +3141,11 @@ function rebindKey(id){
   __accounts.forEach(a=>{opts+='<option value="'+a.id+'"'+(a.id===cur?' selected':'')+'>'+esc(acctLabel(a))+'</option>'});
   const ov=document.createElement('div');
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000';
-  ov.innerHTML='<div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:1.25rem;width:340px;max-width:90vw">'
+  ov.innerHTML='<div style="background:var(--inner);border:1px solid var(--inner-border);border-radius:12px;padding:1.25rem;width:340px;max-width:90vw">'
     +'<div style="font-weight:600;margin-bottom:.75rem">'+t('rebind_title')+'</div>'
-    +'<select id="rebind-select" style="width:100%;padding:8px 10px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.85rem;outline:none">'+opts+'</select>'
+    +'<select id="rebind-select" style="width:100%;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;outline:none">'+opts+'</select>'
     +'<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">'
-    +'<button id="rebind-cancel" style="font-size:.8rem;padding:6px 14px;background:#334155">'+t('kf_cancel')+'</button>'
+    +'<button id="rebind-cancel" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
     +'<button id="rebind-ok" style="font-size:.8rem;padding:6px 14px">'+t('rebind_confirm')+'</button>'
     +'</div></div>';
   document.body.appendChild(ov);
@@ -3139,7 +3216,7 @@ async function loadCallLog(){
     const logs=d.logs||[];
     document.getElementById('call-log-count').textContent=logs.length;
     const el=document.getElementById('call-log-content');
-    if(!logs.length){el.innerHTML='<span style="color:#64748b">'+t('no_calls_yet')+'</span>';window.__callLogSig='';return}
+    if(!logs.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';window.__callLogSig='';return}
     // Skip re-render if nothing changed — prevents open <details> from collapsing every 5s
     const sig=JSON.stringify(logs);
     if(sig===window.__callLogSig)return;
@@ -3168,17 +3245,17 @@ async function loadCallLog(){
       const copyBtn=(key)=>'<button class="copybtn" id="copybtn-'+key+'" data-key="'+key+'" style="padding:2px 8px;font-size:.65rem;margin-left:6px">'+t('copy')+'</button>';
       const copyFullBtn='<button class="copybtn" id="copybtn-'+fullKey+'" data-key="'+fullKey+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
       const respView=(l.response_repr||l.response_text)?
-        '<details style="margin-top:4px"><summary style="cursor:pointer;color:#64748b;font-size:.75rem;list-style:none">'+t('view_raw')+'</summary>'+
-        (l.response_repr?'<div style="display:flex;align-items:center;color:#475569;margin-top:4px;font-size:.7rem">repr:'+copyBtn(reprKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:#0f172a;padding:6px;border-radius:6px;color:#94a3b8;margin-top:2px;font-size:.7rem;max-height:200px;overflow:auto">'+esc(l.response_repr)+'</pre>':'')+
-        (l.response_text?'<div style="display:flex;align-items:center;color:#475569;margin-top:4px;font-size:.7rem">text:'+copyBtn(textKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:#0f172a;padding:6px;border-radius:6px;color:#e2e8f0;margin-top:2px;font-size:.7rem;max-height:300px;overflow:auto">'+esc(l.response_text)+'</pre>':'')+
+        '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--faint);font-size:.75rem;list-style:none">'+t('view_raw')+'</summary>'+
+        (l.response_repr?'<div style="display:flex;align-items:center;color:var(--faint);margin-top:4px;font-size:.7rem">repr:'+copyBtn(reprKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:200px;overflow:auto">'+esc(l.response_repr)+'</pre>':'')+
+        (l.response_text?'<div style="display:flex;align-items:center;color:var(--faint);margin-top:4px;font-size:.7rem">text:'+copyBtn(textKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--strong);margin-top:2px;font-size:.7rem;max-height:300px;overflow:auto">'+esc(l.response_text)+'</pre>':'')+
         '</details>':'';
       html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;color:#94a3b8">'+
-        '<span>'+l.time+'</span><span style="display:flex;align-items:center;gap:6px"><span style="color:#475569">'+(l.stream?'stream':'sync')+'</span>'+copyFullBtn+'</span></div>'+
-        '<div style="color:#e2e8f0;margin-top:2px">tools: <span style="color:#38bdf8">'+tc+'</span></div>'+
-        (l.incremental!=null?'<div style="color:#475569;margin-top:2px">incremental: <span style="color:'+(l.incremental?'#22c55e':'#f59e0b')+'">'+(l.incremental?'yes':'no')+'</span> &nbsp; turn: '+(l.turn_count==null?'-':l.turn_count)+'</div>':'')+
+        '<div style="display:flex;justify-content:space-between;align-items:center;color:var(--muted)">'+
+        '<span>'+l.time+'</span><span style="display:flex;align-items:center;gap:6px"><span style="color:var(--faint)">'+(l.stream?'stream':'sync')+'</span>'+copyFullBtn+'</span></div>'+
+        '<div style="color:var(--strong);margin-top:2px">tools: <span style="color:#38bdf8">'+tc+'</span></div>'+
+        (l.incremental!=null?'<div style="color:var(--faint);margin-top:2px">incremental: <span style="color:'+(l.incremental?'#22c55e':'#f59e0b')+'">'+(l.incremental?'yes':'no')+'</span> &nbsp; turn: '+(l.turn_count==null?'-':l.turn_count)+'</div>':'')+
         (tr?'<div style="margin-top:2px">'+tr+'</div>':'')+
-        (l.response_len?'<div style="color:#475569;margin-top:2px">resp: '+l.response_len+' chars</div>':'')+
+        (l.response_len?'<div style="color:var(--faint);margin-top:2px">resp: '+l.response_len+' chars</div>':'')+
         respView+
         '</div>';
     }
@@ -3196,7 +3273,7 @@ async function loadCapture(){
     const ps=d.payloads||[];
     document.getElementById('capture-count').textContent=ps.length;
     const el=document.getElementById('capture-content');
-    if(!ps.length){el.innerHTML='<span style="color:#64748b">'+t('no_capture_yet')+'</span>';window.__capSig='';return}
+    if(!ps.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_capture_yet')+'</span>';window.__capSig='';return}
     const sig=JSON.stringify(ps);
     if(sig===window.__capSig)return;
     window.__capSig=sig;
@@ -3208,10 +3285,10 @@ async function loadCapture(){
       const gpt=p.gptId&&Object.keys(p.gptId).length?JSON.stringify(p.gptId):'-';
       html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
         '<div style="color:#38bdf8">'+esc(p.time)+' &nbsp; tone: <b>'+esc(p.tone||'-')+'</b> &nbsp; model: <b>'+esc(p.modelId||'-')+'</b></div>'+
-        '<div style="color:#94a3b8">gptId: '+esc(gpt)+'</div>'+
-        '<div style="color:#64748b;word-break:break-all">optionsSets: '+esc(opts)+'</div>'+
-        '<details style="margin-top:4px"><summary style="cursor:pointer;color:#64748b;font-size:.72rem;list-style:none">'+t('view_raw')+'</summary>'+
-        '<pre style="white-space:pre-wrap;word-break:break-all;background:#0f172a;padding:6px;border-radius:6px;color:#94a3b8;margin-top:2px;font-size:.7rem;max-height:240px;overflow:auto">'+esc(JSON.stringify(p.raw,null,2))+'</pre></details>'+
+        '<div style="color:var(--muted)">gptId: '+esc(gpt)+'</div>'+
+        '<div style="color:var(--faint);word-break:break-all">optionsSets: '+esc(opts)+'</div>'+
+        '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--faint);font-size:.72rem;list-style:none">'+t('view_raw')+'</summary>'+
+        '<pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:240px;overflow:auto">'+esc(JSON.stringify(p.raw,null,2))+'</pre></details>'+
         '</div>';
     }
     el.innerHTML=html;
@@ -3374,6 +3451,10 @@ code{color:#a5b4fc}
 
   <div id="app" class="hidden">
     <div class="card">
+      <h2 data-i18n="qs_title">快速开始</h2>
+      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 推送成功后，把下方的 Base URL 和 API Key 填入你的 OpenAI 兼容客户端即可使用。</div>
+    </div>
+    <div class="card">
       <h2 data-i18n="account_title">账户与 Token</h2>
       <div id="account-info"></div>
       <label data-i18n="push_token_label">推送 / 更新账户 Token</label>
@@ -3431,6 +3512,7 @@ const i18n={
   zh:{
     title:'M365 Copilot 代理 · 用户',
     login_title:'登录',login_hint:'输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。',
+    qs_title:'快速开始',qs_body:'1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 推送成功后，把下方的 Base URL 和 API Key 填入你的 OpenAI 兼容客户端即可使用。',
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户与 Token',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',
@@ -3451,6 +3533,7 @@ const i18n={
   en:{
     title:'M365 Copilot Proxy · User',
     login_title:'Login',login_hint:'Enter the username and password assigned by the admin to manage your own conversation mode, prompts and account token.',
+    qs_title:'Quick Start',qs_body:'1. Install the Tampermonkey script and open M365 Copilot, then send any message to trigger the WebSocket.<br>2. Click "Push Token" in the script panel, or manually copy the access_token and paste it below to push.<br>3. Once pushed, fill the Base URL and API Key below into your OpenAI-compatible client.',
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account & Token',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',
@@ -3480,6 +3563,7 @@ function applyLang(){
   btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
   document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(i18n[lang][k])el.textContent=i18n[lang][k]});
   document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(i18n[lang][k])el.placeholder=i18n[lang][k]});
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>{const k=el.getAttribute('data-i18n-html');if(i18n[lang][k])el.innerHTML=i18n[lang][k]});
   renderToneOptions();
 }
 function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}

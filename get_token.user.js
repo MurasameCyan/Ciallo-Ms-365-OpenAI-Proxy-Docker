@@ -141,6 +141,7 @@
             token_push_failed: 'Token push failed: ',
             no_payload: 'No chat payload captured yet. Pick a mode in Copilot and send a message first.',
             pushed_n_payloads: 'Pushed {n} payload(s) to proxy.',
+            capture_disabled: 'The proxy has "Receive captures" turned off. Enable the switch on the /admin debug page first, and turn it off after debugging.',
         },
     };
     function tr(key) { return (I18N[lang] && I18N[lang][key]) || (I18N.en[key]) || key; }
@@ -492,7 +493,9 @@
                 body: JSON.stringify({ payloads: capturedPayloads })
             });
             const d = await r.json();
-            alert(r.ok ? tr('pushed_n_payloads').replace('{n}', capturedPayloads.length) : tr('failed') + (d.error?.message || d.error));
+            if (r.ok) { alert(tr('pushed_n_payloads').replace('{n}', capturedPayloads.length)); }
+            else if (r.status === 403) { alert(tr('capture_disabled')); }
+            else { alert(tr('failed') + (d.error?.message || d.error)); }
         } catch (e) { alert(tr('network_error') + e); }
     }
 
