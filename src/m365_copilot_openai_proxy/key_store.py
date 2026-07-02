@@ -41,6 +41,10 @@ class ApiKey:
     password_hash: str = ""
     password_salt: str = ""
     role: str = "user"  # "user" (self-service only) or "admin" (reserved for elevated rights).
+    # Set when this key's account was taken over by another user pushing a token
+    # for the same M365 identity. Non-zero => show a "displaced" notice on the
+    # user page. Cleared to 0 once the user pushes/binds a fresh token again.
+    displaced_at: float = 0.0
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -101,6 +105,7 @@ class KeyStore:
                     password_hash=raw.get("password_hash", ""),
                     password_salt=raw.get("password_salt", ""),
                     role=raw.get("role", "user"),
+                    displaced_at=float(raw.get("displaced_at", 0.0)),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
                 )

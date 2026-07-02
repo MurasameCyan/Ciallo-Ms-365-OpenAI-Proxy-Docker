@@ -164,6 +164,22 @@ class AccountStore:
         with self._lock:
             return list(self._accounts.values())
 
+    def find_by_email(self, email: str) -> Account | None:
+        """Find an existing account by (case-insensitive) email.
+
+        Used to dedupe: when a user pushes a token whose identity matches an
+        account already in the pool, we reuse that account instead of creating
+        a duplicate record pointing at the same real M365 identity.
+        """
+        email = (email or "").strip().lower()
+        if not email:
+            return None
+        with self._lock:
+            for acc in self._accounts.values():
+                if acc.email and acc.email.lower() == email:
+                    return acc
+            return None
+
     def _next_cdp_port(self) -> int:
         used = {acc.cdp_port for acc in self._accounts.values()}
         port = _CDP_PORT_BASE
