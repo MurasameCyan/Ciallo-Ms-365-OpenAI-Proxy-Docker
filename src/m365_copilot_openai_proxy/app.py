@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, Response
 
 from .config import Settings
-from .account_store import Account, AccountStore
+from .account_store import Account, AccountStore, extract_identity
 from .key_store import ApiKey, KeyStore
 from .refresh_scheduler import RefreshScheduler
 from .session_store import PersistentSession, PersistentSessionStore
@@ -1418,6 +1418,8 @@ def create_app(
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
             "default_system_prompt": default_tool_system_prompt(),
+            "displaced": bool(getattr(k, "displaced_at", 0.0)),
+            "displaced_at": getattr(k, "displaced_at", 0.0),
             "account": {
                 "id": acc.id,
                 "name": acc.name,
@@ -1485,13 +1487,37 @@ def create_app(
                 return _json_err(400, "Token is not a substrate.office.com token")
         except Exception:
             return _json_err(400, "Not a valid JWT token")
-        acc_id = k.account_id
-        if not acc_id or app.state.account_store.get(acc_id) is None:
-            acc = app.state.account_store.add(name=k.name or "user", token=token, token_source="manual")
-            app.state.key_store.update(k.id, account_id=acc.id)
+        _, email = extract_identity(token)
+        # Dedupe by identity: if the pushed token belongs to an M365 account
+        # already in the pool, reuse that record instead of creating a duplicate.
+        reused = app.state.account_store.find_by_email(email) if email else None
+        displaced = 0  # how many other users we bumped off the reused account
+        if reused is not None:
+            # Take over the shared identity: refresh its token, bind this key,
+            # and displace every OTHER key currently pointing at it so those
+            # users get a "your account was taken over" notice on their page.
+            acc = app.state.account_store.update_token(reused.id, token, token_source="manual")
+            now = time.time()
+            for other in app.state.key_store.list_for_account(reused.id):
+                if other.id == k.id:
+                    continue
+                app.state.key_store.update(other.id, account_id="", displaced_at=now)
+                displaced += 1
+            old_acc_id = k.account_id
+            app.state.key_store.update(k.id, account_id=reused.id, displaced_at=0.0)
+            # Drop the caller's previous account if it is now orphaned (no keys).
+            if old_acc_id and old_acc_id != reused.id and not app.state.key_store.list_for_account(old_acc_id):
+                app.state.account_store.remove(old_acc_id)
         else:
-            acc = app.state.account_store.update_token(acc_id, token, token_source="manual")
-        return {"status": "ok", "token_status": acc.token_status() if acc else None}
+            acc_id = k.account_id
+            if not acc_id or app.state.account_store.get(acc_id) is None:
+                acc = app.state.account_store.add(name=k.name or "user", token=token, token_source="manual")
+                app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
+            else:
+                acc = app.state.account_store.update_token(acc_id, token, token_source="manual")
+                if k.displaced_at:
+                    app.state.key_store.update(k.id, displaced_at=0.0)
+        return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}
 
     @app.post("/user/regenerate-key")
     async def user_regenerate_key(request: Request) -> dict:
@@ -1515,6 +1541,22 @@ def create_app(
         if k.account_id and app.state.account_store.get(k.account_id) is not None:
             app.state.account_store.clear_token(k.account_id)
         return {"status": "ok"}
+
+    @app.post("/user/account/unbind")
+    async def user_account_unbind(request: Request) -> dict:
+        """Fully detach the caller's account: unbind the key and, if the account
+        is left with no keys pointing at it, remove the record entirely. Use this
+        when the user no longer wants the account associated (vs. "登出" which
+        only wipes the token but keeps the binding)."""
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        acc_id = k.account_id
+        app.state.key_store.update(k.id, account_id="", displaced_at=0.0)
+        removed = False
+        if acc_id and not app.state.key_store.list_for_account(acc_id):
+            removed = app.state.account_store.remove(acc_id)
+        return {"status": "ok", "removed": removed}
 
     @app.get("/", response_class=HTMLResponse)
     async def user_page(request: Request) -> str:
@@ -3562,7 +3604,7 @@ const i18n={
     endpoints_title:'API 端点',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
     copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
-    logout:'登出 Microsoft',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',unbind_account:'解绑/移除账户',unbind_confirm:'确认解绑并移除当前账户记录？之后需要重新推送 Token 才能使用。',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -3584,7 +3626,7 @@ const i18n={
     endpoints_title:'API Endpoints',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
     copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
-    logout:'Sign out of Microsoft',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',unbind_account:'Unbind/remove account',unbind_confirm:'Unbind and remove the current account record? You will need to push a token again before using it.',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -3632,6 +3674,11 @@ async function doLogin(){
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
 async function logout(){try{await fetch('/user/account/logout',{method:'POST',headers:authHeaders()})}catch(e){}sessionStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden')}
+async function unbindAccount(){
+  if(!confirm(t('unbind_confirm')))return;
+  try{await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()})}catch(e){}
+  await loadMe();
+}
 async function loadMe(){
   if(!getKey())return false;
   try{
@@ -3649,16 +3696,19 @@ async function loadMe(){
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
     document.getElementById('sys-prompt').value=d.system_prompt||'';
     let acc='';
+    if(d.displaced){
+      acc+='<div class="msg err" style="display:block;margin-bottom:.6rem">'+t('displaced_notice')+'</div>';
+    }
     if(d.account){
       const st=d.account.token_status||{};
       const valid=st.valid;
       const rem=valid?(' · '+t('remaining')+' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
-      acc='<div class="row" style="flex-wrap:wrap;gap:.4rem"><span class="pill">'+t('bound_account')+': '+(d.account.name||d.account.id)+'</span>'
+      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem"><span class="pill">'+t('bound_account')+': '+(d.account.name||d.account.id)+'</span>'
         +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
     }else{
-      acc='<div class="hint">'+t('no_account')+'</div>';
+      acc+='<div class="hint">'+t('no_account')+'</div>';
     }
-    acc+='<div style="margin-top:.6rem"><button class="btn-ghost" onclick="logout()">'+t('logout')+'</button></div>';
+    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost" onclick="logout()">'+t('logout')+'</button><button class="btn-ghost" onclick="unbindAccount()">'+t('unbind_account')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
     return true;
   }catch(e){return false}

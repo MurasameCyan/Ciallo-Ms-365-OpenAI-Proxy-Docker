@@ -174,7 +174,7 @@ class KeyStore:
 
     def update(self, key_id: str, **fields: Any) -> ApiKey | None:
         """Update mutable fields. Pass password=<str> to (re)set the login password."""
-        allowed = {"name", "account_id", "enabled", "tone", "tool_prompt", "system_prompt", "username", "role"}
+        allowed = {"name", "account_id", "enabled", "tone", "tool_prompt", "system_prompt", "username", "role", "displaced_at"}
         with self._lock:
             k = self._keys.get(key_id)
             if k is None:
