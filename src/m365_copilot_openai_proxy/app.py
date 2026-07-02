@@ -2171,9 +2171,13 @@ body{padding:0}
 .nav-item.active{background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.22));color:var(--text);box-shadow:inset 0 0 0 1px rgba(140,107,255,.44)}
 .nav-ico{font-size:1.05rem;width:1.4rem;text-align:center;flex-shrink:0}
 .nav-item span:not(.nav-ico){transition:opacity .16s ease}
-.side-tools{margin-top:auto;display:flex;gap:.4rem;align-items:center;justify-content:center;flex-wrap:wrap;padding-top:1rem}
-.icon-btn{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:transform .16s ease,background .16s ease}
-.icon-btn:hover{transform:translateY(-2px);background:var(--nav-hover)}
+.side-tools{margin-top:auto;position:relative;height:84px;padding-top:1rem}
+.icon-btn{position:absolute;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:transform .24s cubic-bezier(.22,1,.36,1),background .16s ease,opacity .18s ease;will-change:transform}
+.icon-btn:hover{background:var(--nav-hover)}
+.side-tools .icon-btn:nth-child(1){transform:translate(52px,0)}
+.side-tools .icon-btn:nth-child(2){transform:translate(96px,0)}
+.side-tools .icon-btn:nth-child(3){transform:translate(52px,44px)}
+.side-tools .icon-btn:nth-child(4){transform:translate(96px,44px)}
 /* ---- glass toggle switch ---- */
 .switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
 .switch input{opacity:0;width:0;height:0}
@@ -2197,7 +2201,11 @@ body{padding:0}
 body[data-collapsed="1"] .sidebar{width:64px;padding:1.2rem .5rem}
 body[data-collapsed="1"] .brand span,body[data-collapsed="1"] .nav-item span:not(.nav-ico){opacity:0;pointer-events:none}
 body[data-collapsed="1"] .brand{font-size:0;padding:.4rem 0 1.2rem}
-body[data-collapsed="1"] .side-tools{flex-direction:column}
+body[data-collapsed="1"] .side-tools{height:176px}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(1){transform:translate(6px,0)}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(2){transform:translate(6px,44px)}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(3){transform:translate(6px,88px)}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(4){transform:translate(6px,132px)}
 .main{flex:1;padding:2rem;overflow-x:hidden}
 .main .container{max-width:820px}
 .main h1{font-size:1.4rem}
