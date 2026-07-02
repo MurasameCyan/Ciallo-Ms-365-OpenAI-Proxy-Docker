@@ -2141,7 +2141,10 @@ h1{font-size:1.5rem;margin-bottom:1.5rem;background:var(--h1grad);-webkit-backgr
 .valid{color:#3fb970}.invalid{color:#e08a8a}.warn{color:#c99a3a}
 textarea{width:100%;height:120px;background:var(--surface);border:1px solid var(--surface-border);border-radius:10px;color:var(--text);padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
 textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14)}
-button{color:#050815;border:none;border-radius:10px;padding:.55rem .9rem;font-size:.8rem;font-weight:700;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease;white-space:nowrap;flex-shrink:0;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22)}
+button{color:#050815;border:none;border-radius:10px;padding:.55rem .9rem;font-size:.8rem;font-weight:800;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease;white-space:nowrap;flex-shrink:0;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22);text-shadow:none}
+button[style*="background:#ef4444"],button[style*="background:linear-gradient(135deg,#ef4444"],button[style*="background:#b91c1c"],button[style*="background:#059669"],button[style*="background:#b45309"],button[style*="background:#0f172a"],button[style*="background:#334155"]{color:#fff!important}
+button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px solid var(--chip-border)!important;box-shadow:none!important}
+body[data-theme="light"] button[style*="background:var(--chip)"]{color:#243049!important;background:rgba(99,102,180,.1)!important}
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-bar{display:flex;gap:.5rem;margin-bottom:.25rem;flex-wrap:wrap}
@@ -2172,8 +2175,9 @@ body{padding:0}
 .nav-ico{font-size:1.05rem;width:1.4rem;text-align:center;flex-shrink:0}
 .nav-item span:not(.nav-ico){transition:opacity .16s ease}
 .side-tools{margin-top:auto;position:relative;height:84px;padding-top:1rem}
-.icon-btn{position:absolute;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:transform .24s cubic-bezier(.22,1,.36,1),background .16s ease,opacity .18s ease;will-change:transform}
+.icon-btn{position:absolute;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:background .16s ease,opacity .18s ease,filter .18s ease;will-change:opacity}
 .icon-btn:hover{background:var(--nav-hover)}
+.side-tools.switching .icon-btn{opacity:0;filter:blur(4px);pointer-events:none}
 .side-tools .icon-btn:nth-child(1){transform:translate(52px,0)}
 .side-tools .icon-btn:nth-child(2){transform:translate(96px,0)}
 .side-tools .icon-btn:nth-child(3){transform:translate(52px,44px)}
@@ -2608,7 +2612,7 @@ function toggleLang(){
 }
 function applyLang(){
   const btn=document.getElementById('lang-toggle');
-  if(btn)btn.title=lang==='zh'?'切换语言 / Language':'Language / 切换语言';
+  if(btn)btn.title=lang==='zh'?'切换到英文':'Switch to Chinese';
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
@@ -2617,6 +2621,8 @@ function applyLang(){
   loadAccounts();loadKeys();
   const vt=document.getElementById('view-title');
   if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
+  const out=document.getElementById('admin-logout');if(out)out.title=lang==='zh'?'退出管理后台':'Sign out admin';
+  applyTheme();applyCollapse();
 }
 applyLang();
 
@@ -2625,7 +2631,7 @@ function applyTheme(){
   const th=localStorage.getItem('admin_theme')||'dark';
   document.body.setAttribute('data-theme',th);
   const btn=document.getElementById('theme-toggle');
-  if(btn){btn.innerHTML=th==='light'?'&#9728;':'&#127769;';btn.title=lang==='zh'?'切换主题':'Theme'}
+  if(btn){btn.innerHTML=th==='light'?'&#9728;':'&#127769;';btn.title=lang==='zh'?(th==='light'?'切换到暗色主题':'切换到亮色主题'):(th==='light'?'Switch to dark theme':'Switch to light theme')}
 }
 function toggleTheme(){
   const th=(localStorage.getItem('admin_theme')||'dark')==='light'?'dark':'light';
@@ -2637,10 +2643,17 @@ applyTheme();
 function applyCollapse(){
   const c=localStorage.getItem('admin_collapsed')==='1';
   document.body.setAttribute('data-collapsed',c?'1':'0');
+  const btn=document.getElementById('collapse-toggle');
+  if(btn)btn.title=lang==='zh'?(c?'展开侧边栏':'收纳侧边栏'):(c?'Expand sidebar':'Collapse sidebar');
 }
 function toggleCollapse(){
-  localStorage.setItem('admin_collapsed',localStorage.getItem('admin_collapsed')==='1'?'0':'1');
-  applyCollapse();
+  const tools=document.querySelector('.side-tools');
+  if(tools)tools.classList.add('switching');
+  setTimeout(()=>{
+    localStorage.setItem('admin_collapsed',localStorage.getItem('admin_collapsed')==='1'?'0':'1');
+    applyCollapse();
+    setTimeout(()=>{if(tools)tools.classList.remove('switching')},40);
+  },180);
 }
 applyCollapse();
 
@@ -3523,29 +3536,30 @@ _USER_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M365 Copilot Proxy - User</title>
 <style>
-:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2)}
+:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2);--text:#f3f6ff;--card:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,10,24,.76));--bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);--chip:rgba(255,255,255,.06);--chip-border:rgba(255,255,255,.14)}
+body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,180,.22);--text:#1f2740;--card:linear-gradient(180deg,rgba(255,255,255,.9),rgba(244,247,253,.84));--bg:radial-gradient(circle at 18% 12%,rgba(96,180,242,.16),transparent 28%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.14),transparent 26%),radial-gradient(circle at 50% 92%,rgba(255,150,220,.12),transparent 28%),linear-gradient(135deg,#edf3fb 0%,#e4ebf6 48%,#eef2f8 100%);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22)}
 *{box-sizing:border-box}
-body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;line-height:1.5;min-height:100vh;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);position:relative}
+body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);line-height:1.5;min-height:100vh;background:var(--bg);position:relative;transition:background .25s,color .25s}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%);z-index:0}
 .orb{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(16px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 11s linear infinite,loginPulse 3.8s ease-in-out infinite;opacity:.32;z-index:0;pointer-events:none}
 .wrap{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
 h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
-.card{position:relative;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,10,24,.76));border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.42),transparent 30%,rgba(255,94,219,.32),rgba(255,215,111,.24));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.75;pointer-events:none}
-.card h2{font-size:1rem;margin:0 0 .8rem;color:#f3f6ff}
+.card h2{font-size:1rem;margin:0 0 .8rem;color:var(--strong)}
 #login-card{width:380px;max-width:calc(100vw - 32px);margin:8vh auto 1.5rem;text-align:center;padding:2.6rem;border-radius:28px}
 #login-card .brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgba(96,242,255,.9),rgba(140,107,255,.92));box-shadow:0 0 30px rgba(96,242,255,.4),inset 0 0 22px rgba(255,255,255,.22);overflow:hidden}
 #login-card .brand-mark:before,#login-card .brand-mark:after{content:"";position:absolute;inset:12px;border-radius:12px;border:1px solid rgba(255,255,255,.34);transform:rotate(16deg)}
 #login-card .brand-mark:after{inset:8px;transform:rotate(-12deg);opacity:.58}
 label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .3rem}
-input,select,textarea{width:100%;background:rgba(7,11,27,.7);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#f3f6ff;padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s,box-shadow .2s}
+input,select,textarea{width:100%;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--text);padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s,box-shadow .2s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
 textarea{resize:vertical;min-height:70px;font-family:monospace}
-button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-size:.85rem;font-weight:700;cursor:pointer;margin-top:.6rem;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22);transition:transform .18s ease,box-shadow .18s ease}
+button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-size:.85rem;font-weight:800;cursor:pointer;margin-top:.6rem;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22);transition:transform .18s ease,box-shadow .18s ease;text-shadow:none}
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.btn-ghost{background:rgba(255,255,255,.06);background-image:none;color:#f3f6ff;border:1px solid rgba(255,255,255,.14);box-shadow:none}
+.btn-ghost{background:var(--chip);background-image:none;color:var(--strong);border:1px solid var(--chip-border);box-shadow:none}
 .row{display:flex;gap:.5rem;align-items:center}
 .row>*{margin-top:0}
 .pill{display:inline-block;font-size:.75rem;padding:.15rem .5rem;border-radius:99px;background:rgba(255,255,255,.08);color:#cbd5e1}
@@ -3569,6 +3583,9 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .status-grid{display:grid;gap:.45rem;margin-top:.65rem}
 .status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:.35rem}
 .status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
+.status-mark{width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:900;color:#fff;box-shadow:0 0 14px rgba(0,0,0,.18)}
+.status-mark.ok{background:linear-gradient(135deg,#22c55e,#14b8a6);box-shadow:0 0 16px rgba(34,197,94,.35)}
+.status-mark.bad{background:linear-gradient(135deg,#ef4444,#f97316);box-shadow:0 0 16px rgba(239,68,68,.32)}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes loginPulse{50%{scale:1.08;opacity:.48}}
@@ -3584,7 +3601,10 @@ code{color:#a5b4fc}
 <div class="wrap">
   <div class="top">
     <h1 data-i18n="title">M365 Copilot 代理 · 用户</h1>
-    <button class="btn-ghost" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <button class="btn-ghost" id="theme-toggle" onclick="toggleTheme()">&#127769;</button>
+      <button class="btn-ghost" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+    </div>
   </div>
 
   <div id="login-card" class="card">
@@ -3618,7 +3638,7 @@ code{color:#a5b4fc}
       <div class="account-main">
         <h2 data-i18n="account_title">账户控制台</h2>
         <div id="account-info"></div>
-        <div class="hint" style="margin-top:.75rem">Base URL: <code id="base-url"></code></div>
+        <div class="hint" style="margin-top:.75rem">Base URL: <code id="base-url"></code> <button onclick="copyBaseUrl()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_base">复制</button></div>
         <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_key">复制</button></div>
         <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
         <label style="margin-top:1.1rem;font-size:1rem;color:var(--strong);font-weight:600" data-i18n="mode_profile_title">默认对话配置</label>
@@ -3626,7 +3646,7 @@ code{color:#a5b4fc}
         <label data-i18n="push_token_label">推送 / 更新账户 Token</label>
         <div class="hint" data-i18n="push_token_hint">粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。</div>
         <textarea id="acct-token" placeholder="access_token / wss://substrate.office.com/..."></textarea>
-        <div class="row"><button onclick="pushToken()" data-i18n="push_token_btn">推送 Token</button><span id="token-msg" class="msg"></span></div>
+        <div class="row"><button onclick="pushToken()" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
       </div>
       <div class="account-side" id="account-status-panel"></div>
     </div>
@@ -3673,7 +3693,7 @@ const i18n={
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',
-    push_token_btn:'推送 Token',saved:'已保存',push_ok:'Token 已更新',
+    push_token_btn:'更新 Token',saved:'已保存',push_ok:'Token 已更新',
     mode_profile_title:'默认对话配置',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
     tone_title:'对话模式',tool_prompt_title:'提示词增强',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
@@ -3685,8 +3705,8 @@ const i18n={
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'API 端点',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
-    copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
-    logout:'登出 Microsoft',unbind_account:'解绑/移除账户',unbind_confirm:'确认解绑并移除当前账户记录？之后需要重新推送 Token 才能使用。',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    copy_base:'复制',copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
+    logout:'登出 Microsoft',unbind_account:'解绑 Microsoft',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -3696,7 +3716,7 @@ const i18n={
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',
-    push_token_btn:'Push Token',saved:'Saved',push_ok:'Token updated',
+    push_token_btn:'Update Token',saved:'Saved',push_ok:'Token updated',
     mode_profile_title:'Default conversation profile',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
     tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
@@ -3708,8 +3728,8 @@ const i18n={
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'API Endpoints',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
-    copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
-    logout:'Sign out of Microsoft',unbind_account:'Unbind/remove account',unbind_confirm:'Unbind and remove the current account record? You will need to push a token again before using it.',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
+    logout:'Sign out of Microsoft',unbind_account:'Unbind Microsoft',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -3729,6 +3749,8 @@ function applyLang(){
   renderToneOptions();
 }
 function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
+function applyTheme(){const theme=localStorage.getItem('user_theme')||'dark';document.body.setAttribute('data-theme',theme);const b=document.getElementById('theme-toggle');if(b)b.innerHTML=theme==='light'?'&#9728;':'&#127769;'}
+function toggleTheme(){localStorage.setItem('user_theme',(localStorage.getItem('user_theme')||'dark')==='dark'?'light':'dark');applyTheme()}
 function renderToneOptions(){
   const sel=document.getElementById('tone');if(!sel||!toneOptions.length)return;
   const cur=sel.value;
@@ -3781,13 +3803,14 @@ function renderAccountStatus(d){
   const name=a?(a.name||a.email||a.id):t('status_unknown');
   const cls=valid?'ok':(has?'bad':'');
   const icon=valid?'✓':(has?'!':'?');
+  const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'">'+(ok?'✓':'×')+'</span>';
   box.innerHTML='<div class="status-orb '+cls+'">'+icon+'</div>'
     +'<h3 style="margin:0;color:var(--strong);font-size:1rem">'+t('status_panel_title')+'</h3>'
     +'<div class="status-grid">'
     +'<div class="status-line"><span>'+t('status_account')+'</span><b>'+esc(name)+'</b></div>'
-    +'<div class="status-line"><span>'+t('status_login')+'</span><b>'+t(login?'status_yes':'status_no')+'</b></div>'
-    +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+t(refresh?'status_yes':'status_no')+'</b></div>'
-    +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+t(valid?'status_yes':'status_no')+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_login')+'</span><b>'+mark(login)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+mark(refresh)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+mark(valid)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_remaining')+'</span><b>'+fmtRemaining(st.seconds_remaining)+'</b></div>'
     +'</div>';
@@ -3830,6 +3853,10 @@ async function loadMe(){
 function copyMyKey(){
   const k=getKey();if(!k)return;
   navigator.clipboard.writeText(k).then(()=>{const s=document.getElementById('regen-msg');if(s){s.textContent=t('key_copied');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}},()=>{});
+}
+function copyBaseUrl(){
+  const v=document.getElementById('base-url')?.textContent||'';if(!v)return;
+  navigator.clipboard.writeText(v).then(()=>{const s=document.getElementById('regen-msg');if(s){s.textContent=t('key_copied');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}},()=>{});
 }
 async function regenMyKey(){
   if(!confirm(t('confirm_regen_my_key')))return;
@@ -3876,6 +3903,7 @@ async function resetSysPrompt(){
   document.getElementById('sys-prompt').value='';
   try{await fetch('/user/system-prompt',{method:'POST',headers:authHeaders(),body:JSON.stringify({system_prompt:''})});flash('sys-msg')}catch(e){}
 }
+applyTheme();
 applyLang();
 loadMe();
 </script>
