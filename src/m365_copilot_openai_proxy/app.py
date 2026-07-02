@@ -3651,7 +3651,7 @@ body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3)
 .status-grid{display:grid;gap:.45rem;margin-top:.65rem}
 .status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:.35rem}
 .status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
-.status-mark{display:inline-flex;align-items:center;justify-content:center;min-width:46px;height:26px;padding:0 .7rem;border-radius:10px;font-size:.72rem;font-weight:800;color:#050815;border:none;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 8px 20px rgba(96,242,255,.24),inset 0 1px 0 rgba(255,255,255,.4);letter-spacing:.03em;position:relative;overflow:hidden}
+.status-mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:50%;font-size:.8rem;font-weight:900;color:#050815;border:none;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 8px 20px rgba(96,242,255,.24),inset 0 1px 0 rgba(255,255,255,.4);line-height:1;position:relative;overflow:hidden}
 .status-mark:before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.32),transparent 55%);pointer-events:none}
 .status-mark:after{display:none}
 .status-mark.ok{background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));color:#050815}
@@ -3871,7 +3871,7 @@ function renderAccountStatus(d){
   const name=a?(a.name||a.email||a.id):t('status_unknown');
   const cls=valid?'ok':(has?'bad':'');
   const icon=valid?'✓':(has?'!':'?');
-  const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'">'+(ok?t('status_yes'):t('status_no'))+'</span>';
+  const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';
   box.innerHTML='<div class="status-orb '+cls+'">'+icon+'</div>'
     +'<h3 style="margin:0;color:var(--strong);font-size:1rem">'+t('status_panel_title')+'</h3>'
     +'<div class="status-grid">'
