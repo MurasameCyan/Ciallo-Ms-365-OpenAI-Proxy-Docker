@@ -2101,6 +2101,11 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 body[data-theme="light"] .msg.ok{background:rgba(220,252,231,.8);color:#15803d;border-color:rgba(34,197,94,.35)}
 body[data-theme="light"] .msg.err{background:rgba(254,226,226,.8);color:#b91c1c;border-color:rgba(239,68,68,.35)}
 .api-info{margin-top:1rem;padding:.75rem;background:var(--surface);border-radius:10px;font-family:monospace;font-size:.8rem;color:var(--muted);line-height:1.6}
+.api-grp{font-weight:700;color:var(--strong);margin:.5rem 0 .25rem;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.78rem}
+.api-grp:first-child{margin-top:0}
+.api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
+.api-row>span:first-child{color:var(--text);white-space:pre}
+.api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
 a{color:var(--cyan);text-decoration:none}
 body[data-theme="light"] a{color:#0e7490}
 a:hover{text-decoration:underline}
@@ -2315,26 +2320,30 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div class="api-info" style="margin-top:.5rem">
-GET  /healthz<br>
-GET  /admin/token/status<br>
-POST /admin/token/update<br>
-POST /admin/token/auto-capture<br>
-POST /admin/cookie/inject<br>
-GET  /admin/chromium/login-status<br>
-POST /admin/chromium/logout<br>
-GET  /admin/call-log<br>
-GET  /admin/capture-payload<br>
-POST /admin/capture-payload<br>
-GET  /admin/tone<br>
-POST /admin/tone<br>
-GET  /admin/tool-prompt<br>
-POST /admin/tool-prompt<br>
-GET  /admin/system-prompt<br>
-POST /admin/system-prompt<br>
-GET  /v1/models<br>
-POST /v1/chat/completions<br>
-POST /v1/responses<br>
-POST /v1/messages
+<div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
+<div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
+<div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
+<div class="api-row"><span>GET&nbsp; /v1/models</span><span data-i18n="api_models">模型列表</span></div>
+<div class="api-row"><span>POST /v1/responses</span><span data-i18n="api_responses">Responses 接口</span></div>
+<div class="api-grp" data-i18n="api_grp_admin">管理接口</div>
+<div class="api-row"><span>GET&nbsp; /admin/call-log</span><span data-i18n="api_call_log">调用记录</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/capture-payload</span><span data-i18n="api_cap_get">查看抓包数据</span></div>
+<div class="api-row"><span>POST /admin/capture-payload</span><span data-i18n="api_cap_post">推送抓包数据</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/capture-toggle</span><span data-i18n="api_captgl_get">接收开关状态</span></div>
+<div class="api-row"><span>POST /admin/capture-toggle</span><span data-i18n="api_captgl_post">设置接收开关</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/chromium/login-status</span><span data-i18n="api_login_status">Chromium 登录状态</span></div>
+<div class="api-row"><span>POST /admin/chromium/logout</span><span data-i18n="api_chromium_logout">退出 Chromium 登录</span></div>
+<div class="api-row"><span>POST /admin/cookie/inject</span><span data-i18n="api_cookie_inject">注入 Cookie</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/system-prompt</span><span data-i18n="api_sys_get">查看系统提示词</span></div>
+<div class="api-row"><span>POST /admin/system-prompt</span><span data-i18n="api_sys_post">设置系统提示词</span></div>
+<div class="api-row"><span>POST /admin/token/auto-capture</span><span data-i18n="api_auto_cap">自动抓取 Token</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/token/status</span><span data-i18n="api_tok_status">Token 状态</span></div>
+<div class="api-row"><span>POST /admin/token/update</span><span data-i18n="api_tok_update">更新 Token</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/tone</span><span data-i18n="api_tone_get">查看默认模式</span></div>
+<div class="api-row"><span>POST /admin/tone</span><span data-i18n="api_tone_post">设置默认模式</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/tool-prompt</span><span data-i18n="api_tool_get">查看工具提示词</span></div>
+<div class="api-row"><span>POST /admin/tool-prompt</span><span data-i18n="api_tool_post">设置工具提示词</span></div>
+<div class="api-row"><span>GET&nbsp; /healthz</span><span data-i18n="api_healthz">健康检查</span></div>
 </div>
 </details>
 </div>
@@ -2380,6 +2389,12 @@ const i18n={
     qs_open_copilot:'打开',qs_type_trigger:'输入内容触发 WebSocket，然后在脚本面板点击',qs_push_token:'推送 Token',
     qs_alternative:'备选：',qs_manual_copy:'在 DevTools（Network → WS → wss://substrate.office.com/...）中手动复制 ',
     qs_paste_above:'然后粘贴到上方。',title_api_endpoints:'API 端点',
+    api_grp_v1:'OpenAI 兼容接口',api_grp_admin:'管理接口',
+    api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
+    api_call_log:'调用记录',api_cap_get:'查看抓包数据',api_cap_post:'推送抓包数据',api_captgl_get:'接收开关状态',api_captgl_post:'设置接收开关',
+    api_login_status:'Chromium 登录状态',api_chromium_logout:'退出 Chromium 登录',api_cookie_inject:'注入 Cookie',
+    api_sys_get:'查看系统提示词',api_sys_post:'设置系统提示词',api_auto_cap:'自动抓取 Token',api_tok_status:'Token 状态',api_tok_update:'更新 Token',
+    api_tone_get:'查看默认模式',api_tone_post:'设置默认模式',api_tool_get:'查看工具提示词',api_tool_post:'设置工具提示词',api_healthz:'健康检查',
     desc_paste_token:'粘贴 access_token 值或完整的 wss:// URL',
     valid:'有效',invalid:'无效',expires:'过期时间',remaining:'剩余',error:'错误',
     login:'登录',logged_in:'已登录',not_logged_in:'未登录（仅手动推送 Token）',
@@ -2457,6 +2472,12 @@ const i18n={
     qs_open_copilot:'open',qs_type_trigger:'type something to trigger WebSocket, then click',qs_push_token:'Push Token',
     qs_alternative:'Alternative:',qs_manual_copy:'Manually copy the ',
     qs_paste_above:'from DevTools (Network → WS → wss://substrate.office.com/...), then paste above.',title_api_endpoints:'API Endpoints',
+    api_grp_v1:'OpenAI-compatible',api_grp_admin:'Admin',
+    api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
+    api_call_log:'Call log',api_cap_get:'View captures',api_cap_post:'Push captures',api_captgl_get:'Receive toggle state',api_captgl_post:'Set receive toggle',
+    api_login_status:'Chromium login status',api_chromium_logout:'Sign out of Chromium',api_cookie_inject:'Inject cookies',
+    api_sys_get:'View system prompt',api_sys_post:'Set system prompt',api_auto_cap:'Auto-capture token',api_tok_status:'Token status',api_tok_update:'Update token',
+    api_tone_get:'View default mode',api_tone_post:'Set default mode',api_tool_get:'View tool prompt',api_tool_post:'Set tool prompt',api_healthz:'Health check',
     desc_paste_token:'Paste the access_token value or the full wss:// URL',
     valid:'Valid',invalid:'Invalid',expires:'Expires',remaining:'Remaining',error:'Error',
     login:'Login',logged_in:'Logged In',not_logged_in:'Not Logged In (auto-refresh only)',
@@ -3405,7 +3426,7 @@ _USER_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M365 Copilot Proxy - User</title>
 <style>
-:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
+:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2)}
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;line-height:1.5;min-height:100vh;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
 .wrap{max-width:760px;margin:0 auto;padding:1.5rem 1rem 3rem}
@@ -3428,6 +3449,12 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .pill.bad{background:rgba(127,29,29,.6);color:#fee2e2}
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
+.api-info{margin-top:.75rem;padding:.75rem;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;font-family:monospace;font-size:.8rem;line-height:1.6}
+.api-grp{font-weight:700;color:var(--strong);margin:.5rem 0 .25rem;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.78rem}
+.api-grp:first-child{margin-top:0}
+.api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
+.api-row>span:first-child{color:#f3f6ff;white-space:pre}
+.api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
 .hidden{display:none}
 a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
@@ -3468,6 +3495,13 @@ code{color:#a5b4fc}
       <div class="hint">Base URL: <code id="base-url"></code></div>
       <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_key">复制</button></div>
       <div class="hint" data-i18n="endpoints_hint">在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。</div>
+      <div class="api-info">
+      <div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
+      <div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
+      <div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
+      <div class="api-row"><span>GET&nbsp; /v1/models</span><span data-i18n="api_models">模型列表</span></div>
+      <div class="api-row"><span>POST /v1/responses</span><span data-i18n="api_responses">Responses 接口</span></div>
+      </div>
       <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置我的 API Key</button><span id="regen-msg" class="msg"></span></div>
       <div class="hint" style="margin-top:.3rem" data-i18n="regen_my_key_hint">重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。</div>
       <label style="margin-top:1.1rem;font-size:1rem;color:#e2e8f0;font-weight:600" data-i18n="tone_title">对话模式</label>
@@ -3526,6 +3560,7 @@ const i18n={
     system_prompt_unlock:'解锁编辑（高级）',
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'API 端点',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
+    api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
     copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
     logout:'登出 Microsoft',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
@@ -3547,6 +3582,7 @@ const i18n={
     system_prompt_unlock:'Unlock editing (advanced)',
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'API Endpoints',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
+    api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
     copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
     logout:'Sign out of Microsoft',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
