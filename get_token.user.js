@@ -58,7 +58,7 @@
             push_cookies: '推送全部 Cookie',
             quick_setup: ' 一键配置',
             quick_setup_desc: '推送 Cookie + Token 到代理，用于 Chromium 登录和自动刷新',
-            one_click: '推送配置',
+            one_click: '一键推送',
             manual_config: ' 手动配置',
             mode_capture: ' 模式抓包',
             click_expand: '（点击展开）',

@@ -2041,6 +2041,11 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <style>
 :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--text:#f3f6ff;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
 *{box-sizing:border-box;margin:0;padding:0}
+html{scrollbar-gutter:stable;scrollbar-color:rgba(96,242,255,.45) rgba(8,13,32,.22);scrollbar-width:thin}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:rgba(8,13,32,.22);border-radius:999px}
+::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(96,242,255,.58),rgba(140,107,255,.48));border-radius:999px;border:2px solid rgba(8,13,32,.4)}
+::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(96,242,255,.78),rgba(255,94,219,.58))}
 body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(circle at 20% 20%,rgba(96,242,255,.18),transparent 28%),radial-gradient(circle at 80% 18%,rgba(140,107,255,.22),transparent 24%),radial-gradient(circle at 50% 85%,rgba(255,94,219,.16),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%)}
 .orb{position:fixed;width:340px;height:340px;border-radius:50%;filter:blur(14px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:spin 9s linear infinite,pulse 3.4s ease-in-out infinite;opacity:.5;z-index:0}
@@ -2127,6 +2132,7 @@ body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);
 --sidebar:rgba(255,255,255,.72);--nav-hover:rgba(99,102,180,.1);--h1grad:linear-gradient(135deg,#0e7490,#7c3aed 60%,#db2777);--shadow:0 16px 40px rgba(80,100,160,.16);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22);
 --inner:rgba(255,255,255,.7);--inner-border:rgba(99,102,180,.2);--track:rgba(99,102,180,.14);--grid:rgba(99,102,180,.18);--strong:#243049;--faint:#7581a3}
 *{box-sizing:border-box;margin:0;padding:0}
+html{scrollbar-gutter:stable;scrollbar-color:rgba(96,242,255,.45) rgba(8,13,32,.22);scrollbar-width:thin}
 body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);min-height:100vh;padding:2rem;background:var(--bg);transition:color .25s,background .25s;position:relative}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%);z-index:0}
 .orb{position:fixed;width:420px;height:420px;border-radius:50%;filter:blur(18px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 12s linear infinite,loginPulse 4s ease-in-out infinite;opacity:.28;z-index:0;pointer-events:none}
@@ -2136,8 +2142,9 @@ h1{font-size:1.5rem;margin-bottom:1.5rem;background:var(--h1grad);-webkit-backgr
 .card{position:relative;background:var(--card);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow);overflow:hidden}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.38),transparent 30%,rgba(255,94,219,.28),rgba(255,215,111,.22));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.7;pointer-events:none}
 details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:background .2s}
-details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.08),rgba(140,107,255,.08))}
-details[open] summary:after{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:220% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgba(140,107,255,.04))}
+details[open] summary:after{display:none}
+.card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 @keyframes flowBorder{to{background-position:220% 0}}
 .card h2{font-size:1.1rem;margin-bottom:1rem;color:var(--text)}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--line)}
@@ -2156,7 +2163,9 @@ button[style*="background:#ef4444"],button[style*="background:linear-gradient(13
 button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px solid var(--chip-border)!important;box-shadow:none!important}
 .kv-copy{display:grid;grid-template-rows:1.1rem 1.35rem;align-items:center;gap:.12rem;min-width:86px;max-width:112px}
 .kv-copy code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.1rem}
-.kv-copy button{width:42px;margin:0;padding:2px 6px!important;justify-self:start}
+.kv-copy button{width:50px;margin:0;padding:2px 6px!important;justify-self:start}
+.acct-row{transition:background .18s,box-shadow .18s,transform .18s}
+.acct-row.selected{background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)}
 .tone-select{margin-left:auto;width:180px;max-width:50%;min-height:38px;padding:7px 34px 7px 12px;background-color:var(--inner);border:1px solid var(--inner-border);border-radius:12px;color:var(--text);font-size:.82rem;font-weight:700;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12);transition:border-color .2s,box-shadow .2s}
 .tone-select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08);animation:selectGlow 2.4s ease-in-out infinite}
 @keyframes selectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.2),0 0 30px rgba(140,107,255,.28),inset 0 1px 0 rgba(255,255,255,.12)}}
@@ -2182,26 +2191,26 @@ a{color:var(--cyan);text-decoration:none}
 body[data-theme="light"] a{color:#0e7490}
 a:hover{text-decoration:underline}
 /* ---- multi-tenant sidebar layout ---- */
-body{padding:0}
-.layout{display:flex;min-height:100vh}
-.sidebar{width:180px;flex-shrink:0;background:linear-gradient(180deg,rgba(8,13,32,.48),rgba(8,12,28,.34));border-right:1px solid rgba(96,242,255,.18);display:flex;flex-direction:column;padding:1.2rem .75rem;position:sticky;top:0;height:100vh;backdrop-filter:blur(24px) saturate(1.25);-webkit-backdrop-filter:blur(24px) saturate(1.25);transition:width .22s ease,padding .22s ease;will-change:width;contain:layout paint;box-shadow:inset -1px 0 0 rgba(255,255,255,.06),18px 0 60px rgba(0,0,0,.12)}
+body{padding:.85rem 0 .85rem .85rem}
+.layout{display:flex;min-height:calc(100vh - 1.7rem);gap:.85rem}
+.sidebar{width:200px;flex-shrink:0;background:linear-gradient(180deg,rgba(8,13,32,.46),rgba(8,12,28,.3));border:1px solid rgba(96,242,255,.2);border-radius:26px;display:flex;flex-direction:column;padding:1.2rem .85rem;position:sticky;top:.85rem;height:calc(100vh - 1.7rem);backdrop-filter:blur(26px) saturate(1.32);-webkit-backdrop-filter:blur(26px) saturate(1.32);transition:width .22s ease,padding .22s ease;will-change:width;contain:layout paint;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),18px 0 60px rgba(0,0,0,.12),0 0 28px rgba(96,242,255,.08)}
 .brand{font-size:1.02rem;font-weight:800;padding:.4rem .4rem 1.2rem;white-space:nowrap;overflow:hidden;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .brand .tenant-pill{display:inline-flex;align-items:center;margin-left:.25rem;padding:.12rem .42rem;border-radius:999px;font-size:.62rem;line-height:1;color:var(--strong);-webkit-text-fill-color:currentColor;background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(96,242,255,.1));border:1px solid rgba(96,242,255,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.32),0 0 14px rgba(96,242,255,.12);backdrop-filter:blur(10px)}
 .nav{display:flex;flex-direction:column;gap:.25rem}
 .nav-item{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;border-radius:12px;color:var(--muted);cursor:pointer;font-size:.9rem;font-weight:500;transition:background .16s ease,color .16s ease;user-select:none;white-space:nowrap;overflow:hidden}
 .nav-item:hover{background:var(--nav-hover);color:var(--text);text-decoration:none}
-.nav-item.active{background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.22));color:var(--text);box-shadow:inset 0 0 0 1px rgba(140,107,255,.44)}
+.nav-item.active{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.16));color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 0 18px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.13);border:1px solid rgba(96,242,255,.28);backdrop-filter:blur(14px)}
 .nav-ico{font-size:1.05rem;width:1.4rem;text-align:center;flex-shrink:0}
 .nav-item span:not(.nav-ico){transition:opacity .16s ease}
 .side-tools{margin-top:auto;position:relative;height:84px;padding-top:1rem}
 .icon-btn{position:absolute;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:var(--chip);border:1px solid var(--chip-border);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:none;transition:background .16s ease,opacity .18s ease,filter .18s ease;will-change:opacity}
 .icon-btn:hover{background:var(--nav-hover)}
 .side-tools.switching .icon-btn{opacity:0;filter:blur(4px);pointer-events:none}
-body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255,255,.56),rgba(244,247,253,.42));border-right-color:rgba(99,102,180,.18);box-shadow:inset -1px 0 0 rgba(255,255,255,.75),18px 0 50px rgba(80,100,160,.08)}
+body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255,255,.58),rgba(244,247,253,.38));border-color:rgba(99,102,180,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.78),18px 0 50px rgba(80,100,160,.08),0 0 24px rgba(99,102,180,.08)}
 .side-tools .icon-btn:nth-child(1){transform:translate(0,0)}
-.side-tools .icon-btn:nth-child(2){transform:translate(39px,0)}
-.side-tools .icon-btn:nth-child(3){transform:translate(78px,0)}
-.side-tools .icon-btn:nth-child(4){transform:translate(117px,0)}
+.side-tools .icon-btn:nth-child(2){transform:translate(45px,0)}
+.side-tools .icon-btn:nth-child(3){transform:translate(90px,0)}
+.side-tools .icon-btn:nth-child(4){transform:translate(135px,0)}
 /* ---- glass toggle switch ---- */
 .switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
 .switch input{opacity:0;width:0;height:0}
@@ -2211,22 +2220,23 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 .switch input:checked+.slider:before{transform:translateX(20px)}
 /* ---- debug receive gate ---- */
 .debug-gate-card{padding:1.4rem;overflow:hidden}
-.debug-gate{position:relative;width:100%;min-height:190px;border:none;border-radius:28px;background:radial-gradient(circle at 50% 38%,rgba(96,242,255,.12),transparent 28%),linear-gradient(135deg,rgba(8,13,32,.9),rgba(18,25,56,.8));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 20px 58px rgba(0,0,0,.28)}
+.debug-gate{position:relative;width:100%;min-height:230px;border:none;border-radius:28px;background:radial-gradient(circle at 50% 38%,rgba(96,242,255,.12),transparent 28%),linear-gradient(135deg,rgba(8,13,32,.9),rgba(18,25,56,.8));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 20px 58px rgba(0,0,0,.28)}
 .debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);animation:spin 4s linear infinite;opacity:.42;z-index:-2}
 .debug-gate:after{content:"";position:absolute;inset:2px;border-radius:26px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
 .debug-gate-core{display:flex;flex-direction:column;align-items:center;gap:.38rem;text-align:center;letter-spacing:.02em}
-.data-globe{position:relative;width:88px;height:88px;border-radius:50%;margin-bottom:.35rem;background:radial-gradient(circle at 35% 28%,rgba(255,255,255,.72),rgba(96,242,255,.34) 18%,rgba(34,98,180,.38) 48%,rgba(16,24,64,.86) 72%);border:1px solid rgba(96,242,255,.42);box-shadow:0 0 34px rgba(96,242,255,.24),inset 0 0 28px rgba(96,242,255,.18);overflow:visible}
+.data-globe{position:relative;width:96px;height:96px;border-radius:50%;margin-bottom:1.1rem;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 38px rgba(96,242,255,.28),inset 0 0 34px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d}
 .data-globe:before{content:"";position:absolute;inset:10px;border-radius:50%;background:linear-gradient(90deg,transparent 0 12%,rgba(96,242,255,.35) 13% 15%,transparent 16% 35%,rgba(96,242,255,.22) 36% 38%,transparent 39%),linear-gradient(0deg,transparent 0 18%,rgba(255,255,255,.22) 19% 20%,transparent 21% 48%,rgba(255,255,255,.2) 49% 50%,transparent 51%);opacity:.75;transform-origin:center}
-.data-globe .orbit{position:absolute;inset:-10px;border-radius:50%;border:1px solid rgba(96,242,255,.38);transform:rotate(var(--r));box-shadow:0 0 18px rgba(96,242,255,.16);opacity:0;transition:opacity .35s ease}
+.data-globe .orbit{position:absolute;inset:-12px;border-radius:50%;border:1px solid rgba(96,242,255,.38);transform:rotateX(var(--x)) rotateY(var(--y)) rotateZ(var(--r));box-shadow:0 0 18px rgba(96,242,255,.16);opacity:0;transition:opacity .35s ease;transform-style:preserve-3d}
 .data-globe .orbit:after{content:"";position:absolute;width:8px;height:8px;border-radius:50%;background:var(--cyan);top:50%;left:-4px;box-shadow:0 0 12px var(--cyan)}
-.data-globe .orbit.o2{inset:-16px;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 12px var(--violet)}
-.data-globe .orbit.o3{inset:-22px;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 12px var(--gold)}
+.data-globe .orbit.o1{--x:68deg;--y:18deg;--r:18deg}
+.data-globe .orbit.o2{inset:-18px;--x:28deg;--y:72deg;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 12px var(--violet)}
+.data-globe .orbit.o3{inset:-24px;--x:78deg;--y:-36deg;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 12px var(--gold)}
 .debug-gate b{font-size:1.08rem}.debug-gate small{color:var(--muted);font-size:.76rem}
 .debug-gate.on{box-shadow:0 0 42px rgba(96,242,255,.34),0 0 110px rgba(140,107,255,.24),inset 0 1px 0 rgba(255,255,255,.1)}
 .debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .data-globe:before{animation:globeSpin 5.5s linear infinite}.debug-gate.on .data-globe{box-shadow:0 0 46px rgba(96,242,255,.45),inset 0 0 34px rgba(96,242,255,.22)}
 .debug-gate.on .orbit{opacity:1;animation:orbitSpin 2.4s linear infinite}.debug-gate.on .orbit.o2{animation-duration:3.2s;animation-direction:reverse}.debug-gate.on .orbit.o3{animation-duration:4.1s}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
-@keyframes orbitSpin{to{transform:rotate(calc(var(--r) + 360deg))}}
+@keyframes orbitSpin{to{transform:rotateX(var(--x)) rotateY(var(--y)) rotateZ(calc(var(--r) + 360deg))}}
 @keyframes flow{to{background-position:64px 0}}
 /* ---- collapsed sidebar ---- */
 body[data-collapsed="1"] .sidebar{width:64px;padding:1.2rem .5rem}
@@ -2417,7 +2427,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <h2 data-i18n="dbg_guide_title" style="margin:0">调试指南</h2>
 </div>
 <p style="color:var(--muted);font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
-<span data-i18n="dbg_capture_desc">开启「接收抓包」后才会接受油猴脚本推送的模式抓包数据；关闭时后端直接拒绝，避免无关数据写入。调试完请关闭。</span><br>
+<span data-i18n="dbg_capture_desc">非必要时请勿开启，避免恶意数据写入；调试完成后请及时关闭。</span><br>
 <span data-i18n="dbg_capture_steps">调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。</span>
 </p>
 <details style="cursor:pointer">
@@ -2527,7 +2537,7 @@ const i18n={
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
     dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',dbg_gate_hint:'点击切换调试接收通道',
-    dbg_capture_desc:'开启「接收抓包」后才会接受油猴脚本推送的模式抓包数据；关闭时后端直接拒绝，避免无关数据写入。调试完请关闭。',
+    dbg_capture_desc:'非必要时请勿开启，避免恶意数据写入；调试完成后请及时关闭。',
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（默认）',
     tone_hint:'设置新建用户的默认对话模式（模型）。此项决定每个新建 Key 的初始模式，用户可在自己的用户页覆盖。立即生效并持久保存。',
@@ -2611,7 +2621,7 @@ const i18n={
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
     dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',dbg_gate_hint:'Click to toggle the debug receive channel',
-    dbg_capture_desc:'Only when "Receive captures" is on will the backend accept capture payloads pushed by the Tampermonkey script; when off, the backend rejects them outright to avoid stray data. Turn it off after debugging.',
+    dbg_capture_desc:'Do not enable unless necessary, to avoid malicious data being written; turn it off promptly after debugging.',
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (Default)',
     tone_hint:'Set the default conversation mode (model) for newly created users. This determines the initial mode of each new key; users can override it on their own page. Applies immediately and persists across restarts.',
@@ -3088,7 +3098,7 @@ async function loadAccounts(){
       const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const sel=a.id===__selectedAccount;
-      h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer;'+(sel?'background:var(--nav-hover)':'')+'">'
+      h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
@@ -3565,6 +3575,11 @@ _USER_HTML = """<!DOCTYPE html>
 :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2);--text:#f3f6ff;--card:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,10,24,.76));--bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);--chip:rgba(255,255,255,.06);--chip-border:rgba(255,255,255,.14)}
 body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,180,.22);--text:#1f2740;--card:linear-gradient(180deg,rgba(255,255,255,.9),rgba(244,247,253,.84));--bg:radial-gradient(circle at 18% 12%,rgba(96,180,242,.16),transparent 28%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.14),transparent 26%),radial-gradient(circle at 50% 92%,rgba(255,150,220,.12),transparent 28%),linear-gradient(135deg,#edf3fb 0%,#e4ebf6 48%,#eef2f8 100%);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22)}
 *{box-sizing:border-box}
+html{scrollbar-gutter:stable;scrollbar-color:rgba(96,242,255,.45) rgba(8,13,32,.22);scrollbar-width:thin}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:rgba(8,13,32,.22);border-radius:999px}
+::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(96,242,255,.58),rgba(140,107,255,.48));border-radius:999px;border:2px solid rgba(8,13,32,.4)}
+::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(96,242,255,.78),rgba(255,94,219,.58))}
 body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);line-height:1.5;min-height:100vh;background:var(--bg);position:relative;transition:background .25s,color .25s}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%);z-index:0}
 .orb{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(16px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 11s linear infinite,loginPulse 3.8s ease-in-out infinite;opacity:.32;z-index:0;pointer-events:none}
@@ -3573,6 +3588,10 @@ h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
 .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.42),transparent 30%,rgba(255,94,219,.32),rgba(255,215,111,.24));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.75;pointer-events:none}
+.card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:background .2s}
+details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgba(140,107,255,.04))}
+@keyframes flowBorder{to{background-position:240% 0}}
 .card h2{font-size:1rem;margin:0 0 .8rem;color:var(--strong)}
 #login-card{width:380px;max-width:calc(100vw - 32px);margin:8vh auto 1.5rem;text-align:center;padding:2.6rem;border-radius:28px}
 #login-card .brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgba(96,242,255,.9),rgba(140,107,255,.92));box-shadow:0 0 30px rgba(96,242,255,.4),inset 0 0 22px rgba(255,255,255,.22);overflow:hidden}
@@ -3608,6 +3627,9 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .pill.bad{background:rgba(127,29,29,.6);color:#fee2e2}
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
+.qs-link{color:var(--cyan);font-weight:700;text-decoration:none;padding:.02rem .28rem;border-radius:6px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.28);transition:box-shadow .18s,background .18s}
+.qs-link:hover{text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(255,94,219,.18));box-shadow:0 0 14px rgba(96,242,255,.28)}
+body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
 .api-info{margin-top:.75rem;padding:.75rem;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;font-family:monospace;font-size:.8rem;line-height:1.6}
 .api-grp{font-weight:700;color:var(--strong);margin:.5rem 0 .25rem;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.78rem}
 .api-grp:first-child{margin-top:0}
@@ -3624,11 +3646,12 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .status-grid{display:grid;gap:.45rem;margin-top:.65rem}
 .status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:.35rem}
 .status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
-.status-mark{width:26px;height:26px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:0;color:transparent;border:1px solid rgba(255,255,255,.34);box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -8px 16px rgba(0,0,0,.12),0 0 18px rgba(0,0,0,.2);position:relative;overflow:hidden;backdrop-filter:blur(10px)}
-.status-mark:before{content:"";position:absolute;inset:2px;border-radius:inherit;background:radial-gradient(circle at 32% 24%,rgba(255,255,255,.72),rgba(255,255,255,.24) 22%,transparent 42%)}
-.status-mark:after{content:"";position:absolute;inset:7px;border-radius:inherit;background:rgba(255,255,255,.16);box-shadow:inset 0 0 8px rgba(255,255,255,.25)}
-.status-mark.ok{background:linear-gradient(135deg,rgba(34,197,94,.72),rgba(20,184,166,.42));box-shadow:0 0 18px rgba(34,197,94,.42),inset 0 1px 0 rgba(255,255,255,.4)}
-.status-mark.bad{background:linear-gradient(135deg,rgba(239,68,68,.72),rgba(249,115,22,.42));box-shadow:0 0 18px rgba(239,68,68,.36),inset 0 1px 0 rgba(255,255,255,.4)}
+.status-mark{width:26px;height:26px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:0;color:transparent;border:1px solid rgba(255,255,255,.4);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -9px 16px rgba(0,0,0,.14),0 0 18px rgba(0,0,0,.2);position:relative;overflow:hidden;backdrop-filter:blur(12px);animation:statusBreath 3.4s ease-in-out infinite}
+.status-mark:before{content:"";position:absolute;inset:2px;border-radius:inherit;background:radial-gradient(circle at 32% 22%,rgba(255,255,255,.9),rgba(255,255,255,.3) 26%,transparent 48%)}
+.status-mark:after{content:"";position:absolute;inset:6px;border-radius:inherit;background:radial-gradient(circle at 50% 42%,rgba(255,255,255,.22),transparent 62%);box-shadow:inset 0 0 10px rgba(255,255,255,.32)}
+.status-mark.ok{background:radial-gradient(circle at 34% 26%,rgba(190,255,220,.95),rgba(34,197,94,.78) 44%,rgba(16,140,110,.6) 80%);box-shadow:0 0 20px rgba(34,197,94,.5),0 0 40px rgba(20,184,166,.22),inset 0 1px 0 rgba(255,255,255,.55)}
+.status-mark.bad{background:radial-gradient(circle at 34% 26%,rgba(255,210,196,.95),rgba(239,68,68,.78) 44%,rgba(180,52,30,.6) 80%);box-shadow:0 0 20px rgba(239,68,68,.44),0 0 40px rgba(249,115,22,.2),inset 0 1px 0 rgba(255,255,255,.55)}
+@keyframes statusBreath{50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -9px 16px rgba(0,0,0,.14),0 0 26px rgba(255,255,255,.16)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes loginPulse{50%{scale:1.08;opacity:.48}}
@@ -3662,7 +3685,7 @@ code{color:#a5b4fc}
   <div id="app" class="hidden">
     <div class="card">
       <h2 data-i18n="qs_title">快速使用指南</h2>
-      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
+      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」/「推送 Token」，或手动复制 access_token 粘贴到下方更新。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
       <details style="margin-top:.75rem;cursor:pointer">
         <summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
           <span data-i18n="endpoints_title">OpenAI 兼容接口</span>
@@ -3729,7 +3752,7 @@ const i18n={
   zh:{
     title:'Ciallo Ms-365 Copilot 代理 · 用户',
     login_title:'登录',login_hint:'输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。',
-    qs_title:'快速使用指南',qs_body:'1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
+    qs_title:'快速使用指南',qs_body:'1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」/「推送 Token」，或手动复制 access_token 粘贴到下方更新。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
@@ -3752,7 +3775,7 @@ const i18n={
   en:{
     title:'Ciallo Ms-365 Copilot Proxy · User',
     login_title:'Login',login_hint:'Enter the username and password assigned by the admin to manage your own conversation mode, prompts and account token.',
-    qs_title:'Quick Start',qs_body:'1. Install the Tampermonkey script and open M365 Copilot, then send any message to trigger the WebSocket.<br>2. Click "Push Token" in the script panel, or manually copy the access_token and paste it below to push.<br>3. Copy the Base URL and API Key from the account card into your OpenAI-compatible client.',
+    qs_title:'Quick Start',qs_body:'1. Install the <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">Tampermonkey script</a> and open <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>, then send any message to trigger the WebSocket.<br>2. Click "One-click Push" / "Push Token" in the script panel, or manually copy the access_token and paste it below to update.<br>3. Copy the Base URL and API Key from the account card into your OpenAI-compatible client.',
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
@@ -3892,11 +3915,11 @@ async function loadMe(){
 }
 function copyMyKey(btn){
   const k=getKey();if(!k)return;
-  navigator.clipboard.writeText(k).then(()=>{if(btn){const old=btn.textContent;btn.textContent=t('key_copied');btn.style.color='#22c55e';setTimeout(()=>{btn.textContent=old;btn.style.color=''},1200)}},()=>{});
+  navigator.clipboard.writeText(k).then(()=>{if(btn){btn.textContent=t('key_copied');btn.style.color='#22c55e';setTimeout(()=>{btn.textContent=t('copy_key');btn.style.color=''},1200)}},()=>{});
 }
 function copyBaseUrl(btn){
   const v=document.getElementById('base-url')?.textContent||'';if(!v)return;
-  navigator.clipboard.writeText(v).then(()=>{if(btn){const old=btn.textContent;btn.textContent=t('key_copied');btn.style.color='#22c55e';setTimeout(()=>{btn.textContent=old;btn.style.color=''},1200)}},()=>{});
+  navigator.clipboard.writeText(v).then(()=>{if(btn){btn.textContent=t('key_copied');btn.style.color='#22c55e';setTimeout(()=>{btn.textContent=t('copy_base');btn.style.color=''},1200)}},()=>{});
 }
 async function regenMyKey(){
   if(!confirm(t('confirm_regen_my_key')))return;
