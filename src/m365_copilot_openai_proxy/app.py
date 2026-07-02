@@ -1423,6 +1423,9 @@ def create_app(
             "account": {
                 "id": acc.id,
                 "name": acc.name,
+                "email": acc.email,
+                "token_source": acc.token_source,
+                "updated_at": acc.updated_at,
                 "has_token": bool(acc.token),
                 "token_status": acc.token_status(),
             } if acc is not None else None,
@@ -2079,6 +2082,7 @@ const i18n={
 };
 let lang=localStorage.getItem('lang')||'zh';
 function t(k){return i18n[lang][k]||k}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function applyLang(){
   const btn=document.getElementById('lang-toggle');
   btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
@@ -2121,10 +2125,14 @@ body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);
 --sidebar:rgba(255,255,255,.72);--nav-hover:rgba(99,102,180,.1);--h1grad:linear-gradient(135deg,#0e7490,#7c3aed 60%,#db2777);--shadow:0 16px 40px rgba(80,100,160,.16);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22);
 --inner:rgba(255,255,255,.7);--inner-border:rgba(99,102,180,.2);--track:rgba(99,102,180,.14);--grid:rgba(99,102,180,.18);--strong:#243049;--faint:#7581a3}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);min-height:100vh;padding:2rem;background:var(--bg);transition:color .25s,background .25s}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);min-height:100vh;padding:2rem;background:var(--bg);transition:color .25s,background .25s;position:relative}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%);z-index:0}
+.orb{position:fixed;width:420px;height:420px;border-radius:50%;filter:blur(18px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 12s linear infinite,loginPulse 4s ease-in-out infinite;opacity:.28;z-index:0;pointer-events:none}
+.layout{position:relative;z-index:1}
 .container{max-width:720px;margin:0 auto}
 h1{font-size:1.5rem;margin-bottom:1.5rem;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.card{position:relative;background:var(--card);border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(16px);box-shadow:var(--shadow)}
+.card{position:relative;background:var(--card);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow);overflow:hidden}
+.card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.38),transparent 30%,rgba(255,94,219,.28),rgba(255,215,111,.22));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.7;pointer-events:none}
 .card h2{font-size:1.1rem;margin-bottom:1rem;color:var(--text)}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--line)}
 .status-row:last-child{border:none}
@@ -2173,6 +2181,18 @@ body{padding:0}
 .switch .slider:before{content:"";position:absolute;height:18px;width:18px;left:2px;top:2px;border-radius:50%;background:linear-gradient(180deg,#fff,#dfe6ff);box-shadow:0 2px 5px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.7);transition:.25s}
 .switch input:checked+.slider{background:linear-gradient(135deg,var(--cyan),var(--violet));border-color:transparent;box-shadow:0 0 12px rgba(96,242,255,.5),inset 0 1px 2px rgba(255,255,255,.25)}
 .switch input:checked+.slider:before{transform:translateX(20px)}
+/* ---- debug receive gate ---- */
+.debug-gate-card{padding:1.2rem;overflow:hidden}
+.debug-gate{position:relative;width:100%;min-height:124px;border:none;border-radius:22px;background:linear-gradient(135deg,rgba(8,13,32,.88),rgba(18,25,56,.78));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 18px 46px rgba(0,0,0,.24)}
+.debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.5),transparent);animation:spin 4s linear infinite;opacity:.45;z-index:-2}
+.debug-gate:after{content:"";position:absolute;inset:2px;border-radius:20px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
+.debug-gate-core{display:flex;flex-direction:column;align-items:center;gap:.28rem;text-align:center;letter-spacing:.02em}
+.debug-gate-icon{width:46px;height:46px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.55rem;background:rgba(96,242,255,.13);border:1px solid rgba(96,242,255,.28);box-shadow:0 0 20px rgba(96,242,255,.18)}
+.debug-gate b{font-size:1.05rem}.debug-gate small{color:var(--muted);font-size:.76rem}
+.debug-gate.on{box-shadow:0 0 36px rgba(96,242,255,.32),0 0 90px rgba(140,107,255,.22),inset 0 1px 0 rgba(255,255,255,.1)}
+.debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .debug-gate-icon{background:linear-gradient(135deg,rgba(96,242,255,.28),rgba(140,107,255,.24));box-shadow:0 0 32px rgba(96,242,255,.42)}
+.debug-gate.on .debug-gate-ring{position:absolute;inset:13px;border-radius:18px;background:repeating-linear-gradient(90deg,transparent 0 18px,rgba(96,242,255,.26) 18px 20px,transparent 20px 32px);filter:blur(.2px);opacity:.7;animation:flow 1.2s linear infinite;mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);-webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);padding:1px;pointer-events:none}
+@keyframes flow{to{background-position:64px 0}}
 /* ---- collapsed sidebar ---- */
 body[data-collapsed="1"] .sidebar{width:64px;padding:1.2rem .5rem}
 body[data-collapsed="1"] .brand span,body[data-collapsed="1"] .nav-item span:not(.nav-ico){opacity:0;pointer-events:none}
@@ -2186,10 +2206,13 @@ body[data-collapsed="1"] .side-tools{flex-direction:column}
 body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
 .hide-card{display:none !important}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes loginPulse{50%{scale:1.08;opacity:.42}}
 @media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}}
 </style>
 </head>
 <body>
+<div class="orb" aria-hidden="true"></div>
 <div class="layout">
 <aside class="sidebar">
 <div class="brand">Ciallo M365 <span data-i18n="multi_badge">多租户</span></div>
@@ -2317,6 +2340,13 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </details>
 </div>
 
+<div class="card view-debug debug-gate-card">
+<button class="debug-gate" id="capture-gate" onclick="toggleCaptureGate()">
+<span class="debug-gate-ring"></span>
+<span class="debug-gate-core"><span class="debug-gate-icon">⟲</span><b data-i18n="dbg_capture_recv">接收抓包</b><small data-i18n="dbg_gate_hint">点击切换调试接收通道</small></span>
+</button>
+</div>
+
 <div class="card view-debug">
 <details id="call-log-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
@@ -2347,10 +2377,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-debug">
 <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;flex-wrap:wrap">
 <h2 data-i18n="dbg_guide_title" style="margin:0">调试指南</h2>
-<label style="margin-left:auto;display:flex;align-items:center;gap:.5rem;cursor:pointer">
-<span style="font-size:.8rem;color:var(--muted)" data-i18n="dbg_capture_recv">接收抓包</span>
-<span class="switch"><input type="checkbox" id="capture-toggle" onchange="toggleCapture(this.checked)"><span class="slider"></span></span>
-</label>
 </div>
 <p style="color:var(--muted);font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
 <span data-i18n="dbg_capture_desc">开启「接收抓包」后才会接受油猴脚本推送的模式抓包数据；关闭时后端直接拒绝，避免无关数据写入。调试完请关闭。</span><br>
@@ -2421,6 +2447,7 @@ const i18n={
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
     col_id:'ID',col_username:'用户名',col_password:'密码',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'推送 Token',
+    batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',
     valid_short:'有效',invalid_short:'无效',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
@@ -2461,7 +2488,7 @@ const i18n={
     title_capture:'模式抓包对比',
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
-    dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',
+    dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',dbg_gate_hint:'点击切换调试接收通道',
     dbg_capture_desc:'开启「接收抓包」后才会接受油猴脚本推送的模式抓包数据；关闭时后端直接拒绝，避免无关数据写入。调试完请关闭。',
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（默认）',
@@ -2504,6 +2531,7 @@ const i18n={
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
     col_id:'ID',col_username:'Username',col_password:'Password',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Push Token',
+    batch_refresh:'Batch refresh',batch_delete:'Batch delete',batch_enable:'Batch enable',batch_disable:'Batch disable',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',
     valid_short:'Valid',invalid_short:'Invalid',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
@@ -2544,7 +2572,7 @@ const i18n={
     title_capture:'Mode Capture Compare',
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
-    dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',
+    dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',dbg_gate_hint:'Click to toggle the debug receive channel',
     dbg_capture_desc:'Only when "Receive captures" is on will the backend accept capture payloads pushed by the Tampermonkey script; when off, the backend rejects them outright to avoid stray data. Turn it off after debugging.',
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (Default)',
@@ -2616,11 +2644,17 @@ async function adminLogout(){
 
 // Debug: toggle whether the backend accepts pushed capture payloads.
 async function loadCaptureToggle(){
-  const el=document.getElementById('capture-toggle');if(!el)return;
-  try{const r=await fetch('/admin/capture-toggle',{credentials:'include'});if(r.ok){const d=await r.json();el.checked=!!d.enabled}}catch(e){}
+  const gate=document.getElementById('capture-gate');
+  try{const r=await fetch('/admin/capture-toggle',{credentials:'include'});if(r.ok){const d=await r.json();if(gate)gate.classList.toggle('on',!!d.enabled)}}catch(e){}
 }
 async function toggleCapture(on){
   try{await fetch('/admin/capture-toggle',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!!on})})}catch(e){}
+  const gate=document.getElementById('capture-gate');if(gate)gate.classList.toggle('on',!!on);
+}
+async function toggleCaptureGate(){
+  const gate=document.getElementById('capture-gate');
+  const on=!(gate&&gate.classList.contains('on'));
+  await toggleCapture(on);
 }
 
 // Sidebar view switching: pure front-end, no reload. Persists last view.
@@ -2858,8 +2892,7 @@ function donut(parts,centerLabel,centerVal){
   // glossy highlight arc over the top of the ring for a glass sheen
   const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
   let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">'+defs+ring+sheen
-    +'<text x="60" y="56" text-anchor="middle" fill="var(--strong)" font-size="22" font-weight="700">'+centerVal+'</text>'
-    +'<text x="60" y="74" text-anchor="middle" fill="var(--faint)" font-size="10">'+centerLabel+'</text></svg>';
+    +'<text x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+'</text></svg>';
   let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
   legend+='</div>';
@@ -2959,6 +2992,7 @@ async function loadStats(){
   }catch(e){}
 }
 let __accounts=[];
+let __selectedAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
   const card=document.getElementById('status-card');
@@ -2998,8 +3032,9 @@ async function loadAccounts(){
     const d=await r.json();
     __accounts=d.accounts||[];
     if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
-    let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_status')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+    let h='<div style="display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:var(--muted);text-align:left">'
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_status')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __accounts.forEach(a=>{
       const st=a.token_status||{};
       const valid=st.valid;
@@ -3007,6 +3042,7 @@ async function loadAccounts(){
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer;'+(sel?'background:var(--nav-hover)':'')+'">'
+        +'<td style="padding:.4rem"><input type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
         +'<td style="padding:.4rem;color:var(--faint)">'+esc(a.token_source)+'</td>'
@@ -3053,7 +3089,12 @@ async function delAccount(id){
   if(!confirm(t('confirm_del_account')))return;
   try{await fetch('/admin/accounts/'+id,{method:'DELETE',credentials:'include'});loadAccounts();loadKeys()}catch(e){}
 }
+function toggleAccountSelected(id,on){on?__selectedAccountIds.add(id):__selectedAccountIds.delete(id)}
+function selectAllAccounts(on){__selectedAccountIds=new Set(on?__accounts.map(a=>a.id):[]);loadAccounts()}
+async function batchRefreshAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return alert(t('batch_none'));for(const id of ids){await fetch('/admin/accounts/'+id+'/refresh',{method:'POST',credentials:'include'}).catch(()=>{})}loadAccounts()}
+async function batchDeleteAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return alert(t('batch_none'));if(!confirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/accounts/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedAccountIds.clear();loadAccounts();loadKeys()}
 let __keys=[];
+let __selectedKeyIds=new Set();
 async function loadKeys(){
   const box=document.getElementById('keys-content');
   if(!box)return;
@@ -3063,15 +3104,17 @@ async function loadKeys(){
     const d=await r.json();
     __keys=d.keys||[];
     if(!__keys.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_keys')+'</span>';renderDashboard();return}
-    let h='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+    let h='<div style="display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem"><button onclick="batchSetKeys(true)" style="font-size:.72rem;padding:3px 8px;background:#059669">'+t('batch_enable')+'</button><button onclick="batchSetKeys(false)" style="font-size:.72rem;padding:3px 8px;background:#b45309">'+t('batch_disable')+'</button><button onclick="batchDeleteKeys()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="color:var(--muted);text-align:left">'
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllKeys(this.checked)"></th><th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __keys.forEach(k=>{
       const acc=k.account_id?(k.account_source==='manual'?('<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:rgba(96,242,255,.16);color:#60f2ff;border:1px solid rgba(96,242,255,.4)">'+t('acct_token_only')+'</span>'):esc(k.account_name||k.account_id)):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
       const uname=k.username?esc(k.username):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
       const pwd=k.password?('<code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code> <button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:var(--chip)">'+t('btn_copy')+'</button>'):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
       h+='<tr id="krow-'+k.id+'" style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
-        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:var(--faint)">'+esc(k.id.replace(/^key_/,'id_'))+'</code></td>'
+        +'<td style="padding:.4rem"><input type="checkbox" '+(__selectedKeyIds.has(k.id)?'checked':'')+' onclick="toggleKeySelected(\\''+k.id+'\\',this.checked)"></td>'
+        +'<td style="padding:.4rem"><code style="font-size:.72rem;color:var(--faint)">'+esc(k.id.replace(/^key_/, 'id_'))+'</code></td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+uname+'</td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+pwd+'</td>'
         +'<td style="padding:.4rem"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code> <button onclick="copyKey(\\''+k.id+'\\',this)" style="font-size:.68rem;padding:2px 6px;background:var(--chip)">'+t('btn_copy')+'</button></td>'
@@ -3083,7 +3126,7 @@ async function loadKeys(){
         +'<button onclick="toggleKey(\\''+k.id+'\\','+(en?'false':'true')+')" style="font-size:.72rem;padding:3px 8px;background:'+(en?'#b45309':'#059669')+'">'+(en?t('btn_disable'):t('btn_enable'))+'</button> '
         +'<button onclick="delKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'
-        +'<tr id="kedit-'+k.id+'" style="display:none;background:var(--inner)"><td colspan="6" style="padding:.6rem .8rem">'
+        +'<tr id="kedit-'+k.id+'" style="display:none;background:var(--inner)"><td colspan="7" style="padding:.6rem .8rem">'
         +'<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
         +'<input id="ke-user-'+k.id+'" value="'+esc(k.username||'')+'" placeholder="'+t('kf_username_ph')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
         +'<input id="ke-pass-'+k.id+'" type="text" placeholder="'+t('key_prompt_password_opt')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
@@ -3231,6 +3274,10 @@ async function delKey(id){
   if(!confirm(t('confirm_del_key')))return;
   try{await fetch('/admin/keys/'+id,{method:'DELETE',credentials:'include'});loadKeys();loadAccounts()}catch(e){}
 }
+function toggleKeySelected(id,on){on?__selectedKeyIds.add(id):__selectedKeyIds.delete(id)}
+function selectAllKeys(on){__selectedKeyIds=new Set(on?__keys.map(k=>k.id):[]);loadKeys()}
+async function batchSetKeys(enabled){const ids=[...__selectedKeyIds];if(!ids.length)return alert(t('batch_none'));for(const id of ids){await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})}).catch(()=>{})}loadKeys()}
+async function batchDeleteKeys(){const ids=[...__selectedKeyIds];if(!ids.length)return alert(t('batch_none'));if(!confirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/keys/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedKeyIds.clear();loadKeys();loadAccounts()}
 
 loadStatus();
 loadChromiumStatus();
@@ -3470,12 +3517,19 @@ _USER_HTML = """<!DOCTYPE html>
 <style>
 :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2)}
 *{box-sizing:border-box}
-body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;line-height:1.5;min-height:100vh;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%)}
-.wrap{max-width:760px;margin:0 auto;padding:1.5rem 1rem 3rem}
+body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:#f3f6ff;line-height:1.5;min-height:100vh;background:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);position:relative}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%);z-index:0}
+.orb{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(16px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 11s linear infinite,loginPulse 3.8s ease-in-out infinite;opacity:.32;z-index:0;pointer-events:none}
+.wrap{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
 h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
-.card{position:relative;background:linear-gradient(180deg,rgba(13,19,45,.78),rgba(7,10,24,.7));border:1px solid var(--line);border-radius:20px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(16px);box-shadow:0 18px 48px rgba(0,0,0,.36)}
+.card{position:relative;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,10,24,.76));border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
+.card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.42),transparent 30%,rgba(255,94,219,.32),rgba(255,215,111,.24));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.75;pointer-events:none}
 .card h2{font-size:1rem;margin:0 0 .8rem;color:#f3f6ff}
+#login-card{width:380px;max-width:calc(100vw - 32px);margin:8vh auto 1.5rem;text-align:center;padding:2.6rem;border-radius:28px}
+#login-card .brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgba(96,242,255,.9),rgba(140,107,255,.92));box-shadow:0 0 30px rgba(96,242,255,.4),inset 0 0 22px rgba(255,255,255,.22);overflow:hidden}
+#login-card .brand-mark:before,#login-card .brand-mark:after{content:"";position:absolute;inset:12px;border-radius:12px;border:1px solid rgba(255,255,255,.34);transform:rotate(16deg)}
+#login-card .brand-mark:after{inset:8px;transform:rotate(-12deg);opacity:.58}
 label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .3rem}
 input,select,textarea{width:100%;background:rgba(7,11,27,.7);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#f3f6ff;padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s,box-shadow .2s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
@@ -3497,6 +3551,20 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
 .api-row>span:first-child{color:#f3f6ff;white-space:pre}
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
+.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:1rem;align-items:start}
+.account-side{position:sticky;top:1rem;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
+.account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
+.account-side>*{position:relative;z-index:1}
+.status-orb{width:54px;height:54px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:1.55rem;margin-bottom:.75rem;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(140,107,255,.18));border:1px solid rgba(96,242,255,.35);box-shadow:0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.2)}
+.status-orb.ok{box-shadow:0 0 24px rgba(34,197,94,.28),inset 0 1px 0 rgba(255,255,255,.2)}
+.status-orb.bad{box-shadow:0 0 24px rgba(239,68,68,.24),inset 0 1px 0 rgba(255,255,255,.2)}
+.status-grid{display:grid;gap:.45rem;margin-top:.65rem}
+.status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:.35rem}
+.status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes loginPulse{50%{scale:1.08;opacity:.48}}
+@media(max-width:760px){.account-card{grid-template-columns:1fr}.account-side{position:relative;top:auto}}
 .hidden{display:none}
 a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
@@ -3504,6 +3572,7 @@ code{color:#a5b4fc}
 </style>
 </head>
 <body>
+<div class="orb" aria-hidden="true"></div>
 <div class="wrap">
   <div class="top">
     <h1 data-i18n="title">M365 Copilot 代理 · 用户</h1>
@@ -3511,6 +3580,7 @@ code{color:#a5b4fc}
   </div>
 
   <div id="login-card" class="card">
+    <div class="brand-mark" aria-hidden="true"></div>
     <h2 data-i18n="login_title">登录</h2>
     <div class="hint" data-i18n="login_hint">输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。</div>
     <input id="username" type="text" data-i18n-ph="username_ph" placeholder="用户名" onkeydown="if(event.key==='Enter')doLogin()">
@@ -3520,34 +3590,37 @@ code{color:#a5b4fc}
 
   <div id="app" class="hidden">
     <div class="card">
-      <h2 data-i18n="qs_title">快速开始</h2>
-      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 推送成功后，把下方的 Base URL 和 API Key 填入你的 OpenAI 兼容客户端即可使用。</div>
+      <h2 data-i18n="qs_title">快速使用指南</h2>
+      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
+      <details style="margin-top:.75rem;cursor:pointer">
+        <summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+          <span data-i18n="endpoints_title">API 端点</span>
+          <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+        </summary>
+        <div class="api-info">
+          <div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
+          <div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
+          <div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
+          <div class="api-row"><span>GET&nbsp; /v1/models</span><span data-i18n="api_models">模型列表</span></div>
+          <div class="api-row"><span>POST /v1/responses</span><span data-i18n="api_responses">Responses 接口</span></div>
+        </div>
+      </details>
     </div>
-    <div class="card">
-      <h2 data-i18n="account_title">账户与 Token</h2>
-      <div id="account-info"></div>
-      <label data-i18n="push_token_label">推送 / 更新账户 Token</label>
-      <div class="hint" data-i18n="push_token_hint">粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。</div>
-      <textarea id="acct-token" placeholder="access_token / wss://substrate.office.com/..."></textarea>
-      <div class="row"><button onclick="pushToken()" data-i18n="push_token_btn">推送 Token</button><span id="token-msg" class="msg"></span></div>
-    </div>
-
-    <div class="card">
-      <h2 data-i18n="endpoints_title">API 端点</h2>
-      <div class="hint">Base URL: <code id="base-url"></code></div>
-      <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_key">复制</button></div>
-      <div class="hint" data-i18n="endpoints_hint">在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。</div>
-      <div class="api-info">
-      <div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
-      <div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
-      <div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
-      <div class="api-row"><span>GET&nbsp; /v1/models</span><span data-i18n="api_models">模型列表</span></div>
-      <div class="api-row"><span>POST /v1/responses</span><span data-i18n="api_responses">Responses 接口</span></div>
+    <div class="card account-card">
+      <div class="account-main">
+        <h2 data-i18n="account_title">账户控制台</h2>
+        <div id="account-info"></div>
+        <div class="hint" style="margin-top:.75rem">Base URL: <code id="base-url"></code></div>
+        <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey()" class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" data-i18n="copy_key">复制</button></div>
+        <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
+        <label style="margin-top:1.1rem;font-size:1rem;color:var(--strong);font-weight:600" data-i18n="mode_profile_title">默认对话配置</label>
+        <div class="row"><select id="tone" onchange="saveTone()" style="width:180px;padding-right:34px;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select><span id="tone-msg" class="msg"></span></div>
+        <label data-i18n="push_token_label">推送 / 更新账户 Token</label>
+        <div class="hint" data-i18n="push_token_hint">粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。</div>
+        <textarea id="acct-token" placeholder="access_token / wss://substrate.office.com/..."></textarea>
+        <div class="row"><button onclick="pushToken()" data-i18n="push_token_btn">推送 Token</button><span id="token-msg" class="msg"></span></div>
       </div>
-      <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置我的 API Key</button><span id="regen-msg" class="msg"></span></div>
-      <div class="hint" style="margin-top:.3rem" data-i18n="regen_my_key_hint">重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。</div>
-      <label style="margin-top:1.1rem;font-size:1rem;color:#e2e8f0;font-weight:600" data-i18n="tone_title">对话模式</label>
-      <div class="row"><select id="tone" onchange="saveTone()" style="width:180px;padding-right:34px;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select><span id="tone-msg" class="msg"></span></div>
+      <div class="account-side" id="account-status-panel"></div>
     </div>
 
     <div class="card">
@@ -3588,11 +3661,12 @@ const i18n={
   zh:{
     title:'M365 Copilot 代理 · 用户',
     login_title:'登录',login_hint:'输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。',
-    qs_title:'快速开始',qs_body:'1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 推送成功后，把下方的 Base URL 和 API Key 填入你的 OpenAI 兼容客户端即可使用。',
+    qs_title:'快速使用指南',qs_body:'1. 安装油猴脚本并打开 M365 Copilot，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「推送 Token」，或手动复制 access_token 粘贴到下方推送。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
-    account_title:'账户与 Token',push_token_label:'推送 / 更新账户 Token',
+    account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',
     push_token_btn:'推送 Token',saved:'已保存',push_ok:'Token 已更新',
+    mode_profile_title:'默认对话配置',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
     tone_title:'对话模式',tool_prompt_title:'提示词增强',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
@@ -3610,11 +3684,12 @@ const i18n={
   en:{
     title:'M365 Copilot Proxy · User',
     login_title:'Login',login_hint:'Enter the username and password assigned by the admin to manage your own conversation mode, prompts and account token.',
-    qs_title:'Quick Start',qs_body:'1. Install the Tampermonkey script and open M365 Copilot, then send any message to trigger the WebSocket.<br>2. Click "Push Token" in the script panel, or manually copy the access_token and paste it below to push.<br>3. Once pushed, fill the Base URL and API Key below into your OpenAI-compatible client.',
+    qs_title:'Quick Start',qs_body:'1. Install the Tampermonkey script and open M365 Copilot, then send any message to trigger the WebSocket.<br>2. Click "Push Token" in the script panel, or manually copy the access_token and paste it below to push.<br>3. Copy the Base URL and API Key from the account card into your OpenAI-compatible client.',
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
-    account_title:'Account & Token',push_token_label:'Push / update account token',
+    account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',
     push_token_btn:'Push Token',saved:'Saved',push_ok:'Token updated',
+    mode_profile_title:'Default conversation profile',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
     tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
@@ -3634,6 +3709,7 @@ let lang=localStorage.getItem('lang')||'zh';
 let toneOptions=[];
 let sysDefault='';
 function t(k){return i18n[lang][k]||k}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function getKey(){return sessionStorage.getItem('user_api_key')||''}
 function authHeaders(){return {'Content-Type':'application/json','Authorization':'Bearer '+getKey()}}
 function applyLang(){
@@ -3679,6 +3755,35 @@ async function unbindAccount(){
   try{await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()})}catch(e){}
   await loadMe();
 }
+function fmtExpire(iso){
+  if(!iso)return t('status_unknown');
+  try{return new Date(iso).toLocaleString()}catch(e){return iso}
+}
+function fmtRemaining(sec){
+  sec=Math.max(0,Math.floor(sec||0));
+  const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);
+  return h>0?(h+'h '+m+'m'):(m+'m');
+}
+function renderAccountStatus(d){
+  const box=document.getElementById('account-status-panel');if(!box)return;
+  const a=d.account||null,st=a?(a.token_status||{}):{};
+  const valid=!!st.valid,has=!!(a&&a.has_token);
+  const login=!!a;
+  const refresh=!!(a&&a.token_source==='cdp');
+  const name=a?(a.name||a.email||a.id):t('status_unknown');
+  const cls=valid?'ok':(has?'bad':'');
+  const icon=valid?'✓':(has?'!':'?');
+  box.innerHTML='<div class="status-orb '+cls+'">'+icon+'</div>'
+    +'<h3 style="margin:0;color:var(--strong);font-size:1rem">'+t('status_panel_title')+'</h3>'
+    +'<div class="status-grid">'
+    +'<div class="status-line"><span>'+t('status_account')+'</span><b>'+esc(name)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_login')+'</span><b>'+t(login?'status_yes':'status_no')+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+t(refresh?'status_yes':'status_no')+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+t(valid?'status_yes':'status_no')+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_remaining')+'</span><b>'+fmtRemaining(st.seconds_remaining)+'</b></div>'
+    +'</div>';
+}
 async function loadMe(){
   if(!getKey())return false;
   try{
@@ -3710,6 +3815,7 @@ async function loadMe(){
     }
     acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost" onclick="logout()">'+t('logout')+'</button><button class="btn-ghost" onclick="unbindAccount()">'+t('unbind_account')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
+    renderAccountStatus(d);
     return true;
   }catch(e){return false}
 }
