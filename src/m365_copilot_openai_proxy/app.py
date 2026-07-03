@@ -3875,7 +3875,7 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
 .api-row>span:first-child{color:#f3f6ff;white-space:pre}
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
-.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:600px}
+.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:600px;overflow:visible}
 .account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
