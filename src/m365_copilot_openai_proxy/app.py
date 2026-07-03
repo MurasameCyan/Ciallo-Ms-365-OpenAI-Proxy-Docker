@@ -2779,13 +2779,7 @@ function switchView(view){
 }
 switchView(localStorage.getItem('admin_view')||'home');
 
-function showInlineLogin(){
-  const curLang=localStorage.getItem('lang')||'zh';
-  const li18n={zh:{desc:'输入管理员密码以继续',btn:'登录',ph:'API Key / 密码'},en:{desc:'Enter admin password to continue',btn:'Login',ph:'API Key / Password'}};
-  const lt=k=>li18n[curLang][k]||k;
-  document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--inner);color:var(--strong);font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"><div style="background:var(--inner);border-radius:14px;padding:2.5rem 2.5rem 2.5rem 2.5rem;width:360px;border:1px solid var(--inner-border);text-align:center;position:relative"><button onclick="toggleInlineLang()" style="position:absolute;top:12px;right:12px;background:linear-gradient(135deg,rgba(6,182,212,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.5);color:var(--strong);font-size:12px;padding:4px 12px;border-radius:16px;cursor:pointer;font-weight:600;width:auto">'+(curLang==='zh'?'&#127760; EN':'&#127760; 中文')+'</button><h1 style="font-size:1.3rem;margin-bottom:.5rem;background:linear-gradient(135deg,#06b6d4,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Ciallo Ms-365 OpenAI Proxy</h1><p style="color:var(--faint);font-size:.85rem;margin-bottom:1.5rem">'+lt('desc')+'</p><input id="pw" type="password" placeholder="'+lt('ph')+'" autofocus style="width:100%;padding:.75rem 1rem;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.9rem;outline:none;margin-bottom:1rem"><button onclick="doInlineLogin()" style="width:100%;background:linear-gradient(135deg,#06b6d4,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">'+lt('btn')+'</button><div id="ilm" style="padding:.5rem .75rem;border-radius:6px;font-size:.8rem;margin-top:.75rem;display:none"></div></div></div>';
-  document.getElementById('pw').addEventListener('keydown',function(e){if(e.key==='Enter')doInlineLogin()});
-}
+function showInlineLogin(){location.replace('/admin')}
 function toggleInlineLang(){localStorage.setItem('lang',localStorage.getItem('lang')==='zh'?'en':'zh');showInlineLogin()}
 
 async function doInlineLogin(){
@@ -3407,8 +3401,8 @@ function rebindKey(id){
   let opts='<option value="">'+t('rebind_unbind')+'</option>';
   __accounts.forEach(a=>{opts+='<option value="'+a.id+'"'+(a.id===cur?' selected':'')+'>'+esc(acctLabel(a))+'</option>'});
   const ov=document.createElement('div');
-  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000';
-  ov.innerHTML='<div class="flow-box" style="position:relative;background:var(--inner);border:1px solid var(--inner-border);border-radius:12px;padding:1.25rem;width:340px;max-width:90vw">'
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);display:flex;align-items:center;justify-content:center;z-index:1000';
+  ov.innerHTML='<div class="flow-box" style="position:relative;background:rgba(15,23,42,.3);border:1px solid rgba(96,242,255,.28);border-radius:12px;padding:1.25rem;width:340px;max-width:90vw;box-shadow:0 24px 70px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%)">'
     +'<div style="font-weight:600;margin-bottom:.75rem">'+t('rebind_title')+'</div>'
     +'<div class="flow-box" style="position:relative;border-radius:8px"><select id="rebind-select" style="width:100%;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;outline:none">'+opts+'</select></div>'
     +'<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">'
@@ -3691,6 +3685,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;background:li
 h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
 .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem}
+.modal-card{position:relative;width:360px;max-width:92vw;border-radius:14px;padding:1.25rem;background:rgba(15,23,42,.3);border:1px solid rgba(96,242,255,.28);box-shadow:0 24px 70px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%)}
+body[data-theme="light"] .modal-card{background:rgba(255,255,255,.3);border-color:rgba(99,102,180,.22)}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.42),transparent 30%,rgba(255,94,219,.32),rgba(255,215,111,.24));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.75;pointer-events:none}
 .card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:background .2s}
@@ -3874,7 +3871,7 @@ const i18n={
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
     copy_base:'复制',copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
-    logout:'登出 Microsoft',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -3897,7 +3894,7 @@ const i18n={
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
     copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
-    logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -3947,11 +3944,29 @@ async function doLogin(){
     if(!ok){fail();sessionStorage.removeItem('user_api_key')}
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
-async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},1500)}}catch(e){if(btn){btn.textContent=t('logout_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},1500)}}await loadMe()}
+async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},5000)}}catch(e){if(btn){btn.textContent=t('logout_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},5000)}}await loadMe()}
+function confirmUnbindAccount(){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.className='modal-backdrop';
+    ov.innerHTML='<div class="modal-card flow-box">'
+      +'<div style="font-weight:700;color:var(--strong);margin-bottom:.55rem">'+t('unbind_account')+'</div>'
+      +'<div style="font-size:.84rem;color:var(--muted);line-height:1.55">'+t('unbind_confirm')+'</div>'
+      +'<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">'
+      +'<button id="unbind-cancel" class="btn-ghost" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
+      +'<button id="unbind-ok" style="font-size:.8rem;padding:6px 14px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('unbind_confirm_btn')+'</button>'
+      +'</div></div>';
+    document.body.appendChild(ov);
+    const done=v=>{ov.remove();resolve(v)};
+    ov.addEventListener('click',e=>{if(e.target===ov)done(false)});
+    ov.querySelector('#unbind-cancel').onclick=()=>done(false);
+    ov.querySelector('#unbind-ok').onclick=()=>done(true);
+  });
+}
 async function unbindAccount(btn){
-  if(!confirm(t('unbind_confirm')))return;
+  if(!await confirmUnbindAccount())return;
   if(btn){btn.disabled=true;btn.textContent=t('unbinding_ms')}
-  try{const r=await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},1500)}}catch(e){if(btn){btn.textContent=t('unbind_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},1500)}}
+  try{const r=await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},5000)}}catch(e){if(btn){btn.textContent=t('unbind_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},5000)}}
   await loadMe();
 }
 function fmtExpire(iso){
