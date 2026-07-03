@@ -2168,10 +2168,11 @@ button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px
 .acct-row{transition:background .18s,box-shadow .18s,transform .18s}
 .acct-row.selected{background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)}
 .tbl-tools{display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem;flex-wrap:wrap;position:sticky;top:0;z-index:4;background:var(--card);padding:.1rem 0}
-.view-users{height:1000px;display:none}
-body[data-view="users"] .view-users{display:block}
-.view-users .tbl-scroll{max-height:800px}
+.view-users{height:750px;display:none}
+body[data-view="users"] .view-users{display:block;position:sticky;top:1rem}
+.view-users .tbl-scroll{max-height:550px}
 body[data-view="home"] .view-home,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:sticky;top:1rem}
+.view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:1rem}
 .tbl-scroll{max-height:430px;overflow:auto;border-radius:8px}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
@@ -2262,34 +2263,12 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 .gate-flow{position:absolute;inset:6px;border-radius:24px;pointer-events:none;opacity:0;z-index:0}
 .debug-gate.on .gate-flow{opacity:1;border:1px solid transparent;background:linear-gradient(90deg,transparent,rgba(96,242,255,.5),rgba(140,107,255,.4),rgba(255,94,219,.3),transparent);background-size:300% 100%;animation:gateFlow 2.6s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px}
 @keyframes gateFlow{to{background-position:300% 0}}
-.gate-stream{position:absolute;inset:0;pointer-events:none;z-index:0;opacity:0;overflow:hidden;border-radius:28px}
+.gate-stream{position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;overflow:hidden;border-radius:28px}
 .debug-gate.on .gate-stream{opacity:1}
-.gate-stream i{position:absolute;font-family:monospace;font-size:.7rem;color:rgba(96,242,255,0);text-shadow:0 0 6px rgba(96,242,255,.6);white-space:nowrap;font-weight:700}
-.debug-gate.on .gate-stream i{animation:streamIn 1.8s linear infinite}
-.gate-stream i:nth-child(1){left:8%;top:30%;animation-delay:0s}
-.gate-stream i:nth-child(2){left:12%;top:55%;animation-delay:.3s}
-.gate-stream i:nth-child(3){left:6%;top:70%;animation-delay:.6s}
-.gate-stream i:nth-child(4){right:8%;top:35%;animation-delay:.15s;animation-name:streamInR}
-.gate-stream i:nth-child(5){right:10%;top:60%;animation-delay:.45s;animation-name:streamInR}
-.gate-stream i:nth-child(6){left:20%;top:14%;animation-delay:.75s}
-.gate-stream i:nth-child(7){right:18%;top:80%;animation-delay:.9s;animation-name:streamInR}
-.gate-stream i:nth-child(8){left:14%;top:85%;animation-delay:.5s}
-.gate-stream i:nth-child(9){left:45%;top:5%;animation-delay:.2s;animation-name:streamInD}
-.gate-stream i:nth-child(10){left:58%;top:8%;animation-delay:.55s;animation-name:streamInD}
-.gate-stream i:nth-child(11){left:46%;bottom:6%;animation-delay:.35s;animation-name:streamInU}
-.gate-stream i:nth-child(12){left:62%;bottom:10%;animation-delay:.8s;animation-name:streamInU}
-.gate-stream i:nth-child(13){left:4%;top:12%;animation-delay:.95s;animation-name:streamInDiag}
-.gate-stream i:nth-child(14){right:4%;top:14%;animation-delay:.7s;animation-name:streamInDiagR}
-.gate-stream i:nth-child(15){left:5%;bottom:12%;animation-delay:1.05s;animation-name:streamInDiagU}
-.gate-stream i:nth-child(16){right:5%;bottom:14%;animation-delay:1.2s;animation-name:streamInDiagUR}
-@keyframes streamIn{0%{transform:translateX(0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translateX(140px);opacity:0}}
-@keyframes streamInR{0%{transform:translateX(0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translateX(-140px);opacity:0}}
-@keyframes streamInD{0%{transform:translateY(0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translateY(105px);opacity:0}}
-@keyframes streamInU{0%{transform:translateY(0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translateY(-105px);opacity:0}}
-@keyframes streamInDiag{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translate(125px,75px);opacity:0}}
-@keyframes streamInDiagR{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translate(-125px,75px);opacity:0}}
-@keyframes streamInDiagU{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translate(125px,-75px);opacity:0}}
-@keyframes streamInDiagUR{0%{transform:translate(0,0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translate(-125px,-75px);opacity:0}}
+.gate-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.72rem;color:rgba(182,252,255,.92);text-shadow:0 0 8px rgba(96,242,255,.9),0 0 18px rgba(140,107,255,.45);white-space:nowrap;font-weight:800;letter-spacing:.08em;transform:translate(var(--sx),var(--sy));opacity:0}
+.debug-gate.on .gate-stream i{animation:streamToGlobe 2.2s linear infinite;animation-delay:var(--d)}
+.gate-stream i:nth-child(1){--sx:-330px;--sy:-96px;--d:0s}.gate-stream i:nth-child(2){--sx:-310px;--sy:-20px;--d:.18s}.gate-stream i:nth-child(3){--sx:-330px;--sy:76px;--d:.42s}.gate-stream i:nth-child(4){--sx:310px;--sy:-86px;--d:.12s}.gate-stream i:nth-child(5){--sx:330px;--sy:6px;--d:.36s}.gate-stream i:nth-child(6){--sx:305px;--sy:86px;--d:.58s}.gate-stream i:nth-child(7){--sx:-160px;--sy:-128px;--d:.72s}.gate-stream i:nth-child(8){--sx:150px;--sy:-126px;--d:.9s}.gate-stream i:nth-child(9){--sx:-90px;--sy:-145px;--d:.24s}.gate-stream i:nth-child(10){--sx:78px;--sy:-148px;--d:.66s}.gate-stream i:nth-child(11){--sx:-145px;--sy:132px;--d:.5s}.gate-stream i:nth-child(12){--sx:160px;--sy:128px;--d:.84s}.gate-stream i:nth-child(13){--sx:-300px;--sy:-142px;--d:1.02s}.gate-stream i:nth-child(14){--sx:300px;--sy:-140px;--d:1.18s}.gate-stream i:nth-child(15){--sx:-292px;--sy:138px;--d:1.34s}.gate-stream i:nth-child(16){--sx:292px;--sy:140px;--d:1.5s}
+@keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) scale(.9);opacity:0}12%{opacity:.9}76%{opacity:.88}100%{transform:translate(-8px,-26px) scale(.45);opacity:0}}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
 @keyframes globeDotA{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(-3px,2px)}75%{transform:translate(1px,3px)}100%{transform:translate(0,0)}}
 @keyframes globeDotB{0%{transform:translate(0,0)}30%{transform:translate(-2px,-2px)}60%{transform:translate(3px,1px)}100%{transform:translate(0,0)}}
