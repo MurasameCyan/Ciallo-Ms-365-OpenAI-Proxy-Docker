@@ -2170,17 +2170,19 @@ button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px
 .acct-row{transition:background .18s,box-shadow .18s,transform .18s}
 .acct-row.selected{background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)}
 .tbl-tools{display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem;flex-wrap:wrap;position:sticky;top:0;z-index:4;background:var(--card);padding:.1rem 0}
-.view-users{height:900px;display:none;position:relative;padding-bottom:64px}
+.view-users{height:800px;display:none;position:relative;padding-bottom:64px}
 body[data-view="users"] .view-users{display:block;position:sticky;top:10px}
-.view-users .tbl-scroll{max-height:705px}
+.view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:sticky;top:10px}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-.accounts-main-card{position:relative;padding-bottom:64px;min-height:100px}
+body[data-view="accounts"] .view-accounts,body[data-view="debug"] .debug-gate-card{height:1000px}
+.accounts-main-card{position:relative;padding-bottom:64px;height:1000px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:10px}
-#status-card{position:sticky!important;top:10px!important;margin-top:20px!important;margin-bottom:20px!important;transform:none!important;animation:none!important;min-height:100px}
-.view-settings,.view-debug{min-height:180px}
-.debug-gate{min-height:330px}
+#status-card{position:sticky!important;top:10px!important;margin-top:20px!important;margin-bottom:20px!important;transform:none!important;animation:none!important;height:1000px}
+.view-settings{height:90px;min-height:90px}
+.view-debug{height:90px;min-height:90px}
+.debug-gate{min-height:430px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
@@ -2548,7 +2550,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 const i18n={
   zh:{
     multi_badge:'多租户',
-    nav_home:'首页总览',nav_users:'用户管理',nav_accounts:'账户管理',nav_settings:'全局设置',nav_debug:'调试',
+    nav_home:'首页总览',nav_users:'用户管理',nav_accounts:'账户管理',nav_settings:'全局设置',nav_debug:'调试模式',
     dash_title:'运行概览',dash_refresh:'刷新',dash_acct_valid:'账户有效 / 过期比',dash_key_status:'用户 启用 / 停用',dash_bind_status:'用户 绑定 / 未绑定',
     dash_kpi_users:'用户数',dash_kpi_accounts:'账户数',dash_kpi_active_users:'启用用户',dash_kpi_valid_accts:'有效账户',dash_kpi_expired_accts:'过期账户',dash_kpi_unbound:'未绑定用户',
     dash_valid:'有效',dash_expired:'过期',dash_bound:'已绑定',
@@ -3024,7 +3026,7 @@ function donut(parts,centerLabel,centerVal){
   // glass defs: soft drop shadow + glossy top highlight overlay
   let defs='<defs>'
     +'<filter id="'+uid+'sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.28"/></filter>'
-    +'<filter id="'+uid+'flow" x="-45%" y="-45%" width="190%" height="190%"><feGaussianBlur stdDeviation="1.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+    +'<filter id="'+uid+'flow" x="-45%" y="-45%" width="190%" height="190%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
     +'<linearGradient id="'+uid+'gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
     +'</defs>';
   let ring='',flow='';
@@ -3035,8 +3037,8 @@ function donut(parts,centerLabel,centerVal){
       if(p.value<=0)return;
       const len=C*(p.value/total);
       ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+len+' '+(C-len)+'" dur="0.55s" fill="freeze"/><animate attributeName="stroke-dashoffset" values="'+(-off)+';'+(-off-C)+'" dur="5.5s" repeatCount="indefinite"/></circle>';
-      flow+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-dasharray="18 '+(C-18)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'flow)" opacity="0.82"><animate attributeName="stroke-dashoffset" values="'+(-off)+';'+(-off-C)+'" dur="2.4s" repeatCount="indefinite"/></circle>';
-      flow+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="8" stroke-linecap="round" stroke-dasharray="10 '+(C-10)+'" stroke-dashoffset="'+(-off-8)+'" transform="rotate(-90 60 60)" opacity="0.45"><animate attributeName="stroke-dashoffset" values="'+(-off-8)+';'+(-off-C-8)+'" dur="2.4s" repeatCount="indefinite"/></circle>';
+      flow+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="13" stroke-linecap="round" stroke-dasharray="44 '+(C-44)+'" stroke-dashoffset="'+(-off-16)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'flow)" opacity="0.34"><animate attributeName="stroke-dashoffset" values="'+(-off-16)+';'+(-off-C-16)+'" dur="4.8s" repeatCount="indefinite"/></circle>';
+      flow+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="rgba(255,255,255,.72)" stroke-width="2" stroke-linecap="round" stroke-dasharray="24 '+(C-24)+'" stroke-dashoffset="'+(-off-26)+'" transform="rotate(-90 60 60)" opacity="0.42"><animate attributeName="stroke-dashoffset" values="'+(-off-26)+';'+(-off-C-26)+'" dur="4.8s" repeatCount="indefinite"/></circle>';
       off+=len;
     });
   }
@@ -3759,7 +3761,7 @@ button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-siz
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-ghost{background:var(--chip);background-image:none;color:var(--strong);border:1px solid var(--chip-border);box-shadow:none}
-.compact-action{width:58px;margin:0;padding:.2rem .55rem!important;font-size:.75rem!important;text-align:left;display:inline-flex;align-items:center;justify-content:flex-start}
+.compact-action{width:58px;margin:0;padding:.2rem .55rem!important;font-size:.75rem!important;text-align:center;display:inline-flex;align-items:center;justify-content:center}
 .call-param-box{background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--text);padding:.6rem .7rem;font-size:.9rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
 .call-param-row{display:grid;grid-template-columns:72px minmax(0,1fr) 58px;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
 .call-param-row:last-child{margin-bottom:0}
@@ -3885,7 +3887,7 @@ code{color:#a5b4fc}
 
     <div class="card">
       <details id="tool-prompt-details" style="cursor:pointer">
-      <summary style="font-size:1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+      <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
       <span data-i18n="tool_prompt_title">提示词增强</span>
       <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
       </summary>
@@ -3897,7 +3899,7 @@ code{color:#a5b4fc}
       </details>
       <hr style="border:none;border-top:1px solid #334155;margin:1.1rem 0">
       <details id="sys-prompt-details" style="cursor:pointer">
-      <summary style="font-size:1rem;font-weight:600;color:#e2e8f0;list-style:none;display:flex;align-items:center;gap:.5rem">
+      <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
       <span data-i18n="sys_prompt_title">系统提示词（高级）</span>
       <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
       </summary>
