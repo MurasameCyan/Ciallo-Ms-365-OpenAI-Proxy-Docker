@@ -2145,6 +2145,7 @@ details summary{min-height:42px;display:flex;align-items:center;position:relativ
 details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgba(140,107,255,.04))}
 details[open] summary:after{display:none}
 .card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.flow-box{scrollbar-gutter:stable}
 .flow-box::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 @keyframes flowBorder{to{background-position:220% 0}}
 .card h2{font-size:1.1rem;margin-bottom:1rem;color:var(--text)}
@@ -2168,28 +2169,33 @@ button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px
 .acct-row{transition:background .18s,box-shadow .18s,transform .18s}
 .acct-row.selected{background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)}
 .tbl-tools{display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem;flex-wrap:wrap;position:sticky;top:0;z-index:4;background:var(--card);padding:.1rem 0}
-.view-users{height:800px;display:none}
+.view-users{height:800px;display:none;position:relative;padding-bottom:64px}
 body[data-view="users"] .view-users{display:block;position:sticky;top:10px}
-.view-users .tbl-scroll{max-height:600px}
-body[data-view="home"] .view-home,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:sticky;top:10px}
+.view-users .tbl-scroll{max-height:540px}
+body[data-view="users"] .view-users,body[data-view="accounts"] .accounts-main-card,body[data-view="settings"] .view-settings:first-of-type,body[data-view="debug"] .view-debug:first-of-type{position:sticky;top:10px}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-.tbl-scroll{max-height:430px;overflow:auto;border-radius:8px}
+.accounts-main-card{position:relative;padding-bottom:64px}
+.view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:10px}
+.view-settings{min-height:188px}
+.tbl-scroll{max-height:430px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
-.tbl-foot{display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin-top:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
+.tbl-foot{position:absolute;left:1.5rem;right:1.5rem;bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);z-index:6;background:linear-gradient(180deg,rgba(8,13,32,.78),rgba(8,13,32,.9));border:1px solid rgba(96,242,255,.12);border-radius:14px;padding:.45rem .6rem;backdrop-filter:blur(14px)}
 .page-size{display:flex;align-items:center;gap:.4rem}
 .page-nav{display:flex;align-items:center;gap:.5rem}
-.page-info{color:var(--faint)}
-.page-btn{font-size:.72rem;padding:3px 10px;background:var(--chip)}
-.page-btn:disabled{opacity:.4;cursor:not-allowed}
+.page-info{color:var(--faint);min-width:150px;text-align:center}
+.page-btn{font-size:.74rem;padding:5px 12px;background:linear-gradient(135deg,rgba(96,242,255,.2),rgba(140,107,255,.18));border:1px solid rgba(96,242,255,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 16px rgba(96,242,255,.12)}
+.page-btn:hover:not(:disabled){box-shadow:0 0 20px rgba(96,242,255,.28),inset 0 1px 0 rgba(255,255,255,.2)}
+.page-btn:disabled{opacity:.45;cursor:not-allowed;background:var(--chip);color:var(--faint)}
 .page-select{min-height:30px;padding:4px 28px 4px 10px;background-color:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--text);font-size:.76rem;font-weight:700;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12);transition:border-color .2s,box-shadow .2s;cursor:pointer}
-.page-select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08);animation:selectGlow 2.4s ease-in-out infinite}
+.page-select:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;animation:fieldFlow 2.2s linear infinite!important}
 .page-select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .page-select{color:#243049;background-color:rgba(255,255,255,.72);border-color:rgba(99,102,180,.22)}
 body[data-theme="light"] .page-select option{background:#fff;color:#243049}
 .tone-select{margin-left:auto;width:180px;max-width:50%;min-height:38px;padding:7px 34px 7px 12px;background-color:var(--inner);border:1px solid var(--inner-border);border-radius:12px;color:var(--text);font-size:.82rem;font-weight:700;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12);transition:border-color .2s,box-shadow .2s}
-input:focus,textarea:focus,select:focus{border-color:var(--cyan)!important;box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:selectGlow 2.4s ease-in-out infinite;outline:none}
-.tone-select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08);animation:selectGlow 2.4s ease-in-out infinite}
+input:focus,textarea:focus,select:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
+.tone-select:focus{animation:fieldFlow 2.2s linear infinite!important}
+@keyframes fieldFlow{to{background-position:0 0,300% 0}}
 @keyframes selectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.2),0 0 30px rgba(140,107,255,.28),inset 0 1px 0 rgba(255,255,255,.12)}}
 .tone-select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,255,255,.72);border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 8px 20px rgba(47,61,116,.08)}
@@ -2248,7 +2254,7 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 .debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);animation:spin 4s linear infinite;opacity:.42;z-index:-2}
 .debug-gate:after{content:"";position:absolute;inset:2px;border-radius:26px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
 .debug-gate-core{display:flex;flex-direction:column;align-items:center;gap:.38rem;text-align:center;letter-spacing:.02em}
-.data-globe{position:relative;width:96px;height:96px;border-radius:50%;margin-bottom:1.1rem;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 38px rgba(96,242,255,.28),inset 0 0 34px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d;animation:globeSpin 20s linear infinite}
+.data-globe{position:relative;width:96px;height:96px;border-radius:50%;margin-bottom:0;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 38px rgba(96,242,255,.28),inset 0 0 34px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d;animation:globeSpin 20s linear infinite}
 .debug-gate.on .data-globe{animation-duration:9s}
 .data-globe:before{content:"";position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 24% 30%,rgba(255,255,255,.95) 0 1.4px,transparent 2.2px),radial-gradient(circle at 66% 22%,rgba(96,242,255,.9) 0 1.6px,transparent 2.4px),radial-gradient(circle at 40% 58%,rgba(255,255,255,.72) 0 1.1px,transparent 1.8px),radial-gradient(circle at 74% 64%,rgba(140,107,255,.82) 0 1.5px,transparent 2.2px),radial-gradient(circle at 30% 78%,rgba(96,242,255,.7) 0 1.2px,transparent 1.9px);opacity:.85;animation:globeDotA 6.5s ease-in-out infinite}
 .data-globe:after{content:"";position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 52% 20%,rgba(255,255,255,.85) 0 1.3px,transparent 2px),radial-gradient(circle at 18% 54%,rgba(96,242,255,.8) 0 1.5px,transparent 2.2px),radial-gradient(circle at 60% 48%,rgba(255,215,111,.75) 0 1.3px,transparent 2px),radial-gradient(circle at 82% 40%,rgba(255,255,255,.7) 0 1.1px,transparent 1.7px),radial-gradient(circle at 46% 82%,rgba(140,107,255,.7) 0 1.4px,transparent 2.1px);opacity:.7;animation:globeDotB 5.2s ease-in-out infinite}
@@ -2257,7 +2263,7 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 .data-globe .orbit.o1{--x:68deg;--y:18deg;--r:18deg}
 .data-globe .orbit.o2{inset:-18px;--x:28deg;--y:72deg;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 12px var(--violet)}
 .data-globe .orbit.o3{inset:-24px;--x:78deg;--y:-36deg;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 12px var(--gold)}
-.debug-gate b{font-size:1.08rem}.debug-gate small{color:var(--muted);font-size:.76rem}
+.debug-gate b,.debug-gate small{display:none}
 .debug-gate.on{box-shadow:0 0 42px rgba(96,242,255,.34),0 0 110px rgba(140,107,255,.24),inset 0 1px 0 rgba(255,255,255,.1)}
 .debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .data-globe:before{animation-duration:3.4s}.debug-gate.on .data-globe:after{animation-duration:2.8s}.debug-gate.on .data-globe{box-shadow:0 0 46px rgba(96,242,255,.45),inset 0 0 34px rgba(96,242,255,.22)}
 .debug-gate.on .orbit{opacity:1;animation:orbitSpin 2.4s linear infinite}.debug-gate.on .orbit.o2{animation-duration:3.2s;animation-direction:reverse}.debug-gate.on .orbit.o3{animation-duration:4.1s}
@@ -2266,16 +2272,16 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 @keyframes gateFlow{to{background-position:300% 0}}
 .gate-stream{position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;overflow:hidden;border-radius:28px}
 .debug-gate.on .gate-stream{opacity:1}
-.gate-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.72rem;color:rgba(182,252,255,.92);text-shadow:0 0 8px rgba(96,242,255,.9),0 0 18px rgba(140,107,255,.45);white-space:nowrap;font-weight:800;letter-spacing:.08em;transform:translate(var(--sx),var(--sy));opacity:0}
-.debug-gate.on .gate-stream i{animation:streamToGlobe 2.2s linear infinite;animation-delay:var(--d)}
-.gate-stream i:nth-child(1){--sx:-330px;--sy:-96px;--d:0s}.gate-stream i:nth-child(2){--sx:-310px;--sy:-20px;--d:.18s}.gate-stream i:nth-child(3){--sx:-330px;--sy:76px;--d:.42s}.gate-stream i:nth-child(4){--sx:310px;--sy:-86px;--d:.12s}.gate-stream i:nth-child(5){--sx:330px;--sy:6px;--d:.36s}.gate-stream i:nth-child(6){--sx:305px;--sy:86px;--d:.58s}.gate-stream i:nth-child(7){--sx:-160px;--sy:-128px;--d:.72s}.gate-stream i:nth-child(8){--sx:150px;--sy:-126px;--d:.9s}.gate-stream i:nth-child(9){--sx:-90px;--sy:-145px;--d:.24s}.gate-stream i:nth-child(10){--sx:78px;--sy:-148px;--d:.66s}.gate-stream i:nth-child(11){--sx:-145px;--sy:132px;--d:.5s}.gate-stream i:nth-child(12){--sx:160px;--sy:128px;--d:.84s}.gate-stream i:nth-child(13){--sx:-300px;--sy:-142px;--d:1.02s}.gate-stream i:nth-child(14){--sx:300px;--sy:-140px;--d:1.18s}.gate-stream i:nth-child(15){--sx:-292px;--sy:138px;--d:1.34s}.gate-stream i:nth-child(16){--sx:292px;--sy:140px;--d:1.5s}
-@keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) scale(.9);opacity:0}12%{opacity:.9}76%{opacity:.88}100%{transform:translate(-8px,-26px) scale(.45);opacity:0}}
+.gate-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.72rem;color:rgba(182,252,255,.92);text-shadow:0 0 8px rgba(96,242,255,.9),0 0 18px rgba(140,107,255,.45);white-space:nowrap;font-weight:800;letter-spacing:.08em;transform:translate(var(--sx),var(--sy)) rotate(var(--a));opacity:0}
+.debug-gate.on .gate-stream i{animation:streamToGlobe 2.35s linear infinite;animation-delay:var(--d)}
+.gate-stream i:nth-child(1){--sx:-430px;--sy:-126px;--a:16deg;--d:0s}.gate-stream i:nth-child(2){--sx:-420px;--sy:-28px;--a:4deg;--d:.18s}.gate-stream i:nth-child(3){--sx:-430px;--sy:106px;--a:-14deg;--d:.42s}.gate-stream i:nth-child(4){--sx:420px;--sy:-116px;--a:-16deg;--d:.12s}.gate-stream i:nth-child(5){--sx:438px;--sy:10px;--a:-1deg;--d:.36s}.gate-stream i:nth-child(6){--sx:410px;--sy:118px;--a:16deg;--d:.58s}.gate-stream i:nth-child(7){--sx:-218px;--sy:-158px;--a:36deg;--d:.72s}.gate-stream i:nth-child(8){--sx:210px;--sy:-156px;--a:-36deg;--d:.9s}.gate-stream i:nth-child(9){--sx:-110px;--sy:-172px;--a:58deg;--d:.24s}.gate-stream i:nth-child(10){--sx:102px;--sy:-174px;--a:-58deg;--d:.66s}.gate-stream i:nth-child(11){--sx:-205px;--sy:164px;--a:-39deg;--d:.5s}.gate-stream i:nth-child(12){--sx:214px;--sy:160px;--a:38deg;--d:.84s}.gate-stream i:nth-child(13){--sx:-390px;--sy:-176px;--a:24deg;--d:1.02s}.gate-stream i:nth-child(14){--sx:390px;--sy:-174px;--a:-24deg;--d:1.18s}.gate-stream i:nth-child(15){--sx:-384px;--sy:172px;--a:-24deg;--d:1.34s}.gate-stream i:nth-child(16){--sx:384px;--sy:174px;--a:24deg;--d:1.5s}
+@keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) rotate(var(--a)) scale(.9);opacity:0}10%{opacity:.95}82%{opacity:.9}100%{transform:translate(-8px,-26px) rotate(var(--a)) scale(.42);opacity:0}}
 .gate-rim-stream{position:absolute;inset:10px;pointer-events:none;z-index:1;opacity:0;border-radius:22px;overflow:hidden}
 .debug-gate.on .gate-rim-stream{opacity:1}
-.gate-rim-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.68rem;color:rgba(210,252,255,.94);font-weight:800;letter-spacing:.06em;text-shadow:0 0 7px rgba(96,242,255,.95),0 0 16px rgba(255,94,219,.42);transform:translate(var(--rx),var(--ry));opacity:0}
-.debug-gate.on .gate-rim-stream i{animation:rimToGlobe 2.05s linear infinite;animation-delay:var(--rd)}
-.gate-rim-stream i:nth-child(1){--rx:-360px;--ry:-108px;--rd:0s}.gate-rim-stream i:nth-child(2){--rx:-292px;--ry:-108px;--rd:.13s}.gate-rim-stream i:nth-child(3){--rx:-188px;--ry:-108px;--rd:.41s}.gate-rim-stream i:nth-child(4){--rx:-42px;--ry:-108px;--rd:.76s}.gate-rim-stream i:nth-child(5){--rx:126px;--ry:-108px;--rd:.22s}.gate-rim-stream i:nth-child(6){--rx:318px;--ry:-108px;--rd:.92s}.gate-rim-stream i:nth-child(7){--rx:360px;--ry:-78px;--rd:.35s}.gate-rim-stream i:nth-child(8){--rx:360px;--ry:-18px;--rd:.68s}.gate-rim-stream i:nth-child(9){--rx:360px;--ry:54px;--rd:1.08s}.gate-rim-stream i:nth-child(10){--rx:270px;--ry:108px;--rd:.49s}.gate-rim-stream i:nth-child(11){--rx:84px;--ry:108px;--rd:.82s}.gate-rim-stream i:nth-child(12){--rx:-82px;--ry:108px;--rd:1.22s}.gate-rim-stream i:nth-child(13){--rx:-236px;--ry:108px;--rd:.58s}.gate-rim-stream i:nth-child(14){--rx:-360px;--ry:92px;--rd:1.36s}.gate-rim-stream i:nth-child(15){--rx:-360px;--ry:26px;--rd:.27s}.gate-rim-stream i:nth-child(16){--rx:-360px;--ry:-48px;--rd:1.02s}.gate-rim-stream i:nth-child(17){--rx:214px;--ry:-108px;--rd:1.44s}.gate-rim-stream i:nth-child(18){--rx:360px;--ry:96px;--rd:1.62s}.gate-rim-stream i:nth-child(19){--rx:-312px;--ry:108px;--rd:1.78s}.gate-rim-stream i:nth-child(20){--rx:18px;--ry:-108px;--rd:1.92s}
-@keyframes rimToGlobe{0%{transform:translate(var(--rx),var(--ry)) scale(1);opacity:0}10%{opacity:.95}72%{opacity:.85}100%{transform:translate(-6px,-28px) scale(.38);opacity:0}}
+.gate-rim-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.68rem;color:rgba(210,252,255,.94);font-weight:800;letter-spacing:.06em;text-shadow:0 0 7px rgba(96,242,255,.95),0 0 16px rgba(255,94,219,.42);transform:translate(var(--rx),var(--ry)) rotate(var(--ra));opacity:0}
+.debug-gate.on .gate-rim-stream i{animation:rimToGlobe 2.18s linear infinite;animation-delay:var(--rd)}
+.gate-rim-stream i:nth-child(1){--rx:-390px;--ry:-118px;--ra:17deg;--rd:0s}.gate-rim-stream i:nth-child(2){--rx:-306px;--ry:-118px;--ra:21deg;--rd:.13s}.gate-rim-stream i:nth-child(3){--rx:-188px;--ry:-118px;--ra:32deg;--rd:.41s}.gate-rim-stream i:nth-child(4){--rx:-42px;--ry:-118px;--ra:70deg;--rd:.76s}.gate-rim-stream i:nth-child(5){--rx:126px;--ry:-118px;--ra:-48deg;--rd:.22s}.gate-rim-stream i:nth-child(6){--rx:348px;--ry:-118px;--ra:-19deg;--rd:.92s}.gate-rim-stream i:nth-child(7){--rx:390px;--ry:-78px;--ra:-11deg;--rd:.35s}.gate-rim-stream i:nth-child(8){--rx:390px;--ry:-18px;--ra:-3deg;--rd:.68s}.gate-rim-stream i:nth-child(9){--rx:390px;--ry:74px;--ra:11deg;--rd:1.08s}.gate-rim-stream i:nth-child(10){--rx:300px;--ry:118px;--ra:22deg;--rd:.49s}.gate-rim-stream i:nth-child(11){--rx:84px;--ry:118px;--ra:52deg;--rd:.82s}.gate-rim-stream i:nth-child(12){--rx:-82px;--ry:118px;--ra:-54deg;--rd:1.22s}.gate-rim-stream i:nth-child(13){--rx:-266px;--ry:118px;--ra:-24deg;--rd:.58s}.gate-rim-stream i:nth-child(14){--rx:-390px;--ry:102px;--ra:-15deg;--rd:1.36s}.gate-rim-stream i:nth-child(15){--rx:-390px;--ry:26px;--ra:-4deg;--rd:.27s}.gate-rim-stream i:nth-child(16){--rx:-390px;--ry:-58px;--ra:8deg;--rd:1.02s}.gate-rim-stream i:nth-child(17){--rx:214px;--ry:-118px;--ra:-30deg;--rd:1.44s}.gate-rim-stream i:nth-child(18){--rx:390px;--ry:106px;--ra:16deg;--rd:1.62s}.gate-rim-stream i:nth-child(19){--rx:-342px;--ry:118px;--ra:-19deg;--rd:1.78s}.gate-rim-stream i:nth-child(20){--rx:18px;--ry:-118px;--ra:-78deg;--rd:1.92s}
+@keyframes rimToGlobe{0%{transform:translate(var(--rx),var(--ry)) rotate(var(--ra)) scale(1);opacity:0}10%{opacity:.95}78%{opacity:.88}100%{transform:translate(-6px,-28px) rotate(var(--ra)) scale(.36);opacity:0}}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
 @keyframes globeDotA{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(-3px,2px)}75%{transform:translate(1px,3px)}100%{transform:translate(0,0)}}
 @keyframes globeDotB{0%{transform:translate(0,0)}30%{transform:translate(-2px,-2px)}60%{transform:translate(3px,1px)}100%{transform:translate(0,0)}}
@@ -2352,7 +2358,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div id="dash-tone-share"></div>
 </div>
 
-<div class="card view-accounts">
+<div class="card view-accounts accounts-main-card">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <button onclick="toggleAccountForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
 </div>
@@ -3407,7 +3413,7 @@ function copyText(text,cb){
   if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(()=>cb&&cb(true),()=>cb&&cb(_fallbackCopy(text)))}
   else{cb&&cb(_fallbackCopy(text))}
 }
-function _adminCopyFeedback(btn){if(!btn)return;btn.textContent=t('copied');clearTimeout(btn._copyTimer);btn._copyTimer=setTimeout(()=>{btn.textContent=t('btn_copy')},1200)}
+function _adminCopyFeedback(btn){if(!btn)return;if(btn._copyOldColor===undefined)btn._copyOldColor=btn.style.color||'';btn.textContent=t('copied');btn.style.color='#22c55e';clearTimeout(btn._copyTimer);btn._copyTimer=setTimeout(()=>{btn.textContent=t('btn_copy');btn.style.color=btn._copyOldColor;delete btn._copyOldColor},1200)}
 function copyKey(id,btn){
   const k=__keys.find(x=>x.id===id);if(!k)return;
   copyText(k.key,ok=>{if(ok)_adminCopyFeedback(btn)});
@@ -3754,8 +3760,8 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
 .section-title{display:block;margin:1rem 0 .45rem;font-size:1rem;color:var(--strong);font-weight:700;letter-spacing:.01em}
-input:focus,textarea:focus,select:focus{border-color:var(--cyan)!important;box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldGlow 2.4s ease-in-out infinite;outline:none}
-@keyframes fieldGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.2),0 0 30px rgba(140,107,255,.28),inset 0 1px 0 rgba(255,255,255,.12)}}
+input:focus,textarea:focus,select:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
+@keyframes fieldFlow{to{background-position:0 0,300% 0}}
 .qs-link{color:var(--cyan);font-weight:700;text-decoration:none;padding:.02rem .28rem;border-radius:6px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.28);transition:box-shadow .18s,background .18s}
 .qs-link:hover{text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(255,94,219,.18));box-shadow:0 0 14px rgba(96,242,255,.28)}
 body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
@@ -3765,7 +3771,7 @@ body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3)
 .api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
 .api-row>span:first-child{color:#f3f6ff;white-space:pre}
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
-.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:800px}
+.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:600px}
 .account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
@@ -3833,7 +3839,7 @@ code{color:#a5b4fc}
         <label class="section-title" data-i18n="call_params_title">调用参数</label>
         <div class="hint">Base URL: <code id="base-url"></code> <button onclick="copyBaseUrl(this)" class="btn-ghost compact-action" data-i18n="copy_base">复制</button></div>
         <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey(this)" class="btn-ghost compact-action" data-i18n="copy_key">复制</button></div>
-        <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
+        <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey(this)" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
         <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
         <div class="row"><select id="tone" onchange="saveTone()" style="width:180px;padding-right:34px;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select><span id="tone-msg" class="msg"></span></div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
@@ -3897,7 +3903,7 @@ const i18n={
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
-    copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
+    copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',regen_running:'重置中...',regen_failed:'重置失败',
     logout:'登出 Microsoft',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
@@ -3920,7 +3926,7 @@ const i18n={
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
-    copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
+    copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',regen_running:'Resetting...',regen_failed:'Reset failed',
     logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
@@ -3971,7 +3977,7 @@ async function doLogin(){
     if(!ok){fail();sessionStorage.removeItem('user_api_key')}
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
-async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}let ok=false;try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}if(btn){btn.textContent=ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false;await loadMe()},5000)}else{await loadMe()}}
+async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}let ok=false;try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}if(btn){btn.textContent=ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false;await loadMe()},3000)}else{await loadMe()}}
 function userDialog(title,message,okText){
   return new Promise(resolve=>{
     const ov=document.createElement('div');ov.className='modal-backdrop';
@@ -4001,7 +4007,7 @@ async function unbindAccount(btn){
   if(!await confirmUnbindAccount())return;
   if(btn){btn.disabled=true;btn.textContent=t('unbinding_ms')}
   let ok=false;try{const r=await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}
-  if(btn){btn.textContent=ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false;await loadMe()},5000)}else{await loadMe()}
+  if(btn){btn.textContent=ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false;await loadMe()},3000)}else{await loadMe()}
 }
 function fmtExpire(iso){
   if(!iso)return t('status_unknown');
@@ -4076,19 +4082,20 @@ function copyBaseUrl(btn){
   const v=document.getElementById('base-url')?.textContent||'';if(!v)return;
   _userCopy(v,ok=>{if(ok)_copyFeedback(btn,'copy_base')});
 }
-async function regenMyKey(){
+async function regenMyKey(btn){
   if(!await userDialog(t('regen_my_key'),t('confirm_regen_my_key'),t('confirm_btn')))return;
+  if(btn){btn.disabled=true;btn.textContent=t('regen_running')}
+  let ok=false;
   try{
     const r=await fetch('/user/regenerate-key',{method:'POST',headers:authHeaders()});
-    if(!r.ok)return;
-    const d=await r.json();
-    if(d.key){
-      sessionStorage.setItem('user_api_key',d.key);
-      const mk=document.getElementById('my-key');if(mk)mk.textContent=d.key;
-      const s=document.getElementById('regen-msg');if(s){s.textContent=t('regen_done');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+    if(r.ok){
+      const d=await r.json();
+      if(d.key){sessionStorage.setItem('user_api_key',d.key);const mk=document.getElementById('my-key');if(mk)mk.textContent=d.key;ok=true}
     }
   }catch(e){}
+  if(btn){btn.textContent=ok?t('regen_done'):t('regen_failed');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('regen_my_key');btn.style.color='';btn.disabled=false},3000)}
 }
+
 function autoGrowTokenBox(){const el=document.getElementById('acct-token');if(!el)return;el.style.height='75px';el.style.height=Math.min(Math.max(el.scrollHeight,75),180)+'px'}
 async function pushToken(btn){
   const token=document.getElementById('acct-token').value.trim();
@@ -4097,7 +4104,7 @@ async function pushToken(btn){
   let ok=false;
   try{const r=await fetch('/user/account/token',{method:'POST',headers:authHeaders(),body:JSON.stringify({token:token})});ok=r.ok}catch(e){}
   if(ok)document.getElementById('acct-token').value='';
-  if(btn){btn.textContent=ok?t('push_ok'):t('token_update_failed');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('push_token_btn');btn.style.color='';btn.disabled=false;if(ok)await loadMe()},5000)}
+  if(btn){btn.textContent=ok?t('push_ok'):t('token_update_failed');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('push_token_btn');btn.style.color='';btn.disabled=false;if(ok)await loadMe()},3000)}
 }
 async function saveTone(){
   const tone=document.getElementById('tone').value;
