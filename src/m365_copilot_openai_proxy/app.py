@@ -2175,12 +2175,10 @@ body[data-view="users"] .view-users{display:block;position:sticky;top:10px}
 .view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .accounts-main-card,body[data-view="settings"] .view-settings:first-of-type,body[data-view="debug"] .view-debug:first-of-type{position:sticky;top:10px}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-.accounts-main-card{position:relative;padding-bottom:64px;height:800px;box-sizing:border-box}
-.accounts-main-card .tbl-scroll{height:650px;max-height:650px}
+.accounts-main-card{position:relative;padding-bottom:64px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:10px}
-#status-card{position:relative!important;top:auto!important;margin-top:20px!important;margin-bottom:20px!important;min-height:210px;box-sizing:border-box;transform:none!important;animation:none!important}
-#status-card.hide-card{display:block!important;visibility:hidden;pointer-events:none}
+#status-card{position:relative!important;top:auto!important;margin-top:20px!important;margin-bottom:20px!important;transform:none!important;animation:none!important}
 .view-settings{min-height:80px}
 .tbl-scroll{max-height:495px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
