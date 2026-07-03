@@ -162,9 +162,9 @@ class KeyStore:
 
     # -------------------------------------------------------------- mutations
     def add(self, name: str = "", account_id: str = "", tone: str = "Magic",
-            username: str = "", password: str = "") -> ApiKey:
+            username: str = "", password: str = "", role: str = "user") -> ApiKey:
         with self._lock:
-            k = ApiKey(name=name, account_id=account_id, tone=tone, username=username.strip())
+            k = ApiKey(name=name, account_id=account_id, tone=tone, username=username.strip(), role=role)
             if password:
                 k.set_password(password)
             self._keys[k.id] = k

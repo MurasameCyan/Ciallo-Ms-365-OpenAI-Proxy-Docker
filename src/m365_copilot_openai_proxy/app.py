@@ -1293,10 +1293,7 @@ def create_app(
         if role not in ("user", "admin"):
             return _json_err(400, "Invalid role. Allowed: user, admin")
         k = app.state.key_store.add(name=name, account_id=account_id, tone=tone,
-                                    username=username, password=password)
-        if role != "user":
-            app.state.key_store.update(k.id, role=role)
-            k = app.state.key_store.get(k.id) or k
+                                    username=username, password=password, role=role)
         return {"status": "ok", "key": _key_public(k)}
 
     @app.post("/admin/keys/{key_id}")
@@ -2236,6 +2233,17 @@ body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){hei
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
+.role-toggle{display:inline-flex;align-items:center;gap:.35rem;min-height:30px;padding:3px 8px;border-radius:999px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.1));border:1px solid var(--inner-border);box-shadow:inset 0 1px 0 rgba(255,255,255,.1);color:var(--faint);font-size:.72rem;font-weight:800;user-select:none}
+.role-toggle input{position:absolute;opacity:0;pointer-events:none}
+.role-toggle .role-track{position:relative;width:34px;height:18px;border-radius:999px;background:rgba(100,116,139,.38);border:1px solid rgba(148,163,184,.22);box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
+.role-toggle .role-track:before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;border-radius:50%;background:linear-gradient(135deg,#e2e8f0,#94a3b8);box-shadow:0 1px 5px rgba(0,0,0,.32);transition:transform .2s ease,background .2s ease,box-shadow .2s ease}
+.role-toggle input:checked+.role-track{background:linear-gradient(135deg,rgba(96,242,255,.38),rgba(140,107,255,.36));border-color:rgba(96,242,255,.5)}
+.role-toggle input:checked+.role-track:before{transform:translateX(16px);background:linear-gradient(135deg,var(--cyan),var(--violet));box-shadow:0 0 10px rgba(96,242,255,.58)}
+.role-toggle .role-a{color:var(--faint)}
+.role-toggle .role-u{color:var(--cyan)}
+.role-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;font-size:.74rem;font-weight:900;letter-spacing:.02em;border:1px solid var(--inner-border);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.role-badge.admin{color:#fde68a;background:linear-gradient(135deg,rgba(245,158,11,.28),rgba(255,94,219,.18));border-color:rgba(245,158,11,.42);box-shadow:0 0 14px rgba(245,158,11,.22),inset 0 1px 0 rgba(255,255,255,.12)}
+.role-badge.user{color:var(--cyan);background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.12));border-color:rgba(96,242,255,.38);box-shadow:0 0 14px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.12)}
 .tbl-foot{position:absolute;left:1.5rem;right:1.5rem;bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);z-index:6;background:linear-gradient(180deg,rgba(8,13,32,.78),rgba(8,13,32,.9));border:1px solid rgba(96,242,255,.12);border-radius:14px;padding:.45rem .6rem;backdrop-filter:blur(14px)}
 .page-size{display:flex;align-items:center;gap:.4rem}
 .page-nav{display:flex;align-items:center;gap:.5rem}
@@ -2269,6 +2277,11 @@ body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 #rebind-select+.glass-select .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 body[data-theme="light"] button[style*="background:var(--chip)"]{color:#243049!important;background:rgba(99,102,180,.1)!important}
 body[data-theme="light"] .tbl-foot{color:#5b6785;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(244,247,253,.9));border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 10px 24px rgba(80,100,160,.1)}
+body[data-theme="light"] .role-toggle{background:linear-gradient(135deg,rgba(255,255,255,.72),rgba(96,180,242,.13),rgba(124,58,237,.1));border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 8px 18px rgba(80,100,160,.08)}
+body[data-theme="light"] .role-toggle .role-track{background:rgba(99,102,180,.14);border-color:rgba(99,102,180,.24);box-shadow:inset 0 1px 3px rgba(80,100,160,.16)}
+body[data-theme="light"] .role-toggle .role-u{color:#7581a3}
+body[data-theme="light"] .role-badge.admin{color:#92400e;background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(255,94,219,.1));border-color:rgba(217,119,6,.34);box-shadow:0 0 12px rgba(245,158,11,.14),inset 0 1px 0 rgba(255,255,255,.82)}
+body[data-theme="light"] .role-badge.user{color:#0e7490;background:linear-gradient(135deg,rgba(96,180,242,.16),rgba(124,58,237,.08));border-color:rgba(14,116,144,.28);box-shadow:0 0 12px rgba(14,116,144,.12),inset 0 1px 0 rgba(255,255,255,.82)}
 body[data-theme="light"] .debug-gate{background:radial-gradient(circle at 50% 38%,rgba(96,180,242,.16),transparent 30%),linear-gradient(135deg,rgba(255,255,255,.82),rgba(238,244,255,.72));color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 20px 48px rgba(80,100,160,.14)}
 body[data-theme="light"] .debug-gate:after{background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(239,245,255,.76))}
 body[data-theme="light"] .debug-gate:before{opacity:.34}
@@ -2468,6 +2481,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
 <input id="kf-username" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
 <input id="kf-password" type="text" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
+<label class="role-toggle" title="role"><span class="role-a">A</span><input id="kf-role" type="checkbox" checked><span class="role-track"></span><span class="role-u">U</span></label>
 <button onclick="submitKey()" style="font-size:.8rem;padding:6px 14px" data-i18n="kf_create">创建</button>
 <button onclick="toggleKeyForm(false)" style="font-size:.8rem;padding:6px 14px;background:var(--chip)" data-i18n="kf_cancel">取消</button>
 </div>
@@ -2625,7 +2639,7 @@ const i18n={
     dash_calls_24h:'近 24h 调用',dash_calls_total:'累计调用',dash_expiry_warn:'账户「{name}」的 Token 将在 {time} 后过期，请尽快刷新。',
     title_accounts:'账户池',btn_add_account:'添加账户',
     accounts_hint:'每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。',
-    title_keys:'API Key 管理',btn_add_key:'新建 Key',
+    title_keys:'API Key 管理',btn_add_key:'新建用户',
     keys_hint:'每个 Key 绑定一个账户，可单独设置对话模式、提示词并随时启用/停用。',
     title_legacy:'全局 / 兼容 Token（高级）',
     acct_prompt_name:'账户名称（可选）：',acct_prompt_token:'可选：粘贴该账户的 access_token 或 wss:// URL（留空则稍后用 CDP 刷新）：',
@@ -2638,7 +2652,7 @@ const i18n={
     col_login:'登录名',btn_set_login:'设置账密',no_login:'未设',not_set:'未设定',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
-    col_id:'ID',col_username:'用户名',col_password:'密码',
+    col_id:'ID',col_role:'角色',col_username:'用户名',col_password:'密码',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
     page_prev:'上一页',page_next:'下一页',page_info:'第 {cur}/{total} 页 · 共 {count} 条',page_size_label:'每页',page_size_unit:'条',
     batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
@@ -2710,7 +2724,7 @@ const i18n={
     dash_calls_24h:'Calls (24h)',dash_calls_total:'Calls total',dash_expiry_warn:'Account "{name}" token expires in {time}. Refresh it soon.',
     title_accounts:'Account Pool',btn_add_account:'Add Account',
     accounts_hint:'Each account owns an isolated M365 token and Chromium refresh profile. Refresh brings one browser up on demand (serial) and tears it down afterwards.',
-    title_keys:'API Key Management',btn_add_key:'New Key',
+    title_keys:'API Key Management',btn_add_key:'New User',
     keys_hint:'Each key is bound to one account, with its own conversation mode and prompts, and can be enabled/disabled anytime.',
     title_legacy:'Global / Legacy Token (Advanced)',
     acct_prompt_name:'Account name (optional):',acct_prompt_token:'Optional: paste this account\\u0027s access_token or wss:// URL (leave empty to refresh via CDP later):',acc_form_hint:'Account name is optional. Token can be left empty and refreshed via CDP or updated later.',
@@ -2723,7 +2737,7 @@ const i18n={
     col_login:'Login',btn_set_login:'Set credentials',no_login:'None',not_set:'Not set',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
-    col_id:'ID',col_username:'Username',col_password:'Password',
+    col_id:'ID',col_role:'Role',col_username:'Username',col_password:'Password',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
     page_prev:'Prev',page_next:'Next',page_info:'Page {cur}/{total} · {count} total',page_size_label:'Per page',page_size_unit:'',
     batch_refresh:'Batch refresh',batch_delete:'Batch delete',batch_enable:'Batch enable',batch_disable:'Batch disable',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
@@ -3380,15 +3394,18 @@ async function loadKeys(){
     const __pg=_slicePage(__keys,'keys');
     let h='<div class="tbl-tools"><button onclick="batchSetKeys(true)" style="font-size:.72rem;padding:3px 8px;background:#059669">'+t('batch_enable')+'</button><button onclick="batchSetKeys(false)" style="font-size:.72rem;padding:3px 8px;background:#b45309">'+t('batch_disable')+'</button><button onclick="batchDeleteKeys()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
       +'<div class="tbl-scroll"><table class="admin-tbl"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllKeys(this.checked)"></th><th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllKeys(this.checked)"></th><th style="padding:.3rem">'+t('col_id')+'</th><th style="padding:.3rem">'+t('col_role')+'</th><th style="padding:.3rem">'+t('col_username')+'</th><th style="padding:.3rem">'+t('col_password')+'</th><th style="padding:.3rem">'+t('col_key')+'</th><th style="padding:.3rem">'+t('col_account')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __pg.items.forEach(k=>{
       const acc=k.account_id?((k.account_source==='manual'?('<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:rgba(96,242,255,.16);color:#60f2ff;border:1px solid rgba(96,242,255,.4)">'+t('acct_token_only')+'</span>'):esc(k.account_name||k.account_id))+'<div style="color:var(--faint);font-size:.7rem;margin-top:.15rem">'+esc(k.account_id)+'</div>'):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
       const uname=k.username?esc(k.username):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
       const pwd=k.password?('<div class="kv-copy"><code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code><button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;background:var(--chip)">'+t('btn_copy')+'</button></div>'):('<span style="color:var(--faint)">'+t('not_set')+'</span>');
+      const isAdmin=k.role==='admin';
+      const roleBadge='<span class="role-badge '+(isAdmin?'admin':'user')+'" title="'+(isAdmin?'admin':'user')+'">'+(isAdmin?'A':'U')+'</span>';
       h+='<tr id="krow-'+k.id+'" style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
         +'<td style="padding:.4rem"><input class="key-check" type="checkbox" '+(__selectedKeyIds.has(k.id)?'checked':'')+' onclick="toggleKeySelected(\\''+k.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem"><code style="font-size:.72rem;color:var(--faint)">'+esc(k.id.replace(/^key_/, 'id_'))+'</code></td>'
+        +'<td style="padding:.4rem">'+roleBadge+'</td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+uname+'</td>'
         +'<td style="padding:.4rem;font-size:.78rem">'+pwd+'</td>'
         +'<td style="padding:.4rem"><div class="kv-copy"><code style="font-size:.72rem;color:#818cf8">'+esc(k.key.slice(0,10))+'…</code><button onclick="copyKey(\\''+k.id+'\\',this)" style="font-size:.68rem;background:var(--chip)">'+t('btn_copy')+'</button></div></td>'
@@ -3400,10 +3417,11 @@ async function loadKeys(){
         +'<button onclick="toggleKey(\\''+k.id+'\\','+(en?'false':'true')+')" style="font-size:.72rem;padding:3px 8px;background:'+(en?'#b45309':'#059669')+'">'+(en?t('btn_disable'):t('btn_enable'))+'</button> '
         +'<button onclick="delKey(\\''+k.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'
-        +'<tr id="kedit-'+k.id+'" style="display:none"><td colspan="7" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)">'
+        +'<tr id="kedit-'+k.id+'" style="display:none"><td colspan="8" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)">'
         +'<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
         +'<input id="ke-user-'+k.id+'" value="'+esc(k.username||'')+'" placeholder="'+t('kf_username_ph')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
         +'<input id="ke-pass-'+k.id+'" type="text" placeholder="'+t('key_prompt_password_opt')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
+        +'<label class="role-toggle" title="role"><span class="role-a">A</span><input id="ke-role-'+k.id+'" type="checkbox" '+(k.role!=='admin'?'checked':'')+'><span class="role-track"></span><span class="role-u">U</span></label>'
         +'<button onclick="submitKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('rebind_confirm')+'</button>'
         +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
         +'</div><div id="ke-msg-'+k.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
@@ -3443,20 +3461,21 @@ function toggleKeyForm(show){
   const open=(show===undefined)?(f.style.display==='none'):show;
   f.style.display=open?'block':'none';
   if(open){
-    const u=document.getElementById('kf-username'),p=document.getElementById('kf-password'),m=document.getElementById('kf-msg');
+    const u=document.getElementById('kf-username'),p=document.getElementById('kf-password'),r=document.getElementById('kf-role'),m=document.getElementById('kf-msg');
     u.placeholder=t('kf_username_ph');p.placeholder=t('kf_password_ph');
-    u.value='';p.value='';m.textContent='';u.focus();
+    u.value='';p.value='';if(r)r.checked=true;m.textContent='';u.focus();
   }
 }
 async function submitKey(){
-  const u=document.getElementById('kf-username'),p=document.getElementById('kf-password'),m=document.getElementById('kf-msg');
+  const u=document.getElementById('kf-username'),p=document.getElementById('kf-password'),r=document.getElementById('kf-role'),m=document.getElementById('kf-msg');
   const username=(u.value||'').trim();
   const password=p.value||'';
+  const role=(r&&r.checked)?'user':'admin';
   m.textContent='';
   if(username&&!_USER_RE.test(username)){m.textContent=t('cred_bad_user');return}
   if(password&&!_PASS_RE.test(password)){m.textContent=t('cred_bad_pass');return}
   try{
-    const r=await fetch('/admin/keys',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:username,username:username,password:password})});
+    const r=await fetch('/admin/keys',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:username,username:username,password:password,role:role})});
     if(!r.ok){const d=await r.json().catch(()=>({}));m.textContent=(d.error&&d.error.message)||'error';return}
     toggleKeyForm(false);
     loadKeys();
@@ -3469,13 +3488,14 @@ function setKeyLogin(id){
   if(open){const m=document.getElementById('ke-msg-'+id);if(m)m.textContent='';const p=document.getElementById('ke-pass-'+id);if(p)p.value='';const u=document.getElementById('ke-user-'+id);if(u)u.focus()}
 }
 async function submitKeyLogin(id){
-  const u=document.getElementById('ke-user-'+id),p=document.getElementById('ke-pass-'+id),m=document.getElementById('ke-msg-'+id);
+  const u=document.getElementById('ke-user-'+id),p=document.getElementById('ke-pass-'+id),r=document.getElementById('ke-role-'+id),m=document.getElementById('ke-msg-'+id);
   const username=(u.value||'').trim();
   const password=p.value||'';
+  const role=(r&&r.checked)?'user':'admin';
   m.textContent='';
   if(username&&!_USER_RE.test(username)){m.textContent=t('cred_bad_user');return}
   if(password&&!_PASS_RE.test(password)){m.textContent=t('cred_bad_pass');return}
-  const body={username:username};
+  const body={username:username,role:role};
   if(password)body.password=password;
   try{
     const r=await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
