@@ -3842,7 +3842,7 @@ select option:checked{background:#1e40af;color:#fff}
 body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
 """ + _GLASS_SELECT_CSS + """
 .account-main .glass-select.open{z-index:2000}
-.account-main .tone-select+.glass-select .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%}
+.account-main .tone-select+.glass-select .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 .account-main textarea{margin-top:.65rem}
 .action-row{margin-top:.8rem;margin-bottom:.15rem}
 .row{display:flex;gap:.5rem;align-items:center}
