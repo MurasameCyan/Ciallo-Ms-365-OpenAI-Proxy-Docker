@@ -2260,6 +2260,9 @@ body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,25
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 """ + _GLASS_SELECT_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
+.layout .glass-select.open{z-index:2000}
+.layout .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
+.view-settings:has(.glass-select.open),.tbl-foot:has(.glass-select.open),.modal-card:has(.glass-select.open){z-index:2000}
 body[data-theme="light"] button[style*="background:var(--chip)"]{color:#243049!important;background:rgba(99,102,180,.1)!important}
 body[data-theme="light"] .tbl-foot{color:#5b6785;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(244,247,253,.9));border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 10px 24px rgba(80,100,160,.1)}
 body[data-theme="light"] .debug-gate{background:radial-gradient(circle at 50% 38%,rgba(96,180,242,.16),transparent 30%),linear-gradient(135deg,rgba(255,255,255,.82),rgba(238,244,255,.72));color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 20px 48px rgba(80,100,160,.14)}
