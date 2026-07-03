@@ -2175,13 +2175,15 @@ body[data-view="users"] .view-users{display:block}
 .view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:relative;top:auto}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-body[data-view="debug"] .debug-gate-card{height:280px}
+body[data-view="debug"] .debug-gate-card{height:330px;min-height:330px}
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
 #status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:300px}
 .view-settings{height:90px;min-height:90px}
 .view-debug{height:90px;min-height:90px}
+.view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
+.debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
@@ -2200,7 +2202,10 @@ body[data-theme="light"] .page-select{color:#243049;background-color:rgba(255,25
 body[data-theme="light"] .page-select option{background:#fff;color:#243049}
 .tone-select{margin-left:auto;width:180px;max-width:50%;min-height:38px;padding:7px 34px 7px 12px;background-color:var(--inner);border:1px solid var(--inner-border);border-radius:12px;color:var(--text);font-size:.82rem;font-weight:700;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12);transition:border-color .2s,box-shadow .2s}
 input:focus,textarea:focus,select:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
-.tone-select:focus{animation:fieldFlow 2.2s linear infinite!important}
+.tone-select:focus{animation:none!important}
+select:focus,.page-select:focus,.tone-select:focus{animation:none!important;transition:none!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.08)!important;background-position:0 0,0 0!important}
+select option{transition:none!important}
+select option:checked{background:#1e40af;color:#fff}
 @keyframes fieldFlow{to{background-position:0 0,300% 0}}
 @keyframes selectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.2),0 0 30px rgba(140,107,255,.28),inset 0 1px 0 rgba(255,255,255,.12)}}
 .tone-select option{background:#10162f;color:#f3f6ff}
@@ -3760,6 +3765,7 @@ details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgb
 label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .3rem}
 input,select,textarea{width:100%;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--text);padding:.6rem .7rem;font-size:.9rem;font-family:inherit;transition:border-color .2s,box-shadow .2s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
+select:focus{transition:none!important;animation:none!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.08)!important}
 textarea{resize:vertical;min-height:70px;font-family:monospace}
 #acct-token{height:75px;min-height:75px;max-height:75px;resize:none;overflow:auto;scrollbar-gutter:stable;line-height:1.45;box-sizing:border-box;display:block}
 button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-size:.85rem;font-weight:800;cursor:pointer;margin-top:.6rem;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22);transition:transform .18s ease,box-shadow .18s ease;text-shadow:none}
@@ -3773,7 +3779,9 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .call-param-row code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#a5b4fc}
 .account-main>.row button,.account-main .action-row button,.account-action{width:180px;justify-content:center}
 .account-main select{width:180px!important;min-height:38px;background-color:var(--inner);border:1px solid var(--inner-border);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);transition:border-color .2s,box-shadow .2s}
-.account-main select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16),0 0 24px rgba(140,107,255,.22),inset 0 1px 0 rgba(255,255,255,.1);animation:userSelectGlow 2.4s ease-in-out infinite}
+.account-main select:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.1)!important;animation:none!important;transition:none!important}
+select option{transition:none!important}
+select option:checked{background:#1e40af;color:#fff}
 @keyframes userSelectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.22),0 0 30px rgba(255,94,219,.2),inset 0 1px 0 rgba(255,255,255,.14)}}
 .account-main select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
@@ -3790,7 +3798,8 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
 .section-title{display:block;margin:1rem 0 .45rem;font-size:1rem;color:var(--strong);font-weight:700;letter-spacing:.01em}
-input:focus,textarea:focus,select:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
+input:focus,textarea:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
+select:focus{border-color:var(--cyan)!important;background-image:none!important;animation:none!important;transition:none!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.08)!important;outline:none}
 @keyframes fieldFlow{to{background-position:0 0,300% 0}}
 .qs-link{color:var(--cyan);font-weight:700;text-decoration:none;padding:.02rem .28rem;border-radius:6px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.28);transition:box-shadow .18s,background .18s}
 .qs-link:hover{text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(255,94,219,.18));box-shadow:0 0 14px rgba(96,242,255,.28)}
