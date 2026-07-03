@@ -2181,8 +2181,10 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
 #status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:300px}
 .view-settings{height:90px;min-height:90px}
+.view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
 .view-debug{height:90px;min-height:90px}
 .view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
+body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
@@ -2211,6 +2213,22 @@ select option:checked{background:#1e40af;color:#fff}
 .tone-select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,255,255,.72);border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 8px 20px rgba(47,61,116,.08)}
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
+select.glass-native{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important}
+.glass-select{position:relative;display:inline-block;min-width:120px;vertical-align:middle;z-index:20}
+.glass-select.open{z-index:80}
+.glass-select-trigger{width:100%;min-height:30px;margin:0!important;padding:.42rem 2rem .42rem .7rem!important;border-radius:12px!important;color:var(--strong)!important;text-align:left!important;background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(96,242,255,.08),rgba(140,107,255,.08))!important;border:1px solid rgba(96,242,255,.28)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(0,0,0,.12)!important;backdrop-filter:blur(14px);position:relative;overflow:hidden;transition:none!important}
+.glass-select-trigger:after{content:"";position:absolute;right:.72rem;top:50%;width:.46rem;height:.46rem;border-right:2px solid var(--cyan);border-bottom:2px solid var(--cyan);transform:translateY(-65%) rotate(45deg);opacity:.9}
+.glass-select.open .glass-select-trigger{border-color:rgba(96,242,255,.58)!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),0 0 20px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.24)!important}
+.glass-select-menu{position:absolute;left:0;right:0;top:calc(100% + 6px);max-height:260px;overflow:auto;border-radius:14px;padding:.28rem;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,11,27,.78));border:1px solid rgba(96,242,255,.28);box-shadow:0 18px 44px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(145%);display:none}
+.glass-select.open .glass-select-menu{display:block}
+.glass-select-menu:before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan));background-size:260% 100%;animation:flowBorder 2.2s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.75}
+.glass-select-option{position:relative;width:100%;margin:0!important;padding:.48rem .62rem!important;border-radius:10px!important;background:transparent!important;color:var(--muted)!important;box-shadow:none!important;text-align:left!important;font-size:.82rem!important;line-height:1.2!important;transition:none!important}
+.glass-select-option:hover{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.13))!important;color:var(--text)!important;transform:none!important}
+.glass-select-option.active{color:var(--text)!important;background:linear-gradient(135deg,rgba(96,242,255,.24),rgba(255,94,219,.12))!important;box-shadow:inset 3px 0 0 rgba(96,242,255,.82)!important}
+body[data-theme="light"] .glass-select-trigger{color:#243049!important;background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(96,180,242,.13),rgba(124,58,237,.1))!important;border-color:rgba(14,116,144,.24)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.86),0 8px 18px rgba(47,61,116,.08)!important}
+body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(242,247,255,.88));border-color:rgba(14,116,144,.22);box-shadow:0 18px 38px rgba(80,100,160,.16),inset 0 1px 0 rgba(255,255,255,.86)}
+body[data-theme="light"] .glass-select-option{color:#5b6785!important}
+body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#243049!important}
 body[data-theme="light"] button[style*="background:var(--chip)"]{color:#243049!important;background:rgba(99,102,180,.1)!important}
 body[data-theme="light"] .tbl-foot{color:#5b6785;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(244,247,253,.9));border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 10px 24px rgba(80,100,160,.1)}
 body[data-theme="light"] .debug-gate{background:radial-gradient(circle at 50% 38%,rgba(96,180,242,.16),transparent 30%),linear-gradient(135deg,rgba(255,255,255,.82),rgba(238,244,255,.72));color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 20px 48px rgba(80,100,160,.14)}
@@ -2805,6 +2823,29 @@ async function toggleCaptureGate(){
 }
 
 // Sidebar view switching: pure front-end, no reload. Persists last view.
+function initGlassSelect(root){
+  const scope=root||document;
+  scope.querySelectorAll('select').forEach(sel=>{
+    if(sel.dataset.glassReady==='1')return;
+    sel.dataset.glassReady='1';sel.classList.add('glass-native');
+    const wrap=document.createElement('span');wrap.className='glass-select';
+    if(sel.classList.contains('page-select'))wrap.style.minWidth='76px';
+    if(sel.classList.contains('tone-select'))wrap.style.minWidth='180px';
+    if(sel.id==='rebind-select')wrap.style.width='100%';
+    const trigger=document.createElement('button');trigger.type='button';trigger.className='glass-select-trigger';
+    const menu=document.createElement('div');menu.className='glass-select-menu';
+    wrap.appendChild(trigger);wrap.appendChild(menu);sel.parentNode.insertBefore(wrap,sel.nextSibling);
+    const close=()=>wrap.classList.remove('open');
+    const render=()=>{
+      const opt=sel.options[sel.selectedIndex];trigger.textContent=opt?opt.textContent:'';menu.innerHTML='';
+      Array.from(sel.options).forEach(o=>{const b=document.createElement('button');b.type='button';b.className='glass-select-option'+(o.value===sel.value?' active':'');b.textContent=o.textContent;b.onclick=e=>{e.stopPropagation();sel.value=o.value;sel.dispatchEvent(new Event('change',{bubbles:true}));render();close()};menu.appendChild(b)});
+    };
+    trigger.onclick=e=>{e.stopPropagation();document.querySelectorAll('.glass-select.open').forEach(x=>{if(x!==wrap)x.classList.remove('open')});render();wrap.classList.toggle('open')};
+    sel.addEventListener('change',render);render();
+  });
+}
+document.addEventListener('click',()=>document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open')));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open'))});
 function switchView(view){
   document.body.setAttribute('data-view',view);
   localStorage.setItem('admin_view',view);
@@ -3246,6 +3287,7 @@ async function loadAccounts(){
     });
     h+='</tbody></table></div>'+_pageFoot('accounts',__pg);
     box.innerHTML=h;
+    initGlassSelect(box);
     renderSelectedStatus();
     renderDashboard();
   }catch(e){}
@@ -3351,6 +3393,7 @@ async function loadKeys(){
     });
     h+='</tbody></table></div>'+_pageFoot('keys',__pg);
     box.innerHTML=h;
+    initGlassSelect(box);
     renderDashboard();
   }catch(e){}
 }
@@ -3470,6 +3513,7 @@ function rebindKey(id){
     +'<button id="rebind-ok" style="font-size:.8rem;padding:6px 14px">'+t('rebind_confirm')+'</button>'
     +'</div></div>';
   document.body.appendChild(ov);
+  initGlassSelect(ov);
   const close=()=>ov.remove();
   ov.addEventListener('click',e=>{if(e.target===ov)close()});
   ov.querySelector('#rebind-cancel').onclick=close;
@@ -3505,6 +3549,7 @@ loadAccounts();
 loadKeys();
 loadTrend();
 loadStats();
+initGlassSelect(document);
 setInterval(loadStatus,60000);
 setInterval(loadChromiumStatus,60000);
 setInterval(loadCallLog,5000);
@@ -3637,6 +3682,7 @@ async function loadTone(){
     const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
     sel.innerHTML=opts.map(o=>'<option value="'+o.value+'"'+(o.value===cur?' selected':'')+'>'+lbl(o)+'</option>').join('');
     sel.onchange=()=>saveTone(sel.value);
+    initGlassSelect(sel.parentElement);
   }catch(e){}
 }
 async function saveTone(tone){
@@ -3785,6 +3831,22 @@ select option:checked{background:#1e40af;color:#fff}
 @keyframes userSelectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.22),0 0 30px rgba(255,94,219,.2),inset 0 1px 0 rgba(255,255,255,.14)}}
 .account-main select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
+select.glass-native{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important}
+.glass-select{position:relative;display:inline-block;min-width:180px;vertical-align:middle;z-index:20}
+.glass-select.open{z-index:80}
+.glass-select-trigger{width:100%;min-height:38px;margin:0!important;padding:.48rem 2rem .48rem .72rem!important;border-radius:12px!important;color:var(--strong)!important;text-align:left!important;background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(96,242,255,.08),rgba(140,107,255,.08))!important;border:1px solid rgba(96,242,255,.28)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(0,0,0,.12)!important;backdrop-filter:blur(14px);position:relative;overflow:hidden;transition:none!important}
+.glass-select-trigger:after{content:"";position:absolute;right:.72rem;top:50%;width:.46rem;height:.46rem;border-right:2px solid var(--cyan);border-bottom:2px solid var(--cyan);transform:translateY(-65%) rotate(45deg);opacity:.9}
+.glass-select.open .glass-select-trigger{border-color:rgba(96,242,255,.58)!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),0 0 20px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.24)!important}
+.glass-select-menu{position:absolute;left:0;right:0;top:calc(100% + 6px);max-height:260px;overflow:auto;border-radius:14px;padding:.28rem;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,11,27,.78));border:1px solid rgba(96,242,255,.28);box-shadow:0 18px 44px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(145%);display:none}
+.glass-select.open .glass-select-menu{display:block}
+.glass-select-menu:before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan));background-size:260% 100%;animation:fieldFlow 2.2s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.75}
+.glass-select-option{position:relative;width:100%;margin:0!important;padding:.48rem .62rem!important;border-radius:10px!important;background:transparent!important;color:var(--muted)!important;box-shadow:none!important;text-align:left!important;font-size:.82rem!important;line-height:1.2!important;transition:none!important}
+.glass-select-option:hover{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.13))!important;color:var(--text)!important;transform:none!important}
+.glass-select-option.active{color:var(--text)!important;background:linear-gradient(135deg,rgba(96,242,255,.24),rgba(255,94,219,.12))!important;box-shadow:inset 3px 0 0 rgba(96,242,255,.82)!important}
+body[data-theme="light"] .glass-select-trigger{color:#243049!important;background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(96,180,242,.13),rgba(124,58,237,.1))!important;border-color:rgba(14,116,144,.24)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.86),0 8px 18px rgba(47,61,116,.08)!important}
+body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(242,247,255,.88));border-color:rgba(14,116,144,.22);box-shadow:0 18px 38px rgba(80,100,160,.16),inset 0 1px 0 rgba(255,255,255,.86)}
+body[data-theme="light"] .glass-select-option{color:#5b6785!important}
+body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#243049!important}
 .account-main textarea{margin-top:.65rem}
 .action-row{margin-top:.8rem;margin-bottom:.15rem}
 .row{display:flex;gap:.5rem;align-items:center}
@@ -3997,6 +4059,23 @@ function applyLang(){
   renderToneOptions();
 }
 function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
+function initGlassSelect(root){
+  const scope=root||document;
+  scope.querySelectorAll('select').forEach(sel=>{
+    if(sel.dataset.glassReady==='1')return;
+    sel.dataset.glassReady='1';sel.classList.add('glass-native');
+    const wrap=document.createElement('span');wrap.className='glass-select';
+    const trigger=document.createElement('button');trigger.type='button';trigger.className='glass-select-trigger';
+    const menu=document.createElement('div');menu.className='glass-select-menu';
+    wrap.appendChild(trigger);wrap.appendChild(menu);sel.parentNode.insertBefore(wrap,sel.nextSibling);
+    const close=()=>wrap.classList.remove('open');
+    const render=()=>{const opt=sel.options[sel.selectedIndex];trigger.textContent=opt?opt.textContent:'';menu.innerHTML='';Array.from(sel.options).forEach(o=>{const b=document.createElement('button');b.type='button';b.className='glass-select-option'+(o.value===sel.value?' active':'');b.textContent=o.textContent;b.onclick=e=>{e.stopPropagation();sel.value=o.value;sel.dispatchEvent(new Event('change',{bubbles:true}));render();close()};menu.appendChild(b)})};
+    trigger.onclick=e=>{e.stopPropagation();document.querySelectorAll('.glass-select.open').forEach(x=>{if(x!==wrap)x.classList.remove('open')});render();wrap.classList.toggle('open')};
+    sel.addEventListener('change',render);render();
+  });
+}
+document.addEventListener('click',()=>document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open')));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open'))});
 function applyTheme(){const theme=localStorage.getItem('user_theme')||'dark';document.body.setAttribute('data-theme',theme);const b=document.getElementById('theme-toggle');if(b)b.innerHTML=theme==='light'?'&#9728;':'&#127769;'}
 function toggleTheme(){localStorage.setItem('user_theme',(localStorage.getItem('user_theme')||'dark')==='dark'?'light':'dark');applyTheme()}
 function renderToneOptions(){
@@ -4010,6 +4089,8 @@ function renderToneOptions(){
     sel.appendChild(opt);
   });
   if(cur)sel.value=cur;
+  initGlassSelect(sel.parentElement);
+  sel.dispatchEvent(new Event('change',{bubbles:true}));
 }
 function flash(id){const s=document.getElementById(id);if(!s)return;s.textContent=t('saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
 async function doLogin(){
@@ -4100,6 +4181,7 @@ async function loadMe(){
     const mk=document.getElementById('my-key');if(mk)mk.textContent=getKey();
     renderToneOptions();
     document.getElementById('tone').value=d.tone||'Magic';
+    document.getElementById('tone').dispatchEvent(new Event('change',{bubbles:true}));
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
     document.getElementById('sys-prompt').value=d.system_prompt||'';
     let acc='';
