@@ -659,6 +659,11 @@ def create_app(
             write_username(username)
         else:
             _update_username_from_token(token, app.state)
+        _, email = extract_identity(token)
+        if email:
+            acc = app.state.account_store.find_by_email(email)
+            if acc is not None:
+                app.state.account_store.update_token(acc.id, token, token_source="manual")
         return {"status": "ok", "message": "Token updated", "token_status": app.state.token_store.status()}
 
     @app.post("/admin/token/auto-capture")
@@ -714,6 +719,11 @@ def create_app(
         injected = 0
         try:
             async with _ws.connect(tab["webSocketDebuggerUrl"]) as ws:
+                await ws.send(json.dumps({"id": 2, "method": "Network.clearBrowserCookies"}))
+                try:
+                    await _async.wait_for(ws.recv(), timeout=2)
+                except (_async.TimeoutError, Exception):
+                    pass
                 if "m365.cloud.microsoft" not in tab.get("url", ""):
                     await ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
                     await _async.sleep(3)
@@ -1424,6 +1434,8 @@ def create_app(
                 "token_source": acc.token_source,
                 "updated_at": acc.updated_at,
                 "has_token": bool(acc.token),
+                "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
+                "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
                 "token_status": acc.token_status(),
             } if acc is not None else None,
             "tone_options": _TONE_OPTIONS,
@@ -1519,6 +1531,23 @@ def create_app(
                     app.state.key_store.update(k.id, displaced_at=0.0)
         return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}
 
+    @app.post("/user/account/cookies")
+    async def user_set_account_cookies(request: Request) -> dict:
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        if not k.account_id or app.state.account_store.get(k.account_id) is None:
+            return _json_err(400, "No bound account. Push token first.")
+        body = await request.json()
+        cookies = body.get("cookies", [])
+        if not isinstance(cookies, list) or not cookies:
+            return _json_err(400, "No cookies provided")
+        injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
+        if injected != total:
+            app.state.account_store.set_cookie_status(k.account_id, False)
+            return _json_err(502, f"Cookie injection incomplete: {injected}/{total}")
+        return {"status": "ok", "injected": injected, "total": total}
+
     @app.post("/user/regenerate-key")
     async def user_regenerate_key(request: Request) -> dict:
         """Let a user rotate their own API key. The key id (and thus account
@@ -1532,14 +1561,13 @@ def create_app(
 
     @app.post("/user/account/logout")
     async def user_account_logout(request: Request) -> dict:
-        """Sign the user out of Microsoft: wipe the bound account's M365 token so
-        the credential no longer works until a fresh token is pushed. The account
-        record and key binding are preserved."""
+        """Sign the user out of Microsoft: wipe the bound account's token/cookie
+        state. The account record and key binding are preserved."""
         k = _resolve_user_key(request)
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         if k.account_id and app.state.account_store.get(k.account_id) is not None:
-            app.state.account_store.clear_token(k.account_id)
+            app.state.account_store.clear_credentials(k.account_id)
         return {"status": "ok"}
 
     @app.post("/user/account/unbind")
@@ -1547,11 +1575,13 @@ def create_app(
         """Fully detach the caller's account: unbind the key and, if the account
         is left with no keys pointing at it, remove the record entirely. Use this
         when the user no longer wants the account associated (vs. "登出" which
-        only wipes the token but keeps the binding)."""
+        wipes token/cookie state but keeps the binding)."""
         k = _resolve_user_key(request)
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         acc_id = k.account_id
+        if acc_id and app.state.account_store.get(acc_id) is not None:
+            app.state.account_store.clear_credentials(acc_id)
         app.state.key_store.update(k.id, account_id="", displaced_at=0.0)
         removed = False
         if acc_id and not app.state.key_store.list_for_account(acc_id):
@@ -2237,10 +2267,10 @@ body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){hei
 .role-toggle input{position:absolute;opacity:0;pointer-events:none}
 .role-toggle .role-track{position:relative;width:34px;height:18px;border-radius:999px;background:rgba(100,116,139,.38);border:1px solid rgba(148,163,184,.22);box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
 .role-toggle .role-track:before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;border-radius:50%;background:linear-gradient(135deg,#e2e8f0,#94a3b8);box-shadow:0 1px 5px rgba(0,0,0,.32);transition:transform .2s ease,background .2s ease,box-shadow .2s ease}
-.role-toggle input:checked+.role-track{background:linear-gradient(135deg,rgba(96,242,255,.38),rgba(140,107,255,.36));border-color:rgba(96,242,255,.5)}
-.role-toggle input:checked+.role-track:before{transform:translateX(16px);background:linear-gradient(135deg,var(--cyan),var(--violet));box-shadow:0 0 10px rgba(96,242,255,.58)}
-.role-toggle .role-a{color:var(--faint)}
-.role-toggle .role-u{color:var(--cyan)}
+.role-toggle input:checked+.role-track{background:linear-gradient(135deg,rgba(245,158,11,.38),rgba(255,94,219,.22));border-color:rgba(245,158,11,.5)}
+.role-toggle input:checked+.role-track:before{transform:translateX(16px);background:linear-gradient(135deg,var(--gold),var(--pink));box-shadow:0 0 10px rgba(245,158,11,.58)}
+.role-toggle .role-a{color:var(--gold)}
+.role-toggle .role-u{color:var(--faint)}
 .role-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;font-size:.74rem;font-weight:900;letter-spacing:.02em;border:1px solid var(--inner-border);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
 .role-badge.admin{color:#fde68a;background:linear-gradient(135deg,rgba(245,158,11,.28),rgba(255,94,219,.18));border-color:rgba(245,158,11,.42);box-shadow:0 0 14px rgba(245,158,11,.22),inset 0 1px 0 rgba(255,255,255,.12)}
 .role-badge.user{color:var(--cyan);background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.12));border-color:rgba(96,242,255,.38);box-shadow:0 0 14px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.12)}
@@ -2279,6 +2309,7 @@ body[data-theme="light"] button[style*="background:var(--chip)"]{color:#243049!i
 body[data-theme="light"] .tbl-foot{color:#5b6785;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(244,247,253,.9));border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 10px 24px rgba(80,100,160,.1)}
 body[data-theme="light"] .role-toggle{background:linear-gradient(135deg,rgba(255,255,255,.72),rgba(96,180,242,.13),rgba(124,58,237,.1));border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 8px 18px rgba(80,100,160,.08)}
 body[data-theme="light"] .role-toggle .role-track{background:rgba(99,102,180,.14);border-color:rgba(99,102,180,.24);box-shadow:inset 0 1px 3px rgba(80,100,160,.16)}
+body[data-theme="light"] .role-toggle .role-a{color:#b45309}
 body[data-theme="light"] .role-toggle .role-u{color:#7581a3}
 body[data-theme="light"] .role-badge.admin{color:#92400e;background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(255,94,219,.1));border-color:rgba(217,119,6,.34);box-shadow:0 0 12px rgba(245,158,11,.14),inset 0 1px 0 rgba(255,255,255,.82)}
 body[data-theme="light"] .role-badge.user{color:#0e7490;background:linear-gradient(135deg,rgba(96,180,242,.16),rgba(124,58,237,.08));border-color:rgba(14,116,144,.28);box-shadow:0 0 12px rgba(14,116,144,.12),inset 0 1px 0 rgba(255,255,255,.82)}
@@ -2363,16 +2394,18 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 @keyframes gateFlow{to{background-position:300% 0}}
 .gate-stream{position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;overflow:hidden;border-radius:28px}
 .debug-gate.on .gate-stream{opacity:1}
-.gate-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.72rem;color:rgba(182,252,255,.92);text-shadow:0 0 8px rgba(96,242,255,.9),0 0 18px rgba(140,107,255,.45);white-space:nowrap;font-weight:800;letter-spacing:.08em;transform:translate(var(--sx),var(--sy)) rotate(var(--a));opacity:0}
-.debug-gate.on .gate-stream i{animation:streamToGlobe 2.35s linear infinite;animation-delay:var(--d)}
+.gate-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.72rem;color:rgba(182,252,255,.86);text-shadow:0 0 6px rgba(96,242,255,.62);white-space:nowrap;font-weight:800;letter-spacing:.08em;transform:translate(var(--sx),var(--sy)) rotate(var(--a));opacity:0;will-change:transform,opacity}
+.gate-stream i:nth-child(n+11){display:none}
+.debug-gate.on .gate-stream i{animation:streamToGlobe 3.2s linear infinite;animation-delay:var(--d)}
 .gate-stream i:nth-child(1){--sx:-430px;--sy:-126px;--a:16deg;--d:0s}.gate-stream i:nth-child(2){--sx:-420px;--sy:-28px;--a:4deg;--d:.18s}.gate-stream i:nth-child(3){--sx:-430px;--sy:106px;--a:-14deg;--d:.42s}.gate-stream i:nth-child(4){--sx:420px;--sy:-116px;--a:-16deg;--d:.12s}.gate-stream i:nth-child(5){--sx:438px;--sy:10px;--a:-1deg;--d:.36s}.gate-stream i:nth-child(6){--sx:410px;--sy:118px;--a:16deg;--d:.58s}.gate-stream i:nth-child(7){--sx:-218px;--sy:-158px;--a:36deg;--d:.72s}.gate-stream i:nth-child(8){--sx:210px;--sy:-156px;--a:-36deg;--d:.9s}.gate-stream i:nth-child(9){--sx:-110px;--sy:-172px;--a:58deg;--d:.24s}.gate-stream i:nth-child(10){--sx:102px;--sy:-174px;--a:-58deg;--d:.66s}.gate-stream i:nth-child(11){--sx:-205px;--sy:164px;--a:-39deg;--d:.5s}.gate-stream i:nth-child(12){--sx:214px;--sy:160px;--a:38deg;--d:.84s}.gate-stream i:nth-child(13){--sx:-390px;--sy:-176px;--a:24deg;--d:1.02s}.gate-stream i:nth-child(14){--sx:390px;--sy:-174px;--a:-24deg;--d:1.18s}.gate-stream i:nth-child(15){--sx:-384px;--sy:172px;--a:-24deg;--d:1.34s}.gate-stream i:nth-child(16){--sx:384px;--sy:174px;--a:24deg;--d:1.5s}
-@keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) rotate(var(--a)) scale(.9);opacity:0}10%{opacity:.95}82%{opacity:.9}100%{transform:translate(-8px,-26px) rotate(var(--a)) scale(.42);opacity:0}}
+@keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) rotate(var(--a)) scale(.9);opacity:0}12%{opacity:.72}78%{opacity:.62}100%{transform:translate(-8px,-26px) rotate(var(--a)) scale(.42);opacity:0}}
 .gate-rim-stream{position:absolute;inset:10px;pointer-events:none;z-index:1;opacity:0;border-radius:22px;overflow:hidden}
 .debug-gate.on .gate-rim-stream{opacity:1}
-.gate-rim-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.68rem;color:rgba(210,252,255,.94);font-weight:800;letter-spacing:.06em;text-shadow:0 0 7px rgba(96,242,255,.95),0 0 16px rgba(255,94,219,.42);transform:translate(var(--rx),var(--ry)) rotate(var(--ra));opacity:0}
-.debug-gate.on .gate-rim-stream i{animation:rimToGlobe 2.18s linear infinite;animation-delay:var(--rd)}
+.gate-rim-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.68rem;color:rgba(210,252,255,.86);font-weight:800;letter-spacing:.06em;text-shadow:0 0 6px rgba(96,242,255,.62);transform:translate(var(--rx),var(--ry)) rotate(var(--ra));opacity:0;will-change:transform,opacity}
+.gate-rim-stream i:nth-child(n+7){display:none}
+.debug-gate.on .gate-rim-stream i{animation:rimToGlobe 3s linear infinite;animation-delay:var(--rd)}
 .gate-rim-stream i:nth-child(1){--rx:-390px;--ry:-118px;--ra:17deg;--rd:0s}.gate-rim-stream i:nth-child(2){--rx:-306px;--ry:-118px;--ra:21deg;--rd:.13s}.gate-rim-stream i:nth-child(3){--rx:-188px;--ry:-118px;--ra:32deg;--rd:.41s}.gate-rim-stream i:nth-child(4){--rx:-42px;--ry:-118px;--ra:70deg;--rd:.76s}.gate-rim-stream i:nth-child(5){--rx:126px;--ry:-118px;--ra:-48deg;--rd:.22s}.gate-rim-stream i:nth-child(6){--rx:348px;--ry:-118px;--ra:-19deg;--rd:.92s}.gate-rim-stream i:nth-child(7){--rx:390px;--ry:-78px;--ra:-11deg;--rd:.35s}.gate-rim-stream i:nth-child(8){--rx:390px;--ry:-18px;--ra:-3deg;--rd:.68s}.gate-rim-stream i:nth-child(9){--rx:390px;--ry:74px;--ra:11deg;--rd:1.08s}.gate-rim-stream i:nth-child(10){--rx:300px;--ry:118px;--ra:22deg;--rd:.49s}.gate-rim-stream i:nth-child(11){--rx:84px;--ry:118px;--ra:52deg;--rd:.82s}.gate-rim-stream i:nth-child(12){--rx:-82px;--ry:118px;--ra:-54deg;--rd:1.22s}.gate-rim-stream i:nth-child(13){--rx:-266px;--ry:118px;--ra:-24deg;--rd:.58s}.gate-rim-stream i:nth-child(14){--rx:-390px;--ry:102px;--ra:-15deg;--rd:1.36s}.gate-rim-stream i:nth-child(15){--rx:-390px;--ry:26px;--ra:-4deg;--rd:.27s}.gate-rim-stream i:nth-child(16){--rx:-390px;--ry:-58px;--ra:8deg;--rd:1.02s}.gate-rim-stream i:nth-child(17){--rx:214px;--ry:-118px;--ra:-30deg;--rd:1.44s}.gate-rim-stream i:nth-child(18){--rx:390px;--ry:106px;--ra:16deg;--rd:1.62s}.gate-rim-stream i:nth-child(19){--rx:-342px;--ry:118px;--ra:-19deg;--rd:1.78s}.gate-rim-stream i:nth-child(20){--rx:18px;--ry:-118px;--ra:-78deg;--rd:1.92s}
-@keyframes rimToGlobe{0%{transform:translate(var(--rx),var(--ry)) rotate(var(--ra)) scale(1);opacity:0}10%{opacity:.95}78%{opacity:.88}100%{transform:translate(-6px,-28px) rotate(var(--ra)) scale(.36);opacity:0}}
+@keyframes rimToGlobe{0%{transform:translate(var(--rx),var(--ry)) rotate(var(--ra)) scale(1);opacity:0}12%{opacity:.68}76%{opacity:.58}100%{transform:translate(-6px,-28px) rotate(var(--ra)) scale(.36);opacity:0}}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
 @keyframes globeBreath{0%,100%{scale:1;filter:drop-shadow(0 0 14px rgba(96,242,255,.32)) drop-shadow(0 0 24px rgba(140,107,255,.2))}50%{scale:1.08;filter:drop-shadow(0 0 24px rgba(96,242,255,.62)) drop-shadow(0 0 44px rgba(140,107,255,.38)) drop-shadow(0 0 62px rgba(255,94,219,.2))}}
 @keyframes globeDotA{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(-3px,2px)}75%{transform:translate(1px,3px)}100%{transform:translate(0,0)}}
@@ -2457,6 +2490,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-accounts accounts-main-card">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <button onclick="toggleAccountForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
+<button onclick="loadAccounts();loadKeys()" style="font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
 <div id="acc-form" class="flow-box" style="display:none;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;padding:.75rem;margin-bottom:.75rem;position:relative">
@@ -2474,7 +2508,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-users">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
-<button onclick="toggleKeyForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建 Key</button>
+<button onclick="toggleKeyForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_key">新建用户</button>
+<button onclick="loadKeys();loadAccounts()" style="font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="keys_hint">每个 Key 绑定一个账户，可单独设置对话模式、提示词并随时启用/停用。</div>
 <div id="key-form" class="flow-box" style="display:none;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;padding:.75rem;margin-bottom:.75rem;position:relative">
@@ -3616,6 +3651,21 @@ function copyCallText(key){
     if(b){const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)}
   }).catch(()=>{});
 }
+window.__capTexts={};
+function formatRawText(value){
+  if(value==null)return '';
+  if(typeof value==='object')return JSON.stringify(value,null,2);
+  const text=String(value);
+  try{return JSON.stringify(JSON.parse(text),null,2)}catch(e){return text}
+}
+function copyCaptureText(key){
+  const txt=window.__capTexts[key];
+  if(txt==null)return;
+  navigator.clipboard.writeText(txt).then(()=>{
+    const b=document.getElementById('capcopybtn-'+key);
+    if(b){const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)}
+  }).catch(()=>{});
+}
 async function loadCallLog(){
   try{
     const r=await fetch('/admin/call-log',{credentials:'include'});
@@ -3637,9 +3687,7 @@ async function loadCallLog(){
       const tc=l.tools&&l.tools.length?l.tools.join(', '):'—';
       const tr=l.tool_calls_result&&l.tool_calls_result.length?
         '<span style="color:#22c55e">'+t('tool_calls_parsed')+': '+l.tool_calls_result.join(', ')+'</span>':'';
-      const reprKey='r'+i, textKey='x'+i, fullKey='f'+i;
-      if(l.response_repr!=null)window.__callTexts[reprKey]=l.response_repr;
-      if(l.response_text!=null)window.__callTexts[textKey]=l.response_text;
+      const fullKey='f'+i;
       // Full single-record text: call info + repr + text
       const fullParts=[];
       fullParts.push('time: '+l.time);
@@ -3650,13 +3698,8 @@ async function loadCallLog(){
       if(l.response_repr!=null)fullParts.push('repr:\\n'+l.response_repr);
       if(l.response_text!=null)fullParts.push('text:\\n'+l.response_text);
       window.__callTexts[fullKey]=fullParts.join('\\n');
-      const copyBtn=(key)=>'<button class="copybtn" id="copybtn-'+key+'" data-key="'+key+'" style="padding:2px 8px;font-size:.65rem;margin-left:6px">'+t('copy')+'</button>';
       const copyFullBtn='<button class="copybtn" id="copybtn-'+fullKey+'" data-key="'+fullKey+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
-      const respView=(l.response_repr||l.response_text)?
-        '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--faint);font-size:.75rem;list-style:none">'+t('view_raw')+'</summary>'+
-        (l.response_repr?'<div style="display:flex;align-items:center;color:var(--faint);margin-top:4px;font-size:.7rem">repr:'+copyBtn(reprKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:200px;overflow:auto">'+esc(l.response_repr)+'</pre>':'')+
-        (l.response_text?'<div style="display:flex;align-items:center;color:var(--faint);margin-top:4px;font-size:.7rem">text:'+copyBtn(textKey)+'</div><pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--strong);margin-top:2px;font-size:.7rem;max-height:300px;overflow:auto">'+esc(l.response_text)+'</pre>':'')+
-        '</details>':'';
+      const rawView='<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--faint);font-size:.75rem;list-style:none">'+t('view_raw')+'</summary><pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:260px;overflow:auto">'+esc(formatRawText(window.__callTexts[fullKey]))+'</pre></details>';
       html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;color:var(--muted)">'+
         '<span>'+l.time+'</span><span style="display:flex;align-items:center;gap:6px"><span style="color:var(--faint)">'+(l.stream?'stream':'sync')+'</span>'+copyFullBtn+'</span></div>'+
@@ -3664,7 +3707,7 @@ async function loadCallLog(){
         (l.incremental!=null?'<div style="color:var(--faint);margin-top:2px">incremental: <span style="color:'+(l.incremental?'#22c55e':'#f59e0b')+'">'+(l.incremental?'yes':'no')+'</span> &nbsp; turn: '+(l.turn_count==null?'-':l.turn_count)+'</div>':'')+
         (tr?'<div style="margin-top:2px">'+tr+'</div>':'')+
         (l.response_len?'<div style="color:var(--faint);margin-top:2px">resp: '+l.response_len+' chars</div>':'')+
-        respView+
+        rawView+
         '</div>';
     }
     el.innerHTML=html;
@@ -3686,20 +3729,27 @@ async function loadCapture(){
     if(sig===window.__capSig)return;
     window.__capSig=sig;
     const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    window.__capTexts={};
     let html='';
     for(let i=0;i<ps.length;i++){
       const p=ps[i];
       const opts=(p.optionsSets||[]).join(', ');
       const gpt=p.gptId&&Object.keys(p.gptId).length?JSON.stringify(p.gptId):'-';
+      const capKey='c'+i;
+      window.__capTexts[capKey]=JSON.stringify(p);
+      const copyCapBtn='<button class="capcopybtn" id="capcopybtn-'+capKey+'" data-key="'+capKey+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
       html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
-        '<div style="color:#38bdf8">'+esc(p.time)+' &nbsp; tone: <b>'+esc(p.tone||'-')+'</b> &nbsp; model: <b>'+esc(p.modelId||'-')+'</b></div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;color:#38bdf8"><span>'+esc(p.time)+' &nbsp; tone: <b>'+esc(p.tone||'-')+'</b> &nbsp; model: <b>'+esc(p.modelId||'-')+'</b></span>'+copyCapBtn+'</div>'+
         '<div style="color:var(--muted)">gptId: '+esc(gpt)+'</div>'+
         '<div style="color:var(--faint);word-break:break-all">optionsSets: '+esc(opts)+'</div>'+
         '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--faint);font-size:.72rem;list-style:none">'+t('view_raw')+'</summary>'+
-        '<pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:240px;overflow:auto">'+esc(JSON.stringify(p.raw,null,2))+'</pre></details>'+
+        '<pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:240px;overflow:auto">'+esc(formatRawText(p.raw))+'</pre></details>'+
         '</div>';
     }
     el.innerHTML=html;
+    el.querySelectorAll('.capcopybtn').forEach(function(b){
+      b.addEventListener('click',function(){copyCaptureText(b.getAttribute('data-key'))});
+    });
   }catch(e){}
 }
 async function loadTone(){
@@ -4042,7 +4092,7 @@ const i18n={
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
     copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',regen_running:'重置中...',regen_failed:'重置失败',
-    logout:'登出 Microsoft',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',console_logout:'登出 控制台',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？将同时清除该账户 Token 和 Cookie 状态，之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -4065,7 +4115,7 @@ const i18n={
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
     copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',regen_running:'Resetting...',regen_failed:'Reset failed',
-    logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',console_logout:'Sign out Console',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? This will clear this account token and cookie state. You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -4119,6 +4169,7 @@ async function doLogin(){
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
 async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}let ok=false;try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}if(btn){btn.textContent=ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false;await loadMe()},3000)}else{await loadMe()}}
+function logoutConsole(){_userRemainSec=0;sessionStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden');const p=document.getElementById('password');if(p)p.value='';const m=document.getElementById('login-msg');if(m)m.textContent=''}
 function userDialog(title,message,okText){
   return new Promise(resolve=>{
     const ov=document.createElement('div');ov.className='modal-backdrop';
@@ -4156,14 +4207,23 @@ function fmtExpire(iso){
 }
 function fmtRemaining(sec){
   sec=Math.max(0,Math.floor(sec||0));
-  const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);
-  return h>0?(h+'h '+m+'m'):(m+'m');
+  const h=String(Math.floor(sec/3600)).padStart(2,'0');
+  const m=String(Math.floor((sec%3600)/60)).padStart(2,'0');
+  const s=String(sec%60).padStart(2,'0');
+  return h+':'+m+':'+s;
 }
+let _userRemainSec=0;
+function startUserCountdown(sec){_userRemainSec=Math.max(0,Math.floor(sec||0));renderUserCountdown()}
+function renderUserCountdown(){
+  const text=fmtRemaining(_userRemainSec);
+  document.querySelectorAll('[data-user-remaining]').forEach(el=>{el.textContent=text});
+}
+function tickUserCountdown(){if(_userRemainSec>0){_userRemainSec--;renderUserCountdown()}}
 function renderAccountStatus(d){
   const box=document.getElementById('account-status-panel');if(!box)return;
   const a=d.account||null,st=a?(a.token_status||{}):{};
   const valid=!!st.valid;
-  const login=!!a;
+  const login=!!(a&&a.cookie_valid);
   const refresh=!!(a&&a.token_source==='cdp');
   const name=a?(a.name||a.email||a.id):t('status_unknown');
   const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';
@@ -4174,7 +4234,7 @@ function renderAccountStatus(d){
     +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+mark(refresh)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+mark(valid)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
-    +'<div class="status-line"><span>'+t('status_remaining')+'</span><b>'+fmtRemaining(st.seconds_remaining)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_remaining')+'</span><b data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</b></div>'
     +'</div>';
 }
 async function loadMe(){
@@ -4201,15 +4261,16 @@ async function loadMe(){
     if(d.account){
       const st=d.account.token_status||{};
       const valid=st.valid;
-      const rem=valid?(' · '+t('remaining')+' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
+      const rem=valid?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</span>'):'';
       acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem"><span class="pill">'+t('bound_account')+': '+(d.account.name||d.account.id)+'</span>'
         +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
     }else{
       acc+='';
     }
-    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
+    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
     renderAccountStatus(d);
+    startUserCountdown(d.account?.token_status?.seconds_remaining||0);
     return true;
   }catch(e){return false}
 }
@@ -4274,6 +4335,7 @@ async function resetSysPrompt(){
 }
 applyTheme();
 applyLang();
+setInterval(tickUserCountdown,1000);
 loadMe();
 </script>
 </body>

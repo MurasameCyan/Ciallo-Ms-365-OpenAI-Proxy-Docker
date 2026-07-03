@@ -11,10 +11,11 @@ from typing import Any
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
 
-# Base CDP port for per-account Chromium profiles. Each account gets a unique
-# port derived from this base so their debug browsers never collide when the
-# refresh scheduler brings one up on demand.
-_CDP_PORT_BASE = 9222
+# Base CDP port for per-account Chromium profiles. Global admin CDP uses 9222,
+# so account profiles live in a separate range to avoid writing to the wrong
+# browser profile.
+_CDP_PORT_BASE = 9322
+_RESERVED_CDP_PORTS = {9222}
 
 
 def extract_identity(token: str) -> tuple[str, str]:
@@ -56,6 +57,8 @@ class Account:
     name: str = ""
     email: str = ""
     token: str = ""
+    cookie_valid: bool = False
+    cookie_updated_at: float = 0.0
     cdp_port: int = _CDP_PORT_BASE
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
@@ -108,22 +111,31 @@ class AccountStore:
             return
         if not isinstance(data, dict):
             return
+        changed = False
         for acc_id, raw in data.items():
             if not isinstance(raw, dict):
                 continue
             try:
+                loaded_port = int(raw.get("cdp_port", _CDP_PORT_BASE))
+                if loaded_port in _RESERVED_CDP_PORTS:
+                    loaded_port = self._next_cdp_port()
+                    changed = True
                 self._accounts[acc_id] = Account(
                     id=raw.get("id", acc_id),
                     name=raw.get("name", ""),
                     email=raw.get("email", ""),
                     token=raw.get("token", ""),
-                    cdp_port=int(raw.get("cdp_port", _CDP_PORT_BASE)),
+                    cookie_valid=bool(raw.get("cookie_valid", False)),
+                    cookie_updated_at=float(raw.get("cookie_updated_at", 0.0)),
+                    cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
                 )
             except (TypeError, ValueError):
                 continue
+        if changed:
+            self._save()
         self._backfill_email()
 
     def _backfill_email(self) -> None:
@@ -181,7 +193,7 @@ class AccountStore:
             return None
 
     def _next_cdp_port(self) -> int:
-        used = {acc.cdp_port for acc in self._accounts.values()}
+        used = {acc.cdp_port for acc in self._accounts.values()} | _RESERVED_CDP_PORTS
         port = _CDP_PORT_BASE
         while port in used:
             port += 1
@@ -220,14 +232,37 @@ class AccountStore:
             return acc
 
     def clear_token(self, acc_id: str) -> Account | None:
-        """Wipe a bound account's token (used by the user "登出 Microsoft" action).
-        The account record itself is kept so the key stays bound; only the M365
-        credential is dropped, forcing a fresh push/sign-in next time."""
+        """Wipe a bound account's token while keeping the account record."""
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
             acc.token = ""
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def set_cookie_status(self, acc_id: str, valid: bool, token_source: str | None = None) -> Account | None:
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.cookie_valid = bool(valid)
+            acc.cookie_updated_at = time.time() if valid else 0.0
+            if token_source is not None:
+                acc.token_source = token_source
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def clear_credentials(self, acc_id: str) -> Account | None:
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.token = ""
+            acc.cookie_valid = False
+            acc.cookie_updated_at = 0.0
             acc.updated_at = time.time()
             self._save()
             return acc

@@ -11,6 +11,8 @@
 // @match        https://microsoft.com/*
 // @grant        GM_cookie
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @grant        unsafeWindow
 // @updateURL    https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js
 // @downloadURL  https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js
@@ -47,18 +49,19 @@
         zh: {
             title: 'Ciallo Ms-365 代理',
             proxy_url: '代理地址',
+            user_api_key: '用户 API Key（用于更新当前 /user 登录账户）',
             token: 'Token',
             token_captured: '✓ Token 可用',
             token_not_captured: '⚠ 尚未捕获',
             copy_token: '复制 Token',
-            push_token: '推送 Token',
-            cookie_login: 'Cookie 登录',
+            push_token: '推送到 /user',
+            cookie_login: 'Cookie 状态',
             gm_available: '✓ Cookie 可用',
             gm_unavailable: '⚠ GM_cookie 不可用，请使用 Tampermonkey Beta。',
-            push_cookies: '推送全部 Cookie',
-            quick_setup: ' 一键配置',
-            quick_setup_desc: '推送 Cookie + Token 到代理，用于 Chromium 登录和自动刷新',
-            one_click: '一键推送',
+            push_cookies: '推送 Cookie 到 /user',
+            quick_setup: ' 一键推送',
+            quick_setup_desc: '全量推送当前 Token 和所有 CDP 所需 Cookie 到 /user 当前账户，不写入全局 token/cookie',
+            one_click: '一键推送 /user',
             manual_config: ' 手动配置',
             mode_capture: ' 模式抓包',
             click_expand: '（点击展开）',
@@ -71,6 +74,7 @@
             // alerts
             enter_proxy_first: '请先填写代理地址',
             no_token_ws: '尚未捕获 Token。在 Copilot 输入内容以触发 WebSocket。',
+            no_user_key: '请先填写用户 API Key。',
             token_pushed: 'Token 已推送！剩余：',
             failed: '失败：',
             network_error: '网络错误：',
@@ -78,36 +82,38 @@
             fetching: '获取中...',
             pushing: '推送中...',
             no_cookies: '未找到 Cookie。',
-            cookies_pushed: 'Cookie 已推送！',
+            cookies_pushed: 'Cookie 已推送到 /user：',
             httponly_included: '（含 httpOnly：',
             error: '错误：',
             no_token_copy: '尚未捕获 Token',
             token_copied: 'Token 已复制！',
             copy_failed: '复制失败',
             working: '处理中...',
-            pushing_cookies: '1/2 推送 Cookie...',
-            pushing_token: '2/2 推送 Token...',
-            setup_complete: '配置完成！Token 剩余：',
-            proxy_ready: '秒\n代理已就绪。',
+            pushing_cookies: '检查 Cookie...',
+            pushing_token: '更新 /user Token...',
+            setup_complete: '/user 更新完成！Token 剩余：',
+            proxy_ready: '秒',
             token_push_failed: 'Token 推送失败：',
             no_payload: '暂无抓包数据。先在 Copilot 选择模式并发送一条消息。',
             pushed_n_payloads: '已推送 {n} 条 payload 到代理。',
+            capture_disabled: '代理已关闭「接收抓包」。请先在 /admin 调试页面打开开关，调试完成后再关闭。',
         },
         en: {
             title: 'Ciallo Ms-365 Proxy',
             proxy_url: 'Proxy URL',
+            user_api_key: 'User API Key (updates current /user account)',
             token: 'Token',
             token_captured: '✓ captured',
             token_not_captured: '⚠ not captured yet',
             copy_token: 'Copy Token',
-            push_token: 'Push Token',
-            cookie_login: 'Cookie Login',
+            push_token: 'Push to /user',
+            cookie_login: 'Cookie Status',
             gm_available: '✓ GM_cookie available',
             gm_unavailable: '⚠ GM_cookie unavailable. Use Tampermonkey Beta.',
-            push_cookies: 'Push All Cookies',
-            quick_setup: 'Quick Setup',
-            quick_setup_desc: 'Push cookies + token to proxy for Chromium login and auto-refresh',
-            one_click: 'One-Click Setup',
+            push_cookies: 'Push Cookies to /user',
+            quick_setup: 'One-Click Push',
+            quick_setup_desc: 'Push the current token and all CDP-required cookies to the current /user account; global token/cookie is not touched.',
+            one_click: 'Push /user',
             manual_config: 'Manual Config',
             mode_capture: 'Mode Capture',
             click_expand: '(click to expand)',
@@ -120,6 +126,7 @@
             // alerts
             enter_proxy_first: 'Please enter proxy URL first',
             no_token_ws: 'No token captured yet. Type something in Copilot to trigger WebSocket.',
+            no_user_key: 'Please enter User API Key first.',
             token_pushed: 'Token pushed! Remaining: ',
             failed: 'Failed: ',
             network_error: 'Network error: ',
@@ -127,17 +134,17 @@
             fetching: 'Fetching...',
             pushing: 'Pushing...',
             no_cookies: 'No cookies found.',
-            cookies_pushed: 'Cookies pushed! ',
+            cookies_pushed: 'Cookies pushed to /user: ',
             httponly_included: '(httpOnly included: ',
             error: 'Error: ',
             no_token_copy: 'No token captured yet',
             token_copied: 'Token copied!',
             copy_failed: 'Copy failed',
             working: 'Working...',
-            pushing_cookies: '1/2 Pushing cookies...',
-            pushing_token: '2/2 Pushing token...',
-            setup_complete: 'Setup complete! Token remaining: ',
-            proxy_ready: 's\nProxy is ready to use.',
+            pushing_cookies: 'Checking cookies...',
+            pushing_token: 'Updating /user token...',
+            setup_complete: '/user updated! Token remaining: ',
+            proxy_ready: 's',
             token_push_failed: 'Token push failed: ',
             no_payload: 'No chat payload captured yet. Pick a mode in Copilot and send a message first.',
             pushed_n_payloads: 'Pushed {n} payload(s) to proxy.',
@@ -281,7 +288,15 @@
 
     function getProxyBase() {
         const input = document.getElementById('m365-proxy-url');
-        return input ? input.value.trim().replace(/\/+$/, '') : PROXY_BASE;
+        const val = input ? input.value.trim().replace(/\/+$/, '') : PROXY_BASE;
+        try { if (val) GM_setValue('m365_proxy_base', val); } catch (e) {}
+        return val;
+    }
+    function getUserApiKey() {
+        const input = document.getElementById('m365-user-api-key');
+        const val = input ? input.value.trim() : '';
+        try { if (val) GM_setValue('m365_user_api_key', val); } catch (e) {}
+        return val;
     }
 
     // Cross-origin fetch via GM_xmlhttpRequest
@@ -378,48 +393,53 @@
             (typeof GM !== 'undefined' && GM.cookie && typeof GM.cookie.list === 'function');
     }
 
+    async function pushUserToken(base, token) {
+        const key = getUserApiKey();
+        if (!key) throw new Error(tr('no_user_key'));
+        const r = await gmFetch(base + '/user/account/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({ token })
+        });
+        return { response: r, data: await r.json() };
+    }
+    async function pushUserCookies(base, cookies) {
+        const key = getUserApiKey();
+        if (!key) throw new Error(tr('no_user_key'));
+        const r = await gmFetch(base + '/user/account/cookies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({ cookies })
+        });
+        return { response: r, data: await r.json() };
+    }
+
     // Push Token to proxy
     async function pushToken() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
         if (!latestToken) { alert(tr('no_token_ws')); return; }
-        const username = getUsername();
         try {
-            const r = await gmFetch(base + '/admin/token/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: latestToken, username: username || undefined })
-            });
-            const d = await r.json();
-            alert(r.ok ? tr('token_pushed') + (d.token_status?.seconds_remaining) + 's' : tr('failed') + (d.error?.message || d.error));
+            const ur = await pushUserToken(base, latestToken);
+            alert(ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
         } catch (e) { alert(tr('network_error') + e); }
     }
 
-    // Push ALL cookies (including httpOnly) to proxy for Chromium login
+    // Push cookies to the current /user account profile only; no global cookie is touched.
     async function pushCookies() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
-
         if (!hasGMCookie()) {
             alert(tr('gm_unavailable_alert'));
             return;
         }
-
         const btn = document.getElementById('m365-push-cookies');
         if (btn) { btn.disabled = true; btn.textContent = tr('fetching'); }
-
         try {
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
-
-            if (btn) btn.textContent = tr('pushing');
-            const r = await gmFetch(base + '/admin/cookie/inject', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cookies, username: getUsername() || undefined })
-            });
-            const d = await r.json();
-            alert(r.ok ? tr('cookies_pushed') + d.message + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' : tr('failed') + (d.error?.message || d.error));
+            const cr = await pushUserCookies(base, cookies);
+            alert(cr.response.ok ? tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' : tr('failed') + (cr.data.error?.message || cr.data.error));
         } catch (e) {
             alert(tr('error') + e);
         } finally {
@@ -433,46 +453,26 @@
         navigator.clipboard.writeText(latestToken).then(() => alert(tr('token_copied'))).catch(() => alert(tr('copy_failed')));
     }
 
-    // One-click: push cookies first (to login Chromium), then push token
+    // One-click pushes both token and cookies to the current /user account.
     async function oneClickSetup() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
         if (!latestToken) { alert(tr('no_token_ws')); return; }
-
+        if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
         const btn = document.getElementById('m365-one-click');
         btn.textContent = tr('working');
         btn.disabled = true;
-
         try {
-            // Step 1: Push cookies (if GM_cookie available) to login Chromium
-            if (hasGMCookie()) {
-                btn.textContent = tr('pushing_cookies');
-                const cookies = await getAllCookies();
-                if (cookies.length) {
-                    await gmFetch(base + '/admin/cookie/inject', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ cookies, username: getUsername() || undefined })
-                    });
-                    // Wait for Chromium to process cookies and reload
-                    await new Promise(r => setTimeout(r, 3000));
-                }
+            const ur = await pushUserToken(base, latestToken);
+            if (!ur.response.ok) {
+                alert(tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
+                return;
             }
-
-            // Step 2: Push token
-            btn.textContent = '2/2 Pushing token...';
-            const username = getUsername();
-            const r = await gmFetch(base + '/admin/token/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: latestToken, username: username || undefined })
-            });
-            const d = await r.json();
-            if (r.ok) {
-                alert(tr('setup_complete') + (d.token_status?.seconds_remaining) + tr('proxy_ready'));
-            } else {
-                alert(tr('token_push_failed') + (d.error?.message || d.error));
-            }
+            btn.textContent = tr('pushing_cookies');
+            const cookies = await getAllCookies();
+            if (!cookies.length) { alert(tr('no_cookies')); return; }
+            const cr = await pushUserCookies(base, cookies);
+            alert(cr.response.ok ? tr('setup_complete') + (ur.data.token_status?.seconds_remaining) + tr('proxy_ready') + '\n' + tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total : tr('failed') + (cr.data.error?.message || cr.data.error));
         } catch (e) {
             alert(tr('error') + e);
         } finally {
@@ -551,7 +551,14 @@
                 <div style="margin-bottom:12px;">
                     <div style="font-size:11px; color:#94a3b8; margin-bottom:5px; font-weight:500;">${tr('proxy_url')}</div>
                     <input id="m365-proxy-url" type="text" placeholder="http://your-server:8000"
-                        value="${PROXY_BASE}"
+                        value="${(() => { try { return GM_getValue('m365_proxy_base', PROXY_BASE); } catch (e) { return PROXY_BASE; } })()}"
+                        style="width:100%; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
+                               border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
+                               outline:none; transition:border-color 0.2s;"
+                        onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                    <div style="font-size:11px; color:#94a3b8; margin:8px 0 5px; font-weight:500;">${tr('user_api_key')}</div>
+                    <input id="m365-user-api-key" type="password" placeholder="sk-..."
+                        value="${(() => { try { return GM_getValue('m365_user_api_key', ''); } catch (e) { return ''; } })()}"
                         style="width:100%; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
                                border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
                                outline:none; transition:border-color 0.2s;"
