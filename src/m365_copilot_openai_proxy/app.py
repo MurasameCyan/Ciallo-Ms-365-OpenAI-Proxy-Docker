@@ -2172,17 +2172,19 @@ button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px
 .tbl-tools{display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem;flex-wrap:wrap;position:sticky;top:0;z-index:4;background:var(--card);padding:.1rem 0}
 .view-users{height:800px;display:none;position:relative;padding-bottom:64px}
 body[data-view="users"] .view-users{display:block;position:sticky;top:10px}
-.view-users .tbl-scroll{max-height:540px}
+.view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .accounts-main-card,body[data-view="settings"] .view-settings:first-of-type,body[data-view="debug"] .view-debug:first-of-type{position:sticky;top:10px}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-.accounts-main-card{position:relative;padding-bottom:64px}
+.accounts-main-card{position:relative;padding-bottom:64px;height:800px;box-sizing:border-box}
+.accounts-main-card .tbl-scroll{height:650px;max-height:650px}
+body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:10px}
-#status-card{position:relative!important;top:auto!important;margin-top:20px!important;margin-bottom:20px!important;transform:none!important;animation:none!important}
+#status-card{position:relative!important;top:auto!important;margin-top:20px!important;margin-bottom:20px!important;min-height:210px;box-sizing:border-box;transform:none!important;animation:none!important}
+#status-card.hide-card{display:block!important;visibility:hidden;pointer-events:none}
 .view-settings{min-height:80px}
-.tbl-scroll{max-height:430px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
+.tbl-scroll{max-height:495px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
-.tbl-account-info{position:absolute;left:1.5rem;right:1.5rem;bottom:64px;min-height:44px;display:flex;align-items:center;gap:.5rem;padding:.5rem .65rem;color:var(--faint);font-size:.74rem;border:1px solid rgba(96,242,255,.1);border-radius:12px;background:linear-gradient(90deg,rgba(96,242,255,.05),rgba(140,107,255,.05));overflow:hidden;white-space:nowrap;text-overflow:ellipsis;z-index:5}
 .tbl-foot{position:absolute;left:1.5rem;right:1.5rem;bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);z-index:6;background:linear-gradient(180deg,rgba(8,13,32,.78),rgba(8,13,32,.9));border:1px solid rgba(96,242,255,.12);border-radius:14px;padding:.45rem .6rem;backdrop-filter:blur(14px)}
 .page-size{display:flex;align-items:center;gap:.4rem}
 .page-nav{display:flex;align-items:center;gap:.5rem}
@@ -2555,7 +2557,7 @@ const i18n={
     cred_bad_user:'用户名只能包含英文字母和数字（1-32 位）',cred_bad_pass:'密码 6-64 位，仅限英文字母、数字和安全符号 !#$%&*+-.:=?@^_~',
     kf_create:'创建',kf_cancel:'取消',kf_username_ph:'用户名（选填）',kf_password_ph:'密码（选填，留空则自动生成）',
     key_form_hint:'ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。',network_error:'网络错误',
-    col_login:'登录名',btn_set_login:'设置账密',no_login:'未设',
+    col_login:'登录名',btn_set_login:'设置账密',no_login:'未设',not_set:'未设定',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
     col_id:'ID',col_username:'用户名',col_password:'密码',
@@ -3323,8 +3325,7 @@ async function loadKeys(){
         +'</div><div id="ke-msg-'+k.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
         +'</td></tr>';
     });
-    const tailInfo=__pg.items.slice(-1).map(x=>esc(x.id.replace(/^key_/, 'id_'))+'　'+esc(x.username||t('no_login'))+'　'+(x.password?esc(x.password):t('not_set'))+'　'+esc(x.key.slice(0,10))+'…　'+(x.account_id?esc(x.account_name||x.account_id):t('unbound'))).join('　　');
-    h+='</tbody></table></div><div class="tbl-account-info"><span>'+(tailInfo||'')+'</span></div>'+_pageFoot('keys',__pg);
+    h+='</tbody></table></div>'+_pageFoot('keys',__pg);
     box.innerHTML=h;
     renderDashboard();
   }catch(e){}
