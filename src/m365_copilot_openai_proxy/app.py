@@ -2139,7 +2139,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;background:li
 .layout{position:relative;z-index:1}
 .container{max-width:720px;margin:0 auto}
 h1{font-size:1.5rem;margin-bottom:1.5rem;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.card{position:relative;background:var(--card);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow);overflow:hidden}
+.card{position:relative;background:var(--card);border-radius:24px;padding:1.5rem;margin-bottom:10px;border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow);overflow:hidden}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.38),transparent 30%,rgba(255,94,219,.28),rgba(255,215,111,.22));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.7;pointer-events:none}
 details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:background .2s}
 details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgba(140,107,255,.04))}
@@ -2168,11 +2168,11 @@ button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px
 .acct-row{transition:background .18s,box-shadow .18s,transform .18s}
 .acct-row.selected{background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)}
 .tbl-tools{display:flex;gap:.4rem;justify-content:flex-end;margin-bottom:.5rem;flex-wrap:wrap;position:sticky;top:0;z-index:4;background:var(--card);padding:.1rem 0}
-.view-users{height:750px;display:none}
-body[data-view="users"] .view-users{display:block;position:sticky;top:1rem}
-.view-users .tbl-scroll{max-height:550px}
-body[data-view="home"] .view-home,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:sticky;top:1rem}
-.view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:1rem}
+.view-users{height:800px;display:none}
+body[data-view="users"] .view-users{display:block;position:sticky;top:10px}
+.view-users .tbl-scroll{max-height:600px}
+body[data-view="home"] .view-home,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:sticky;top:10px}
+.view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
 .tbl-scroll{max-height:430px;overflow:auto;border-radius:8px}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
@@ -2188,6 +2188,7 @@ body[data-view="home"] .view-home,body[data-view="accounts"] .view-accounts,body
 body[data-theme="light"] .page-select{color:#243049;background-color:rgba(255,255,255,.72);border-color:rgba(99,102,180,.22)}
 body[data-theme="light"] .page-select option{background:#fff;color:#243049}
 .tone-select{margin-left:auto;width:180px;max-width:50%;min-height:38px;padding:7px 34px 7px 12px;background-color:var(--inner);border:1px solid var(--inner-border);border-radius:12px;color:var(--text);font-size:.82rem;font-weight:700;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12);transition:border-color .2s,box-shadow .2s}
+input:focus,textarea:focus,select:focus{border-color:var(--cyan)!important;box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:selectGlow 2.4s ease-in-out infinite;outline:none}
 .tone-select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08);animation:selectGlow 2.4s ease-in-out infinite}
 @keyframes selectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.2),0 0 30px rgba(140,107,255,.28),inset 0 1px 0 rgba(255,255,255,.12)}}
 .tone-select option{background:#10162f;color:#f3f6ff}
@@ -2269,6 +2270,12 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 .debug-gate.on .gate-stream i{animation:streamToGlobe 2.2s linear infinite;animation-delay:var(--d)}
 .gate-stream i:nth-child(1){--sx:-330px;--sy:-96px;--d:0s}.gate-stream i:nth-child(2){--sx:-310px;--sy:-20px;--d:.18s}.gate-stream i:nth-child(3){--sx:-330px;--sy:76px;--d:.42s}.gate-stream i:nth-child(4){--sx:310px;--sy:-86px;--d:.12s}.gate-stream i:nth-child(5){--sx:330px;--sy:6px;--d:.36s}.gate-stream i:nth-child(6){--sx:305px;--sy:86px;--d:.58s}.gate-stream i:nth-child(7){--sx:-160px;--sy:-128px;--d:.72s}.gate-stream i:nth-child(8){--sx:150px;--sy:-126px;--d:.9s}.gate-stream i:nth-child(9){--sx:-90px;--sy:-145px;--d:.24s}.gate-stream i:nth-child(10){--sx:78px;--sy:-148px;--d:.66s}.gate-stream i:nth-child(11){--sx:-145px;--sy:132px;--d:.5s}.gate-stream i:nth-child(12){--sx:160px;--sy:128px;--d:.84s}.gate-stream i:nth-child(13){--sx:-300px;--sy:-142px;--d:1.02s}.gate-stream i:nth-child(14){--sx:300px;--sy:-140px;--d:1.18s}.gate-stream i:nth-child(15){--sx:-292px;--sy:138px;--d:1.34s}.gate-stream i:nth-child(16){--sx:292px;--sy:140px;--d:1.5s}
 @keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) scale(.9);opacity:0}12%{opacity:.9}76%{opacity:.88}100%{transform:translate(-8px,-26px) scale(.45);opacity:0}}
+.gate-rim-stream{position:absolute;inset:10px;pointer-events:none;z-index:1;opacity:0;border-radius:22px;overflow:hidden}
+.debug-gate.on .gate-rim-stream{opacity:1}
+.gate-rim-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.68rem;color:rgba(210,252,255,.94);font-weight:800;letter-spacing:.06em;text-shadow:0 0 7px rgba(96,242,255,.95),0 0 16px rgba(255,94,219,.42);transform:translate(var(--rx),var(--ry));opacity:0}
+.debug-gate.on .gate-rim-stream i{animation:rimToGlobe 2.05s linear infinite;animation-delay:var(--rd)}
+.gate-rim-stream i:nth-child(1){--rx:-360px;--ry:-108px;--rd:0s}.gate-rim-stream i:nth-child(2){--rx:-292px;--ry:-108px;--rd:.13s}.gate-rim-stream i:nth-child(3){--rx:-188px;--ry:-108px;--rd:.41s}.gate-rim-stream i:nth-child(4){--rx:-42px;--ry:-108px;--rd:.76s}.gate-rim-stream i:nth-child(5){--rx:126px;--ry:-108px;--rd:.22s}.gate-rim-stream i:nth-child(6){--rx:318px;--ry:-108px;--rd:.92s}.gate-rim-stream i:nth-child(7){--rx:360px;--ry:-78px;--rd:.35s}.gate-rim-stream i:nth-child(8){--rx:360px;--ry:-18px;--rd:.68s}.gate-rim-stream i:nth-child(9){--rx:360px;--ry:54px;--rd:1.08s}.gate-rim-stream i:nth-child(10){--rx:270px;--ry:108px;--rd:.49s}.gate-rim-stream i:nth-child(11){--rx:84px;--ry:108px;--rd:.82s}.gate-rim-stream i:nth-child(12){--rx:-82px;--ry:108px;--rd:1.22s}.gate-rim-stream i:nth-child(13){--rx:-236px;--ry:108px;--rd:.58s}.gate-rim-stream i:nth-child(14){--rx:-360px;--ry:92px;--rd:1.36s}.gate-rim-stream i:nth-child(15){--rx:-360px;--ry:26px;--rd:.27s}.gate-rim-stream i:nth-child(16){--rx:-360px;--ry:-48px;--rd:1.02s}.gate-rim-stream i:nth-child(17){--rx:214px;--ry:-108px;--rd:1.44s}.gate-rim-stream i:nth-child(18){--rx:360px;--ry:96px;--rd:1.62s}.gate-rim-stream i:nth-child(19){--rx:-312px;--ry:108px;--rd:1.78s}.gate-rim-stream i:nth-child(20){--rx:18px;--ry:-108px;--rd:1.92s}
+@keyframes rimToGlobe{0%{transform:translate(var(--rx),var(--ry)) scale(1);opacity:0}10%{opacity:.95}72%{opacity:.85}100%{transform:translate(-6px,-28px) scale(.38);opacity:0}}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
 @keyframes globeDotA{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(-3px,2px)}75%{transform:translate(1px,3px)}100%{transform:translate(0,0)}}
 @keyframes globeDotB{0%{transform:translate(0,0)}30%{transform:translate(-2px,-2px)}60%{transform:translate(3px,1px)}100%{transform:translate(0,0)}}
@@ -2439,6 +2446,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <button class="debug-gate" id="capture-gate" onclick="toggleCaptureGate()">
 <div class="gate-flow"></div>
 <div class="gate-stream"><i>01</i><i>101</i><i>0011</i><i>11</i><i>01010</i><i>00</i><i>1011</i><i>01</i><i>110</i><i>00101</i><i>10</i><i>0110</i><i>1</i><i>010</i><i>10101</i><i>00</i></div>
+<div class="gate-rim-stream"><i>01</i><i>1010</i><i>1</i><i>001</i><i>1110</i><i>00</i><i>0101</i><i>10</i><i>101</i><i>01101</i><i>0</i><i>110</i><i>0010</i><i>01</i><i>10111</i><i>00</i><i>010</i><i>111</i><i>00101</i><i>10</i></div>
 <span class="debug-gate-core"><span class="data-globe"><i class="orbit o1"></i><i class="orbit o2"></i><i class="orbit o3"></i></span><b data-i18n="dbg_capture_recv">接收抓包</b><small data-i18n="dbg_gate_hint">点击切换调试接收通道</small></span>
 </button>
 </div>
@@ -3399,7 +3407,7 @@ function copyText(text,cb){
   if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(()=>cb&&cb(true),()=>cb&&cb(_fallbackCopy(text)))}
   else{cb&&cb(_fallbackCopy(text))}
 }
-function _adminCopyFeedback(btn){if(!btn)return;btn.textContent=t('copied');btn.style.color='#22c55e';clearTimeout(btn._copyTimer);btn._copyTimer=setTimeout(()=>{btn.textContent=t('btn_copy');btn.style.color=''},1200)}
+function _adminCopyFeedback(btn){if(!btn)return;btn.textContent=t('copied');clearTimeout(btn._copyTimer);btn._copyTimer=setTimeout(()=>{btn.textContent=t('btn_copy')},1200)}
 function copyKey(id,btn){
   const k=__keys.find(x=>x.id===id);if(!k)return;
   copyText(k.key,ok=>{if(ok)_adminCopyFeedback(btn)});
@@ -3700,8 +3708,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;background:li
 .orb{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(16px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 11s linear infinite,loginPulse 3.8s ease-in-out infinite;opacity:.32;z-index:0;pointer-events:none}
 .wrap{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
 h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
-.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:1.5rem;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:10px;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem}
 .modal-card{position:relative;width:360px;max-width:92vw;border-radius:14px;padding:1.25rem;background:rgba(15,23,42,.3);border:1px solid rgba(96,242,255,.28);box-shadow:0 24px 70px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%)}
 body[data-theme="light"] .modal-card{background:rgba(255,255,255,.3);border-color:rgba(99,102,180,.22)}
@@ -3746,6 +3754,8 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
 .section-title{display:block;margin:1rem 0 .45rem;font-size:1rem;color:var(--strong);font-weight:700;letter-spacing:.01em}
+input:focus,textarea:focus,select:focus{border-color:var(--cyan)!important;box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 22px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldGlow 2.4s ease-in-out infinite;outline:none}
+@keyframes fieldGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.2),0 0 30px rgba(140,107,255,.28),inset 0 1px 0 rgba(255,255,255,.12)}}
 .qs-link{color:var(--cyan);font-weight:700;text-decoration:none;padding:.02rem .28rem;border-radius:6px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.28);transition:box-shadow .18s,background .18s}
 .qs-link:hover{text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(255,94,219,.18));box-shadow:0 0 14px rgba(96,242,255,.28)}
 body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
@@ -3755,8 +3765,8 @@ body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3)
 .api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
 .api-row>span:first-child{color:#f3f6ff;white-space:pre}
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
-.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:1rem;align-items:start}
-.account-side{position:sticky;top:1rem;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
+.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:800px}
+.account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
 .status-grid{display:grid;gap:0;margin-top:.1rem}
@@ -3772,7 +3782,7 @@ body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3)
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes loginPulse{50%{scale:1.08;opacity:.48}}
-@media(max-width:760px){.account-card{grid-template-columns:1fr}.account-side{position:relative;top:auto}}
+@media(max-width:760px){.account-card{grid-template-columns:1fr;min-height:auto}.account-side{position:relative;top:auto}}
 .hidden{display:none}
 a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
@@ -3827,7 +3837,7 @@ code{color:#a5b4fc}
         <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
         <div class="row"><select id="tone" onchange="saveTone()" style="width:180px;padding-right:34px;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select><span id="tone-msg" class="msg"></span></div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
-        <div class="row action-row"><button onclick="pushToken()" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
+        <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
         <textarea id="acct-token" oninput="autoGrowTokenBox()" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。&#10;access_token / wss://substrate.office.com/..."></textarea>
       </div>
       <div class="account-side" id="account-status-panel"></div>
@@ -3875,9 +3885,9 @@ const i18n={
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
-    push_token_btn:'更新 Token',saved:'已保存',push_ok:'Token 已更新',
+    push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
     mode_profile_title:'默认配置',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
-    tone_title:'对话模式',tool_prompt_title:'提示词增强',prompt_card_title:'提示词',click_expand:'点击展开',
+    tone_title:'对话模式',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
     sys_prompt_title:'系统提示词（高级）',
@@ -3887,7 +3897,7 @@ const i18n={
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
-    copy_base:'复制',copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
+    copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
     logout:'登出 Microsoft',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
@@ -3898,9 +3908,9 @@ const i18n={
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
-    push_token_btn:'Update Token',saved:'Saved',push_ok:'Token updated',
+    push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
     mode_profile_title:'Default Config',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
-    tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',prompt_card_title:'Prompts',click_expand:'Click to expand',
+    tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
     sys_prompt_title:'System Prompt (Advanced)',
@@ -3910,7 +3920,7 @@ const i18n={
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
-    copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
+    copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
     logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
@@ -3961,7 +3971,14 @@ async function doLogin(){
     if(!ok){fail();sessionStorage.removeItem('user_api_key')}
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
-async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},5000)}}catch(e){if(btn){btn.textContent=t('logout_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},5000)}}await loadMe()}
+async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}let ok=false;try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}if(btn){btn.textContent=ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false;await loadMe()},5000)}else{await loadMe()}}
+function userDialog(title,message,okText){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');ov.className='modal-backdrop';
+    ov.innerHTML='<div class="modal-card flow-box"><div style="font-weight:700;color:var(--strong);margin-bottom:.55rem">'+title+'</div><div style="font-size:.84rem;color:var(--muted);line-height:1.55">'+message+'</div><div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem"><button id="dlg-cancel" class="btn-ghost" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button><button id="dlg-ok" style="font-size:.8rem;padding:6px 14px">'+okText+'</button></div></div>';
+    document.body.appendChild(ov);const done=v=>{ov.remove();resolve(v)};ov.addEventListener('click',e=>{if(e.target===ov)done(false)});ov.querySelector('#dlg-cancel').onclick=()=>done(false);ov.querySelector('#dlg-ok').onclick=()=>done(true);
+  });
+}
 function confirmUnbindAccount(){
   return new Promise(resolve=>{
     const ov=document.createElement('div');
@@ -3983,8 +4000,8 @@ function confirmUnbindAccount(){
 async function unbindAccount(btn){
   if(!await confirmUnbindAccount())return;
   if(btn){btn.disabled=true;btn.textContent=t('unbinding_ms')}
-  try{const r=await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},5000)}}catch(e){if(btn){btn.textContent=t('unbind_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},5000)}}
-  await loadMe();
+  let ok=false;try{const r=await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}
+  if(btn){btn.textContent=ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false;await loadMe()},5000)}else{await loadMe()}
 }
 function fmtExpire(iso){
   if(!iso)return t('status_unknown');
@@ -4060,7 +4077,7 @@ function copyBaseUrl(btn){
   _userCopy(v,ok=>{if(ok)_copyFeedback(btn,'copy_base')});
 }
 async function regenMyKey(){
-  if(!confirm(t('confirm_regen_my_key')))return;
+  if(!await userDialog(t('regen_my_key'),t('confirm_regen_my_key'),t('confirm_btn')))return;
   try{
     const r=await fetch('/user/regenerate-key',{method:'POST',headers:authHeaders()});
     if(!r.ok)return;
@@ -4073,13 +4090,14 @@ async function regenMyKey(){
   }catch(e){}
 }
 function autoGrowTokenBox(){const el=document.getElementById('acct-token');if(!el)return;el.style.height='75px';el.style.height=Math.min(Math.max(el.scrollHeight,75),180)+'px'}
-async function pushToken(){
+async function pushToken(btn){
   const token=document.getElementById('acct-token').value.trim();
   if(!token)return;
-  try{
-    const r=await fetch('/user/account/token',{method:'POST',headers:authHeaders(),body:JSON.stringify({token:token})});
-    if(r.ok){document.getElementById('acct-token').value='';flash('token-msg');loadMe()}
-  }catch(e){}
+  if(btn){btn.disabled=true;btn.textContent=t('updating_token')}
+  let ok=false;
+  try{const r=await fetch('/user/account/token',{method:'POST',headers:authHeaders(),body:JSON.stringify({token:token})});ok=r.ok}catch(e){}
+  if(ok)document.getElementById('acct-token').value='';
+  if(btn){btn.textContent=ok?t('push_ok'):t('token_update_failed');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('push_token_btn');btn.style.color='';btn.disabled=false;if(ok)await loadMe()},5000)}
 }
 async function saveTone(){
   const tone=document.getElementById('tone').value;
@@ -4089,8 +4107,8 @@ async function saveToolPrompt(){
   const p=document.getElementById('tool-prompt').value;
   try{await fetch('/user/tool-prompt',{method:'POST',headers:authHeaders(),body:JSON.stringify({tool_prompt:p})});flash('tool-msg')}catch(e){}
 }
-function unlockSysPrompt(){
-  if(!confirm(t('system_prompt_warn')))return;
+async function unlockSysPrompt(){
+  if(!await userDialog(t('system_prompt_title'),t('system_prompt_warn'),t('confirm_btn')))return;
   const l=document.getElementById('sys-prompt-locked');
   const e=document.getElementById('sys-prompt-editor');
   if(l)l.style.display='none';
@@ -4101,7 +4119,7 @@ async function saveSysPrompt(){
   try{await fetch('/user/system-prompt',{method:'POST',headers:authHeaders(),body:JSON.stringify({system_prompt:p})});flash('sys-msg')}catch(e){}
 }
 async function resetSysPrompt(){
-  if(!confirm(t('sys_prompt_reset_confirm')))return;
+  if(!await userDialog(t('system_prompt_title'),t('sys_prompt_reset_confirm'),t('confirm_btn')))return;
   document.getElementById('sys-prompt').value='';
   try{await fetch('/user/system-prompt',{method:'POST',headers:authHeaders(),body:JSON.stringify({system_prompt:''})});flash('sys-msg')}catch(e){}
 }
