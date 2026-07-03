@@ -2254,6 +2254,23 @@ body[data-theme="light"] .sidebar{background:linear-gradient(180deg,rgba(255,255
 .debug-gate.on{box-shadow:0 0 42px rgba(96,242,255,.34),0 0 110px rgba(140,107,255,.24),inset 0 1px 0 rgba(255,255,255,.1)}
 .debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .data-globe:before{animation-duration:3.4s}.debug-gate.on .data-globe:after{animation-duration:2.8s}.debug-gate.on .data-globe{box-shadow:0 0 46px rgba(96,242,255,.45),inset 0 0 34px rgba(96,242,255,.22)}
 .debug-gate.on .orbit{opacity:1;animation:orbitSpin 2.4s linear infinite}.debug-gate.on .orbit.o2{animation-duration:3.2s;animation-direction:reverse}.debug-gate.on .orbit.o3{animation-duration:4.1s}
+.gate-flow{position:absolute;inset:6px;border-radius:24px;pointer-events:none;opacity:0;z-index:0}
+.debug-gate.on .gate-flow{opacity:1;border:1px solid transparent;background:linear-gradient(90deg,transparent,rgba(96,242,255,.5),rgba(140,107,255,.4),rgba(255,94,219,.3),transparent);background-size:300% 100%;animation:gateFlow 2.6s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px}
+@keyframes gateFlow{to{background-position:300% 0}}
+.gate-stream{position:absolute;inset:0;pointer-events:none;z-index:0;opacity:0;overflow:hidden;border-radius:28px}
+.debug-gate.on .gate-stream{opacity:1}
+.gate-stream i{position:absolute;font-family:monospace;font-size:.7rem;color:rgba(96,242,255,0);text-shadow:0 0 6px rgba(96,242,255,.6);white-space:nowrap;font-weight:700}
+.debug-gate.on .gate-stream i{animation:streamIn 1.8s linear infinite}
+.gate-stream i:nth-child(1){left:8%;top:30%;animation-delay:0s}
+.gate-stream i:nth-child(2){left:12%;top:55%;animation-delay:.3s}
+.gate-stream i:nth-child(3){left:6%;top:70%;animation-delay:.6s}
+.gate-stream i:nth-child(4){right:8%;top:35%;animation-delay:.15s;animation-name:streamInR}
+.gate-stream i:nth-child(5){right:10%;top:60%;animation-delay:.45s;animation-name:streamInR}
+.gate-stream i:nth-child(6){left:20%;top:14%;animation-delay:.75s}
+.gate-stream i:nth-child(7){right:18%;top:80%;animation-delay:.9s;animation-name:streamInR}
+.gate-stream i:nth-child(8){left:14%;top:85%;animation-delay:.5s}
+@keyframes streamIn{0%{transform:translateX(0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translateX(140px);opacity:0}}
+@keyframes streamInR{0%{transform:translateX(0);opacity:0}15%{opacity:.85}85%{opacity:.7}100%{transform:translateX(-140px);opacity:0}}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
 @keyframes globeDotA{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(-3px,2px)}75%{transform:translate(1px,3px)}100%{transform:translate(0,0)}}
 @keyframes globeDotB{0%{transform:translate(0,0)}30%{transform:translate(-2px,-2px)}60%{transform:translate(3px,1px)}100%{transform:translate(0,0)}}
@@ -2422,6 +2439,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-debug debug-gate-card">
 <button class="debug-gate" id="capture-gate" onclick="toggleCaptureGate()">
+<div class="gate-flow"></div>
+<div class="gate-stream"><i>01</i><i>10</i><i>01</i><i>11</i><i>01</i><i>00</i><i>10</i><i>01</i></div>
 <span class="debug-gate-core"><span class="data-globe"><i class="orbit o1"></i><i class="orbit o2"></i><i class="orbit o3"></i></span><b data-i18n="dbg_capture_recv">接收抓包</b><small data-i18n="dbg_gate_hint">点击切换调试接收通道</small></span>
 </button>
 </div>
@@ -3712,6 +3731,7 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .pill.bad{background:rgba(127,29,29,.6);color:#fee2e2}
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
+.section-title{display:block;margin:1rem 0 .45rem;font-size:1rem;color:var(--strong);font-weight:700;letter-spacing:.01em}
 .qs-link{color:var(--cyan);font-weight:700;text-decoration:none;padding:.02rem .28rem;border-radius:6px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.28);transition:box-shadow .18s,background .18s}
 .qs-link:hover{text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(255,94,219,.18));box-shadow:0 0 14px rgba(96,242,255,.28)}
 body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
@@ -3725,14 +3745,15 @@ body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3)
 .account-side{position:sticky;top:1rem;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
-.status-grid{display:grid;gap:.45rem;margin-top:.65rem}
-.status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:.35rem}
+.status-grid{display:grid;gap:0;margin-top:.1rem}
+.status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding:.5rem 0}
+.status-line:first-child{border-top:1px solid rgba(255,255,255,.08)}
 .status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
-.status-mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:50%;font-size:.8rem;font-weight:900;color:#050815;border:none;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 8px 20px rgba(96,242,255,.24),inset 0 1px 0 rgba(255,255,255,.4);line-height:1;position:relative;overflow:hidden}
+.status-mark{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border-radius:50%;font-size:.55rem;font-weight:900;color:#050815;border:none;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 4px 10px rgba(96,242,255,.24),inset 0 1px 0 rgba(255,255,255,.4);line-height:1;position:relative;overflow:hidden}
 .status-mark:before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.32),transparent 55%);pointer-events:none}
 .status-mark:after{display:none}
 .status-mark.ok{background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));color:#050815}
-.status-mark.bad{background:linear-gradient(135deg,#64748b,#475569);color:#f8fafc;box-shadow:0 8px 20px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.18)}
+.status-mark.bad{background:linear-gradient(135deg,#64748b,#475569);color:#f8fafc;box-shadow:0 4px 10px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.18)}
 @keyframes statusBreath{50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -9px 16px rgba(0,0,0,.14),0 0 26px rgba(255,255,255,.16)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
@@ -3785,11 +3806,13 @@ code{color:#a5b4fc}
       <div class="account-main">
         <h2 data-i18n="account_title">账户控制台</h2>
         <div id="account-info"></div>
-        <div class="hint" style="margin-top:.75rem">Base URL: <code id="base-url"></code> <button onclick="copyBaseUrl(this)" class="btn-ghost compact-action" data-i18n="copy_base">复制</button></div>
+        <label class="section-title" data-i18n="call_params_title">调用参数</label>
+        <div class="hint">Base URL: <code id="base-url"></code> <button onclick="copyBaseUrl(this)" class="btn-ghost compact-action" data-i18n="copy_base">复制</button></div>
         <div class="hint">API Key: <code id="my-key" style="word-break:break-all"></code> <button onclick="copyMyKey(this)" class="btn-ghost compact-action" data-i18n="copy_key">复制</button></div>
         <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey()" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
-        <label style="margin-top:1.1rem;font-size:1rem;color:var(--strong);font-weight:600" data-i18n="mode_profile_title">默认对话配置</label>
+        <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
         <div class="row"><select id="tone" onchange="saveTone()" style="width:180px;padding-right:34px;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center"></select><span id="tone-msg" class="msg"></span></div>
+        <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken()" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
         <textarea id="acct-token" oninput="autoGrowTokenBox()" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。&#10;access_token / wss://substrate.office.com/..."></textarea>
       </div>
@@ -3839,7 +3862,7 @@ const i18n={
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',saved:'已保存',push_ok:'Token 已更新',
-    mode_profile_title:'默认对话配置',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
+    mode_profile_title:'默认配置',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
     tone_title:'对话模式',tool_prompt_title:'提示词增强',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
@@ -3851,7 +3874,7 @@ const i18n={
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
     copy_base:'复制',copy_key:'复制',key_copied:'已复制',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',
-    logout:'登出 Microsoft',logging_out_ms:'登出中...',unbind_account:'解绑 Microsoft',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？之后需要重新推送 Token 才能使用。',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -3862,7 +3885,7 @@ const i18n={
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',saved:'Saved',push_ok:'Token updated',
-    mode_profile_title:'Default conversation profile',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
+    mode_profile_title:'Default Config',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
     tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
@@ -3874,7 +3897,7 @@ const i18n={
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
     copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',
-    logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',unbind_account:'Unbind Microsoft',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? You will need to push a token again before using it.',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -3924,10 +3947,11 @@ async function doLogin(){
     if(!ok){fail();sessionStorage.removeItem('user_api_key')}
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
 }
-async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}try{await fetch('/user/account/logout',{method:'POST',headers:authHeaders()})}catch(e){}if(btn){btn.disabled=false;btn.textContent=t('logout')}await loadMe()}
-async function unbindAccount(){
+async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},1500)}}catch(e){if(btn){btn.textContent=t('logout_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false},1500)}}await loadMe()}
+async function unbindAccount(btn){
   if(!confirm(t('unbind_confirm')))return;
-  try{await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()})}catch(e){}
+  if(btn){btn.disabled=true;btn.textContent=t('unbinding_ms')}
+  try{const r=await fetch('/user/account/unbind',{method:'POST',headers:authHeaders()});if(btn){btn.textContent=r.ok?t('unbind_ok_ms'):t('unbind_failed_ms');btn.style.color=r.ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},1500)}}catch(e){if(btn){btn.textContent=t('unbind_failed_ms');btn.style.color='#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('unbind_account');btn.style.color='';btn.disabled=false},1500)}}
   await loadMe();
 }
 function fmtExpire(iso){
@@ -3947,9 +3971,9 @@ function renderAccountStatus(d){
   const refresh=!!(a&&a.token_source==='cdp');
   const name=a?(a.name||a.email||a.id):t('status_unknown');
   const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';
-  box.innerHTML='<h3 style="margin:0;color:var(--strong);font-size:1rem">'+t('status_panel_title')+'</h3>'
+  box.innerHTML='<h3 style="margin:0;color:var(--strong);font-size:1rem;display:none">'+t('status_panel_title')+'</h3>'
     +'<div class="status-grid">'
-    +'<div class="status-line"><span>'+t('status_account')+'</span><b>'+esc(name)+'</b></div>'
+    +'<div class="status-line status-first"><span>'+t('status_account')+'</span><b>'+esc(name)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_login')+'</span><b>'+mark(login)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+mark(refresh)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+mark(valid)+'</b></div>'
@@ -3984,9 +4008,9 @@ async function loadMe(){
       acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem"><span class="pill">'+t('bound_account')+': '+(d.account.name||d.account.id)+'</span>'
         +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
     }else{
-      acc+='<div class="hint">'+t('no_account')+'</div>';
+      acc+='';
     }
-    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount()">'+t('unbind_account')+'</button></div>';
+    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
     renderAccountStatus(d);
     return true;
