@@ -2221,6 +2221,7 @@ body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,bo
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
 body[data-view="debug"] .debug-gate-card{height:330px;min-height:330px}
 body[data-view="debug"] .debug-guide-card{height:200px!important;min-height:200px!important;overflow:hidden}
+body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!important;min-height:200px!important;overflow:visible}
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
@@ -3087,7 +3088,7 @@ function kpiCard(label,val,color){
 function donut(parts,centerLabel,centerVal){
   // parts: [{value,color,label}] — render a glassy SVG ring + legend.
   const total=parts.reduce((s,p)=>s+p.value,0);
-  const R=52,C=2*Math.PI*R;let off=0;
+  const R=46,C=2*Math.PI*R;let off=0;
   const uid='d'+Math.random().toString(36).slice(2,8);
   // glass defs: soft drop shadow + glossy top highlight overlay
   let defs='<defs>'
@@ -3103,14 +3104,14 @@ function donut(parts,centerLabel,centerVal){
       if(p.value<=0)return;
       const len=C*(p.value/total);
       ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+len+' '+(C-len)+'" dur="0.55s" fill="freeze"/><animate attributeName="stroke-dashoffset" values="'+(-off)+';'+(-off-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.84;1;0.84" dur="3.2s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14;16.5;14" dur="3.2s" repeatCount="indefinite"/></circle>';
-      halo+='<circle cx="60" cy="60" r="'+(R+4)+'" fill="none" stroke="'+p.color+'" stroke-width="12" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="opacity" values="0.12;0.42;0.12" dur="3.2s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="8;15;8" dur="3.2s" repeatCount="indefinite"/></circle>';
+      halo+='<circle cx="60" cy="60" r="'+(R+5)+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.2"><animate attributeName="opacity" values="0.16;0.62;0.16" dur="3.2s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="9;20;9" dur="3.2s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+(R-8)+'" fill="none" stroke="'+p.color+'" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="opacity" values="0.08;0.28;0.08" dur="3.8s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.6;1" dur="3.8s" repeatCount="indefinite"/></circle>';
       off+=len;
     });
   }
   // glossy highlight arc over the top of the ring for a glass sheen
   const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
-  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0">'+defs+halo+ring+sheen
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible">'+defs+halo+ring+sheen
     +'<text x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+'</text></svg>';
   let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
