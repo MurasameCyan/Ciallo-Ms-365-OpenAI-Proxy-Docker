@@ -2138,9 +2138,9 @@ body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-s
 body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(circle at center,black 45%,transparent 92%);z-index:0}
 .orb{position:fixed;width:420px;height:420px;border-radius:50%;filter:blur(18px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;left:50%;transform:translate(-50%,-50%);animation:loginSpin 12s linear infinite,loginPulse 4s ease-in-out infinite;opacity:.28;z-index:0;pointer-events:none}
 .layout{position:relative;z-index:1}
-.container{max-width:720px;margin:0 auto}
+.container{max-width:1000px;margin:0 auto}
 h1{font-size:1.5rem;margin-bottom:1.5rem;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.card{position:relative;background:var(--card);border-radius:24px;padding:1.5rem;margin-bottom:10px;border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow);overflow:hidden}
+.card{position:relative;width:100%;background:var(--card);border-radius:24px;padding:1.5rem;margin-bottom:10px;border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow);overflow:hidden}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.38),transparent 30%,rgba(255,94,219,.28),rgba(255,215,111,.22));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.7;pointer-events:none}
 details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:background .2s}
 details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgba(140,107,255,.04))}
@@ -2175,21 +2175,21 @@ body[data-view="users"] .view-users{display:block;position:sticky;top:10px}
 .view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:sticky;top:10px}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-body[data-view="accounts"] .view-accounts,body[data-view="debug"] .debug-gate-card{height:1000px}
-.accounts-main-card{position:relative;padding-bottom:64px;height:1000px}
+body[data-view="debug"] .debug-gate-card{height:280px}
+.accounts-main-card{position:relative;padding-bottom:64px;height:450px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
-.view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:10px}
-#status-card{position:sticky!important;top:10px!important;margin-top:20px!important;margin-bottom:20px!important;transform:none!important;animation:none!important;height:1000px}
+.view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
+#status-card{position:sticky!important;top:10px!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:300px}
 .view-settings{height:90px;min-height:90px}
 .view-debug{height:90px;min-height:90px}
-.debug-gate{min-height:430px}
+.debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
 .tbl-foot{position:absolute;left:1.5rem;right:1.5rem;bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);z-index:6;background:linear-gradient(180deg,rgba(8,13,32,.78),rgba(8,13,32,.9));border:1px solid rgba(96,242,255,.12);border-radius:14px;padding:.45rem .6rem;backdrop-filter:blur(14px)}
 .page-size{display:flex;align-items:center;gap:.4rem}
 .page-nav{display:flex;align-items:center;gap:.5rem}
-.page-info{color:var(--faint);min-width:150px;text-align:center}
+.page-info{color:var(--faint);min-width:150px;text-align:center;display:inline-flex;align-items:center;justify-content:center}
 .page-btn{font-size:.74rem;padding:5px 12px;color:#050815;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));border:none;box-shadow:0 10px 24px rgba(96,242,255,.22);font-weight:800}
 .page-btn:hover:not(:disabled){box-shadow:0 0 20px rgba(96,242,255,.28),inset 0 1px 0 rgba(255,255,255,.2)}
 .page-btn:disabled{opacity:.45;cursor:not-allowed;background:var(--chip);color:var(--faint)}
@@ -2233,7 +2233,7 @@ a:hover{text-decoration:underline}
 /* ---- multi-tenant sidebar layout ---- */
 body{padding:.85rem 0 .85rem .85rem}
 .layout{display:flex;min-height:calc(100vh - 1.7rem);gap:.85rem}
-.sidebar{width:200px;flex-shrink:0;background:linear-gradient(180deg,rgba(8,13,32,.46),rgba(8,12,28,.3));border:1px solid rgba(96,242,255,.2);border-radius:26px;display:flex;flex-direction:column;padding:1.2rem .85rem;position:sticky;top:.85rem;height:calc(100vh - 1.7rem);backdrop-filter:blur(26px) saturate(1.32);-webkit-backdrop-filter:blur(26px) saturate(1.32);transition:width .22s ease,padding .22s ease;will-change:width;contain:layout paint;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),18px 0 60px rgba(0,0,0,.12),0 0 28px rgba(96,242,255,.08)}
+.sidebar{width:210px;flex-shrink:0;background:linear-gradient(180deg,rgba(8,13,32,.46),rgba(8,12,28,.3));border:1px solid rgba(96,242,255,.2);border-radius:26px;display:flex;flex-direction:column;padding:1.2rem .85rem;position:sticky;top:.85rem;height:calc(100vh - 1.7rem);backdrop-filter:blur(26px) saturate(1.32);-webkit-backdrop-filter:blur(26px) saturate(1.32);transition:width .22s ease,padding .22s ease;will-change:width;contain:layout paint;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),18px 0 60px rgba(0,0,0,.12),0 0 28px rgba(96,242,255,.08)}
 .brand{font-size:1.02rem;font-weight:800;padding:.4rem .4rem 1.2rem;white-space:nowrap;overflow:hidden;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .brand .tenant-pill{position:relative;display:inline-flex;align-items:center;margin-left:.32rem;padding:.16rem .52rem;border-radius:999px;font-size:.62rem;line-height:1;color:var(--strong);-webkit-text-fill-color:currentColor;background:linear-gradient(135deg,rgba(255,255,255,.18),rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.34);box-shadow:inset 0 1px 0 rgba(255,255,255,.36),0 0 16px rgba(96,242,255,.16),0 0 26px rgba(140,107,255,.1);backdrop-filter:blur(12px);overflow:hidden;vertical-align:middle;letter-spacing:.04em}
 .brand .tenant-pill:before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.95),rgba(255,94,219,.7),rgba(255,215,111,.75),transparent);background-size:240% 100%;animation:tenantFlow 2.6s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
@@ -2304,16 +2304,20 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 @keyframes orbitSpin{to{transform:rotateX(var(--x)) rotateY(var(--y)) rotateZ(calc(var(--r) + 360deg))}}
 @keyframes flow{to{background-position:64px 0}}
 /* ---- collapsed sidebar ---- */
-body[data-collapsed="1"] .sidebar{width:64px;padding:1.2rem .5rem}
-body[data-collapsed="1"] .brand span,body[data-collapsed="1"] .nav-item span:not(.nav-ico){opacity:0;pointer-events:none}
-body[data-collapsed="1"] .brand{font-size:0;padding:.4rem 0 1.2rem}
+body[data-collapsed="1"] .sidebar{width:60px;padding:1.2rem .5rem}
+body[data-collapsed="1"] .brand .brand-rest,body[data-collapsed="1"] .brand .tenant-pill,body[data-collapsed="1"] .nav-item span:not(.nav-ico){opacity:0;pointer-events:none;width:0;margin:0}
+body[data-collapsed="1"] .brand{font-size:.76rem;padding:.4rem 0 1.2rem;text-align:center;letter-spacing:.01em}
+body[data-collapsed="1"] .brand .brand-short{opacity:1;-webkit-text-fill-color:transparent}
+body[data-collapsed="1"] .nav-item{justify-content:center;padding:.6rem 0;gap:0}
+body[data-collapsed="1"] .nav-ico{width:100%;text-align:center}
 body[data-collapsed="1"] .side-tools{height:210px;padding-top:1rem}
-body[data-collapsed="1"] .side-tools .icon-btn:nth-child(1){transform:translate(6px,0)}
-body[data-collapsed="1"] .side-tools .icon-btn:nth-child(2){transform:translate(6px,44px)}
-body[data-collapsed="1"] .side-tools .icon-btn:nth-child(3){transform:translate(6px,88px)}
-body[data-collapsed="1"] .side-tools .icon-btn:nth-child(4){transform:translate(6px,132px)}
+body[data-collapsed="1"] .side-tools .icon-btn{left:50%;margin-left:-19px}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(1){transform:translate(0,0)}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(2){transform:translate(0,44px)}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(3){transform:translate(0,88px)}
+body[data-collapsed="1"] .side-tools .icon-btn:nth-child(4){transform:translate(0,132px)}
 .main{flex:1;padding:2rem;overflow-x:hidden}
-.main .container{max-width:820px}
+.main .container{max-width:1000px}
 .main h1{font-size:1.4rem}
 /* view switching: hide all view cards, show active group with fade-in */
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{display:none}
@@ -2329,7 +2333,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="orb" aria-hidden="true"></div>
 <div class="layout">
 <aside class="sidebar">
-<div class="brand">Ciallo Ms-365 <span class="tenant-pill" data-i18n="multi_badge">多租户</span></div>
+<div class="brand"><span class="brand-short">Ciallo</span><span class="brand-rest"> Ms-365</span> <span class="tenant-pill" data-i18n="multi_badge">多租户</span></div>
 <nav class="nav">
 <a class="nav-item active" data-nav="home" onclick="switchView('home')"><span class="nav-ico">&#128202;</span><span data-i18n="nav_home">首页总览</span></a>
 <a class="nav-item" data-nav="users" onclick="switchView('users')"><span class="nav-ico">&#128100;</span><span data-i18n="nav_users">用户管理</span></a>
