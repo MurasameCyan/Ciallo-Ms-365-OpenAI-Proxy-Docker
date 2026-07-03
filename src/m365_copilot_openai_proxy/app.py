@@ -2177,7 +2177,7 @@ body[data-view="users"] .view-users,body[data-view="accounts"] .accounts-main-ca
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
 .accounts-main-card{position:relative;padding-bottom:64px}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:10px}
-#status-card{position:relative!important;top:auto!important;margin-top:10px!important;transform:translateY(10px);margin-bottom:20px!important}
+#status-card{position:relative!important;top:auto!important;margin-top:20px!important;margin-bottom:20px!important;transform:none!important;animation:none!important}
 .view-settings{min-height:80px}
 .tbl-scroll{max-height:430px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
@@ -2640,7 +2640,7 @@ const i18n={
     cred_bad_user:'Username must be 1-32 chars, letters and digits only',cred_bad_pass:'Password must be 6-64 chars: letters, digits and safe symbols !#$%&*+-.:=?@^_~',
     kf_create:'Create',kf_cancel:'Cancel',kf_username_ph:'Username (optional)',kf_password_ph:'Password (optional, auto-generated if blank)',
     key_form_hint:'ID and API Key are generated automatically. M365 account binding is done by the user pushing a token from the User page.',network_error:'Network error',
-    col_login:'Login',btn_set_login:'Set credentials',no_login:'None',
+    col_login:'Login',btn_set_login:'Set credentials',no_login:'None',not_set:'Not set',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
     col_id:'ID',col_username:'Username',col_password:'Password',
@@ -3299,7 +3299,7 @@ async function loadKeys(){
       const acc=k.account_id?((k.account_source==='manual'?('<span style="padding:.1rem .5rem;border-radius:99px;font-size:.72rem;background:rgba(96,242,255,.16);color:#60f2ff;border:1px solid rgba(96,242,255,.4)">'+t('acct_token_only')+'</span>'):esc(k.account_name||k.account_id))+'<div style="color:var(--faint);font-size:.7rem;margin-top:.15rem">'+esc(k.account_id)+'</div>'):('<span style="color:#f59e0b">'+t('unbound')+'</span>');
       const en=k.enabled;
       const uname=k.username?esc(k.username):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
-      const pwd=k.password?('<div class="kv-copy"><code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code><button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;background:var(--chip)">'+t('btn_copy')+'</button></div>'):('<span style="color:var(--faint)">'+t('no_login')+'</span>');
+      const pwd=k.password?('<div class="kv-copy"><code style="font-size:.72rem;color:#818cf8">'+esc(k.password)+'</code><button onclick="copyPwd(\\''+k.id+'\\',this)" style="font-size:.68rem;background:var(--chip)">'+t('btn_copy')+'</button></div>'):('<span style="color:var(--faint)">'+t('not_set')+'</span>');
       h+='<tr id="krow-'+k.id+'" style="border-top:1px solid #334155;'+(en?'':'opacity:.5')+'">'
         +'<td style="padding:.4rem"><input class="key-check" type="checkbox" '+(__selectedKeyIds.has(k.id)?'checked':'')+' onclick="toggleKeySelected(\\''+k.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem"><code style="font-size:.72rem;color:var(--faint)">'+esc(k.id.replace(/^key_/, 'id_'))+'</code></td>'
@@ -3323,8 +3323,8 @@ async function loadKeys(){
         +'</div><div id="ke-msg-'+k.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
         +'</td></tr>';
     });
-    const acctInfo=__pg.items.filter(x=>x.account_id).map(x=>(x.username||x.name||x.id)+': '+x.account_id).join('  ·  ');
-    h+='</tbody></table></div><div class="tbl-account-info"><b>'+t('col_account')+'</b><span>'+(acctInfo?esc(acctInfo):t('unbound'))+'</span></div>'+_pageFoot('keys',__pg);
+    const tailInfo=__pg.items.slice(-1).map(x=>esc(x.id.replace(/^key_/, 'id_'))+'　'+esc(x.username||t('no_login'))+'　'+(x.password?esc(x.password):t('not_set'))+'　'+esc(x.key.slice(0,10))+'…　'+(x.account_id?esc(x.account_name||x.account_id):t('unbound'))).join('　　');
+    h+='</tbody></table></div><div class="tbl-account-info"><span>'+(tailInfo||'')+'</span></div>'+_pageFoot('keys',__pg);
     box.innerHTML=h;
     renderDashboard();
   }catch(e){}
@@ -3417,7 +3417,7 @@ function copyText(text,cb){
   if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(()=>cb&&cb(true),()=>cb&&cb(_fallbackCopy(text)))}
   else{cb&&cb(_fallbackCopy(text))}
 }
-function _adminCopyFeedback(btn){if(!btn)return;if(btn._copyOldColor===undefined)btn._copyOldColor=btn.style.color||'';btn.textContent=t('copied');btn.style.color='#22c55e';clearTimeout(btn._copyTimer);btn._copyTimer=setTimeout(()=>{btn.textContent=t('btn_copy');btn.style.color=btn._copyOldColor;delete btn._copyOldColor},1200)}
+function _adminCopyFeedback(btn){if(!btn)return;if(btn._copyOldStyle===undefined)btn._copyOldStyle=btn.getAttribute('style')||'';btn.textContent=t('copied');btn.style.color='#22c55e';clearTimeout(btn._copyTimer);btn._copyTimer=setTimeout(()=>{btn.textContent=t('btn_copy');btn.setAttribute('style',btn._copyOldStyle);delete btn._copyOldStyle},1200)}
 function copyKey(id,btn){
   const k=__keys.find(x=>x.id===id);if(!k)return;
   copyText(k.key,ok=>{if(ok)_adminCopyFeedback(btn)});
