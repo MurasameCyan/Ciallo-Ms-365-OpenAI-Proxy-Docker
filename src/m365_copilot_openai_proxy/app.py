@@ -3158,8 +3158,8 @@ function lineChart(points,series){
   [0,0.5,1].forEach(f=>{const v=Math.round(ymax*f);const y=Y(v);g+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="var(--grid)"/><text x="'+(pl-6)+'" y="'+(y+3)+'" text-anchor="end" fill="var(--faint)" font-size="10">'+v+'</text>'});
   series.forEach(s=>{
     let d='';points.forEach((p,i)=>{d+=(i?' L':'M')+X(p.ts).toFixed(1)+' '+Y(p[s.key]||0).toFixed(1)});
-    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.18" filter="drop-shadow(0 0 14px '+s.color+')"><animate attributeName="opacity" values="0.12;0.42;0.12" dur="3.2s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="7;13;7" dur="3.2s" repeatCount="indefinite"/></path>';
-    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="drop-shadow(0 0 8px '+s.color+') drop-shadow(0 0 18px '+s.color+')"><animate attributeName="opacity" values="0.82;1;0.82" dur="3.2s" repeatCount="indefinite"/></path>';
+    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.1" filter="drop-shadow(0 0 7px '+s.color+')"><animate attributeName="opacity" values="0.06;0.18;0.06" dur="3.2s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="4;8;4" dur="3.2s" repeatCount="indefinite"/></path>';
+    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="drop-shadow(0 0 5px '+s.color+')"><animate attributeName="opacity" values="0.9;1;0.9" dur="3.2s" repeatCount="indefinite"/></path>';
   });
   // x labels: first + last time
   const tf=ts=>new Date(ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
