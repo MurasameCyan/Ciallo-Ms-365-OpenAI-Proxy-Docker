@@ -3509,7 +3509,7 @@ async function loadAccounts(){
       const cookieMeta='<div style="display:grid;grid-template-columns:auto auto;column-gap:.55rem;row-gap:.22rem;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" style="font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
       const boundNames=Array.isArray(a.bound_names)?a.bound_names.filter(Boolean):[];
       const boundMain=boundNames[0]||a.name||'name';
-      const boundTitle=boundNames.length?boundNames.join('\n'):boundMain;
+      const boundTitle=boundNames.length?boundNames.join(String.fromCharCode(10)):boundMain;
       const boundMore=boundNames.length>1?' +'+(boundNames.length-1):'';
       const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
       const refreshColor=a.token_source==='cdp'&&cookieValid?'#a78bfa':(a.token_source==='cdp'?'#f59e0b':'var(--faint)');
