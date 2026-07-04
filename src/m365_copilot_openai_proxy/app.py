@@ -357,6 +357,26 @@ def _update_username_from_token(token: str, state) -> None:
         pass
 
 
+def _load_json_list(path: Path, limit: int) -> list[dict]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)][-limit:]
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return []
+
+
+def _write_json_list(path: Path, data: list[dict], limit: int) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data[-limit:], ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 def _load_metrics_history(path: Path) -> list[dict]:
     """Load the persisted metrics time-series (best-effort, empty on any error)."""
     try:
@@ -429,7 +449,8 @@ def create_app(
         app.state.account_store,
         profile_root=Path(resolved_settings.token_dir) / "profiles",
     )
-    app.state.call_log: list[dict] = []  # API call log for web UI display
+    app.state.call_log_path = Path(resolved_settings.token_dir) / "call_log.json"
+    app.state.call_log: list[dict] = _load_json_list(app.state.call_log_path, 100)  # API call log for web UI display
     app.state.captured_payloads: list[dict] = []  # Substrate chat payloads captured via get_token.js for mode comparison
     # Metrics time-series for the home dashboard trend chart. Snapshots are taken
     # lazily (throttled) whenever the admin polls, so no background scheduler is
@@ -988,12 +1009,29 @@ def create_app(
         if err: return err
         return {"logs": getattr(app.state, 'call_log', [])}
 
+    @app.post("/admin/call-log/clear")
+    async def clear_call_log(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        app.state.call_log = []
+        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+        return {"status": "ok"}
+
     @app.get("/admin/metrics-history")
     async def get_metrics_history(request: Request) -> dict:
         err = _require_admin(request)
         if err: return err
         _maybe_snapshot_metrics(app)  # lazy, throttled snapshot on poll
         return {"history": getattr(app.state, 'metrics_history', [])}
+
+    @app.post("/admin/metrics-history/clear")
+    async def clear_metrics_history(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        app.state.metrics_history = []
+        app.state.metrics_last_snapshot = time.time()
+        _write_json_list(app.state.metrics_path, app.state.metrics_history, 500)
+        return {"status": "ok"}
 
     @app.get("/admin/stats")
     async def get_stats(request: Request) -> dict:
@@ -1687,6 +1725,7 @@ def create_app(
                 app.state.call_log.append(call_record)
                 if len(app.state.call_log) > 100:
                     app.state.call_log = app.state.call_log[-100:]
+                _write_json_list(app.state.call_log_path, app.state.call_log, 100)
                 if request.tools:
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
@@ -1754,6 +1793,7 @@ def create_app(
         app.state.call_log.append(call_record)
         if len(app.state.call_log) > 100:
             app.state.call_log = app.state.call_log[-100:]
+        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
         if tool_calls:
             remaining = _strip_tool_call_blocks(text)
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
@@ -2267,7 +2307,7 @@ body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!importa
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
-#status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:300px}
+#status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:330px}
 .view-settings{height:90px;min-height:90px}
 .view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
 .view-debug{height:90px;min-height:90px}
@@ -2492,12 +2532,12 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 
 <div class="card view-home">
-<h2 data-i18n="dash_trend_title" style="margin:0 0 .9rem">趋势</h2>
+<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem"><h2 data-i18n="dash_trend_title" style="margin:0">趋势</h2><button onclick="clearTrendStats()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="dash-trend"><span style="color:var(--faint)" data-i18n="dash_no_trend">暂无趋势数据（每 5 分钟采样一次）</span></div>
 </div>
 
 <div class="card view-home">
-<h2 data-i18n="dash_calls_title" style="margin:0 0 .9rem">调用统计</h2>
+<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem"><h2 data-i18n="dash_calls_title" style="margin:0">调用统计</h2><button onclick="clearCallStats()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="dash-stat-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem;margin-bottom:1rem"></div>
 <div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_tone_share">对话模式占比</div>
 <div id="dash-tone-share"></div>
@@ -2684,7 +2724,7 @@ const i18n={
   zh:{
     multi_badge:'多租户',
     nav_home:'首页总览',nav_users:'用户管理',nav_accounts:'账户管理',nav_settings:'全局设置',nav_debug:'调试模式',
-    dash_title:'运行概览',dash_refresh:'刷新',dash_acct_valid:'账户有效 / 过期比',dash_key_status:'用户 启用 / 停用',dash_bind_status:'用户 绑定 / 未绑定',
+    dash_title:'运行概览',dash_refresh:'刷新',btn_clear:'清空',dash_acct_valid:'账户有效 / 过期比',dash_key_status:'用户 启用 / 停用',dash_bind_status:'用户 绑定 / 未绑定',
     dash_kpi_users:'用户数',dash_kpi_accounts:'账户数',dash_kpi_active_users:'启用用户',dash_kpi_valid_accts:'有效账户',dash_kpi_expired_accts:'过期账户',dash_kpi_unbound:'未绑定用户',
     dash_valid:'有效',dash_expired:'过期',dash_bound:'已绑定',
     dash_trend_title:'趋势',dash_no_trend:'暂无趋势数据（每 5 分钟采样一次）',dash_calls_title:'调用统计',dash_tone_share:'对话模式占比',
@@ -2703,12 +2743,12 @@ const i18n={
     key_form_hint:'ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。',network_error:'网络错误',
     col_login:'登录名',btn_set_login:'设置账密',no_login:'未设',not_set:'未设定',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
-    col_name:'名称',col_account:'账户',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'刷新方式',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
+    col_name:'名称',col_account:'账户',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'刷新方式',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',bound_count_label:'绑定',
     col_id:'ID',col_role:'角色',col_username:'用户名',col_password:'密码',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
     page_prev:'上一页',page_next:'下一页',page_info:'第 {cur}/{total} 页 · 共 {count} 条',page_size_label:'每页',page_size_unit:'条',
     batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
-    confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',
+    confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',confirm_clear_stats:'确定清空这部分统计数据吗？',
     valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新',cookie_expires_label:'过期',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
     rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
@@ -2769,7 +2809,7 @@ const i18n={
   en:{
     multi_badge:'Multi-tenant',
     nav_home:'Overview',nav_users:'Users',nav_accounts:'Accounts',nav_settings:'Settings',nav_debug:'Debug',
-    dash_title:'Overview',dash_refresh:'Refresh',dash_acct_valid:'Account valid / expired',dash_key_status:'Users enabled / disabled',dash_bind_status:'Users bound / unbound',
+    dash_title:'Overview',dash_refresh:'Refresh',btn_clear:'Clear',dash_acct_valid:'Account valid / expired',dash_key_status:'Users enabled / disabled',dash_bind_status:'Users bound / unbound',
     dash_kpi_users:'Users',dash_kpi_accounts:'Accounts',dash_kpi_active_users:'Enabled users',dash_kpi_valid_accts:'Valid accounts',dash_kpi_expired_accts:'Expired accounts',dash_kpi_unbound:'Unbound users',
     dash_valid:'Valid',dash_expired:'Expired',dash_bound:'Bound',
     dash_trend_title:'Trend',dash_no_trend:'No trend data yet (sampled every 5 min)',dash_calls_title:'Call Stats',dash_tone_share:'Conversation mode share',
@@ -2788,12 +2828,12 @@ const i18n={
     key_form_hint:'ID and API Key are generated automatically. M365 account binding is done by the user pushing a token from the User page.',network_error:'Network error',
     col_login:'Login',btn_set_login:'Set credentials',no_login:'None',not_set:'Not set',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
-    col_name:'Name',col_account:'Account',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'Refresh',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
+    col_name:'Name',col_account:'Account',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'Refresh',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',bound_count_label:'Bound',
     col_id:'ID',col_role:'Role',col_username:'Username',col_password:'Password',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
     page_prev:'Prev',page_next:'Next',page_info:'Page {cur}/{total} · {count} total',page_size_label:'Per page',page_size_unit:'',
     batch_refresh:'Batch refresh',batch_delete:'Batch delete',batch_enable:'Batch enable',batch_disable:'Batch disable',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
-    confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',
+    confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',confirm_clear_stats:'Clear this statistics data?',
     valid_short:'Valid',invalid_short:'Invalid',cookie_valid_short:'Valid',cookie_invalid_short:'Invalid',cookie_updated_label:'Updated',cookie_expires_label:'Expires',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
     rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
@@ -3272,6 +3312,16 @@ async function loadTrend(){
     ]);
   }catch(e){}
 }
+async function clearTrendStats(){
+  if(!await adminConfirm(t('confirm_clear_stats')))return;
+  await fetch('/admin/metrics-history/clear',{method:'POST',credentials:'include'}).catch(()=>{});
+  loadTrend();
+}
+async function clearCallStats(){
+  if(!await adminConfirm(t('confirm_clear_stats')))return;
+  await fetch('/admin/call-log/clear',{method:'POST',credentials:'include'}).catch(()=>{});
+  loadStats();loadCallLog();
+}
 let __expiryWarnTimer=null;
 async function loadStats(){
   const kpi=document.getElementById('dash-stat-kpi');
@@ -3382,7 +3432,7 @@ async function loadAccounts(){
     const __pg=_slicePage(__accounts,'accounts');
     let h='<div class="tbl-tools"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
       +'<div class="tbl-scroll"><table class="admin-tbl"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem"></th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __pg.items.forEach(a=>{
       const st=a.token_status||{};
       const valid=st.valid;
@@ -3390,16 +3440,17 @@ async function loadAccounts(){
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const cookieValid=!!a.cookie_valid;
       const cookieBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
-      const cookieMeta='<div style="color:var(--faint);font-size:.68rem;margin-top:.18rem;line-height:1.35">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'<br>'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div>';
+      const cookieMeta='<span style="color:var(--faint);font-size:.68rem;line-height:1.35;white-space:nowrap">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+' · '+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</span>';
       const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
       const refreshColor=a.token_source==='cdp'&&cookieValid?'#a78bfa':(a.token_source==='cdp'?'#f59e0b':'var(--faint)');
       const refreshBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
-        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">name id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
-        +'<td style="padding:.4rem">'+cookieBadge+cookieMeta+'</td>'
+        +'<td style="padding:.4rem;padding-right:.25rem;white-space:nowrap">'+cookieBadge+'</td>'
+        +'<td style="padding:.4rem;padding-left:.15rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+refreshBadge+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
         +'<button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_refresh')+'</button> '
