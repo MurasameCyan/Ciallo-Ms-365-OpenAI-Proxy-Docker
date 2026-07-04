@@ -998,20 +998,19 @@ def create_app(
         for l in logs:
             tn = l.get("tone") or "Magic"
             tone_counts[tn] = tone_counts.get(tn, 0) + 1
-        # Soonest-expiring account (valid ones only) for the countdown warning.
-        soonest = None
+        # Accounts expiring within 5 minutes, for the account-page warning carousel.
+        expiring_accounts = []
         for a in app.state.account_store.list():
             st = a.token_status()
-            if st.get("valid") and st.get("seconds_remaining") is not None:
-                item = {"name": a.name or a.id, "email": a.email,
-                        "seconds_remaining": st["seconds_remaining"]}
-                if soonest is None or item["seconds_remaining"] < soonest["seconds_remaining"]:
-                    soonest = item
+            rem = st.get("seconds_remaining")
+            if st.get("valid") and rem is not None and 0 <= rem <= 300:
+                expiring_accounts.append({"name": a.name or a.id, "email": a.email, "seconds_remaining": rem})
+        expiring_accounts.sort(key=lambda x: x["seconds_remaining"])
         return {
             "calls_total": len(logs),
             "calls_24h": calls_24h,
             "tone_counts": tone_counts,
-            "soonest_expiry": soonest,
+            "expiring_accounts": expiring_accounts,
         }
 
     # Max accepted capture-payload body size (bytes). Cheap DoS guard: reject
@@ -2467,7 +2466,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <h2 data-i18n="dash_title" style="margin:0">运行概览</h2>
 <button onclick="loadKeys();loadAccounts()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
-<div id="dash-warn" class="hide-card" style="margin-bottom:1rem;padding:.6rem .9rem;border-radius:10px;background:#450a0a;border:1px solid #991b1b;color:#fca5a5;font-size:.85rem"></div>
 <div id="dash-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.6rem;margin-bottom:1.1rem"></div>
 <div style="display:flex;gap:1.2rem;flex-wrap:wrap">
 <div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
@@ -2491,8 +2489,9 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-accounts accounts-main-card">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <button onclick="toggleAccountForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
-<button onclick="loadAccounts();loadKeys()" style="font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
+<button onclick="loadAccounts();loadKeys();loadStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
+<div id="accounts-warn" class="hide-card" style="margin-bottom:.75rem;padding:.6rem .9rem;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.45);color:#fbbf24;font-size:.85rem;box-shadow:0 0 22px rgba(245,158,11,.12)"></div>
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
 <div id="acc-form" class="flow-box" style="display:none;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;padding:.75rem;margin-bottom:.75rem;position:relative">
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -3252,6 +3251,7 @@ async function loadTrend(){
     ]);
   }catch(e){}
 }
+let __expiryWarnTimer=null;
 async function loadStats(){
   const kpi=document.getElementById('dash-stat-kpi');
   try{
@@ -3270,13 +3270,21 @@ async function loadStats(){
         share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted)"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:var(--track);border-radius:4px;overflow:hidden;margin-top:2px"><div style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
       }
     }
-    // soonest-expiry warning
-    const warn=document.getElementById('dash-warn');
+    // Expiry warnings on Accounts page: show all accounts expiring within 5 minutes; rotate when multiple.
+    const warn=document.getElementById('accounts-warn');
     if(warn){
-      const s=d.soonest_expiry;
-      if(s&&s.seconds_remaining<3600){
-        warn.classList.remove('hide-card');
-        warn.innerHTML='&#9888; '+t('dash_expiry_warn').replace('{name}',esc(s.name)).replace('{time}',fmtClock(s.seconds_remaining));
+      if(__expiryWarnTimer){clearInterval(__expiryWarnTimer);__expiryWarnTimer=null}
+      const items=(d.expiring_accounts||[]).filter(s=>s&&s.seconds_remaining<=300).sort((a,b)=>a.seconds_remaining-b.seconds_remaining);
+      if(items.length){
+        let idx=0;
+        const show=()=>{
+          const s=items[idx%items.length];
+          warn.classList.remove('hide-card');
+          warn.innerHTML='&#9888; '+(items.length>1?'['+(idx%items.length+1)+'/'+items.length+'] ':'')+t('dash_expiry_warn').replace('{name}',esc(s.name)).replace('{time}',fmtClock(Math.max(0,s.seconds_remaining)));
+          idx++;
+        };
+        show();
+        if(items.length>1)__expiryWarnTimer=setInterval(show,3000);
       }else{warn.classList.add('hide-card')}
     }
   }catch(e){}
