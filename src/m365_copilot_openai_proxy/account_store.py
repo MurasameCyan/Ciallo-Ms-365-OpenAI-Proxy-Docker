@@ -101,6 +101,7 @@ class AccountStore:
         self._accounts: dict[str, Account] = {}
         self._lock = threading.RLock()
         self._persist_path = Path(persist_path) if persist_path else None
+        self._cdp_port_base = _CDP_PORT_BASE
         if self._persist_path is not None:
             self._load()
 
@@ -194,9 +195,12 @@ class AccountStore:
                     return acc
             return None
 
+    def set_cdp_port_base(self, port: int) -> None:
+        self._cdp_port_base = max(1, int(port))
+
     def _next_cdp_port(self) -> int:
         used = {acc.cdp_port for acc in self._accounts.values()} | _RESERVED_CDP_PORTS
-        port = _CDP_PORT_BASE
+        port = self._cdp_port_base
         while port in used:
             port += 1
         return port

@@ -35,6 +35,7 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "refresh_before_seconds": 300,
     "idle_timeout_minutes": 30,
     "cdp_port": 9222,
+    "account_cdp_port_base": 9322,
     "log_level": "INFO",
 }
 
@@ -78,6 +79,7 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["refresh_before_seconds"] = max(0, int(data.get("refresh_before_seconds") or 0))
     data["idle_timeout_minutes"] = max(1, int(data.get("idle_timeout_minutes") or 1))
     data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
+    data["account_cdp_port_base"] = max(1, int(data.get("account_cdp_port_base") or _RUNTIME_SETTINGS_DEFAULTS["account_cdp_port_base"]))
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
     if data["log_level"] not in _LOG_LEVELS:
         data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]
@@ -505,6 +507,8 @@ def create_app(
     app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
     app.state.refresh_before_seconds = runtime_settings["refresh_before_seconds"]
     app.state.cdp_port = runtime_settings["cdp_port"]
+    app.state.account_cdp_port_base = runtime_settings["account_cdp_port_base"]
+    app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
     app.state.log_level = runtime_settings["log_level"]
     logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
@@ -1237,6 +1241,7 @@ def create_app(
             "refresh_before_seconds": int_setting("refresh_before_seconds", 0),
             "idle_timeout_minutes": int_setting("idle_timeout_minutes", 1),
             "cdp_port": int_setting("cdp_port", 1),
+            "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
         }
         if data["log_level"] not in _LOG_LEVELS:
@@ -1248,6 +1253,8 @@ def create_app(
         app.state.refresh_before_seconds = data["refresh_before_seconds"]
         app.state.idle_timeout_minutes = data["idle_timeout_minutes"]
         app.state.cdp_port = data["cdp_port"]
+        app.state.account_cdp_port_base = data["account_cdp_port_base"]
+        app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
         logging.getLogger().setLevel(app.state.log_level)
         _write_runtime_settings(resolved_settings.token_dir, data)
@@ -2499,6 +2506,7 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-settings.details-open,.view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
 .view-debug{height:90px;min-height:90px}
 .view-debug.details-open,.view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
+body[data-view="debug"] .view-debug.details-card:not(.details-open){height:200px;min-height:200px;overflow:hidden}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
 body[data-view="debug"] .ports-logs-card{height:auto;min-height:90px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
@@ -2539,6 +2547,8 @@ body[data-view="debug"] .ports-logs-card{height:auto;min-height:90px;overflow:vi
 .page-select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .page-select{color:#243049;background-color:rgba(255,255,255,.72);border-color:rgba(99,102,180,.22)}
 body[data-theme="light"] .page-select option{background:#fff;color:#243049}
+.runtime-field-label{font-size:.8125rem;color:var(--strong);font-weight:800}
+.runtime-field-label.auto{display:flex;align-items:center;gap:.6rem;margin-top:1.35rem}
 .tone-select{margin-left:auto;width:180px;max-width:50%;min-height:38px;padding:7px 34px 7px 12px;background-color:var(--inner);border:1px solid var(--inner-border);border-radius:12px;color:var(--text);font-size:.82rem;font-weight:700;outline:none;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2360f2ff' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12);transition:border-color .2s,box-shadow .2s}
 input:focus,textarea:focus,select:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
 .tone-select:focus{animation:none!important}
@@ -2624,8 +2634,8 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 .switch input:checked+.slider:before{transform:translateX(20px)}
 /* ---- debug receive gate ---- */
 .debug-gate-card{padding:20px;overflow:hidden}
-.debug-gate{position:relative;width:100%;min-height:240px;padding:20px;border:none;border-radius:28px;background:radial-gradient(circle at 50% 38%,rgba(96,242,255,.12),transparent 28%),linear-gradient(135deg,rgba(8,13,32,.9),rgba(18,25,56,.8));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;font-weight:800;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 20px 58px rgba(0,0,0,.28)}
-.debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);opacity:.42;z-index:-2}
+.debug-gate{position:relative;width:100%;height:200px;min-height:200px;padding:20px;border:none;border-radius:28px;background:radial-gradient(circle at 50% 38%,rgba(96,242,255,.12),transparent 28%),linear-gradient(135deg,rgba(8,13,32,.9),rgba(18,25,56,.8));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;font-weight:800;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 20px 58px rgba(0,0,0,.28)}
+.debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);animation:spin 4s linear infinite;opacity:.42;z-index:-2}
 .debug-gate:after{content:"";position:absolute;inset:20px;border-radius:20px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
 .debug-gate-core{display:flex;align-items:center;justify-content:center;text-align:center;letter-spacing:.02em}
 .data-globe{position:relative;width:108px;height:108px;border-radius:50%;margin:0;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 38px rgba(96,242,255,.28),inset 0 0 34px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d}
@@ -2776,15 +2786,15 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="runtime_title">运行设置（全局模板）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem;margin-top:.75rem">
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.25rem;width:100%"></select></label>
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label style="font-size:.75rem;color:var(--faint);display:flex;align-items:center;gap:.5rem;margin-top:1.2rem"><span data-i18n="auto_refresh_label">自动刷新</span><span class="auto-toggle"><input id="runtime-auto-refresh" type="checkbox"><span class="role-track"></span></span></label>
+<div style="font-size:.82rem;color:var(--faint);line-height:1.65;margin-top:1rem;margin-bottom:1rem;max-width:760px" data-i18n="tone_hint"></div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem .8rem;margin-top:.2rem">
+<label class="runtime-field-label"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
+<label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label class="runtime-field-label"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label class="runtime-field-label"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label class="runtime-field-label"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label class="runtime-field-label auto"><span data-i18n="auto_refresh_label">自动刷新</span><span class="auto-toggle"><input id="runtime-auto-refresh" type="checkbox"><span class="role-track"></span></span></label>
 </div>
-<div style="font-size:.8rem;color:var(--faint);margin-top:.55rem" data-i18n="tone_hint"></div>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings()" data-i18n="save">保存</button><span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span><span id="runtime-settings-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
 </details>
 </div>
@@ -2838,7 +2848,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </button>
 </div>
 
-<div class="card view-debug details-open" style="padding:20px">
+<div class="card view-debug details-card details-open" style="padding:20px">
 <details id="call-log-details" open style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
 <span data-i18n="title_call_log">API 调用记录</span>
@@ -2864,8 +2874,9 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <div class="card view-debug ports-logs-card no-details" style="padding:20px">
 <h2 data-i18n="ports_logs_title" style="margin:0 0 1rem;font-size:1.28rem;font-weight:800">端口与日志</h2>
-<div style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) auto;gap:1rem;align-items:end">
-<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.45rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<div style="display:grid;grid-template-columns:minmax(150px,1fr) minmax(150px,1fr) minmax(170px,1fr) auto;gap:.8rem;align-items:end">
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.45rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.45rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="margin-top:.45rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <div style="display:flex;align-items:center;gap:.5rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="debug-runtime-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
 </div>
@@ -2995,7 +3006,7 @@ const i18n={
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
-    runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 端口',log_level_label:'日志等级',
+    runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -3081,7 +3092,7 @@ const i18n={
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
-    runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP port',log_level_label:'Log level',
+    runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP primary port',account_cdp_port_base_label:'CDP secondary port',log_level_label:'Log level',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -3958,10 +3969,10 @@ async function batchSetKeys(enabled){const ids=[...__selectedKeyIds];if(!ids.len
 async function batchDeleteKeys(){const ids=[...__selectedKeyIds];if(!ids.length)return await adminAlert(t('batch_none'));if(!await adminConfirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/keys/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedKeyIds.clear();loadKeys();loadAccounts()}
 function initDetailsCards(){
   document.querySelectorAll('.view-settings,.view-debug').forEach(card=>{
-    const details=card.querySelector('details');
-    if(!details){card.classList.add('no-details');return}
-    const sync=()=>card.classList.toggle('details-open',details.open);
-    details.addEventListener('toggle',sync);sync();
+    const details=[...card.querySelectorAll('details')];
+    if(!details.length){card.classList.add('no-details');return}
+    const sync=()=>card.classList.toggle('details-open',details.some(d=>d.open));
+    details.forEach(d=>d.addEventListener('toggle',sync));sync();
   });
 }
 function updateAccountCountdownText(){
@@ -4145,7 +4156,7 @@ async function loadRuntimeSettings(){
     const d=await r.json(),s=d.settings||{};
     __runtimeSettings={...s};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-log-level',s.log_level);
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);
     const cb=document.getElementById('runtime-auto-refresh');if(cb)cb.checked=!!s.auto_refresh;
   }catch(e){}
 }
@@ -4153,7 +4164,7 @@ async function saveRuntimeSettings(){
   const val=id=>document.getElementById(id)?.value;
   const body={...__runtimeSettings};
   const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
-  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('log_level','runtime-log-level');
+  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');
   const cb=document.getElementById('runtime-auto-refresh');if(cb)body.auto_refresh=!!cb.checked;
   try{
     const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
