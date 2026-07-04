@@ -72,7 +72,7 @@ const i18n={
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（新用户模板）',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
-    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',
+    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',cdp_port_label:'CDP 端口',log_level_label:'日志等级',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -158,7 +158,7 @@ const i18n={
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (New User Template)',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
-    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',
+    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',cdp_port_label:'CDP port',log_level_label:'Log level',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -677,6 +677,7 @@ async function loadStats(){
   }catch(e){}
 }
 let __accounts=[];
+let __runtimeSettings={};
 let __selectedAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
@@ -1054,7 +1055,16 @@ function toggleKeySelected(id,on){on?__selectedKeyIds.add(id):__selectedKeyIds.d
 function selectAllKeys(on){__selectedKeyIds=new Set(on?__keys.map(k=>k.id):[]);document.querySelectorAll('.key-check').forEach(cb=>{cb.checked=!!on})}
 async function batchSetKeys(enabled){const ids=[...__selectedKeyIds];if(!ids.length)return await adminAlert(t('batch_none'));for(const id of ids){await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})}).catch(()=>{})}loadKeys()}
 async function batchDeleteKeys(){const ids=[...__selectedKeyIds];if(!ids.length)return await adminAlert(t('batch_none'));if(!await adminConfirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/keys/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedKeyIds.clear();loadKeys();loadAccounts()}
+function initDetailsCards(){
+  document.querySelectorAll('.view-settings,.view-debug').forEach(card=>{
+    const details=card.querySelector('details');
+    if(!details){card.classList.add('no-details');return}
+    const sync=()=>card.classList.toggle('details-open',details.open);
+    details.addEventListener('toggle',sync);sync();
+  });
+}
 
+initDetailsCards();
 loadStatus();
 loadChromiumStatus();
 loadCallLog();
@@ -1235,17 +1245,21 @@ async function loadRuntimeSettings(){
   try{
     const r=await fetch('/admin/runtime-settings',{credentials:'include'});if(!r.ok)return;
     const d=await r.json(),s=d.settings||{};
+    __runtimeSettings={...s};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-log-level',s.log_level);
     const cb=document.getElementById('runtime-auto-refresh');if(cb)cb.checked=!!s.auto_refresh;
   }catch(e){}
 }
 async function saveRuntimeSettings(){
   const val=id=>document.getElementById(id)?.value;
-  const body={time_zone:val('runtime-time-zone'),model_alias:val('runtime-model-alias'),refresh_before_seconds:Number(val('runtime-refresh-before')||0),idle_timeout_minutes:Number(val('runtime-idle-timeout')||1),auto_refresh:!!document.getElementById('runtime-auto-refresh')?.checked};
+  const body={...__runtimeSettings};
+  const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
+  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('log_level','runtime-log-level');
+  const cb=document.getElementById('runtime-auto-refresh');if(cb)body.auto_refresh=!!cb.checked;
   try{
     const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
-    const s=document.getElementById('runtime-settings-saved');if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+    ['runtime-settings-saved','debug-runtime-saved'].forEach(id=>{const s=document.getElementById(id);if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}})
   }catch(e){}
 }
 async function loadToolPrompt(){

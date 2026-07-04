@@ -27,12 +27,15 @@ from .translator import translate_anthropic_request, translate_openai_request, t
 
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
+_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
     "model_alias": "m365-copilot",
     "auto_refresh": True,
     "refresh_before_seconds": 300,
     "idle_timeout_minutes": 30,
+    "cdp_port": 9222,
+    "log_level": "INFO",
 }
 
 # Login credential rules (validated server-side; front-end checks are bypassable).
@@ -74,6 +77,10 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["auto_refresh"] = bool(data.get("auto_refresh"))
     data["refresh_before_seconds"] = max(0, int(data.get("refresh_before_seconds") or 0))
     data["idle_timeout_minutes"] = max(1, int(data.get("idle_timeout_minutes") or 1))
+    data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
+    data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
+    if data["log_level"] not in _LOG_LEVELS:
+        data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]
     return data
 
 
@@ -497,6 +504,9 @@ def create_app(
     app.state.time_zone = runtime_settings["time_zone"]
     app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
     app.state.refresh_before_seconds = runtime_settings["refresh_before_seconds"]
+    app.state.cdp_port = runtime_settings["cdp_port"]
+    app.state.log_level = runtime_settings["log_level"]
+    logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]
     app.state.username = read_username()  # Restore persisted username (set via get_token.js push or CDP extraction)
@@ -740,7 +750,7 @@ def create_app(
         if err: return err
         import asyncio
         from .cli import _cdp_extract_token
-        cdp_port = 9222
+        cdp_port = int(getattr(app.state, "cdp_port", 9222))
         try:
             token = await _cdp_extract_token(cdp_port, allow_nudge=True)
         except Exception as exc:
@@ -770,7 +780,7 @@ def create_app(
         import httpx as _httpx
         import websockets as _ws
 
-        cdp_port = 9222
+        cdp_port = int(getattr(app.state, "cdp_port", 9222))
         try:
             async with _httpx.AsyncClient(timeout=3) as client:
                 tabs = (await client.get(f"http://localhost:{cdp_port}/json")).json()
@@ -850,7 +860,7 @@ def create_app(
         import websockets as _ws
         import asyncio as _async
 
-        cdp_port = 9222
+        cdp_port = int(getattr(app.state, "cdp_port", 9222))
         # Check CDP availability
         try:
             async with _httpx.AsyncClient(timeout=3) as client:
@@ -965,7 +975,7 @@ def create_app(
         import websockets as _ws
         import asyncio as _async
 
-        cdp_port = 9222
+        cdp_port = int(getattr(app.state, "cdp_port", 9222))
         try:
             async with _httpx.AsyncClient(timeout=3) as client:
                 tabs = (await client.get(f"http://localhost:{cdp_port}/json")).json()
@@ -1195,19 +1205,31 @@ def create_app(
         if err: return err
         body = await request.json()
         current = dict(getattr(app.state, "runtime_settings", _RUNTIME_SETTINGS_DEFAULTS))
+        def int_setting(name: str, minimum: int) -> int:
+            try:
+                return max(minimum, int(body.get(name, current[name])))
+            except (TypeError, ValueError):
+                return int(current[name])
         data = {
             "time_zone": str(body.get("time_zone", current["time_zone"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["time_zone"],
             "model_alias": str(body.get("model_alias", current["model_alias"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["model_alias"],
             "auto_refresh": bool(body.get("auto_refresh", current["auto_refresh"])),
-            "refresh_before_seconds": max(0, int(body.get("refresh_before_seconds", current["refresh_before_seconds"]))),
-            "idle_timeout_minutes": max(1, int(body.get("idle_timeout_minutes", current["idle_timeout_minutes"]))),
+            "refresh_before_seconds": int_setting("refresh_before_seconds", 0),
+            "idle_timeout_minutes": int_setting("idle_timeout_minutes", 1),
+            "cdp_port": int_setting("cdp_port", 1),
+            "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
         }
+        if data["log_level"] not in _LOG_LEVELS:
+            return _json_err(400, "Invalid log level")
         app.state.runtime_settings = data
         app.state.time_zone = data["time_zone"]
         app.state.model_alias = data["model_alias"]
         app.state.auto_refresh_enabled = data["auto_refresh"]
         app.state.refresh_before_seconds = data["refresh_before_seconds"]
         app.state.idle_timeout_minutes = data["idle_timeout_minutes"]
+        app.state.cdp_port = data["cdp_port"]
+        app.state.log_level = data["log_level"]
+        logging.getLogger().setLevel(app.state.log_level)
         _write_runtime_settings(resolved_settings.token_dir, data)
         return {"status": "ok", "settings": data}
 
@@ -2449,10 +2471,10 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
 #status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:330px}
 .view-settings{height:90px;min-height:90px}
-.view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
+.view-settings.details-open,.view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
 .view-debug{height:90px;min-height:90px}
-.view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
-body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
+.view-debug.details-open,.view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
+body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
@@ -2738,8 +2760,11 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <select id="tone-select" class="tone-select"></select>
 </div>
 <div style="font-size:.8rem;color:var(--faint);margin-top:.45rem" data-i18n="tone_hint"></div>
-<details id="runtime-settings-details" style="cursor:pointer;margin-top:.75rem">
-<summary style="font-size:.95rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+</div>
+
+<div class="card view-settings">
+<details id="runtime-settings-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="runtime_title">运行设置</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem;margin-top:.75rem">
@@ -2810,6 +2835,11 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:var(--inner);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem;margin-top:.75rem;margin-bottom:.75rem">
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="cdp_port_label">CDP 端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+<div style="display:flex;align-items:flex-end;gap:.5rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="debug-runtime-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
+</div>
 <div id="call-log-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
@@ -2954,7 +2984,7 @@ const i18n={
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（新用户模板）',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
-    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',
+    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',cdp_port_label:'CDP 端口',log_level_label:'日志等级',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -3040,7 +3070,7 @@ const i18n={
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (New User Template)',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
-    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',
+    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',cdp_port_label:'CDP port',log_level_label:'Log level',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -3531,6 +3561,7 @@ async function loadStats(){
   }catch(e){}
 }
 let __accounts=[];
+let __runtimeSettings={};
 let __selectedAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
@@ -3908,7 +3939,16 @@ function toggleKeySelected(id,on){on?__selectedKeyIds.add(id):__selectedKeyIds.d
 function selectAllKeys(on){__selectedKeyIds=new Set(on?__keys.map(k=>k.id):[]);document.querySelectorAll('.key-check').forEach(cb=>{cb.checked=!!on})}
 async function batchSetKeys(enabled){const ids=[...__selectedKeyIds];if(!ids.length)return await adminAlert(t('batch_none'));for(const id of ids){await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})}).catch(()=>{})}loadKeys()}
 async function batchDeleteKeys(){const ids=[...__selectedKeyIds];if(!ids.length)return await adminAlert(t('batch_none'));if(!await adminConfirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/keys/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedKeyIds.clear();loadKeys();loadAccounts()}
+function initDetailsCards(){
+  document.querySelectorAll('.view-settings,.view-debug').forEach(card=>{
+    const details=card.querySelector('details');
+    if(!details){card.classList.add('no-details');return}
+    const sync=()=>card.classList.toggle('details-open',details.open);
+    details.addEventListener('toggle',sync);sync();
+  });
+}
 
+initDetailsCards();
 loadStatus();
 loadChromiumStatus();
 loadCallLog();
@@ -4089,17 +4129,21 @@ async function loadRuntimeSettings(){
   try{
     const r=await fetch('/admin/runtime-settings',{credentials:'include'});if(!r.ok)return;
     const d=await r.json(),s=d.settings||{};
+    __runtimeSettings={...s};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-log-level',s.log_level);
     const cb=document.getElementById('runtime-auto-refresh');if(cb)cb.checked=!!s.auto_refresh;
   }catch(e){}
 }
 async function saveRuntimeSettings(){
   const val=id=>document.getElementById(id)?.value;
-  const body={time_zone:val('runtime-time-zone'),model_alias:val('runtime-model-alias'),refresh_before_seconds:Number(val('runtime-refresh-before')||0),idle_timeout_minutes:Number(val('runtime-idle-timeout')||1),auto_refresh:!!document.getElementById('runtime-auto-refresh')?.checked};
+  const body={...__runtimeSettings};
+  const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
+  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('log_level','runtime-log-level');
+  const cb=document.getElementById('runtime-auto-refresh');if(cb)body.auto_refresh=!!cb.checked;
   try{
     const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
-    const s=document.getElementById('runtime-settings-saved');if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+    ['runtime-settings-saved','debug-runtime-saved'].forEach(id=>{const s=document.getElementById(id);if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}})
   }catch(e){}
 }
 async function loadToolPrompt(){
