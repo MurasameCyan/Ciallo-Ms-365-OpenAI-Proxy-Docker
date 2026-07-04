@@ -2475,6 +2475,7 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-debug{height:90px;min-height:90px}
 .view-debug.details-open,.view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
+body[data-view="debug"] .ports-logs-card{height:auto;min-height:90px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
@@ -2491,6 +2492,13 @@ body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-deb
 .role-toggle .role-u{color:var(--faint)}
 .role-toggle:has(input:checked) .role-a{color:var(--faint)}
 .role-toggle:has(input:checked) .role-u{color:var(--cyan)}
+.auto-toggle{display:inline-flex;align-items:center;gap:.45rem;min-height:30px;padding:3px 8px;border-radius:999px;background:linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,146,60,.08));border:1px solid rgba(245,158,11,.34);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 14px rgba(245,158,11,.14);color:var(--faint);font-size:.75rem;font-weight:800;user-select:none;transition:background .2s ease,border-color .2s ease,box-shadow .2s ease}
+.auto-toggle:has(input:checked){background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(59,130,246,.1));border-color:rgba(96,242,255,.42);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 14px rgba(96,242,255,.16)}
+.auto-toggle input{position:absolute;opacity:0;pointer-events:none}
+.auto-toggle .role-track{position:relative;width:34px;height:18px;border-radius:999px;background:linear-gradient(135deg,rgba(245,158,11,.58),rgba(251,146,60,.38));border:1px solid rgba(245,158,11,.58);box-shadow:inset 0 1px 3px rgba(0,0,0,.35),0 0 10px rgba(245,158,11,.22);transition:background .2s ease,border-color .2s ease,box-shadow .2s ease}
+.auto-toggle .role-track:before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;border-radius:50%;background:linear-gradient(135deg,#fde68a,#f59e0b);box-shadow:0 0 10px rgba(245,158,11,.58);transition:transform .2s ease,background .2s ease,box-shadow .2s ease}
+.auto-toggle input:checked+.role-track{background:linear-gradient(135deg,rgba(96,242,255,.6),rgba(59,130,246,.4));border-color:rgba(96,242,255,.62);box-shadow:inset 0 1px 3px rgba(0,0,0,.35),0 0 10px rgba(96,242,255,.28)}
+.auto-toggle input:checked+.role-track:before{transform:translateX(16px);background:linear-gradient(135deg,#d6fbff,#60f2ff);box-shadow:0 0 10px rgba(96,242,255,.62)}
 .role-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;font-size:.74rem;font-weight:900;letter-spacing:.02em;border:1px solid var(--inner-border);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
 .role-badge.admin{color:#fde68a;background:linear-gradient(135deg,rgba(245,158,11,.28),rgba(255,94,219,.18));border-color:rgba(245,158,11,.42);box-shadow:0 0 14px rgba(245,158,11,.22),inset 0 1px 0 rgba(255,255,255,.12)}
 .role-badge.user{color:var(--cyan);background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.12));border-color:rgba(96,242,255,.38);box-shadow:0 0 14px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.12)}
@@ -2605,7 +2613,7 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 .data-globe .orbit.o1{--x:68deg;--y:18deg;--r:18deg}
 .data-globe .orbit.o2{inset:-18px;--x:28deg;--y:72deg;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 12px var(--violet)}
 .data-globe .orbit.o3{inset:-24px;--x:78deg;--y:-36deg;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 12px var(--gold)}
-.debug-gate b,.debug-gate small{display:none}
+.debug-gate b{display:block;color:var(--strong);font-size:1rem}.debug-gate small{display:block;color:var(--faint);font-size:.72rem}
 .debug-gate.on{box-shadow:0 0 42px rgba(96,242,255,.34),0 0 110px rgba(140,107,255,.24),inset 0 1px 0 rgba(255,255,255,.1)}
 .debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .data-globe:before{animation-duration:3.4s}.debug-gate.on .data-globe:after{animation-duration:2.8s}.debug-gate.on .data-globe{box-shadow:0 0 52px rgba(96,242,255,.52),0 0 86px rgba(140,107,255,.3),0 0 118px rgba(255,94,219,.16),inset 0 0 34px rgba(96,242,255,.22)}
 .debug-gate.on .orbit{opacity:1;animation:orbitSpin 2.4s linear infinite}.debug-gate.on .orbit.o2{animation-duration:3.2s;animation-direction:reverse}.debug-gate.on .orbit.o3{animation-duration:4.1s}
@@ -2754,27 +2762,20 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 
 <div class="card view-settings">
-<div style="display:flex;align-items:center;gap:.5rem">
-<h2 data-i18n="title_tone" style="margin:0;font-size:1.1rem;font-weight:600">对话模式</h2>
-<span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
-<select id="tone-select" class="tone-select"></select>
-</div>
-<div style="font-size:.8rem;color:var(--faint);margin-top:.45rem" data-i18n="tone_hint"></div>
-</div>
-
-<div class="card view-settings">
 <details id="runtime-settings-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-<span data-i18n="runtime_title">运行设置</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span data-i18n="runtime_title">运行设置（全局模板）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem;margin-top:.75rem">
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.25rem;width:100%"></select></label>
 <label style="font-size:.75rem;color:var(--faint)"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label style="font-size:.75rem;color:var(--faint)"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label style="font-size:.75rem;color:var(--faint)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label style="font-size:.75rem;color:var(--faint)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label style="font-size:.75rem;color:var(--faint);display:flex;align-items:center;gap:.5rem;margin-top:1.2rem"><input id="runtime-auto-refresh" type="checkbox"><span data-i18n="auto_refresh_label">自动刷新</span></label>
+<label style="font-size:.75rem;color:var(--faint);display:flex;align-items:center;gap:.5rem;margin-top:1.2rem"><span data-i18n="auto_refresh_label">自动刷新</span><span class="auto-toggle"><input id="runtime-auto-refresh" type="checkbox"><span class="role-track"></span></span></label>
 </div>
-<div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="runtime-settings-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
+<div style="font-size:.8rem;color:var(--faint);margin-top:.55rem" data-i18n="tone_hint"></div>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings()" data-i18n="save">保存</button><span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span><span id="runtime-settings-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
 </details>
 </div>
 
@@ -2828,22 +2829,13 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </button>
 </div>
 
-<div class="card view-debug">
-<details id="call-log-details" style="cursor:pointer">
-<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-<span data-i18n="title_call_log">API 调用记录</span>
-<span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:var(--inner);padding:2px 8px;border-radius:8px">0</span>
-<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
-</summary>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem;margin-top:.75rem;margin-bottom:.75rem">
+<div class="card view-debug ports-logs-card">
+<h2 data-i18n="ports_logs_title" style="margin:0 0 .75rem;font-size:1.1rem;font-weight:600">端口与日志</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem">
 <label style="font-size:.75rem;color:var(--faint)"><span data-i18n="cdp_port_label">CDP 端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label style="font-size:.75rem;color:var(--faint)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <div style="display:flex;align-items:flex-end;gap:.5rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="debug-runtime-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
 </div>
-<div id="call-log-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
-<span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
-</div>
-</details>
 </div>
 
 <div class="card view-debug">
@@ -2853,7 +2845,16 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="capture-count" style="font-size:.75rem;color:var(--faint);background:var(--inner);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="margin-top:.5rem;font-size:.75rem;color:var(--faint)" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
+<div style="margin-top:.75rem;padding:.6rem .75rem;border-radius:10px;background:var(--inner);border:1px solid var(--inner-border)">
+<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
+<span data-i18n="title_call_log" style="font-size:.95rem;font-weight:600;color:var(--strong)">API 调用记录</span>
+<span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
+</div>
+<div id="call-log-content" style="max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
+<span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
+</div>
+</div>
+<div style="margin-top:.75rem;font-size:.75rem;color:var(--faint)" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
 <div id="capture-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
 <span style="color:var(--faint)" data-i18n="no_capture_yet">暂无抓包数据</span>
 </div>
@@ -2982,9 +2983,9 @@ const i18n={
     dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',dbg_gate_hint:'点击切换调试接收通道',
     dbg_capture_desc:'非必要时请勿开启，避免恶意数据写入；调试完成后请及时关闭。',
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
-    title_tone:'对话模式（新用户模板）',
+    title_tone:'对话模式',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
-    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',cdp_port_label:'CDP 端口',log_level_label:'日志等级',
+    runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 端口',log_level_label:'日志等级',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -3068,9 +3069,9 @@ const i18n={
     dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',dbg_gate_hint:'Click to toggle the debug receive channel',
     dbg_capture_desc:'Do not enable unless necessary, to avoid malicious data being written; turn it off promptly after debugging.',
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
-    title_tone:'Conversation Mode (New User Template)',
+    title_tone:'Conversation Mode',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
-    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',cdp_port_label:'CDP port',log_level_label:'Log level',
+    runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP port',log_level_label:'Log level',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -4452,7 +4453,7 @@ const i18n={
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
-    mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
+    mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户',status_login:'登录',status_refresh:'刷新',status_valid:'有效',status_expire:'过期',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
     tone_title:'对话模式',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
@@ -4475,7 +4476,7 @@ const i18n={
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
-    mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
+    mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_expire:'Expires',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
     tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
@@ -4631,8 +4632,8 @@ function renderAccountStatus(d){
     +'<div class="status-line"><span>'+t('status_login')+'</span><b>'+mark(login)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+mark(refresh)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+mark(valid)+'</b></div>'
-    +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_remaining')+'</span><b data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
     +'</div>';
 }
 async function loadMe(){
