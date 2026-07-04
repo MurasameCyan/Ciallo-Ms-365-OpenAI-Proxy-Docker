@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import platform
 import shutil
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -39,6 +41,46 @@ def _chromium_path() -> str:
         or shutil.which("microsoft-edge-stable")
         or "chromium"
     )
+
+
+def _cleanup_profile_locks(profile_dir: Path) -> None:
+    """Stop stale Chromium processes for this profile and remove Singleton locks."""
+    profile = str(profile_dir.resolve())
+    profile_arg = str(profile_dir)
+    if platform.system() != "Windows":
+        proc_root = Path("/proc")
+        if proc_root.exists():
+            for entry in proc_root.iterdir():
+                if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                    continue
+                try:
+                    raw = (entry / "cmdline").read_bytes().decode("utf-8", "ignore")
+                except Exception:
+                    continue
+                if "--user-data-dir=" in raw and (profile in raw or profile_arg in raw):
+                    pid = int(entry.name)
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except Exception:
+                        pass
+            time.sleep(0.3)
+            for entry in proc_root.iterdir():
+                if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                    continue
+                try:
+                    raw = (entry / "cmdline").read_bytes().decode("utf-8", "ignore")
+                except Exception:
+                    continue
+                if "--user-data-dir=" in raw and (profile in raw or profile_arg in raw):
+                    try:
+                        os.kill(int(entry.name), signal.SIGKILL)
+                    except Exception:
+                        pass
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        try:
+            (profile_dir / name).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 class RefreshScheduler:
@@ -119,6 +161,7 @@ class RefreshScheduler:
             return 0, len(cookies or [])
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
+        _cleanup_profile_locks(profile_dir)
         proc = None
         try:
             proc = subprocess.Popen([
@@ -224,6 +267,7 @@ class RefreshScheduler:
                         proc.kill()
                     except Exception:
                         pass
+            _cleanup_profile_locks(profile_dir)
 
     async def _refresh_one(self, account_id: str) -> bool:
         account = self._accounts.get(account_id)
@@ -231,6 +275,7 @@ class RefreshScheduler:
             return False
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
+        _cleanup_profile_locks(profile_dir)
         proc = None
         try:
             proc = subprocess.Popen([

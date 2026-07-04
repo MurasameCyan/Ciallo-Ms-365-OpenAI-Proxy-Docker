@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Prefix all container stdout/stderr lines with ISO-like local time for readable docker logs.
+if [ -z "${LOG_TS_PREFIXED:-}" ]; then
+    export LOG_TS_PREFIXED=1
+    exec > >(while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done) 2>&1
+fi
+
 CDP_PORT="${CHROME_CDP_PORT:-9222}"
 CHROME_PROFILE="/chrome-profile"
 AUTO_REFRESH="${AUTO_REFRESH:-true}"
