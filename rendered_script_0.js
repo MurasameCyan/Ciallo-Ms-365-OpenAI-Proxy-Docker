@@ -72,6 +72,7 @@ const i18n={
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（新用户模板）',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
+    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -157,6 +158,7 @@ const i18n={
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (New User Template)',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
+    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -185,7 +187,7 @@ function applyLang(){
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
   });
-  loadStatus();loadChromiumStatus();loadTone();
+  loadStatus();loadChromiumStatus();loadTone();loadRuntimeSettings();
   loadAccounts();loadKeys();
   const vt=document.getElementById('view-title');
   if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
@@ -510,7 +512,7 @@ function donut(parts,centerLabel,centerVal){
     +'<filter id="'+uid+'halo" x="-55%" y="-55%" width="210%" height="210%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
     +'<linearGradient id="'+uid+'gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
     +'</defs>';
-  let ring='',halo='',headRing='',headHalo='';
+  let ring='',halo='';
   // base track ring (glass groove)
   ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="var(--track)" stroke-width="16" opacity=".72"/>';
   if(total>0){
@@ -520,25 +522,18 @@ function donut(parts,centerLabel,centerVal){
       const ratio=p.value/total,len=C*ratio;
       const outerR=R+5,innerR=R-8,outerC=2*Math.PI*outerR,innerC=2*Math.PI*innerR;
       const outerLen=outerC*ratio,innerLen=innerC*ratio,outerOff=outerC*(off/C),innerOff=innerC*(off/C);
-      const connected=visibleParts.length>1;
-      const ringCap=connected?0:8.25,outerCap=connected?0:10,innerCap=connected?0:1.3;
+      const ringCap=8.25,outerCap=10,innerCap=1.3;
       const ringLen=Math.max(0.01,len-ringCap*2),outerDrawLen=Math.max(0.01,outerLen-outerCap*2),innerDrawLen=Math.max(0.01,innerLen-innerCap*2);
       const ringStart=off+ringCap,outerStart=outerOff+outerCap,innerStart=innerOff+innerCap;
       ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/><animate attributeName="stroke-dashoffset" values="'+(-ringStart)+';'+(-ringStart-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14;16.5;14" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.2"><animate attributeName="stroke-dashoffset" values="'+(-outerStart)+';'+(-outerStart-outerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.16;0.62;0.16" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="9;20;9" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="stroke-dashoffset" values="'+(-innerStart)+';'+(-innerStart-innerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.08;0.28;0.08" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.6;1" dur="5.5s" repeatCount="indefinite"/></circle>';
-      if(connected){
-        const coverLen=Math.min(22,Math.max(14,len*.22)),headStart=off-coverLen*.35;
-        const outerCover=outerC*(coverLen/C),outerHeadStart=outerC*(headStart/C),innerCover=innerC*(coverLen/C),innerHeadStart=innerC*(headStart/C);
-        headRing+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15.2" stroke-linecap="round" stroke-dasharray="'+coverLen+' '+(C-coverLen)+'" stroke-dashoffset="'+(-headStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.98"><animate attributeName="stroke-dashoffset" values="'+(-headStart)+';'+(-headStart-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.88;1;0.88" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14.4;16.8;14.4" dur="5.5s" repeatCount="indefinite"/></circle>';
-        headHalo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+outerCover+' '+(outerC-outerCover)+'" stroke-dashoffset="'+(-outerHeadStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.22"><animate attributeName="stroke-dashoffset" values="'+(-outerHeadStart)+';'+(-outerHeadStart-outerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.18;0.66;0.18" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="10;21;10" dur="5.5s" repeatCount="indefinite"/></circle><circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="'+innerCover+' '+(innerC-innerCover)+'" stroke-dashoffset="'+(-innerHeadStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="stroke-dashoffset" values="'+(-innerHeadStart)+';'+(-innerHeadStart-innerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.08;0.3;0.08" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.8;1" dur="5.5s" repeatCount="indefinite"/></circle>';
-      }
       off+=len;
     });
   }
   // glossy highlight arc over the top of the ring for a glass sheen
   const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
-  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+headHalo+ring+headRing+sheen
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+ring+sheen
     +'<text x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+'</text></svg>';
   let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
@@ -572,7 +567,7 @@ function renderDashboard(){
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function fmtHMS(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor(sec%3600/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return h+':'+m+':'+s}
 function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
-function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000;const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(st.seconds_remaining||0));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
+function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000,base=Number(st.seconds_remaining||0),loaded=Number(st._loaded_at||now);const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(base-(now-loaded)));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
 function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
@@ -699,12 +694,12 @@ function renderSelectedStatus(){
   let html='';
   html+=row(t('col_account'),esc(a.name||a.id),'valid');
   if(a.email)html+=row('Email',esc(a.email),'');
-  html+=row(t('col_token'),v?t('valid_short')+' '+fmtHMS(st.seconds_remaining||0):t('invalid_short'),v?'valid':'invalid');
+  html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
-  html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
-  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),cv?'valid':'warn');
   html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(cv?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&cv?'valid':'warn');
+  html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
+  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),'');
   if(st.error)html+=row(t('error'),esc(st.error),'invalid');
   box.innerHTML=html;
 }
@@ -742,7 +737,8 @@ async function loadAccounts(localOnly=false){
       const r=await fetch('/admin/accounts',{credentials:'include'});
       if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
       const d=await r.json();
-      __accounts=d.accounts||[];
+      const loadedAt=Date.now()/1000;
+      __accounts=(d.accounts||[]).map(a=>({...a,token_status:{...(a.token_status||{}),_loaded_at:loadedAt}}));
     }
     if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
     const __pg=_slicePage(__accounts,'accounts');
@@ -1064,6 +1060,7 @@ loadChromiumStatus();
 loadCallLog();
 loadCapture();
 loadTone();
+loadRuntimeSettings();
 loadToolPrompt();
 loadSystemPrompt();
 loadAccounts();
@@ -1232,6 +1229,23 @@ async function saveTone(tone){
     window.__toneSig='';
     const s=document.getElementById('tone-saved');
     if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+  }catch(e){}
+}
+async function loadRuntimeSettings(){
+  try{
+    const r=await fetch('/admin/runtime-settings',{credentials:'include'});if(!r.ok)return;
+    const d=await r.json(),s=d.settings||{};
+    const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);
+    const cb=document.getElementById('runtime-auto-refresh');if(cb)cb.checked=!!s.auto_refresh;
+  }catch(e){}
+}
+async function saveRuntimeSettings(){
+  const val=id=>document.getElementById(id)?.value;
+  const body={time_zone:val('runtime-time-zone'),model_alias:val('runtime-model-alias'),refresh_before_seconds:Number(val('runtime-refresh-before')||0),idle_timeout_minutes:Number(val('runtime-idle-timeout')||1),auto_refresh:!!document.getElementById('runtime-auto-refresh')?.checked};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
+    const s=document.getElementById('runtime-settings-saved');if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
   }catch(e){}
 }
 async function loadToolPrompt(){

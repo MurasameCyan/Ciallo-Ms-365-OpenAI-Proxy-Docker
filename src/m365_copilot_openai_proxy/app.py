@@ -27,6 +27,13 @@ from .translator import translate_anthropic_request, translate_openai_request, t
 
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
+_RUNTIME_SETTINGS_DEFAULTS = {
+    "time_zone": "Asia/Shanghai",
+    "model_alias": "m365-copilot",
+    "auto_refresh": True,
+    "refresh_before_seconds": 300,
+    "idle_timeout_minutes": 30,
+}
 
 # Login credential rules (validated server-side; front-end checks are bypassable).
 # Username: letters + digits only. Password: letters, digits, and a safe symbol
@@ -48,6 +55,32 @@ def _validate_password(password: str) -> str | None:
     if not _PASSWORD_RE.match(password):
         return "Password must be 6-64 chars: letters, digits, and safe symbols (!#$%&*+-.:=?@^_~)"
     return None
+
+
+def _runtime_settings_path(token_dir: str) -> Path:
+    return Path(token_dir) / "runtime_settings.json"
+
+
+def _read_runtime_settings(token_dir: str) -> dict:
+    data = dict(_RUNTIME_SETTINGS_DEFAULTS)
+    try:
+        raw = json.loads(_runtime_settings_path(token_dir).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        raw = {}
+    if isinstance(raw, dict):
+        data.update({k: raw[k] for k in data.keys() if k in raw})
+    data["time_zone"] = str(data.get("time_zone") or _RUNTIME_SETTINGS_DEFAULTS["time_zone"]).strip()
+    data["model_alias"] = str(data.get("model_alias") or _RUNTIME_SETTINGS_DEFAULTS["model_alias"]).strip()
+    data["auto_refresh"] = bool(data.get("auto_refresh"))
+    data["refresh_before_seconds"] = max(0, int(data.get("refresh_before_seconds") or 0))
+    data["idle_timeout_minutes"] = max(1, int(data.get("idle_timeout_minutes") or 1))
+    return data
+
+
+def _write_runtime_settings(token_dir: str, data: dict) -> None:
+    path = _runtime_settings_path(token_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
@@ -458,9 +491,14 @@ def create_app(
     app.state.metrics_path = Path(resolved_settings.token_dir) / "metrics_history.json"
     app.state.metrics_history: list[dict] = _load_metrics_history(app.state.metrics_path)
     app.state.metrics_last_snapshot = 0.0
-    app.state.auto_refresh_enabled = False  # On-demand: only refresh when /v1/ requests come in
+    runtime_settings = _read_runtime_settings(resolved_settings.token_dir)
+    app.state.runtime_settings = runtime_settings
+    app.state.model_alias = runtime_settings["model_alias"]
+    app.state.time_zone = runtime_settings["time_zone"]
+    app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
+    app.state.refresh_before_seconds = runtime_settings["refresh_before_seconds"]
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
-    app.state.idle_timeout_minutes = resolved_settings.idle_timeout_minutes
+    app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]
     app.state.username = read_username()  # Restore persisted username (set via get_token.js push or CDP extraction)
     app.state.current_tone = read_tone() or "Magic"  # Restore persisted conversation tone (mode), default "Magic" (Auto)
     app.state.tool_prompt = read_tool_prompt()  # Restore persisted user-defined extra tool-call instruction
@@ -482,7 +520,7 @@ def create_app(
     app.state.copilot_client_factory = copilot_client_factory or (
         lambda token=None, tone=None, tool_prompt=None: SubstrateCopilotClient(
             token if token is not None else app.state.token_store.get(),
-            resolved_settings.time_zone,
+            getattr(app.state, 'time_zone', 'Asia/Shanghai'),
             tone if tone is not None else getattr(app.state, 'current_tone', 'Magic'),
             tool_prompt if tool_prompt is not None else getattr(app.state, 'tool_prompt', ''),
         )
@@ -1145,6 +1183,34 @@ def create_app(
         write_tone(tone)
         return {"status": "ok", "tone": tone}
 
+    @app.get("/admin/runtime-settings")
+    async def get_runtime_settings(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        return {"settings": dict(getattr(app.state, "runtime_settings", _RUNTIME_SETTINGS_DEFAULTS))}
+
+    @app.post("/admin/runtime-settings")
+    async def set_runtime_settings(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        body = await request.json()
+        current = dict(getattr(app.state, "runtime_settings", _RUNTIME_SETTINGS_DEFAULTS))
+        data = {
+            "time_zone": str(body.get("time_zone", current["time_zone"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["time_zone"],
+            "model_alias": str(body.get("model_alias", current["model_alias"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["model_alias"],
+            "auto_refresh": bool(body.get("auto_refresh", current["auto_refresh"])),
+            "refresh_before_seconds": max(0, int(body.get("refresh_before_seconds", current["refresh_before_seconds"]))),
+            "idle_timeout_minutes": max(1, int(body.get("idle_timeout_minutes", current["idle_timeout_minutes"]))),
+        }
+        app.state.runtime_settings = data
+        app.state.time_zone = data["time_zone"]
+        app.state.model_alias = data["model_alias"]
+        app.state.auto_refresh_enabled = data["auto_refresh"]
+        app.state.refresh_before_seconds = data["refresh_before_seconds"]
+        app.state.idle_timeout_minutes = data["idle_timeout_minutes"]
+        _write_runtime_settings(resolved_settings.token_dir, data)
+        return {"status": "ok", "settings": data}
+
     @app.get("/admin/tool-prompt")
     async def get_tool_prompt(request: Request) -> dict:
         err = _require_admin(request)
@@ -1701,16 +1767,17 @@ def create_app(
 
     @app.get("/v1/models")
     async def list_models(settings: Settings = Depends(get_settings)) -> dict:
+        model_alias = getattr(app.state, "model_alias", settings.model_alias)
         return {
             "object": "list",
             "data": [
                 {
-                    "id": settings.model_alias,
+                    "id": model_alias,
                     "object": "model",
                     "owned_by": "microsoft-365-copilot",
                 },
                 {
-                    "id": f"{settings.model_alias}{_PERSIST_MODEL_SUFFIX}",
+                    "id": f"{model_alias}{_PERSIST_MODEL_SUFFIX}",
                     "object": "model",
                     "owned_by": "microsoft-365-copilot",
                 },
@@ -1725,6 +1792,7 @@ def create_app(
         client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
         _log = logging.getLogger("copilot_proxy")
+        model_alias = getattr(app.state, "model_alias", settings.model_alias)
         _log.info("[/v1/chat/completions] stream=%s tools=%d messages=%d model=%s",
                   request.stream, len(request.tools) if request.tools else 0,
                   len(request.messages), request.model)
@@ -1773,7 +1841,7 @@ def create_app(
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
                         _openai_stream_with_tools(
-                            settings.model_alias,
+                            model_alias,
                             client,
                             translated.prompt,
                             translated.additional_context,
@@ -1786,7 +1854,7 @@ def create_app(
                     )
                 return StreamingResponse(
                     _openai_stream(
-                        settings.model_alias,
+                        model_alias,
                         client,
                         translated.prompt,
                         translated.additional_context,
@@ -1844,7 +1912,7 @@ def create_app(
                 "id": f"chatcmpl_{uuid.uuid4().hex}",
                 "object": "chat.completion",
                 "created": int(time.time()),
-                "model": settings.model_alias,
+                "model": model_alias,
                 "choices": [
                     {
                         "index": 0,
@@ -1859,7 +1927,7 @@ def create_app(
             "id": f"chatcmpl_{uuid.uuid4().hex}",
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": settings.model_alias,
+            "model": model_alias,
             "choices": [
                 {
                     "index": 0,
@@ -1876,6 +1944,7 @@ def create_app(
         settings: Settings = Depends(get_settings),
         client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
+        model_alias = getattr(app.state, "model_alias", settings.model_alias)
         body = await raw.json()
         try:
             request = OpenAIResponsesRequest.model_validate(body)
@@ -1886,7 +1955,7 @@ def create_app(
 
         if request.stream:
             return StreamingResponse(
-                _responses_stream(settings.model_alias, client, translated.prompt, translated.additional_context, session),
+                _responses_stream(model_alias, client, translated.prompt, translated.additional_context, session),
                 media_type="text/event-stream",
             )
 
@@ -1899,7 +1968,7 @@ def create_app(
             "id": f"resp_{uuid.uuid4().hex}",
             "object": "response",
             "created_at": int(time.time()),
-            "model": settings.model_alias,
+            "model": model_alias,
             "output": [{
                 "type": "message",
                 "id": f"msg_{uuid.uuid4().hex}",
@@ -1916,6 +1985,7 @@ def create_app(
         settings: Settings = Depends(get_settings),
         client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
+        model_alias = getattr(app.state, "model_alias", settings.model_alias)
         try:
             translated = translate_anthropic_request(request)
             session = _persistent_session(app, raw_request, request.model, _messages_session_key(request), request)
@@ -1924,7 +1994,7 @@ def create_app(
 
         if request.stream:
             return StreamingResponse(
-                _anthropic_stream(settings.model_alias, client, translated.prompt, translated.additional_context, session),
+                _anthropic_stream(model_alias, client, translated.prompt, translated.additional_context, session),
                 media_type="text/event-stream",
             )
 
@@ -1937,7 +2007,7 @@ def create_app(
             "id": f"msg_{uuid.uuid4().hex}",
             "type": "message",
             "role": "assistant",
-            "model": settings.model_alias,
+            "model": model_alias,
             "content": [{"type": "text", "text": text}],
             "stop_reason": "end_turn",
             "stop_sequence": None,
@@ -2667,6 +2737,20 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="tone-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
 <select id="tone-select" class="tone-select"></select>
 </div>
+<div style="font-size:.8rem;color:var(--faint);margin-top:.45rem" data-i18n="tone_hint"></div>
+<details id="runtime-settings-details" style="cursor:pointer;margin-top:.75rem">
+<summary style="font-size:.95rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="runtime_title">运行设置</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem;margin-top:.75rem">
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label style="font-size:.75rem;color:var(--faint);display:flex;align-items:center;gap:.5rem;margin-top:1.2rem"><input id="runtime-auto-refresh" type="checkbox"><span data-i18n="auto_refresh_label">自动刷新</span></label>
+</div>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="runtime-settings-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
+</details>
 </div>
 
 <div class="card view-settings">
@@ -2870,6 +2954,7 @@ const i18n={
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式（新用户模板）',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
+    runtime_title:'运行设置',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -2955,6 +3040,7 @@ const i18n={
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode (New User Template)',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
+    runtime_title:'Runtime Settings',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -2983,7 +3069,7 @@ function applyLang(){
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
   });
-  loadStatus();loadChromiumStatus();loadTone();
+  loadStatus();loadChromiumStatus();loadTone();loadRuntimeSettings();
   loadAccounts();loadKeys();
   const vt=document.getElementById('view-title');
   if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
@@ -3828,6 +3914,7 @@ loadChromiumStatus();
 loadCallLog();
 loadCapture();
 loadTone();
+loadRuntimeSettings();
 loadToolPrompt();
 loadSystemPrompt();
 loadAccounts();
@@ -3996,6 +4083,23 @@ async function saveTone(tone){
     window.__toneSig='';
     const s=document.getElementById('tone-saved');
     if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+  }catch(e){}
+}
+async function loadRuntimeSettings(){
+  try{
+    const r=await fetch('/admin/runtime-settings',{credentials:'include'});if(!r.ok)return;
+    const d=await r.json(),s=d.settings||{};
+    const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);
+    const cb=document.getElementById('runtime-auto-refresh');if(cb)cb.checked=!!s.auto_refresh;
+  }catch(e){}
+}
+async function saveRuntimeSettings(){
+  const val=id=>document.getElementById(id)?.value;
+  const body={time_zone:val('runtime-time-zone'),model_alias:val('runtime-model-alias'),refresh_before_seconds:Number(val('runtime-refresh-before')||0),idle_timeout_minutes:Number(val('runtime-idle-timeout')||1),auto_refresh:!!document.getElementById('runtime-auto-refresh')?.checked};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
+    const s=document.getElementById('runtime-settings-saved');if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
   }catch(e){}
 }
 async function loadToolPrompt(){

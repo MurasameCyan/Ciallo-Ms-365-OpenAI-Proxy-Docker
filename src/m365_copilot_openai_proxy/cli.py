@@ -407,8 +407,9 @@ def _auto_refresh_loop(
             stop_event.wait(retry_seconds)
             continue
 
-        if remaining > refresh_before_seconds:
-            wait_seconds = min(remaining - refresh_before_seconds, 300)
+        current_refresh_before = getattr(app_state, 'refresh_before_seconds', refresh_before_seconds) if app_state is not None else refresh_before_seconds
+        if remaining > current_refresh_before:
+            wait_seconds = min(remaining - current_refresh_before, 300)
             stop_event.wait(wait_seconds)
             continue
 
