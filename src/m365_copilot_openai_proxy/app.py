@@ -1660,8 +1660,10 @@ def create_app(
         tone = str(body.get("tone", "")).strip()
         if tone not in _TONE_VALUES:
             return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
-        app.state.key_store.update(k.id, tone=tone)
-        return {"status": "ok", "tone": tone}
+        model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias))).strip() or settings.model_alias
+        time_zone = str(body.get("time_zone", getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"))).strip() or "Asia/Shanghai"
+        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone)
+        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone}
 
     @app.post("/user/tool-prompt")
     async def user_set_tool_prompt(request: Request) -> dict:
@@ -1819,9 +1821,13 @@ def create_app(
         from starlette.responses import Response
         return Response(status_code=204)
 
+    def _request_model_alias(raw_request: Request, settings: Settings) -> str:
+        key_obj = getattr(raw_request.state, "api_key_obj", None)
+        return getattr(key_obj, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias)
+
     @app.get("/v1/models")
-    async def list_models(settings: Settings = Depends(get_settings)) -> dict:
-        model_alias = getattr(app.state, "model_alias", settings.model_alias)
+    async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> dict:
+        model_alias = _request_model_alias(raw_request, settings)
         return {
             "object": "list",
             "data": [
@@ -1846,7 +1852,7 @@ def create_app(
         client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
         _log = logging.getLogger("copilot_proxy")
-        model_alias = getattr(app.state, "model_alias", settings.model_alias)
+        model_alias = _request_model_alias(raw_request, settings)
         _log.info("[/v1/chat/completions] stream=%s tools=%d messages=%d model=%s",
                   request.stream, len(request.tools) if request.tools else 0,
                   len(request.messages), request.model)
@@ -1998,7 +2004,7 @@ def create_app(
         settings: Settings = Depends(get_settings),
         client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
-        model_alias = getattr(app.state, "model_alias", settings.model_alias)
+        model_alias = _request_model_alias(raw, settings)
         body = await raw.json()
         try:
             request = OpenAIResponsesRequest.model_validate(body)
@@ -2039,7 +2045,7 @@ def create_app(
         settings: Settings = Depends(get_settings),
         client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
-        model_alias = getattr(app.state, "model_alias", settings.model_alias)
+        model_alias = _request_model_alias(raw_request, settings)
         try:
             translated = translate_anthropic_request(request)
             session = _persistent_session(app, raw_request, request.model, _messages_session_key(request), request)
@@ -2509,7 +2515,7 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 body[data-view="debug"] .view-debug.details-card:not(.details-open){height:auto;min-height:0;overflow:hidden}
 body[data-view="debug"] .view-debug.details-card:not(.details-open) details:not([open])>*:not(summary){display:none!important}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
-body[data-view="debug"] .view-debug.ports-logs-card.no-details{height:150px;min-height:150px;overflow:visible}
+body[data-view="debug"] .view-debug.ports-logs-card.no-details{height:auto;min-height:250px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
@@ -2566,8 +2572,8 @@ body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 .runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:1rem .8rem!important;margin-top:.2rem!important}
 .runtime-settings-grid .runtime-field-label{min-width:0!important}
 .runtime-settings-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
-.runtime-settings-grid input[type=number]::-webkit-outer-spin-button,.runtime-settings-grid input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.runtime-settings-grid input[type=number]{appearance:textfield;-moz-appearance:textfield}
+.runtime-settings-grid input[type=number]::-webkit-outer-spin-button,.runtime-settings-grid input[type=number]::-webkit-inner-spin-button,.ports-logs-card input[type=number]::-webkit-outer-spin-button,.ports-logs-card input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.runtime-settings-grid input[type=number],.ports-logs-card input[type=number]{appearance:textfield;-moz-appearance:textfield}
 .ports-logs-card{overflow:visible!important;z-index:10}
 .ports-logs-card:has(.glass-select.open){z-index:3000!important}
 .ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.6rem!important;position:relative;z-index:20}
@@ -2807,11 +2813,12 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div style="font-size:.82rem;color:var(--faint);line-height:1.65;margin-top:1rem;margin-bottom:1rem;max-width:760px" data-i18n="tone_hint"></div>
 <div class="runtime-settings-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem .8rem;margin-top:.2rem">
 <label class="runtime-field-label"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
+<div style="display:grid;gap:.8rem">
 <label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+</div>
 <label class="runtime-field-label"><span data-i18n="auto_refresh_label">自动刷新</span><select id="runtime-auto-refresh" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
-<label class="runtime-field-label"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label class="runtime-field-label"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+
 </div>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button id="runtime-settings-save" onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings('runtime-settings-save')" data-i18n="save">保存</button><span id="tone-saved" style="display:none"></span><span id="runtime-settings-saved" style="display:none"></span></div>
 </details>
@@ -2869,7 +2876,11 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-debug ports-logs-card no-details" style="padding:20px">
 <h2 data-i18n="ports_logs_title" style="margin:0 0 1rem;font-size:1.28rem;font-weight:800">端口与日志</h2>
 <div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1fr) auto;gap:1rem 1.1rem;align-items:end">
+<div style="display:grid;gap:1rem">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+</div>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <div style="display:flex;align-items:end;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div>
@@ -4369,6 +4380,10 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
 .account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:600px;overflow:visible}
 .account-card:has(.glass-select.open){z-index:2000}
+.user-default-grid{display:grid;grid-template-columns:repeat(3,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
+.user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
+.user-config-field input{width:100%;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
+.user-default-grid .glass-select{width:100%!important;min-width:0!important;margin-left:0!important}
 .account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
@@ -4446,7 +4461,12 @@ code{color:#a5b4fc}
         </div>
         <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey(this)" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
         <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
-        <div class="row"><select id="tone" class="tone-select" onchange="saveTone()"></select><span id="tone-msg" class="msg"></span></div>
+        <div class="user-default-grid">
+          <label class="user-config-field"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
+          <label class="user-config-field"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
+          <label class="user-config-field"><span data-i18n="time_zone_label">时区</span><input id="user-time-zone" onchange="saveTone()"></label>
+        </div>
+        <div><span id="tone-msg" class="msg"></span></div>
         <div style="color:var(--faint);font-size:.72rem;margin-top:.25rem" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
@@ -4540,6 +4560,7 @@ const i18n={
 let lang=localStorage.getItem('lang')||'zh';
 let toneOptions=[];
 let sysDefault='';
+let userTimeZone='';
 function t(k){return i18n[lang][k]||k}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function getKey(){return sessionStorage.getItem('user_api_key')||''}
@@ -4647,7 +4668,7 @@ async function unbindAccount(btn){
 }
 function fmtExpire(iso){
   if(!iso)return t('status_unknown');
-  try{return new Date(iso).toLocaleString()}catch(e){return iso}
+  try{return new Date(iso).toLocaleString(undefined,userTimeZone?{timeZone:userTimeZone}:undefined)}catch(e){return iso}
 }
 function fmtRemaining(sec){
   sec=Math.max(0,Math.floor(sec||0));
@@ -4696,6 +4717,9 @@ async function loadMe(){
     renderToneOptions();
     document.getElementById('tone').value=d.tone||'Magic';
     refreshGlassSelect(document.getElementById('tone'));
+    document.getElementById('user-model-alias').value=d.model_alias||'';
+    userTimeZone=d.time_zone||'';
+    document.getElementById('user-time-zone').value=userTimeZone;
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
     document.getElementById('sys-prompt').value=d.system_prompt||'';
     let acc='';
@@ -4759,7 +4783,10 @@ async function pushToken(btn){
 }
 async function saveTone(){
   const tone=document.getElementById('tone').value;
-  try{await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone})});flash('tone-msg')}catch(e){}
+  const model_alias=document.getElementById('user-model-alias')?.value||'';
+  const time_zone=document.getElementById('user-time-zone')?.value||'';
+  userTimeZone=time_zone;
+  try{await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone})});flash('tone-msg')}catch(e){}
 }
 async function saveToolPrompt(){
   const p=document.getElementById('tool-prompt').value;
