@@ -2506,7 +2506,8 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-settings.details-open,.view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
 .view-debug{height:90px;min-height:90px}
 .view-debug.details-open,.view-debug:has(details[open]){height:auto;min-height:90px;overflow:visible}
-body[data-view="debug"] .view-debug.details-card:not(.details-open){height:200px;min-height:200px;overflow:hidden}
+body[data-view="debug"] .view-debug.details-card:not(.details-open){height:auto;min-height:0;overflow:hidden}
+body[data-view="debug"] .view-debug.details-card:not(.details-open) details:not([open])>*:not(summary){display:none!important}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
 body[data-view="debug"] .view-debug.ports-logs-card.no-details{height:150px;min-height:150px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
@@ -2562,6 +2563,11 @@ body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,25
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 """ + _GLASS_SELECT_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
+.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:1rem .8rem!important;margin-top:.2rem!important}
+.runtime-settings-grid .runtime-field-label{min-width:0!important}
+.runtime-settings-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
+.ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.6rem!important}
+.ports-log-level .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
 .layout .glass-select.open{z-index:2000}
 .layout .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 .view-settings:has(.glass-select.open){z-index:2000;overflow:visible}
@@ -2793,7 +2799,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span data-i18n="runtime_title">运行设置（全局模板）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="font-size:.82rem;color:var(--faint);line-height:1.65;margin-top:1rem;margin-bottom:1rem;max-width:760px" data-i18n="tone_hint"></div>
-<div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:1rem .8rem;margin-top:.2rem">
+<div class="runtime-settings-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem .8rem;margin-top:.2rem">
 <label class="runtime-field-label"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 <label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
@@ -2859,7 +2865,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1fr) auto;gap:1rem 1.1rem;align-items:end">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<label style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+<label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <div style="display:flex;align-items:end;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div>
 </div>
 </div>
