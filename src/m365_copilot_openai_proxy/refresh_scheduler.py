@@ -127,6 +127,8 @@ class RefreshScheduler:
                 f"--user-data-dir={profile_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
                 "--headless=new",
                 "https://m365.cloud.microsoft/chat",
             ])
@@ -229,6 +231,8 @@ class RefreshScheduler:
                 f"--user-data-dir={profile_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
                 "--headless=new",
                 "https://m365.cloud.microsoft/chat",
             ])
