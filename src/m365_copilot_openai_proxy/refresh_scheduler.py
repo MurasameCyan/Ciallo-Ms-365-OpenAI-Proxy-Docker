@@ -43,6 +43,10 @@ def _chromium_path() -> str:
     )
 
 
+def _is_login_url(url: str) -> bool:
+    return url.startswith(("https://login.microsoftonline.com/", "https://login.live.com/"))
+
+
 def _cleanup_profile_locks(profile_dir: Path) -> None:
     """Stop stale Chromium processes for this profile and remove Singleton locks."""
     profile = str(profile_dir.resolve())
@@ -204,6 +208,7 @@ class RefreshScheduler:
             if not tab:
                 return 0, len(cookies or [])
             injected = 0
+            final_url = tab.get("url", "")
             async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
                 if "m365.cloud.microsoft" not in tab.get("url", ""):
                     await ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
@@ -268,10 +273,18 @@ class RefreshScheduler:
                         await asyncio.wait_for(ws.recv(), timeout=0.5)
                 except Exception:
                     pass
-            if attempted > 0 and injected == attempted:
+                try:
+                    await ws.send(json.dumps({"id": 10000, "method": "Runtime.evaluate", "params": {"expression": "location.href"}}))
+                    raw = await asyncio.wait_for(ws.recv(), timeout=2)
+                    final_url = json.loads(raw).get("result", {}).get("result", {}).get("value", final_url)
+                except Exception:
+                    pass
+            if attempted > 0 and injected == attempted and not _is_login_url(final_url):
                 self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
             else:
                 self._accounts.set_cookie_status(account_id, False)
+                if attempted > 0 and injected == attempted and _is_login_url(final_url):
+                    print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
             return injected, attempted
         finally:
             if proc is not None:

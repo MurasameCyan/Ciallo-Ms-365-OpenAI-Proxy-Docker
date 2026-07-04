@@ -1557,6 +1557,9 @@ def create_app(
         if injected != total:
             app.state.account_store.set_cookie_status(k.account_id, False)
             return _json_err(400, f"Cookie injection incomplete: {injected}/{total}")
+        acc = app.state.account_store.get(k.account_id)
+        if not acc or not acc.cookie_valid:
+            return _json_err(400, "Cookie injected, but Microsoft redirected to login. Please sign in to M365 in the browser and push cookies again.")
         return {"status": "ok", "injected": injected, "total": total}
 
     @app.post("/user/regenerate-key")
