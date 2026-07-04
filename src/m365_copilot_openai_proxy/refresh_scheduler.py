@@ -311,14 +311,14 @@ class RefreshScheduler:
 
         try:
             # Lazy import to avoid a cli <-> app <-> scheduler import cycle.
-            from .cli import _cdp_extract_token, _wait_for_m365_page
+            from .cli import _cdp_extract_token, _cdp_tab_summary, _wait_for_m365_page
 
             loop = asyncio.get_running_loop()
             ready = await loop.run_in_executor(
                 None, _wait_for_m365_page, account.cdp_port, _LAUNCH_TIMEOUT_SECONDS
             )
             if not ready:
-                print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}", flush=True)
+                print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {_cdp_tab_summary(account.cdp_port)}", flush=True)
                 return False
             token = await _cdp_extract_token(account.cdp_port, allow_nudge=True)
             if not token:

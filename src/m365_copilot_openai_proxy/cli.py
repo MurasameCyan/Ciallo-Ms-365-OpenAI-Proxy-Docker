@@ -189,19 +189,62 @@ async def _wait_for_substrate_websocket_token(ws, deadline: float) -> str | None
     return None
 
 
+def _is_m365_page_url(url: str) -> bool:
+    return url.startswith((
+        "https://m365.cloud.microsoft/",
+        "https://www.microsoft365.com/",
+        "https://office.com/",
+        "https://www.office.com/",
+        "https://login.microsoftonline.com/",
+        "https://login.live.com/",
+    ))
+
+
 def _find_m365_page(tabs: list[dict]) -> dict | None:
     return next(
         (
             tab for tab in tabs
-            if tab.get("type") == "page"
-            and tab.get("url", "").startswith("https://m365.cloud.microsoft/")
+            if tab.get("type") == "page" and _is_m365_page_url(tab.get("url", ""))
         ),
         None,
     )
 
 
+def _summarize_cdp_tabs(tabs: list[dict]) -> str:
+    urls = [tab.get("url", "") for tab in tabs if tab.get("type") == "page"]
+    return " | ".join(urls[:5]) or "no page tabs"
+
+
+def _cdp_tab_summary(cdp_port: int) -> str:
+    try:
+        with httpx.Client(timeout=1) as client:
+            return _summarize_cdp_tabs(client.get(f"http://localhost:{cdp_port}/json").json())
+    except Exception as exc:
+        return f"failed to list tabs: {exc}"
+
+
+async def _navigate_tab_to_m365(tab: dict) -> None:
+    ws_url = tab.get("webSocketDebuggerUrl")
+    if not ws_url:
+        return
+    async with websockets.connect(ws_url) as ws:
+        await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
+        await ws.send(json.dumps({"id": 2, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+
+
+def _ensure_first_page_navigates_to_m365(tabs: list[dict]) -> None:
+    tab = next((t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")), None)
+    if not tab:
+        return
+    try:
+        asyncio.run(_navigate_tab_to_m365(tab))
+    except Exception:
+        pass
+
+
 def _wait_for_m365_page(cdp_port: int, timeout_seconds: int) -> bool:
     deadline = time.time() + timeout_seconds
+    navigated = False
     while time.time() < deadline:
         try:
             with httpx.Client(timeout=1) as client:
@@ -211,6 +254,9 @@ def _wait_for_m365_page(cdp_port: int, timeout_seconds: int) -> bool:
             continue
         if _find_m365_page(tabs):
             return True
+        if not navigated:
+            navigated = True
+            _ensure_first_page_navigates_to_m365(tabs)
         time.sleep(0.5)
     return False
 
