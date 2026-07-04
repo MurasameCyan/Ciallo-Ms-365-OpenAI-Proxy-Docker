@@ -123,7 +123,7 @@ class RefreshScheduler:
         except Exception:
             return True
 
-    async def ensure_fresh(self, account_id: str) -> bool:
+    async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
         """Ensure the account's token is valid, refreshing on demand if needed.
 
         Returns True if the token is usable afterwards, False otherwise. Safe to
@@ -131,17 +131,18 @@ class RefreshScheduler:
         """
         account = self._accounts.get(account_id)
         if account is None:
+            print(f"Refresh skipped: account {account_id} not found", flush=True)
             return False
         if account.token_source != "cdp":
             # Manual accounts: trust whatever token the user pushed.
             return bool(account.token)
-        if not self._needs_refresh(account.token):
+        if not force and not self._needs_refresh(account.token):
             return True
 
         # Coalesce concurrent refreshes for the same account.
         async with self._account_lock(account_id):
             account = self._accounts.get(account_id) or account
-            if not self._needs_refresh(account.token):
+            if not force and not self._needs_refresh(account.token):
                 return True
             # Global serialisation: only one Chromium alive at a time.
             async with self._lock:
@@ -172,9 +173,16 @@ class RefreshScheduler:
                 "--no-default-browser-check",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-breakpad",
+                "--disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI",
+                "--log-level=3",
                 "--headless=new",
                 "https://m365.cloud.microsoft/chat",
-            ])
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             return 0, len(cookies or [])
         try:
@@ -272,6 +280,7 @@ class RefreshScheduler:
     async def _refresh_one(self, account_id: str) -> bool:
         account = self._accounts.get(account_id)
         if account is None:
+            print(f"Refresh failed: account {account_id} not found", flush=True)
             return False
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -286,10 +295,18 @@ class RefreshScheduler:
                 "--no-default-browser-check",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-breakpad",
+                "--disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI",
+                "--log-level=3",
                 "--headless=new",
                 "https://m365.cloud.microsoft/chat",
-            ])
-        except Exception:
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            print(f"Refresh failed for {account_id}: Chromium launch error: {exc}", flush=True)
             return False
 
         try:
@@ -301,13 +318,17 @@ class RefreshScheduler:
                 None, _wait_for_m365_page, account.cdp_port, _LAUNCH_TIMEOUT_SECONDS
             )
             if not ready:
+                print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}", flush=True)
                 return False
             token = await _cdp_extract_token(account.cdp_port, allow_nudge=True)
             if not token:
+                print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}", flush=True)
                 return False
             self._accounts.update_token(account_id, token, token_source="cdp")
+            print(f"Refresh succeeded for {account_id}: token updated from CDP", flush=True)
             return True
-        except Exception:
+        except Exception as exc:
+            print(f"Refresh failed for {account_id}: {exc}", flush=True)
             return False
         finally:
             if proc is not None:

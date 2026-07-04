@@ -323,7 +323,7 @@ def _is_substrate_token(token: str) -> bool:
         claims = decode_jwt_payload(token)
     except Exception:
         return False
-    return is_substrate_token_claims(claims)
+    return is_substrate_token_claims(claims) and time.time() < int(claims.get("exp", 0)) - 30
 
 
 def _try_auto_refresh(cdp_port: int, *, allow_nudge: bool = True) -> bool:

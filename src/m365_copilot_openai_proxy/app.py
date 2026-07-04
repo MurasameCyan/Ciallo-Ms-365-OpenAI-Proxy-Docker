@@ -541,10 +541,18 @@ def create_app(
             # Chromium at a time). No-op if the token is still valid.
             if account is not None and path.startswith("/v1/"):
                 try:
-                    await app.state.refresh_scheduler.ensure_fresh(account.id)
+                    ok = await app.state.refresh_scheduler.ensure_fresh(account.id)
                     account = app.state.account_store.get(account.id) or account
-                except Exception:
-                    pass  # Scheduler failures fall back to whatever token we have
+                    if not ok:
+                        return with_cors(JSONResponse(
+                            status_code=503,
+                            content={"error": {"message": "On-demand token refresh failed. Cookie may be expired or CDP did not capture a fresh token; check container logs.", "type": "refresh_error"}},
+                        ))
+                except Exception as exc:
+                    return with_cors(JSONResponse(
+                        status_code=503,
+                        content={"error": {"message": f"On-demand token refresh failed: {exc}", "type": "refresh_error"}},
+                    ))
             request.state.api_key_obj = key_obj
             request.state.account = account
             return await call_next(request)
