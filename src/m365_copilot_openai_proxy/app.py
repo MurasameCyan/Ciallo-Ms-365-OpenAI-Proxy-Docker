@@ -2318,14 +2318,17 @@ body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){hei
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .admin-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .admin-tbl thead th{position:sticky;top:0;z-index:3;background:var(--card)}
-.role-toggle{display:inline-flex;align-items:center;gap:.35rem;min-height:30px;padding:3px 8px;border-radius:999px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.1));border:1px solid var(--inner-border);box-shadow:inset 0 1px 0 rgba(255,255,255,.1);color:var(--faint);font-size:.72rem;font-weight:800;user-select:none}
+.role-toggle{display:inline-flex;align-items:center;gap:.35rem;min-height:30px;padding:3px 8px;border-radius:999px;background:linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,146,60,.08));border:1px solid rgba(245,158,11,.34);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 14px rgba(245,158,11,.14);color:var(--faint);font-size:.72rem;font-weight:800;user-select:none;transition:background .2s ease,border-color .2s ease,box-shadow .2s ease}
+.role-toggle:has(input:checked){background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(59,130,246,.1));border-color:rgba(96,242,255,.42);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 14px rgba(96,242,255,.16)}
 .role-toggle input{position:absolute;opacity:0;pointer-events:none}
-.role-toggle .role-track{position:relative;width:34px;height:18px;border-radius:999px;background:rgba(100,116,139,.38);border:1px solid rgba(148,163,184,.22);box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
-.role-toggle .role-track:before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;border-radius:50%;background:linear-gradient(135deg,#e2e8f0,#94a3b8);box-shadow:0 1px 5px rgba(0,0,0,.32);transition:transform .2s ease,background .2s ease,box-shadow .2s ease}
-.role-toggle input:checked+.role-track{background:linear-gradient(135deg,rgba(245,158,11,.38),rgba(255,94,219,.22));border-color:rgba(245,158,11,.5)}
-.role-toggle input:checked+.role-track:before{transform:translateX(16px);background:linear-gradient(135deg,var(--gold),var(--pink));box-shadow:0 0 10px rgba(245,158,11,.58)}
+.role-toggle .role-track{position:relative;width:34px;height:18px;border-radius:999px;background:linear-gradient(135deg,rgba(245,158,11,.58),rgba(251,146,60,.38));border:1px solid rgba(245,158,11,.58);box-shadow:inset 0 1px 3px rgba(0,0,0,.35),0 0 10px rgba(245,158,11,.22);transition:background .2s ease,border-color .2s ease,box-shadow .2s ease}
+.role-toggle .role-track:before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;border-radius:50%;background:linear-gradient(135deg,#fde68a,#f59e0b);box-shadow:0 0 10px rgba(245,158,11,.58);transition:transform .2s ease,background .2s ease,box-shadow .2s ease}
+.role-toggle input:checked+.role-track{background:linear-gradient(135deg,rgba(96,242,255,.6),rgba(59,130,246,.4));border-color:rgba(96,242,255,.62);box-shadow:inset 0 1px 3px rgba(0,0,0,.35),0 0 10px rgba(96,242,255,.28)}
+.role-toggle input:checked+.role-track:before{transform:translateX(16px);background:linear-gradient(135deg,#d6fbff,#60f2ff);box-shadow:0 0 10px rgba(96,242,255,.62)}
 .role-toggle .role-a{color:var(--gold)}
 .role-toggle .role-u{color:var(--faint)}
+.role-toggle:has(input:checked) .role-a{color:var(--faint)}
+.role-toggle:has(input:checked) .role-u{color:var(--cyan)}
 .role-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;font-size:.74rem;font-weight:900;letter-spacing:.02em;border:1px solid var(--inner-border);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
 .role-badge.admin{color:#fde68a;background:linear-gradient(135deg,rgba(245,158,11,.28),rgba(255,94,219,.18));border-color:rgba(245,158,11,.42);box-shadow:0 0 14px rgba(245,158,11,.22),inset 0 1px 0 rgba(255,255,255,.12)}
 .role-badge.user{color:var(--cyan);background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.12));border-color:rgba(96,242,255,.38);box-shadow:0 0 14px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.12)}
@@ -2687,6 +2690,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div class="api-info" style="margin-top:.5rem">
+<div class="api-grp" data-i18n="api_grp_public">公共接口</div>
+<div class="api-row"><span>GET&nbsp; /healthz</span><span data-i18n="api_healthz">健康检查</span></div>
 <div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
 <div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
 <div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
@@ -2694,6 +2699,9 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="api-row"><span>POST /v1/responses</span><span data-i18n="api_responses">Responses 接口</span></div>
 <div class="api-grp" data-i18n="api_grp_admin">管理接口</div>
 <div class="api-row"><span>GET&nbsp; /admin/call-log</span><span data-i18n="api_call_log">调用记录</span></div>
+<div class="api-row"><span>POST /admin/call-log/clear</span><span data-i18n="api_call_log_clear">清空调用记录</span></div>
+<div class="api-row"><span>GET&nbsp; /admin/metrics-history</span><span data-i18n="api_metrics_history">趋势数据</span></div>
+<div class="api-row"><span>POST /admin/metrics-history/clear</span><span data-i18n="api_metrics_clear">清空趋势数据</span></div>
 <div class="api-row"><span>GET&nbsp; /admin/capture-payload</span><span data-i18n="api_cap_get">查看抓包数据</span></div>
 <div class="api-row"><span>POST /admin/capture-payload</span><span data-i18n="api_cap_post">推送抓包数据</span></div>
 <div class="api-row"><span>GET&nbsp; /admin/capture-toggle</span><span data-i18n="api_captgl_get">接收开关状态</span></div>
@@ -2710,7 +2718,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="api-row"><span>POST /admin/tone</span><span data-i18n="api_tone_post">设置默认模式</span></div>
 <div class="api-row"><span>GET&nbsp; /admin/tool-prompt</span><span data-i18n="api_tool_get">查看工具提示词</span></div>
 <div class="api-row"><span>POST /admin/tool-prompt</span><span data-i18n="api_tool_post">设置工具提示词</span></div>
-<div class="api-row"><span>GET&nbsp; /healthz</span><span data-i18n="api_healthz">健康检查</span></div>
 </div>
 </details>
 </div>
@@ -2758,9 +2765,9 @@ const i18n={
     qs_open_copilot:'打开',qs_type_trigger:'输入内容触发 WebSocket，然后在脚本面板点击',qs_push_token:'推送 Token',
     qs_alternative:'备选：',qs_manual_copy:'在 DevTools（Network → WS → wss://substrate.office.com/...）中手动复制 ',
     qs_paste_above:'然后粘贴到上方。',title_api_endpoints:'API 端点',
-    api_grp_v1:'OpenAI 兼容接口',api_grp_admin:'管理接口',
+    api_grp_public:'公共接口',api_grp_v1:'OpenAI 兼容接口',api_grp_admin:'管理接口',
     api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
-    api_call_log:'调用记录',api_cap_get:'查看抓包数据',api_cap_post:'推送抓包数据',api_captgl_get:'接收开关状态',api_captgl_post:'设置接收开关',
+    api_call_log:'调用记录',api_call_log_clear:'清空调用记录',api_metrics_history:'趋势数据',api_metrics_clear:'清空趋势数据',api_cap_get:'查看抓包数据',api_cap_post:'推送抓包数据',api_captgl_get:'接收开关状态',api_captgl_post:'设置接收开关',
     api_login_status:'Chromium 登录状态',api_chromium_logout:'退出 Chromium 登录',api_cookie_inject:'注入 Cookie',
     api_sys_get:'查看系统提示词',api_sys_post:'设置系统提示词',api_auto_cap:'自动抓取 Token',api_tok_status:'Token 状态',api_tok_update:'更新 Token',
     api_tone_get:'查看默认模式',api_tone_post:'设置默认模式',api_tool_get:'查看工具提示词',api_tool_post:'设置工具提示词',api_healthz:'健康检查',
@@ -2843,9 +2850,9 @@ const i18n={
     qs_open_copilot:'open',qs_type_trigger:'type something to trigger WebSocket, then click',qs_push_token:'Push Token',
     qs_alternative:'Alternative:',qs_manual_copy:'Manually copy the ',
     qs_paste_above:'from DevTools (Network → WS → wss://substrate.office.com/...), then paste above.',title_api_endpoints:'API Endpoints',
-    api_grp_v1:'OpenAI-compatible',api_grp_admin:'Admin',
+    api_grp_public:'Public',api_grp_v1:'OpenAI-compatible',api_grp_admin:'Admin',
     api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
-    api_call_log:'Call log',api_cap_get:'View captures',api_cap_post:'Push captures',api_captgl_get:'Receive toggle state',api_captgl_post:'Set receive toggle',
+    api_call_log:'Call log',api_call_log_clear:'Clear call log',api_metrics_history:'Trend data',api_metrics_clear:'Clear trend data',api_cap_get:'View captures',api_cap_post:'Push captures',api_captgl_get:'Receive toggle state',api_captgl_post:'Set receive toggle',
     api_login_status:'Chromium login status',api_chromium_logout:'Sign out of Chromium',api_cookie_inject:'Inject cookies',
     api_sys_get:'View system prompt',api_sys_post:'Set system prompt',api_auto_cap:'Auto-capture token',api_tok_status:'Token status',api_tok_update:'Update token',
     api_tone_get:'View default mode',api_tone_post:'Set default mode',api_tool_get:'View tool prompt',api_tool_post:'Set tool prompt',api_healthz:'Health check',
@@ -3203,11 +3210,12 @@ function donut(parts,centerLabel,centerVal){
     +'<filter id="'+uid+'halo" x="-55%" y="-55%" width="210%" height="210%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
     +'<linearGradient id="'+uid+'gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
     +'</defs>';
-  let ring='',halo='';
+  let ring='',halo='',blend='';
   // base track ring (glass groove)
   ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="var(--track)" stroke-width="16" opacity=".72"/>';
   if(total>0){
-    parts.forEach(p=>{
+    const visibleParts=parts.filter(p=>p.value>0);
+    visibleParts.forEach((p,i)=>{
       if(p.value<=0)return;
       const ratio=p.value/total,len=C*ratio;
       const outerR=R+5,innerR=R-8,outerC=2*Math.PI*outerR,innerC=2*Math.PI*innerR;
@@ -3218,12 +3226,18 @@ function donut(parts,centerLabel,centerVal){
       ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/><animate attributeName="stroke-dashoffset" values="'+(-ringStart)+';'+(-ringStart-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14;16.5;14" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.2"><animate attributeName="stroke-dashoffset" values="'+(-outerStart)+';'+(-outerStart-outerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.16;0.62;0.16" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="9;20;9" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="stroke-dashoffset" values="'+(-innerStart)+';'+(-innerStart-innerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.08;0.28;0.08" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.6;1" dur="5.5s" repeatCount="indefinite"/></circle>';
+      if(visibleParts.length>1){
+        const next=visibleParts[(i+1)%visibleParts.length],blendLen=Math.min(18,Math.max(8,len*.38));
+        const bOff=off+len-blendLen/2,a=((off+len)/C)*Math.PI*2-Math.PI/2,tx=Math.cos(a+Math.PI/2),ty=Math.sin(a+Math.PI/2),px=60+Math.cos(a)*R,py=60+Math.sin(a)*R,gid=uid+'bd'+i;
+        defs+='<linearGradient id="'+gid+'" gradientUnits="userSpaceOnUse" x1="'+(px-tx*blendLen/2).toFixed(2)+'" y1="'+(py-ty*blendLen/2).toFixed(2)+'" x2="'+(px+tx*blendLen/2).toFixed(2)+'" y2="'+(py+ty*blendLen/2).toFixed(2)+'"><stop offset="0" stop-color="'+p.color+'"/><stop offset="1" stop-color="'+next.color+'"/></linearGradient>';
+        blend+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="url(#'+gid+')" stroke-width="16.5" stroke-linecap="butt" stroke-dasharray="'+blendLen+' '+(C-blendLen)+'" stroke-dashoffset="'+(-bOff)+'" transform="rotate(-90 60 60)" opacity="0.98"><animate attributeName="stroke-dashoffset" values="'+(-bOff)+';'+(-bOff-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="15;17;15" dur="5.5s" repeatCount="indefinite"/></circle>';
+      }
       off+=len;
     });
   }
   // glossy highlight arc over the top of the ring for a glass sheen
   const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
-  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+ring+sheen
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+ring+blend+sheen
     +'<text x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+'</text></svg>';
   let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
@@ -3256,6 +3270,8 @@ function renderDashboard(){
 // ---- trend line chart (multi-series SVG) ----
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
+function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000;const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(st.seconds_remaining||0));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
+function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
   if(!points||points.length<2)return '<span style="color:var(--faint)">'+t('dash_no_trend')+'</span>';
@@ -3375,7 +3391,7 @@ function renderSelectedStatus(){
   if(!a){card.classList.add('hide-card');return}
   card.classList.remove('hide-card');
   if(nameEl)nameEl.textContent=(a.name||a.id)+(a.email?' · '+a.email:'');
-  const st=a.token_status||{};
+  const st=liveTokenStatus(a.token_status||{});
   const v=st.valid;
   const exp=st.expires_at?new Date(st.expires_at).toLocaleString():'N/A';
   const warn=(v&&(st.seconds_remaining||0)<600)?'warn':'';
@@ -3384,10 +3400,11 @@ function renderSelectedStatus(){
   html+=row(t('col_account'),esc(a.name||a.id),'valid');
   if(a.email)html+=row('Email',esc(a.email),'');
   html+=row(t('col_token'),v?t('valid_short')+' '+Math.floor((st.seconds_remaining||0)/60)+'m':t('invalid_short'),v?'valid':'invalid');
-  html+=row(t('col_cookie'),a.cookie_valid?t('cookie_valid_short'):t('cookie_invalid_short'),a.cookie_valid?'valid':'warn');
+  const cv=liveCookieValid(a);
+  html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
   html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
-  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),a.cookie_valid?'valid':'warn');
-  html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(a.cookie_valid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&a.cookie_valid?'valid':'warn');
+  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),cv?'valid':'warn');
+  html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(cv?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&cv?'valid':'warn');
   html+=row(t('valid'),v?t('status_yes'):t('status_no'),v?'valid':'invalid');
   html+=row(t('expires'),exp,warn);
   html+=row(t('remaining'),fmtSec(st.seconds_remaining),warn);
@@ -3434,11 +3451,11 @@ async function loadAccounts(){
       +'<div class="tbl-scroll"><table class="admin-tbl"><thead><tr style="color:var(--muted);text-align:left">'
       +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem"></th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __pg.items.forEach(a=>{
-      const st=a.token_status||{};
+      const st=liveTokenStatus(a.token_status||{});
       const valid=st.valid;
       const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
-      const cookieValid=!!a.cookie_valid;
+      const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
       const cookieMeta='<span style="color:var(--faint);font-size:.68rem;line-height:1.35;white-space:nowrap">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+' · '+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</span>';
       const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
@@ -3742,6 +3759,7 @@ setInterval(loadCallLog,5000);
 setInterval(loadCapture,5000);
 setInterval(loadTrend,60000);
 setInterval(loadStats,30000);
+setInterval(()=>{if(document.body.dataset.view==='accounts')loadAccounts()},30000);
 
 // Client-side countdown timer
 let _countdownSec=0;
@@ -3881,9 +3899,12 @@ async function loadTone(){
     if(sig===window.__toneSig)return;
     window.__toneSig=sig;
     const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
-    sel.innerHTML=opts.map(o=>'<option value="'+o.value+'"'+(o.value===cur?' selected':'')+'>'+lbl(o)+'</option>').join('');
-    sel.onchange=()=>saveTone(sel.value);
+    sel.innerHTML=opts.map(o=>'<option value="'+o.value+'">'+lbl(o)+'</option>').join('');
+    sel.value=opts.some(o=>o.value===cur)?cur:(opts[0]?opts[0].value:'');
+    sel.onchange=null;
     initGlassSelect(sel.parentElement);
+    sel.dispatchEvent(new Event('change',{bubbles:true}));
+    sel.onchange=()=>saveTone(sel.value);
   }catch(e){}
 }
 async function saveTone(tone){
@@ -4015,7 +4036,7 @@ input,select,textarea{width:100%;background:var(--inner);border:1px solid var(--
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
 select:focus{transition:none!important;animation:none!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.08)!important}
 textarea{resize:vertical;min-height:70px;font-family:monospace}
-#acct-token{height:75px;min-height:75px;max-height:75px;resize:none;overflow:auto;scrollbar-gutter:stable;line-height:1.45;box-sizing:border-box;display:block}
+#acct-token{height:75px;min-height:75px;max-height:75px;resize:none;overflow:hidden;line-height:1.45;box-sizing:border-box;display:block}
 button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-size:.85rem;font-weight:800;cursor:pointer;margin-top:.6rem;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 10px 24px rgba(96,242,255,.22);transition:transform .18s ease,box-shadow .18s ease;text-shadow:none}
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
@@ -4118,13 +4139,16 @@ code{color:#a5b4fc}
   <div id="app" class="hidden">
     <div class="card">
       <h2 data-i18n="qs_title">快速使用指南</h2>
-      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」/「推送 Token」，或手动复制 access_token 粘贴到下方更新。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
+      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
       <details style="margin-top:.75rem;cursor:pointer">
         <summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
           <span data-i18n="endpoints_title">OpenAI 兼容接口</span>
           <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
         </summary>
         <div class="api-info">
+          <div class="api-grp" data-i18n="api_grp_public">公共接口</div>
+          <div class="api-row"><span>GET&nbsp; /healthz</span><span data-i18n="api_healthz">健康检查</span></div>
+          <div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
           <div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
           <div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
           <div class="api-row"><span>GET&nbsp; /v1/models</span><span data-i18n="api_models">模型列表</span></div>
@@ -4189,7 +4213,7 @@ const i18n={
   zh:{
     title:'Ciallo Ms-365 Copilot 代理 · 用户',
     login_title:'登录',login_hint:'输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。',
-    qs_title:'快速使用指南',qs_body:'1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」/「推送 Token」，或手动复制 access_token 粘贴到下方更新。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
+    qs_title:'快速使用指南',qs_body:'1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
@@ -4204,7 +4228,7 @@ const i18n={
     system_prompt_unlock:'解锁编辑（高级）',
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
-    api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
+    api_grp_public:'公共接口',api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',api_healthz:'健康检查',
     copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',regen_running:'重置中...',regen_failed:'重置失败',
     logout:'登出 Microsoft',console_logout:'登出 控制台',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？将同时清除该账户 Token 和 Cookie 状态，之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
@@ -4227,7 +4251,7 @@ const i18n={
     system_prompt_unlock:'Unlock editing (advanced)',
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
-    api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
+    api_grp_public:'Public',api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',api_healthz:'Health check',
     copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',regen_running:'Resetting...',regen_failed:'Reset failed',
     logout:'Sign out of Microsoft',console_logout:'Sign out Console',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? This will clear this account token and cookie state. You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
