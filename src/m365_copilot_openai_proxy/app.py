@@ -512,7 +512,7 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_allowed_origins,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "x-m365-session-id"],
         max_age=86400,
     )
@@ -531,7 +531,7 @@ def create_app(
                 origin = request.headers.get("origin", "")
                 if origin in _allowed_origins:
                     resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
             resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, x-m365-session-id"
             resp.headers["Access-Control-Max-Age"] = "86400"
             return resp
@@ -1837,7 +1837,7 @@ def create_app(
         try:
             request = OpenAIResponsesRequest.model_validate(body)
             translated = translate_responses_request(request)
-            session = _persistent_session(app, raw, request.model)
+            session = _persistent_session(app, raw, request.model, _responses_session_key(request))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1875,7 +1875,7 @@ def create_app(
     ):
         try:
             translated = translate_anthropic_request(request)
-            session = _persistent_session(app, raw_request, request.model)
+            session = _persistent_session(app, raw_request, request.model, _messages_session_key(request), request)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1904,12 +1904,31 @@ def create_app(
     return app
 
 
+def _responses_session_key(request: OpenAIResponsesRequest) -> str | None:
+    user = getattr(request, "user", None)
+    if isinstance(user, str) and user.strip():
+        return user.strip()
+    text = json.dumps(request.input, ensure_ascii=False, sort_keys=True)
+    if text:
+        return "responses_" + hashlib.sha256(text.encode()).hexdigest()[:12]
+    return None
+
+
+def _messages_session_key(request: AnthropicMessagesRequest) -> str | None:
+    for msg in request.messages:
+        if msg.role == "user":
+            text = flatten_content(msg.content).strip()
+            if text:
+                return "messages_" + hashlib.sha256(text.encode()).hexdigest()[:12]
+    return None
+
+
 def _persistent_session(
     app: FastAPI,
     raw_request: Request,
     model: str,
     fallback_key: str | None = None,
-    request: OpenAIChatRequest | None = None,
+    request: OpenAIChatRequest | AnthropicMessagesRequest | None = None,
 ) -> PersistentSession | None:
     # Multi-tenant: prefix every session key with the caller's key id (fallback to
     # the bound account id) so two different API keys never share an M365 thread,
@@ -1937,6 +1956,8 @@ def _persistent_session(
         if not has_assistant:
             return app.state.session_store.reset(f"{tenant}:auto:{sid}")
         return app.state.session_store.get(f"{tenant}:auto:{sid}")
+    if fallback_key:
+        return app.state.session_store.get(f"{tenant}:auto:{fallback_key}")
     return None
 
 
