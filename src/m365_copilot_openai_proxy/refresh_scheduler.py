@@ -378,6 +378,8 @@ class RefreshScheduler:
                 print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
                 return False
             self._accounts.update_token(account_id, token, token_source="cdp")
+            cookie_expires_at = account.cookie_expires_at if account.cookie_expires_at > time.time() else time.time() + _SESSION_COOKIE_PERSIST_SECONDS
+            self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=cookie_expires_at)
             print(f"Refresh succeeded for {account_id}: token updated from CDP", flush=True)
             return True
         except Exception as exc:

@@ -1202,6 +1202,7 @@ def create_app(
             "has_token": bool(acc.token),
             "token_status": acc.token_status(),
             "key_count": len(app.state.key_store.list_for_account(acc.id)),
+            "bound_names": [k.name or k.username or k.id for k in app.state.key_store.list_for_account(acc.id)],
             "created_at": acc.created_at,
             "updated_at": acc.updated_at,
         }
@@ -1275,6 +1276,15 @@ def create_app(
             return _json_err(404, "Account not found")
         return {"status": "ok", "account": _account_public(acc)}
 
+    @app.post("/admin/accounts/{acc_id}/token/clear")
+    async def clear_account_token(acc_id: str, request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        acc = app.state.account_store.clear_token(acc_id)
+        if acc is None:
+            return _json_err(404, "Account not found")
+        return {"status": "ok", "account": _account_public(acc)}
+
     @app.post("/admin/accounts/{acc_id}/rename")
     async def rename_account(acc_id: str, request: Request) -> dict:
         err = _require_admin(request)
@@ -1296,6 +1306,19 @@ def create_app(
             ok = await app.state.refresh_scheduler.ensure_fresh(acc_id, force=True)
         except Exception as exc:
             return _json_err(502, f"Refresh failed: {exc}")
+        acc = app.state.account_store.get(acc_id)
+        return {"status": "ok", "refreshed": ok, "account": _account_public(acc) if acc else None}
+
+    @app.post("/admin/accounts/{acc_id}/cookie-refresh")
+    async def refresh_account_cookie(acc_id: str, request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        if app.state.account_store.get(acc_id) is None:
+            return _json_err(404, "Account not found")
+        try:
+            ok = await app.state.refresh_scheduler.ensure_fresh(acc_id, force=True)
+        except Exception as exc:
+            return _json_err(502, f"Cookie refresh failed: {exc}")
         acc = app.state.account_store.get(acc_id)
         return {"status": "ok", "refreshed": ok, "account": _account_public(acc) if acc else None}
 
@@ -1586,7 +1609,9 @@ def create_app(
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
-            return _json_err(400, "No bound account. Push token first.")
+            acc = app.state.account_store.add(name=k.name or k.username or "user", token="", token_source="cdp")
+            app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
+            k = app.state.key_store.get(k.id) or k
         body = await request.json()
         cookies = body.get("cookies", [])
         if not isinstance(cookies, list) or not cookies:
@@ -2334,7 +2359,8 @@ body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!importa
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
-#status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:330px}
+#status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:330px;overflow:auto;scrollbar-width:none;-ms-overflow-style:none}
+#status-card::-webkit-scrollbar{width:0;height:0;display:none}
 .view-settings{height:90px;min-height:90px}
 .view-settings:has(details[open]){height:auto;min-height:90px;overflow:visible}
 .view-debug{height:90px;min-height:90px}
@@ -2779,10 +2805,10 @@ const i18n={
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'刷新方式',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',bound_count_label:'绑定',
     col_id:'ID',col_role:'角色',col_username:'用户名',col_password:'密码',
-    btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
+    btn_refresh:'刷新',btn_token_refresh:'t刷新',btn_cookie_refresh:'c刷新',btn_remove_token:'移除',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
     page_prev:'上一页',page_next:'下一页',page_info:'第 {cur}/{total} 页 · 共 {count} 条',page_size_label:'每页',page_size_unit:'条',
     batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
-    confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',confirm_clear_stats:'确定清空这部分统计数据吗？',
+    confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',confirm_remove_token:'确定移除该账户 Token？',confirm_clear_stats:'确定清空这部分统计数据吗？',
     valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新',cookie_expires_label:'过期',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
     rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
@@ -2864,10 +2890,10 @@ const i18n={
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'Refresh',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',bound_count_label:'Bound',
     col_id:'ID',col_role:'Role',col_username:'Username',col_password:'Password',
-    btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
+    btn_refresh:'Refresh',btn_token_refresh:'T refresh',btn_cookie_refresh:'C refresh',btn_remove_token:'Remove',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
     page_prev:'Prev',page_next:'Next',page_info:'Page {cur}/{total} · {count} total',page_size_label:'Per page',page_size_unit:'',
     batch_refresh:'Batch refresh',batch_delete:'Batch delete',batch_enable:'Batch enable',batch_disable:'Batch disable',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
-    confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',confirm_clear_stats:'Clear this statistics data?',
+    confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',confirm_remove_token:'Remove this account token?',confirm_clear_stats:'Clear this statistics data?',
     valid_short:'Valid',invalid_short:'Invalid',cookie_valid_short:'Valid',cookie_invalid_short:'Invalid',cookie_updated_label:'Updated',cookie_expires_label:'Expires',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
     rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
@@ -3476,7 +3502,7 @@ async function loadAccounts(){
     const __pg=_slicePage(__accounts,'accounts');
     let h='<div class="tbl-tools"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
       +'<div class="tbl-scroll"><table class="admin-tbl"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem"></th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __pg.items.forEach(a=>{
       const st=liveTokenStatus(a.token_status||{});
       const valid=st.valid;
@@ -3484,21 +3510,18 @@ async function loadAccounts(){
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
-      const cookieMeta='<span style="color:var(--faint);font-size:.68rem;line-height:1.35;white-space:nowrap">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+' · '+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</span>';
+      const cookieMeta='<div style="color:var(--faint);font-size:.68rem;line-height:1.35;white-space:nowrap;margin-top:.22rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'<br>'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div>';
       const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
       const refreshColor=a.token_source==='cdp'&&cookieValid?'#a78bfa':(a.token_source==='cdp'?'#f59e0b':'var(--faint)');
       const refreshBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
-        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">name id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
-        +'<td style="padding:.4rem">'+badge+'</td>'
-        +'<td style="padding:.4rem;padding-right:.25rem;white-space:nowrap">'+cookieBadge+'</td>'
-        +'<td style="padding:.4rem;padding-left:.15rem;white-space:nowrap">'+cookieMeta+'</td>'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc((a.bound_names&&a.bound_names[0])||a.name||'name')+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
+        +'<td style="padding:.4rem;white-space:nowrap">'+badge+' <button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_token_refresh')+'</button> <button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_push_token')+'</button> <button onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></td>'
+        +'<td style="padding:.4rem;white-space:nowrap">'+cookieBadge+' <button onclick="event.stopPropagation();refreshAccountCookie(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button>'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+refreshBadge+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
-        +'<button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_refresh')+'</button> '
-        +'<button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_push_token')+'</button> '
         +'<button onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'
         +'<tr id="atok-'+a.id+'" style="display:none"><td colspan="6" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)" onclick="event.stopPropagation()">'
@@ -3541,6 +3564,23 @@ async function submitAccount(){
 async function refreshAccount(id){
   try{
     const r=await fetch('/admin/accounts/'+id+'/refresh',{method:'POST',credentials:'include'});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)await adminAlert((d.error&&d.error.message)||'error');
+    loadAccounts();
+  }catch(e){}
+}
+async function refreshAccountCookie(id){
+  try{
+    const r=await fetch('/admin/accounts/'+id+'/cookie-refresh',{method:'POST',credentials:'include'});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)await adminAlert((d.error&&d.error.message)||'error');
+    loadAccounts();
+  }catch(e){}
+}
+async function clearAccountToken(id){
+  if(!await adminConfirm(t('confirm_remove_token')))return;
+  try{
+    const r=await fetch('/admin/accounts/'+id+'/token/clear',{method:'POST',credentials:'include'});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)await adminAlert((d.error&&d.error.message)||'error');
     loadAccounts();
