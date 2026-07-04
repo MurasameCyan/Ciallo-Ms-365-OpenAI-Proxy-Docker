@@ -2495,7 +2495,7 @@ body[data-view="users"] .view-users{display:block}
 .view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:relative;top:auto}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-body[data-view="debug"] .debug-gate-card{height:330px;min-height:330px}
+body[data-view="debug"] .debug-gate-card{height:300px;min-height:300px}
 body[data-view="debug"] .debug-guide-card{height:200px!important;min-height:200px!important;overflow:hidden}
 body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!important;min-height:200px!important;overflow:visible}
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
@@ -2638,15 +2638,15 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 .debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);animation:spin 4s linear infinite;opacity:.42;z-index:-2}
 .debug-gate:after{content:"";position:absolute;inset:20px;border-radius:20px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
 .debug-gate-core{display:flex;align-items:center;justify-content:center;text-align:center;letter-spacing:.02em}
-.data-globe{position:relative;width:190px;height:190px;border-radius:50%;margin:0;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 48px rgba(96,242,255,.3),inset 0 0 44px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d}
+.data-globe{position:relative;width:190px;height:160px;border-radius:50%;margin:0;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 48px rgba(96,242,255,.3),inset 0 0 44px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d}
 .debug-gate.on .data-globe{animation:globeSpin 9s linear infinite,globeBreath 3.2s ease-in-out infinite}
 .data-globe:before{content:"";position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 24% 30%,rgba(255,255,255,.95) 0 1.4px,transparent 2.2px),radial-gradient(circle at 66% 22%,rgba(96,242,255,.9) 0 1.6px,transparent 2.4px),radial-gradient(circle at 40% 58%,rgba(255,255,255,.72) 0 1.1px,transparent 1.8px),radial-gradient(circle at 74% 64%,rgba(140,107,255,.82) 0 1.5px,transparent 2.2px),radial-gradient(circle at 30% 78%,rgba(96,242,255,.7) 0 1.2px,transparent 1.9px);opacity:.85;animation:globeDotA 6.5s ease-in-out infinite}
 .data-globe:after{content:"";position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 52% 20%,rgba(255,255,255,.85) 0 1.3px,transparent 2px),radial-gradient(circle at 18% 54%,rgba(96,242,255,.8) 0 1.5px,transparent 2.2px),radial-gradient(circle at 60% 48%,rgba(255,215,111,.75) 0 1.3px,transparent 2px),radial-gradient(circle at 82% 40%,rgba(255,255,255,.7) 0 1.1px,transparent 1.7px),radial-gradient(circle at 46% 82%,rgba(140,107,255,.7) 0 1.4px,transparent 2.1px);opacity:.7;animation:globeDotB 5.2s ease-in-out infinite}
 .data-globe .orbit{position:absolute;inset:-18px;border-radius:50%;border:1px solid rgba(96,242,255,.38);transform:rotateX(var(--x)) rotateY(var(--y)) rotateZ(var(--r));box-shadow:0 0 22px rgba(96,242,255,.16);opacity:0;transition:opacity .35s ease;transform-style:preserve-3d}
 .data-globe .orbit:after{content:"";position:absolute;width:10px;height:10px;border-radius:50%;background:var(--cyan);top:50%;left:-5px;box-shadow:0 0 14px var(--cyan)}
 .data-globe .orbit.o1{--x:68deg;--y:18deg;--r:18deg}
-.data-globe .orbit.o2{inset:-28px;--x:28deg;--y:72deg;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 14px var(--violet)}
-.data-globe .orbit.o3{inset:-36px;--x:78deg;--y:-36deg;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 14px var(--gold)}
+.data-globe .orbit.o2{inset:-24px;--x:28deg;--y:72deg;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 14px var(--violet)}
+.data-globe .orbit.o3{inset:-30px;--x:78deg;--y:-36deg;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 14px var(--gold)}
 .debug-gate b,.debug-gate small{display:none}
 .debug-gate.on{box-shadow:0 0 42px rgba(96,242,255,.34),0 0 110px rgba(140,107,255,.24),inset 0 1px 0 rgba(255,255,255,.1)}
 .debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .data-globe:before{animation-duration:3.4s}.debug-gate.on .data-globe:after{animation-duration:2.8s}.debug-gate.on .data-globe{box-shadow:0 0 52px rgba(96,242,255,.52),0 0 86px rgba(140,107,255,.3),0 0 118px rgba(255,94,219,.16),inset 0 0 34px rgba(96,242,255,.22)}
@@ -2793,15 +2793,13 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span data-i18n="runtime_title">运行设置（全局模板）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="font-size:.82rem;color:var(--faint);line-height:1.65;margin-top:1rem;margin-bottom:1rem;max-width:760px" data-i18n="tone_hint"></div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem .8rem;margin-top:.2rem">
+<div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:1rem .8rem;margin-top:.2rem">
 <label class="runtime-field-label"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
-<label class="runtime-field-label"><span data-i18n="auto_refresh_label">自动刷新</span><select id="runtime-auto-refresh" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 <label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<div style="display:grid;gap:.8rem">
 <label class="runtime-field-label"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label class="runtime-field-label"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-</div>
+<label class="runtime-field-label"><span data-i18n="auto_refresh_label">自动刷新</span><select id="runtime-auto-refresh" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 <label class="runtime-field-label"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+<label class="runtime-field-label"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 </div>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button id="runtime-settings-save" onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings('runtime-settings-save')" data-i18n="save">保存</button><span id="tone-saved" style="display:none"></span><span id="runtime-settings-saved" style="display:none"></span></div>
 </details>
@@ -2856,8 +2854,18 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </button>
 </div>
 
-<div class="card view-debug details-card details-open" style="padding:20px">
-<details id="call-log-details" open style="cursor:pointer;margin-bottom:20px">
+<div class="card view-debug ports-logs-card no-details" style="padding:20px">
+<h2 data-i18n="ports_logs_title" style="margin:0 0 1rem;font-size:1.28rem;font-weight:800">端口与日志</h2>
+<div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1fr) auto;gap:1rem 1.1rem;align-items:end">
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<label style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+<div style="display:flex;align-items:end;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div>
+</div>
+</div>
+
+<div class="card view-debug details-card" style="padding:20px">
+<details id="call-log-details" style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
 <span data-i18n="title_call_log">API 调用记录</span>
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
@@ -2867,7 +2875,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
 </details>
-<details id="capture-details" open style="cursor:pointer">
+<details id="capture-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
 <span data-i18n="title_capture">模式抓包对比</span>
 <span id="capture-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
@@ -2878,16 +2886,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span style="color:var(--faint)" data-i18n="no_capture_yet">暂无抓包数据</span>
 </div>
 </details>
-</div>
-
-<div class="card view-debug ports-logs-card no-details" style="padding:20px">
-<h2 data-i18n="ports_logs_title" style="margin:0 0 1rem;font-size:1.28rem;font-weight:800">端口与日志</h2>
-<div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1fr) auto;gap:1rem 1.1rem;align-items:end">
-<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
-<div style="display:flex;align-items:end;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div>
-</div>
 </div>
 
 <div class="card view-debug debug-guide-card">
