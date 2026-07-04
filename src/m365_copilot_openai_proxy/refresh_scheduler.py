@@ -205,11 +205,13 @@ class RefreshScheduler:
                 return 0, len(cookies or [])
             injected = 0
             async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
-                await ws.send(json.dumps({"id": 1, "method": "Network.clearBrowserCookies"}))
-                try:
-                    await asyncio.wait_for(ws.recv(), timeout=2)
-                except Exception:
-                    pass
+                if "m365.cloud.microsoft" not in tab.get("url", ""):
+                    await ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+                    await asyncio.sleep(3)
+                    try:
+                        await asyncio.wait_for(ws.recv(), timeout=2)
+                    except Exception:
+                        pass
                 pending: set[int] = set()
                 expires_by_id: dict[int, float] = {}
                 successful_expires: list[float] = []
@@ -260,6 +262,12 @@ class RefreshScheduler:
                             if msg_id in expires_by_id:
                                 successful_expires.append(expires_by_id[msg_id])
                 await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+                await asyncio.sleep(8)
+                try:
+                    while True:
+                        await asyncio.wait_for(ws.recv(), timeout=0.5)
+                except Exception:
+                    pass
             if attempted > 0 and injected == attempted:
                 self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
             else:
@@ -322,7 +330,7 @@ class RefreshScheduler:
                 return False
             token = await _cdp_extract_token(account.cdp_port, allow_nudge=True)
             if not token:
-                print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}", flush=True)
+                print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {_cdp_tab_summary(account.cdp_port)}", flush=True)
                 return False
             self._accounts.update_token(account_id, token, token_source="cdp")
             print(f"Refresh succeeded for {account_id}: token updated from CDP", flush=True)

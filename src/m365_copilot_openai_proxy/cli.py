@@ -292,58 +292,37 @@ def _startup_capture_loop(cdp_port: int, timeout_seconds: int) -> None:
         print("Startup token capture timed out. Manual set-token is still available.")
 
 async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
-    await ws.send(json.dumps({"id": 2, "method": "Network.enable"}))
-    # First try: reload the page — Copilot reconnects WebSocket on page load
-    await ws.send(json.dumps({"id": 3, "method": "Page.reload", "params": {"ignoreCache": True}}))
+    async def trigger_input() -> None:
+        await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
+        await asyncio.sleep(0.5)
+        for payload in (
+            {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"},
+            {"type": "char", "text": "a", "key": "a"},
+            {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"},
+        ):
+            await ws.send(json.dumps({"id": 11, "method": "Input.dispatchKeyEvent", "params": payload}))
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.5)
+        await ws.send(json.dumps({"id": 12, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
+
+    await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
+    await ws.send(json.dumps({"id": 2, "method": "Network.enable", "params": {"maxTotalBufferSize": 10000000, "maxResourceBufferSize": 5000000}}))
+    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+    await asyncio.sleep(2)
+    await ws.send(json.dumps({"id": 4, "method": "Page.reload", "params": {"ignoreCache": True}}))
+
     loop = asyncio.get_running_loop()
     start = loop.time()
-    deadline = start + 15
-    nudge_after = start + 2  # give reload ~2s to auto-reconnect, then nudge instead of idly waiting 5s
-    nudge_sent = False
+    deadline = start + 45
+    trigger_times = [start + 4, start + 10, start + 18, start + 30]
+    triggered = 0
     while loop.time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
         except asyncio.TimeoutError:
-            # Once the page has had a brief chance to auto-reconnect, simulate real typing
-            if not nudge_sent and loop.time() >= nudge_after:
-                nudge_sent = True
-                # Focus input box via JS
-                await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
-                await asyncio.sleep(0.5)
-                # Simulate real key press: keyDown → char → keyUp
-                # This triggers the same DOM events as a real user typing
-                await ws.send(json.dumps({
-                    "id": 11, "method": "Input.dispatchKeyEvent",
-                    "params": {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"}
-                }))
-                await ws.send(json.dumps({
-                    "id": 12, "method": "Input.dispatchKeyEvent",
-                    "params": {"type": "char", "text": "a", "key": "a"}
-                }))
-                await ws.send(json.dumps({
-                    "id": 13, "method": "Input.dispatchKeyEvent",
-                    "params": {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"}
-                }))
-                await asyncio.sleep(0.1)
-                # Brief pause to let the WebSocket appear before clearing the char
-                await asyncio.sleep(0.5)
-                # Select all + delete to clear the character without sending
-                await ws.send(json.dumps({
-                    "id": 14, "method": "Input.dispatchKeyEvent",
-                    "params": {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA", "modifiers": 2}
-                }))
-                await ws.send(json.dumps({
-                    "id": 15, "method": "Input.dispatchKeyEvent",
-                    "params": {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA", "modifiers": 2}
-                }))
-                await asyncio.sleep(0.1)
-                for evt_type in ("keyDown", "keyUp"):
-                    await ws.send(json.dumps({
-                        "id": 16 if evt_type == "keyDown" else 17,
-                        "method": "Input.dispatchKeyEvent",
-                        "params": {"type": evt_type, "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8, "key": "Backspace", "code": "Backspace"}
-                    }))
-                    await asyncio.sleep(0.05)
+            if triggered < len(trigger_times) and loop.time() >= trigger_times[triggered]:
+                triggered += 1
+                await trigger_input()
             continue
         msg = json.loads(raw)
         if msg.get("method") != "Network.webSocketCreated":
@@ -356,12 +335,9 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
             continue
         token = match.group(1)
         if _is_substrate_token(token):
-            # Clear any typed text via JS
-            await ws.send(json.dumps({
-                "id": 20, "method": "Runtime.evaluate",
-                "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}
-            }))
+            await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
             return token
+    return None
 
 
 def _is_substrate_token(token: str) -> bool:
