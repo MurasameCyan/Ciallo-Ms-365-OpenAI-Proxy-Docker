@@ -48,6 +48,30 @@ def _is_login_url(url: str) -> bool:
     return url.startswith(("https://login.microsoftonline.com/", "https://login.live.com/"))
 
 
+async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | None) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        import httpx
+        import websockets
+        async with httpx.AsyncClient(timeout=2) as client:
+            info = (await client.get(f"http://localhost:{cdp_port}/json/version")).json()
+        ws_url = info.get("webSocketDebuggerUrl")
+        if ws_url:
+            async with websockets.connect(ws_url) as ws:
+                await ws.send(json.dumps({"id": 1, "method": "Browser.close"}))
+        await asyncio.to_thread(proc.wait, timeout=10)
+    except Exception:
+        try:
+            proc.terminate()
+            await asyncio.to_thread(proc.wait, timeout=8)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
 def _cleanup_profile_locks(profile_dir: Path) -> None:
     """Stop stale Chromium processes for this profile and remove Singleton locks."""
     profile = str(profile_dir.resolve())
@@ -296,15 +320,8 @@ class RefreshScheduler:
                     print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
             return injected, attempted
         finally:
-            if proc is not None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=5)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+            await _close_chromium_gracefully(account.cdp_port, proc)
+            await asyncio.sleep(1)
             _cleanup_profile_locks(profile_dir)
 
     async def _refresh_one(self, account_id: str) -> bool:
@@ -367,12 +384,6 @@ class RefreshScheduler:
             print(f"Refresh failed for {account_id}: {exc}", flush=True)
             return False
         finally:
-            if proc is not None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=5)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+            await _close_chromium_gracefully(account.cdp_port, proc)
+            await asyncio.sleep(1)
+            _cleanup_profile_locks(profile_dir)
