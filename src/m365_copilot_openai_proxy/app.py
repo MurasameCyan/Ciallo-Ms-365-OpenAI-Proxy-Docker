@@ -2130,6 +2130,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;background:li
 .login-box h1{font-size:1.3rem;margin-bottom:.5rem;letter-spacing:.04em;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .login-box p{color:var(--muted);font-size:.85rem;margin-bottom:1.6rem;letter-spacing:.02em}
 input{width:100%;padding:.8rem 1rem;background:rgba(7,11,27,.46);border:1px solid rgba(255,255,255,.14);border-radius:12px;color:var(--text);font-size:.9rem;outline:none;margin-bottom:1rem;transition:border-color .2s,box-shadow .2s;backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+input:-webkit-autofill,input:-webkit-autofill:focus,input:-webkit-autofill:hover{-webkit-text-fill-color:var(--text)!important;-webkit-box-shadow:0 0 0 1000px rgba(7,11,27,.62) inset!important;caret-color:var(--text)}
 input:focus{border:1px solid transparent;background-image:linear-gradient(rgba(7,11,27,.58),rgba(7,11,27,.58)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan));background-origin:border-box;background-clip:padding-box,border-box;background-size:100% 100%,300% 100%;animation:loginFieldFlow 2.2s linear infinite;box-shadow:0 0 0 3px rgba(96,242,255,.14),0 0 24px rgba(96,242,255,.22),inset 0 1px 0 rgba(255,255,255,.12)}
 @keyframes loginFieldFlow{to{background-position:0 0,300% 0}}
 button{width:100%;color:#050815;border:none;border-radius:12px;padding:.8rem;font-size:.95rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 18px 36px rgba(96,242,255,.28);transition:transform .18s ease,box-shadow .18s ease}
@@ -2150,7 +2151,7 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 <div class="brand-mark" aria-hidden="true"></div>
 <h1>Ciallo Ms-365 OpenAI Proxy</h1>
 <p id="login-desc" data-i18n="login_desc">输入管理员密码以继续</p>
-<input id="pw" type="password" placeholder="API Key / 密码" autofocus onkeydown="if(event.key==='Enter')doLogin()">
+<input id="pw" type="password" autocomplete="off" placeholder="API Key / 密码" autofocus onkeydown="if(event.key==='Enter')doLogin()">
 <button id="btn" onclick="doLogin()" data-i18n="login_btn">登录</button>
 <div id="msg" class="msg"></div>
 </div>
@@ -3892,8 +3893,9 @@ details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgb
 #login-card .brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgba(96,242,255,.9),rgba(140,107,255,.92));box-shadow:0 0 30px rgba(96,242,255,.4),inset 0 0 22px rgba(255,255,255,.22);overflow:hidden}
 #login-card .brand-mark:before,#login-card .brand-mark:after{content:"";position:absolute;inset:12px;border-radius:12px;border:1px solid rgba(255,255,255,.34);animation:userMarkSpin 4.8s linear infinite}
 #login-card .brand-mark:after{inset:8px;opacity:.58;animation:userMarkSpinReverse 6.2s linear infinite}
-#login-card input{background:rgba(10,16,36,.46)!important;border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+#login-card input{background:rgba(10,16,36,.46)!important;border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);-webkit-text-fill-color:#e2e8f0;-webkit-box-shadow:0 0 0 1000px rgba(10,16,36,.46) inset;transition:background-color 0s,color 0s}
 #login-card input:focus{border:1px solid transparent!important;background-image:linear-gradient(rgba(10,16,36,.58),rgba(10,16,36,.58)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;animation:fieldFlow 2.2s linear infinite!important}
+#login-card input:-webkit-autofill,#login-card input:-webkit-autofill:focus,#login-card input:-webkit-autofill:hover{-webkit-text-fill-color:#e2e8f0!important;-webkit-box-shadow:0 0 0 1000px rgba(10,16,36,.58) inset!important;caret-color:#e2e8f0}
 @keyframes userMarkSpin{from{transform:rotate(16deg)}to{transform:rotate(376deg)}}
 @keyframes userMarkSpinReverse{from{transform:rotate(-12deg)}to{transform:rotate(-372deg)}}
 label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .3rem}
@@ -3996,8 +3998,8 @@ code{color:#a5b4fc}
     <div class="brand-mark" aria-hidden="true"></div>
     <h2 data-i18n="login_title">登录</h2>
     <div class="hint" data-i18n="login_hint">输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。</div>
-    <input id="username" type="text" data-i18n-ph="username_ph" placeholder="用户名" onkeydown="if(event.key==='Enter')doLogin()">
-    <input id="password" type="password" data-i18n-ph="password_ph" placeholder="密码" style="margin-top:.5rem" onkeydown="if(event.key==='Enter')doLogin()">
+    <input id="username" type="text" autocomplete="off" data-i18n-ph="username_ph" placeholder="用户名" onkeydown="if(event.key==='Enter')doLogin()">
+    <input id="password" type="password" autocomplete="off" data-i18n-ph="password_ph" placeholder="密码" style="margin-top:.5rem" onkeydown="if(event.key==='Enter')doLogin()">
     <div class="row login-row"><button id="login-btn" onclick="doLogin()" data-i18n="login_btn">登录</button><span id="login-msg" class="msg"></span></div>
   </div>
 

@@ -24,6 +24,7 @@
 
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
+    const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
 
     // Domains whose cookies are needed for M365 login
     const COOKIE_DOMAINS = [
@@ -50,18 +51,20 @@
             title: 'Ciallo Ms-365 代理',
             proxy_url: '代理地址',
             user_api_key: '用户 API Key（用于更新当前 /user 登录账户）',
+            reset_user_key: '重置已保存 Key',
+            reset_user_key_done: '已清除保存的 Key',
             token: 'Token',
             token_captured: '✓ Token 可用',
             token_not_captured: '⚠ 尚未捕获',
             copy_token: '复制 Token',
-            push_token: '推送到 /user',
+            push_token: '推送 Token',
             cookie_login: 'Cookie 状态',
             gm_available: '✓ Cookie 可用',
             gm_unavailable: '⚠ GM_cookie 不可用，请使用 Tampermonkey Beta。',
-            push_cookies: '推送 Cookie 到 /user',
+            push_cookies: '推送 Cookie',
             quick_setup: ' 一键推送',
             quick_setup_desc: '全量推送当前 Token 和所有 CDP 所需 Cookie 到 /user 当前账户，不写入全局 token/cookie',
-            one_click: '一键推送 /user',
+            one_click: '一键推送',
             manual_config: ' 手动配置',
             mode_capture: ' 模式抓包',
             click_expand: '（点击展开）',
@@ -102,6 +105,8 @@
             title: 'Ciallo Ms-365 Proxy',
             proxy_url: 'Proxy URL',
             user_api_key: 'User API Key (updates current /user account)',
+            reset_user_key: 'Reset Saved Key',
+            reset_user_key_done: 'Saved key cleared',
             token: 'Token',
             token_captured: '✓ captured',
             token_not_captured: '⚠ not captured yet',
@@ -164,6 +169,8 @@
             scope: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#22c55e" stroke-width="2"><circle cx="12" cy="12" r="8"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/><circle cx="12" cy="12" r="2" fill="#22c55e" stroke="none"/></svg>',
             // sparkle/rocket — panel title (sky)
             spark: '<svg viewBox="0 0 24 24" width="17" height="17" fill="#60f2ff"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2z"/></svg>',
+            // rocket — One-Click Push (colorful: cyan body, purple fins, orange flame)
+            rocket: '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M14.5 2c2 0 4 0 5.5 1.5S21.5 8 21.5 10c-1.2 2.6-3 4.7-5 6.3l.2 3.2-3.5-1.8-3.1 1.6-1.6-3.1L4.7 12.5C6.3 10.5 8.4 8.7 11 7.5c1.4-2 3-3.5 3.5-3.5z" fill="#60f2ff"/><path d="M11 7.5C8.4 8.7 6.3 10.5 4.7 12.5l3.8 1.6 3.1-1.6c1-2.2 2.3-4.2 3.9-6.1-2.6.4-4.5 1.1-4.5 1.1z" fill="#8c6bff"/><circle cx="15" cy="6" r="2" fill="#050815"/><path d="M9 16l1.6 3.1 3.1-1.6-.3 4.1s-2.4-.2-4.1-1.9c-1.2-1.2-.6-3.6-.6-3.6z" fill="#ff8c42"/><path d="M9 16l1.6 3.1 3.1-1.6-.5 2.4-3.7-1.8z" fill="#ffd76f"/></svg>',
         };
         return '<span style="display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; vertical-align:middle;">' + (svgs[name] || '') + '</span>';
     }
@@ -294,9 +301,26 @@
     }
     function getUserApiKey() {
         const input = document.getElementById('m365-user-api-key');
-        const val = input ? input.value.trim() : '';
+        let val = input ? input.value.trim() : '';
+        if (!val) {
+            // Fall back to persisted value, then the hard-coded resident constant.
+            try { val = GM_getValue('m365_user_api_key', '') || ''; } catch (e) {}
+            if (!val) val = USER_API_KEY;
+        }
         try { if (val) GM_setValue('m365_user_api_key', val); } catch (e) {}
         return val;
+    }
+    function resetSavedUserKey() {
+        try { GM_setValue('m365_user_api_key', ''); } catch (e) {}
+        const input = document.getElementById('m365-user-api-key');
+        if (input) input.value = '';
+        const btn = document.getElementById('m365-reset-user-key');
+        if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = tr('reset_user_key_done');
+            btn.style.color = '#22c55e';
+            setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+        }
     }
 
     // Cross-origin fetch via GM_xmlhttpRequest
@@ -460,7 +484,9 @@
         if (!latestToken) { alert(tr('no_token_ws')); return; }
         if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
         const btn = document.getElementById('m365-one-click');
-        btn.textContent = tr('working');
+        const btnText = document.getElementById('m365-one-click-text');
+        const setBtnText = (t) => { if (btnText) { btnText.textContent = t; } else { btn.textContent = t; } };
+        setBtnText(tr('working'));
         btn.disabled = true;
         try {
             const ur = await pushUserToken(base, latestToken);
@@ -468,7 +494,7 @@
                 alert(tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
                 return;
             }
-            btn.textContent = tr('pushing_cookies');
+            setBtnText(tr('pushing_cookies'));
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
@@ -476,7 +502,7 @@
         } catch (e) {
             alert(tr('error') + e);
         } finally {
-            btn.textContent = tr('one_click');
+            setBtnText(tr('one_click'));
             btn.disabled = false;
         }
     }
@@ -557,12 +583,19 @@
                                outline:none; transition:border-color 0.2s;"
                         onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
                     <div style="font-size:11px; color:#94a3b8; margin:8px 0 5px; font-weight:500;">${tr('user_api_key')}</div>
-                    <input id="m365-user-api-key" type="password" placeholder="sk-..."
-                        value="${(() => { try { return GM_getValue('m365_user_api_key', ''); } catch (e) { return ''; } })()}"
-                        style="width:100%; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
-                               border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
-                               outline:none; transition:border-color 0.2s;"
-                        onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <input id="m365-user-api-key" type="password" placeholder="sk-..."
+                            value="${(() => { try { return GM_getValue('m365_user_api_key', ''); } catch (e) { return ''; } })()}"
+                            style="flex:1; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
+                                   border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
+                                   outline:none; transition:border-color 0.2s;"
+                            onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                        <button id="m365-reset-user-key" title="${tr('reset_user_key')}"
+                            style="padding:8px 10px; border:1px solid #334155; border-radius:8px; background:#0f172a; color:#94a3b8;
+                                   font-size:11px; cursor:pointer; white-space:nowrap; transition:all 0.2s;"
+                            onmouseover="this.style.borderColor='#f87171'; this.style.color='#f87171'"
+                            onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'">&#9851;</button>
+                    </div>
                 </div>
 
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
@@ -575,10 +608,10 @@
                     </div>
                     <div style="font-size:10px; color:#64748b; margin-bottom:8px;">${tr('quick_setup_desc')}</div>
                     <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
-                            border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#050815;
+                            border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#fff;
                             cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
-                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
-                        &#128640; ${tr('one_click')}
+                            transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                        ${ic('rocket')}<span id="m365-one-click-text">${tr('one_click')}</span>
                     </button>
                 </div>
 
@@ -643,6 +676,8 @@
         document.getElementById('m365-push-token').onclick = () => pushToken();
         document.getElementById('m365-push-cookies').onclick = () => pushCookies();
         document.getElementById('m365-one-click').onclick = () => oneClickSetup();
+        const resetKeyBtn = document.getElementById('m365-reset-user-key');
+        if (resetKeyBtn) resetKeyBtn.onclick = () => resetSavedUserKey();
         const pushPayloadBtn = document.getElementById('m365-push-payload');
         if (pushPayloadBtn) pushPayloadBtn.onclick = () => pushPayload();
         document.getElementById('m365-close-panel').onclick = () => panel.remove();
