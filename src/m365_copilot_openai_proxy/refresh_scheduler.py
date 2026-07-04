@@ -18,6 +18,7 @@ from .account_store import AccountStore
 _REFRESH_BEFORE_SECONDS = 300
 # Max seconds to wait for the on-demand Chromium to expose the M365 tab + token.
 _LAUNCH_TIMEOUT_SECONDS = 30
+_SESSION_COOKIE_PERSIST_SECONDS = 12 * 60 * 60
 
 
 def _chromium_path() -> str:
@@ -221,6 +222,7 @@ class RefreshScheduler:
                 expires_by_id: dict[int, float] = {}
                 successful_expires: list[float] = []
                 now = time.time()
+                session_persisted = 0
                 attempted = 0
                 for i, cookie in enumerate(cookies):
                     name = cookie.get("name", "")
@@ -246,6 +248,9 @@ class RefreshScheduler:
                         params["secure"] = True
                     if cookie.get("expirationDate") or cookie.get("expires"):
                         params["expires"] = cookie.get("expirationDate") or cookie.get("expires")
+                    else:
+                        params["expires"] = now + _SESSION_COOKIE_PERSIST_SECONDS
+                        session_persisted += 1
                     attempted += 1
                     req_id = 100 + i
                     exp = params.get("expires")
@@ -284,6 +289,7 @@ class RefreshScheduler:
                     pass
             if attempted > 0 and injected == attempted and not _is_login_url(final_url):
                 self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
+                print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
             else:
                 self._accounts.set_cookie_status(account_id, False)
                 if attempted > 0 and injected == attempted and _is_login_url(final_url):
