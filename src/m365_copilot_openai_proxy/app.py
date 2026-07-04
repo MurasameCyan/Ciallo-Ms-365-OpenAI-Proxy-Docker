@@ -4287,7 +4287,7 @@ async function loadMe(){
     }else{
       acc+='';
     }
-    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></div>';
+    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><span style="display:inline-flex;gap:.5rem;white-space:nowrap"><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></span></div>';
     document.getElementById('account-info').innerHTML=acc;
     renderAccountStatus(d);
     startUserCountdown(d.account?.token_status?.seconds_remaining||0);
