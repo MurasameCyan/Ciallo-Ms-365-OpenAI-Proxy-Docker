@@ -2149,9 +2149,15 @@ _GLASS_SELECT_JS = """function initGlassSelect(root){
       const opt=sel.options[sel.selectedIndex];trigger.textContent=opt?opt.textContent:'';menu.innerHTML='';
       Array.from(sel.options).forEach(o=>{const b=document.createElement('button');b.type='button';b.className='glass-select-option'+(o.value===sel.value?' active':'');b.textContent=o.textContent;b.onclick=e=>{e.stopPropagation();sel.value=o.value;sel.dispatchEvent(new Event('change',{bubbles:true}));render();close()};menu.appendChild(b)});
     };
+    sel._glassRender=render;
     trigger.onclick=e=>{e.stopPropagation();document.querySelectorAll('.glass-select.open').forEach(x=>{if(x!==wrap)x.classList.remove('open')});render();wrap.classList.toggle('open')};
     sel.addEventListener('change',render);render();
   });
+}
+function refreshGlassSelect(sel){
+  if(!sel)return;
+  if(sel.dataset.glassReady!=='1')initGlassSelect(sel.parentElement||document);
+  if(typeof sel._glassRender==='function')sel._glassRender();
 }
 document.addEventListener('click',()=>document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open')));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open'))});"""
@@ -2798,8 +2804,8 @@ const i18n={
     dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',dbg_gate_hint:'点击切换调试接收通道',
     dbg_capture_desc:'非必要时请勿开启，避免恶意数据写入；调试完成后请及时关闭。',
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
-    title_tone:'对话模式  （默认）',
-    tone_hint:'设置新建用户的默认对话模式（模型）。此项决定每个新建 Key 的初始模式，用户可在自己的用户页覆盖。立即生效并持久保存。',
+    title_tone:'对话模式（新用户模板）',
+    tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -2883,8 +2889,8 @@ const i18n={
     dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',dbg_gate_hint:'Click to toggle the debug receive channel',
     dbg_capture_desc:'Do not enable unless necessary, to avoid malicious data being written; turn it off promptly after debugging.',
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
-    title_tone:'Conversation Mode (Default)',
-    tone_hint:'Set the default conversation mode (model) for newly created users. This determines the initial mode of each new key; users can override it on their own page. Applies immediately and persists across restarts.',
+    title_tone:'Conversation Mode (New User Template)',
+    tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -3901,9 +3907,8 @@ async function loadTone(){
     const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
     sel.innerHTML=opts.map(o=>'<option value="'+o.value+'">'+lbl(o)+'</option>').join('');
     sel.value=opts.some(o=>o.value===cur)?cur:(opts[0]?opts[0].value:'');
-    sel.onchange=null;
     initGlassSelect(sel.parentElement);
-    sel.dispatchEvent(new Event('change',{bubbles:true}));
+    refreshGlassSelect(sel);
     sel.onchange=()=>saveTone(sel.value);
   }catch(e){}
 }
@@ -4168,6 +4173,7 @@ code{color:#a5b4fc}
         <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey(this)" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
         <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
         <div class="row"><select id="tone" class="tone-select" onchange="saveTone()"></select><span id="tone-msg" class="msg"></span></div>
+        <div style="color:var(--faint);font-size:.72rem;margin-top:.25rem" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
         <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。&#10;access_token / wss://substrate.office.com/..."></textarea>
@@ -4218,7 +4224,7 @@ const i18n={
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
-    mode_profile_title:'默认配置',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
+    mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户名',status_login:'登录',status_refresh:'自动刷新',status_valid:'有效',status_expire:'过期时间',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
     tone_title:'对话模式',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
@@ -4241,7 +4247,7 @@ const i18n={
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
-    mode_profile_title:'Default Config',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
+    mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Auto refresh',status_valid:'Valid',status_expire:'Expires at',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
     tone_title:'Conversation Mode',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
@@ -4288,7 +4294,7 @@ function renderToneOptions(){
   });
   if(cur)sel.value=cur;
   initGlassSelect(sel.parentElement);
-  sel.dispatchEvent(new Event('change',{bubbles:true}));
+  refreshGlassSelect(sel);
 }
 function flash(id){const s=document.getElementById(id);if(!s)return;s.textContent=t('saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
 async function doLogin(){
@@ -4389,7 +4395,7 @@ async function loadMe(){
     const mk=document.getElementById('my-key');if(mk)mk.textContent=getKey();
     renderToneOptions();
     document.getElementById('tone').value=d.tone||'Magic';
-    document.getElementById('tone').dispatchEvent(new Event('change',{bubbles:true}));
+    refreshGlassSelect(document.getElementById('tone'));
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
     document.getElementById('sys-prompt').value=d.system_prompt||'';
     let acc='';
