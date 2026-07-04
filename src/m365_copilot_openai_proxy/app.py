@@ -1081,6 +1081,26 @@ def create_app(
         _write_json_list(app.state.metrics_path, app.state.metrics_history, 500)
         return {"status": "ok"}
 
+    @app.get("/admin/summary")
+    async def get_summary(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        accounts = app.state.account_store.list()
+        keys = app.state.key_store.list()
+        valid_accounts = sum(1 for a in accounts if a.token_status().get("valid"))
+        enabled_keys = sum(1 for k in keys if k.enabled)
+        bound_keys = sum(1 for k in keys if k.account_id)
+        return {
+            "accounts_total": len(accounts),
+            "accounts_valid": valid_accounts,
+            "accounts_expired": len(accounts) - valid_accounts,
+            "keys_total": len(keys),
+            "keys_enabled": enabled_keys,
+            "keys_disabled": len(keys) - enabled_keys,
+            "keys_bound": bound_keys,
+            "keys_unbound": len(keys) - bound_keys,
+        }
+
     @app.get("/admin/stats")
     async def get_stats(request: Request) -> dict:
         err = _require_admin(request)
@@ -1276,8 +1296,9 @@ def create_app(
         return {"status": "ok", "system_prompt": prompt}
 
     # ============================ Multi-tenant admin API ============================
-    def _account_public(acc: Account) -> dict:
+    def _account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict:
         """Serialize an account for the admin UI (never leak the raw token)."""
+        keys = bound_keys if bound_keys is not None else app.state.key_store.list_for_account(acc.id)
         return {
             "id": acc.id,
             "name": acc.name,
@@ -1289,8 +1310,8 @@ def create_app(
             "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
             "has_token": bool(acc.token),
             "token_status": acc.token_status(),
-            "key_count": len(app.state.key_store.list_for_account(acc.id)),
-            "bound_names": [k.name or k.username or k.id for k in app.state.key_store.list_for_account(acc.id)],
+            "key_count": len(keys),
+            "bound_names": [k.name or k.username or k.id for k in keys],
             "created_at": acc.created_at,
             "updated_at": acc.updated_at,
         }
@@ -1321,7 +1342,11 @@ def create_app(
     async def list_accounts(request: Request) -> dict:
         err = _require_admin(request)
         if err: return err
-        return {"accounts": [_account_public(a) for a in app.state.account_store.list()]}
+        keys_by_account: dict[str, list[ApiKey]] = {}
+        for k in app.state.key_store.list():
+            if k.account_id:
+                keys_by_account.setdefault(k.account_id, []).append(k)
+        return {"accounts": [_account_public(a, keys_by_account.get(a.id, [])) for a in app.state.account_store.list()]}
 
     @app.post("/admin/accounts")
     async def add_account(request: Request) -> dict:
@@ -2545,7 +2570,6 @@ body[data-theme="light"] .debug-gate{background:radial-gradient(circle at 50% 38
 body[data-theme="light"] .debug-gate:after{background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(239,245,255,.76))}
 body[data-theme="light"] .debug-gate:before{opacity:.34}
 body[data-theme="light"] .debug-gate.on{box-shadow:0 0 34px rgba(96,180,242,.28),0 0 90px rgba(140,107,255,.16),inset 0 1px 0 rgba(255,255,255,.9)}
-body[data-theme="light"] .gate-stream i,body[data-theme="light"] .gate-rim-stream i{color:rgba(14,116,144,.92);text-shadow:0 0 8px rgba(96,180,242,.72),0 0 16px rgba(124,58,237,.28)}
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-bar{display:flex;gap:.5rem;margin-bottom:.25rem;flex-wrap:wrap}
@@ -2599,12 +2623,12 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 .switch input:checked+.slider{background:linear-gradient(135deg,var(--cyan),var(--violet));border-color:transparent;box-shadow:0 0 12px rgba(96,242,255,.5),inset 0 1px 2px rgba(255,255,255,.25)}
 .switch input:checked+.slider:before{transform:translateX(20px)}
 /* ---- debug receive gate ---- */
-.debug-gate-card{padding:1.4rem;overflow:hidden}
-.debug-gate{position:relative;width:100%;min-height:280px;border:none;border-radius:28px;background:radial-gradient(circle at 50% 38%,rgba(96,242,255,.12),transparent 28%),linear-gradient(135deg,rgba(8,13,32,.9),rgba(18,25,56,.8));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 20px 58px rgba(0,0,0,.28)}
-.debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);animation:spin 4s linear infinite;opacity:.42;z-index:-2}
-.debug-gate:after{content:"";position:absolute;inset:2px;border-radius:26px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
-.debug-gate-core{display:flex;flex-direction:column;align-items:center;gap:.38rem;text-align:center;letter-spacing:.02em}
-.data-globe{position:relative;width:96px;height:96px;border-radius:50%;margin-bottom:0;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 38px rgba(96,242,255,.28),inset 0 0 34px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d;animation:globeSpin 20s linear infinite}
+.debug-gate-card{padding:20px;overflow:hidden}
+.debug-gate{position:relative;width:100%;min-height:240px;padding:20px;border:none;border-radius:28px;background:radial-gradient(circle at 50% 38%,rgba(96,242,255,.12),transparent 28%),linear-gradient(135deg,rgba(8,13,32,.9),rgba(18,25,56,.8));color:var(--text);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;isolation:isolate;font-weight:800;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 20px 58px rgba(0,0,0,.28)}
+.debug-gate:before{content:"";position:absolute;inset:-2px;background:conic-gradient(from 0deg,transparent,rgba(96,242,255,.55),transparent,rgba(140,107,255,.52),transparent);opacity:.42;z-index:-2}
+.debug-gate:after{content:"";position:absolute;inset:20px;border-radius:20px;background:linear-gradient(135deg,rgba(7,11,27,.92),rgba(13,19,45,.86));z-index:-1}
+.debug-gate-core{display:flex;align-items:center;justify-content:center;text-align:center;letter-spacing:.02em}
+.data-globe{position:relative;width:108px;height:108px;border-radius:50%;margin:0;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.78),rgba(96,242,255,.35) 17%,rgba(34,98,180,.42) 48%,rgba(16,24,64,.9) 74%);border:1px solid rgba(96,242,255,.45);box-shadow:0 0 38px rgba(96,242,255,.28),inset 0 0 34px rgba(96,242,255,.2);overflow:visible;transform-style:preserve-3d}
 .debug-gate.on .data-globe{animation:globeSpin 9s linear infinite,globeBreath 3.2s ease-in-out infinite}
 .data-globe:before{content:"";position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 24% 30%,rgba(255,255,255,.95) 0 1.4px,transparent 2.2px),radial-gradient(circle at 66% 22%,rgba(96,242,255,.9) 0 1.6px,transparent 2.4px),radial-gradient(circle at 40% 58%,rgba(255,255,255,.72) 0 1.1px,transparent 1.8px),radial-gradient(circle at 74% 64%,rgba(140,107,255,.82) 0 1.5px,transparent 2.2px),radial-gradient(circle at 30% 78%,rgba(96,242,255,.7) 0 1.2px,transparent 1.9px);opacity:.85;animation:globeDotA 6.5s ease-in-out infinite}
 .data-globe:after{content:"";position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 52% 20%,rgba(255,255,255,.85) 0 1.3px,transparent 2px),radial-gradient(circle at 18% 54%,rgba(96,242,255,.8) 0 1.5px,transparent 2.2px),radial-gradient(circle at 60% 48%,rgba(255,215,111,.75) 0 1.3px,transparent 2px),radial-gradient(circle at 82% 40%,rgba(255,255,255,.7) 0 1.1px,transparent 1.7px),radial-gradient(circle at 46% 82%,rgba(140,107,255,.7) 0 1.4px,transparent 2.1px);opacity:.7;animation:globeDotB 5.2s ease-in-out infinite}
@@ -2613,27 +2637,13 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 .data-globe .orbit.o1{--x:68deg;--y:18deg;--r:18deg}
 .data-globe .orbit.o2{inset:-18px;--x:28deg;--y:72deg;--r:64deg;border-color:rgba(140,107,255,.45)}.data-globe .orbit.o2:after{background:var(--violet);box-shadow:0 0 12px var(--violet)}
 .data-globe .orbit.o3{inset:-24px;--x:78deg;--y:-36deg;--r:-34deg;border-color:rgba(255,215,111,.42)}.data-globe .orbit.o3:after{background:var(--gold);box-shadow:0 0 12px var(--gold)}
-.debug-gate b{display:block;color:var(--strong);font-size:1rem}.debug-gate small{display:block;color:var(--faint);font-size:.72rem}
+.debug-gate b,.debug-gate small{display:none}
 .debug-gate.on{box-shadow:0 0 42px rgba(96,242,255,.34),0 0 110px rgba(140,107,255,.24),inset 0 1px 0 rgba(255,255,255,.1)}
 .debug-gate.on:before{opacity:1;animation-duration:1.8s}.debug-gate.on .data-globe:before{animation-duration:3.4s}.debug-gate.on .data-globe:after{animation-duration:2.8s}.debug-gate.on .data-globe{box-shadow:0 0 52px rgba(96,242,255,.52),0 0 86px rgba(140,107,255,.3),0 0 118px rgba(255,94,219,.16),inset 0 0 34px rgba(96,242,255,.22)}
 .debug-gate.on .orbit{opacity:1;animation:orbitSpin 2.4s linear infinite}.debug-gate.on .orbit.o2{animation-duration:3.2s;animation-direction:reverse}.debug-gate.on .orbit.o3{animation-duration:4.1s}
 .gate-flow{position:absolute;inset:6px;border-radius:24px;pointer-events:none;opacity:0;z-index:0}
 .debug-gate.on .gate-flow{opacity:1;border:1px solid transparent;background:linear-gradient(90deg,transparent,rgba(96,242,255,.5),rgba(140,107,255,.4),rgba(255,94,219,.3),transparent);background-size:300% 100%;animation:gateFlow 2.6s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px}
 @keyframes gateFlow{to{background-position:300% 0}}
-.gate-stream{position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;overflow:hidden;border-radius:28px}
-.debug-gate.on .gate-stream{opacity:1}
-.gate-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.72rem;color:rgba(182,252,255,.86);text-shadow:0 0 6px rgba(96,242,255,.62);white-space:nowrap;font-weight:800;letter-spacing:.08em;transform:translate(var(--sx),var(--sy)) rotate(var(--a));opacity:0;will-change:transform,opacity}
-.gate-stream i:nth-child(n+11){display:none}
-.debug-gate.on .gate-stream i{animation:streamToGlobe 3.2s linear infinite;animation-delay:var(--d)}
-.gate-stream i:nth-child(1){--sx:-430px;--sy:-126px;--a:16deg;--d:0s}.gate-stream i:nth-child(2){--sx:-420px;--sy:-28px;--a:4deg;--d:.18s}.gate-stream i:nth-child(3){--sx:-430px;--sy:106px;--a:-14deg;--d:.42s}.gate-stream i:nth-child(4){--sx:420px;--sy:-116px;--a:-16deg;--d:.12s}.gate-stream i:nth-child(5){--sx:438px;--sy:10px;--a:-1deg;--d:.36s}.gate-stream i:nth-child(6){--sx:410px;--sy:118px;--a:16deg;--d:.58s}.gate-stream i:nth-child(7){--sx:-218px;--sy:-158px;--a:36deg;--d:.72s}.gate-stream i:nth-child(8){--sx:210px;--sy:-156px;--a:-36deg;--d:.9s}.gate-stream i:nth-child(9){--sx:-110px;--sy:-172px;--a:58deg;--d:.24s}.gate-stream i:nth-child(10){--sx:102px;--sy:-174px;--a:-58deg;--d:.66s}.gate-stream i:nth-child(11){--sx:-205px;--sy:164px;--a:-39deg;--d:.5s}.gate-stream i:nth-child(12){--sx:214px;--sy:160px;--a:38deg;--d:.84s}.gate-stream i:nth-child(13){--sx:-390px;--sy:-176px;--a:24deg;--d:1.02s}.gate-stream i:nth-child(14){--sx:390px;--sy:-174px;--a:-24deg;--d:1.18s}.gate-stream i:nth-child(15){--sx:-384px;--sy:172px;--a:-24deg;--d:1.34s}.gate-stream i:nth-child(16){--sx:384px;--sy:174px;--a:24deg;--d:1.5s}
-@keyframes streamToGlobe{0%{transform:translate(var(--sx),var(--sy)) rotate(var(--a)) scale(.9);opacity:0}12%{opacity:.72}78%{opacity:.62}100%{transform:translate(-8px,-26px) rotate(var(--a)) scale(.42);opacity:0}}
-.gate-rim-stream{position:absolute;inset:10px;pointer-events:none;z-index:1;opacity:0;border-radius:22px;overflow:hidden}
-.debug-gate.on .gate-rim-stream{opacity:1}
-.gate-rim-stream i{position:absolute;left:50%;top:50%;font-family:Consolas,monospace;font-size:.68rem;color:rgba(210,252,255,.86);font-weight:800;letter-spacing:.06em;text-shadow:0 0 6px rgba(96,242,255,.62);transform:translate(var(--rx),var(--ry)) rotate(var(--ra));opacity:0;will-change:transform,opacity}
-.gate-rim-stream i:nth-child(n+7){display:none}
-.debug-gate.on .gate-rim-stream i{animation:rimToGlobe 3s linear infinite;animation-delay:var(--rd)}
-.gate-rim-stream i:nth-child(1){--rx:-390px;--ry:-118px;--ra:17deg;--rd:0s}.gate-rim-stream i:nth-child(2){--rx:-306px;--ry:-118px;--ra:21deg;--rd:.13s}.gate-rim-stream i:nth-child(3){--rx:-188px;--ry:-118px;--ra:32deg;--rd:.41s}.gate-rim-stream i:nth-child(4){--rx:-42px;--ry:-118px;--ra:70deg;--rd:.76s}.gate-rim-stream i:nth-child(5){--rx:126px;--ry:-118px;--ra:-48deg;--rd:.22s}.gate-rim-stream i:nth-child(6){--rx:348px;--ry:-118px;--ra:-19deg;--rd:.92s}.gate-rim-stream i:nth-child(7){--rx:390px;--ry:-78px;--ra:-11deg;--rd:.35s}.gate-rim-stream i:nth-child(8){--rx:390px;--ry:-18px;--ra:-3deg;--rd:.68s}.gate-rim-stream i:nth-child(9){--rx:390px;--ry:74px;--ra:11deg;--rd:1.08s}.gate-rim-stream i:nth-child(10){--rx:300px;--ry:118px;--ra:22deg;--rd:.49s}.gate-rim-stream i:nth-child(11){--rx:84px;--ry:118px;--ra:52deg;--rd:.82s}.gate-rim-stream i:nth-child(12){--rx:-82px;--ry:118px;--ra:-54deg;--rd:1.22s}.gate-rim-stream i:nth-child(13){--rx:-266px;--ry:118px;--ra:-24deg;--rd:.58s}.gate-rim-stream i:nth-child(14){--rx:-390px;--ry:102px;--ra:-15deg;--rd:1.36s}.gate-rim-stream i:nth-child(15){--rx:-390px;--ry:26px;--ra:-4deg;--rd:.27s}.gate-rim-stream i:nth-child(16){--rx:-390px;--ry:-58px;--ra:8deg;--rd:1.02s}.gate-rim-stream i:nth-child(17){--rx:214px;--ry:-118px;--ra:-30deg;--rd:1.44s}.gate-rim-stream i:nth-child(18){--rx:390px;--ry:106px;--ra:16deg;--rd:1.62s}.gate-rim-stream i:nth-child(19){--rx:-342px;--ry:118px;--ra:-19deg;--rd:1.78s}.gate-rim-stream i:nth-child(20){--rx:18px;--ry:-118px;--ra:-78deg;--rd:1.92s}
-@keyframes rimToGlobe{0%{transform:translate(var(--rx),var(--ry)) rotate(var(--ra)) scale(1);opacity:0}12%{opacity:.68}76%{opacity:.58}100%{transform:translate(-6px,-28px) rotate(var(--ra)) scale(.36);opacity:0}}
 @keyframes globeSpin{to{transform:rotate(360deg)}}
 @keyframes globeBreath{0%,100%{scale:1;filter:drop-shadow(0 0 14px rgba(96,242,255,.32)) drop-shadow(0 0 24px rgba(140,107,255,.2))}50%{scale:1.08;filter:drop-shadow(0 0 24px rgba(96,242,255,.62)) drop-shadow(0 0 44px rgba(140,107,255,.38)) drop-shadow(0 0 62px rgba(255,94,219,.2))}}
 @keyframes globeDotA{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(-3px,2px)}75%{transform:translate(1px,3px)}100%{transform:translate(0,0)}}
@@ -2665,7 +2675,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 .expiry-warn-rotate{animation:warnFade 3s ease-in-out both}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes loginPulse{50%{scale:1.08;opacity:.42}}
-@media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}}
+@media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}.ports-logs-card>div{grid-template-columns:1fr!important}}
 </style>
 </head>
 <body>
@@ -2719,7 +2729,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-accounts accounts-main-card">
 <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
 <button onclick="toggleAccountForm()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="btn_add_account">添加账户</button>
-<button onclick="loadAccounts();loadKeys();loadStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
+<button onclick="loadAccounts();loadStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
 <div id="accounts-warn" class="hide-card" style="margin-bottom:.75rem;padding:.6rem .9rem;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.45);color:#fbbf24;font-size:.85rem;box-shadow:0 0 22px rgba(245,158,11,.12)"></div>
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="accounts_hint">每个账户拥有独立的 M365 Token 与 Chromium 刷新配置。刷新按需串行拉起浏览器，用完即关。</div>
@@ -2823,42 +2833,42 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-debug debug-gate-card">
 <button class="debug-gate" id="capture-gate" onclick="toggleCaptureGate()">
 <div class="gate-flow"></div>
-<div class="gate-stream"><i>01</i><i>101</i><i>0011</i><i>11</i><i>01010</i><i>00</i><i>1011</i><i>01</i><i>110</i><i>00101</i><i>10</i><i>0110</i><i>1</i><i>010</i><i>10101</i><i>00</i></div>
-<div class="gate-rim-stream"><i>01</i><i>1010</i><i>1</i><i>001</i><i>1110</i><i>00</i><i>0101</i><i>10</i><i>101</i><i>01101</i><i>0</i><i>110</i><i>0010</i><i>01</i><i>10111</i><i>00</i><i>010</i><i>111</i><i>00101</i><i>10</i></div>
-<span class="debug-gate-core"><span class="data-globe"><i class="orbit o1"></i><i class="orbit o2"></i><i class="orbit o3"></i></span><b data-i18n="dbg_capture_recv">接收抓包</b><small data-i18n="dbg_gate_hint">点击切换调试接收通道</small></span>
+
+<span class="debug-gate-core"><span class="data-globe"><i class="orbit o1"></i><i class="orbit o2"></i><i class="orbit o3"></i></span></span>
 </button>
 </div>
 
-<div class="card view-debug ports-logs-card">
-<h2 data-i18n="ports_logs_title" style="margin:0 0 .75rem;font-size:1.1rem;font-weight:600">端口与日志</h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem">
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="cdp_port_label">CDP 端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
-<label style="font-size:.75rem;color:var(--faint)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
-<div style="display:flex;align-items:flex-end;gap:.5rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="debug-runtime-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
-</div>
-</div>
-
-<div class="card view-debug">
-<details id="capture-details" style="cursor:pointer">
-<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-<span data-i18n="title_capture">模式抓包对比</span>
-<span id="capture-count" style="font-size:.75rem;color:var(--faint);background:var(--inner);padding:2px 8px;border-radius:8px">0</span>
+<div class="card view-debug details-open" style="padding:20px">
+<details id="call-log-details" open style="cursor:pointer;margin-bottom:20px">
+<summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
+<span data-i18n="title_call_log">API 调用记录</span>
+<span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="margin-top:.75rem;padding:.6rem .75rem;border-radius:10px;background:var(--inner);border:1px solid var(--inner-border)">
-<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
-<span data-i18n="title_call_log" style="font-size:.95rem;font-weight:600;color:var(--strong)">API 调用记录</span>
-<span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
-</div>
-<div id="call-log-content" style="max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
+<div id="call-log-content" style="margin-top:20px;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
-</div>
-<div style="margin-top:.75rem;font-size:.75rem;color:var(--faint)" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
-<div id="capture-content" style="margin-top:.75rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
+</details>
+<details id="capture-details" open style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
+<span data-i18n="title_capture">模式抓包对比</span>
+<span id="capture-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:20px;font-size:.75rem;color:var(--faint)" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
+<div id="capture-content" style="margin-top:20px;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
 <span style="color:var(--faint)" data-i18n="no_capture_yet">暂无抓包数据</span>
 </div>
 </details>
+</div>
+
+<div class="card view-debug ports-logs-card no-details" style="padding:20px">
+<h2 data-i18n="ports_logs_title" style="margin:0 0 1rem;font-size:1.28rem;font-weight:800">端口与日志</h2>
+<div style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) auto;gap:1rem;align-items:end">
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.45rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="margin-top:.45rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+<div style="display:flex;align-items:center;gap:.5rem"><button onclick="saveRuntimeSettings()" data-i18n="save">保存</button><span id="debug-runtime-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span></div>
+</div>
 </div>
 
 <div class="card view-debug debug-guide-card">
@@ -3100,8 +3110,6 @@ function applyLang(){
     const key=el.getAttribute('data-i18n');
     if(i18n[lang][key])el.textContent=i18n[lang][key];
   });
-  loadStatus();loadChromiumStatus();loadTone();loadRuntimeSettings();
-  loadAccounts();loadKeys();
   const vt=document.getElementById('view-title');
   if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
   const out=document.getElementById('admin-logout');if(out)out.title=lang==='zh'?'退出管理后台':'Sign out admin';
@@ -3171,7 +3179,14 @@ function switchView(view){
   const map={home:'nav_home',users:'nav_users',accounts:'nav_accounts',settings:'nav_settings',debug:'nav_debug'};
   const vk=map[view]||'nav_home';
   if(vt){vt.setAttribute('data-i18n',vk);vt.textContent=(i18n[lang]&&i18n[lang][vk])||vt.textContent}
-  if(view==='debug')loadCaptureToggle();
+  loadViewData(view);
+}
+function loadViewData(view){
+  if(view==='home'){loadSummary();loadTrend();loadStats();return}
+  if(view==='accounts'){loadAccounts();loadStats();return}
+  if(view==='users'){loadKeys();return}
+  if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
+  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadCapture()}
 }
 switchView(localStorage.getItem('admin_view')||'home');
 
@@ -3247,10 +3262,6 @@ async function loadStatus(){
     const sc=document.getElementById('legacy-status-content');if(sc)sc.innerHTML='<span class="invalid">Failed to load</span>';
   }
 }
-
-// Kept as a thin alias so existing init/interval calls still work; loadStatus now
-// renders both token and chromium status together in the required order.
-async function loadChromiumStatus(){return loadStatus()}
 
 function fmtSec(s){
   if(!s&&s!==0)return'N/A';
@@ -3330,7 +3341,6 @@ async function autoCapture(){
 }
 
 async function checkLogin(){
-  loadChromiumStatus();
   const msg=document.getElementById('update-msg');
   msg.className='msg';msg.textContent=t('check_login');
   await new Promise(r=>setTimeout(r,1500));
@@ -3351,7 +3361,7 @@ async function logoutUser(){
     const d=await r.json();
     if(r.ok){
       msg.className='msg ok';msg.textContent=t('logout_ok')+(d.message?' — '+d.message:'');
-      loadChromiumStatus();loadStatus();
+      loadStatus();
     }else{
       msg.className='msg err';msg.textContent=d.error?.message||d.error||t('logout_failed');
     }
@@ -3428,25 +3438,27 @@ function donut(parts,centerLabel,centerVal){
 function renderDashboard(){
   const kpi=document.getElementById('dash-kpi');
   if(!kpi)return;
-  const keys=__keys||[],accts=__accounts||[];
-  const acctValid=accts.filter(a=>a.token_status&&a.token_status.valid).length;
-  const acctExpired=accts.length-acctValid;
-  const keyEnabled=keys.filter(k=>k.enabled).length;
-  const keyDisabled=keys.length-keyEnabled;
-  const keyBound=keys.filter(k=>k.account_id).length;
-  const keyUnbound=keys.length-keyBound;
-  kpi.innerHTML=kpiCard(t('dash_kpi_users'),keys.length,'#38bdf8')
-    +kpiCard(t('dash_kpi_accounts'),accts.length,'#a78bfa')
+  const keys=__keys||[],accts=__accounts||[],s=__summary||{};
+  const acctTotal=s.accounts_total??accts.length;
+  const acctValid=s.accounts_valid??accts.filter(a=>a.token_status&&a.token_status.valid).length;
+  const acctExpired=s.accounts_expired??(acctTotal-acctValid);
+  const keyTotal=s.keys_total??keys.length;
+  const keyEnabled=s.keys_enabled??keys.filter(k=>k.enabled).length;
+  const keyDisabled=s.keys_disabled??(keyTotal-keyEnabled);
+  const keyBound=s.keys_bound??keys.filter(k=>k.account_id).length;
+  const keyUnbound=s.keys_unbound??(keyTotal-keyBound);
+  kpi.innerHTML=kpiCard(t('dash_kpi_users'),keyTotal,'#38bdf8')
+    +kpiCard(t('dash_kpi_accounts'),acctTotal,'#a78bfa')
     +kpiCard(t('dash_kpi_active_users'),keyEnabled,'#22c55e')
     +kpiCard(t('dash_kpi_valid_accts'),acctValid,'#22c55e')
     +kpiCard(t('dash_kpi_expired_accts'),acctExpired,acctExpired?'#f59e0b':'#64748b')
     +kpiCard(t('dash_kpi_unbound'),keyUnbound,keyUnbound?'#f59e0b':'#64748b');
   const da=document.getElementById('dash-donut-acct');
-  if(da)da.innerHTML=donut([{value:acctValid,color:'#22c55e',label:t('dash_valid')},{value:acctExpired,color:'#ef4444',label:t('dash_expired')}],t('dash_kpi_accounts'),accts.length);
+  if(da)da.innerHTML=donut([{value:acctValid,color:'#22c55e',label:t('dash_valid')},{value:acctExpired,color:'#ef4444',label:t('dash_expired')}],t('dash_kpi_accounts'),acctTotal);
   const dk=document.getElementById('dash-donut-key');
-  if(dk)dk.innerHTML=donut([{value:keyEnabled,color:'#22c55e',label:t('btn_enable')},{value:keyDisabled,color:'#64748b',label:t('btn_disable')}],t('dash_kpi_users'),keys.length);
+  if(dk)dk.innerHTML=donut([{value:keyEnabled,color:'#22c55e',label:t('btn_enable')},{value:keyDisabled,color:'#64748b',label:t('btn_disable')}],t('dash_kpi_users'),keyTotal);
   const db=document.getElementById('dash-donut-bind');
-  if(db)db.innerHTML=donut([{value:keyBound,color:'#38bdf8',label:t('dash_bound')},{value:keyUnbound,color:'#f59e0b',label:t('unbound')}],t('dash_kpi_users'),keys.length);
+  if(db)db.innerHTML=donut([{value:keyBound,color:'#38bdf8',label:t('dash_bound')},{value:keyUnbound,color:'#f59e0b',label:t('unbound')}],t('dash_kpi_users'),keyTotal);
 }
 // ---- trend line chart (multi-series SVG) ----
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
@@ -3495,6 +3507,9 @@ function lineChart(points,series){
   series.forEach(s=>{legend+='<span style="display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:var(--muted)"><span style="width:14px;height:3px;background:'+s.color+';display:inline-block;border-radius:2px"></span>'+s.label+'</span>'});
   legend+='</div>';
   return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto">'+g+'</svg>'+legend;
+}
+async function loadSummary(){
+  try{const r=await fetch('/admin/summary',{credentials:'include'});if(!r.ok)return;__summary=await r.json();renderDashboard()}catch(e){}
 }
 async function loadTrend(){
   const box=document.getElementById('dash-trend');if(!box)return;
@@ -3562,6 +3577,7 @@ async function loadStats(){
   }catch(e){}
 }
 let __accounts=[];
+let __summary=null;
 let __runtimeSettings={};
 let __selectedAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
@@ -3635,7 +3651,7 @@ async function loadAccounts(localOnly=false){
       const st=liveTokenStatus(a.token_status||{});
       const valid=st.valid;
       const rem=valid?(' '+fmtHMS(st.seconds_remaining||0)):'';
-      const badge='<span style="width:134px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
+      const badge='<span style="width:134px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+'<span data-token-rem="'+esc(a.id)+'">'+rem+'</span></span>';
       const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="width:76px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
       const cookieMeta='<div style="display:grid;grid-template-columns:76px auto;column-gap:.55rem;row-gap:2px;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" style="width:76px;font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
@@ -3948,29 +3964,26 @@ function initDetailsCards(){
     details.addEventListener('toggle',sync);sync();
   });
 }
+function updateAccountCountdownText(){
+  if(document.body.dataset.view!=='accounts'||!__accounts.length)return;
+  document.querySelectorAll('[data-token-rem]').forEach(el=>{
+    const a=__accounts.find(x=>x.id===el.getAttribute('data-token-rem'));
+    if(!a)return;
+    const st=liveTokenStatus(a.token_status||{});
+    el.textContent=st.valid?' '+fmtHMS(st.seconds_remaining||0):'';
+  });
+}
 
 initDetailsCards();
 loadStatus();
-loadChromiumStatus();
-loadCallLog();
-loadCapture();
-loadTone();
-loadRuntimeSettings();
-loadToolPrompt();
-loadSystemPrompt();
-loadAccounts();
-loadKeys();
-loadTrend();
-loadStats();
 initGlassSelect(document);
 setInterval(loadStatus,60000);
-setInterval(loadChromiumStatus,60000);
-setInterval(loadCallLog,5000);
-setInterval(loadCapture,5000);
-setInterval(loadTrend,60000);
-setInterval(loadStats,30000);
+setInterval(()=>{if(document.body.dataset.view==='debug')loadCallLog()},5000);
+setInterval(()=>{if(document.body.dataset.view==='debug')loadCapture()},5000);
+setInterval(()=>{if(document.body.dataset.view==='home'){loadSummary();loadTrend()}},60000);
+setInterval(()=>{if(document.body.dataset.view==='home')loadStats()},30000);
 setInterval(()=>{if(document.body.dataset.view==='accounts')loadAccounts()},30000);
-setInterval(()=>{if(document.body.dataset.view==='accounts'&&__accounts.length&&!document.querySelector('tr[id^="atok-"][style*="table-row"]'))loadAccounts(true)},1000);
+setInterval(updateAccountCountdownText,1000);
 
 // Client-side countdown timer
 let _countdownSec=0;
