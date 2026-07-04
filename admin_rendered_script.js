@@ -565,7 +565,7 @@ function renderDashboard(){
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function fmtHMS(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor(sec%3600/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return h+':'+m+':'+s}
 function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
-function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000;const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(st.seconds_remaining||0));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
+function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000,base=Number(st.seconds_remaining||0),loaded=Number(st._loaded_at||now);const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(base-(now-loaded)));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
 function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
@@ -692,7 +692,7 @@ function renderSelectedStatus(){
   let html='';
   html+=row(t('col_account'),esc(a.name||a.id),'valid');
   if(a.email)html+=row('Email',esc(a.email),'');
-  html+=row(t('col_token'),v?t('valid_short')+' '+fmtHMS(st.seconds_remaining||0):t('invalid_short'),v?'valid':'invalid');
+  html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
   html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
@@ -735,7 +735,8 @@ async function loadAccounts(localOnly=false){
       const r=await fetch('/admin/accounts',{credentials:'include'});
       if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
       const d=await r.json();
-      __accounts=d.accounts||[];
+      const loadedAt=Date.now()/1000;
+      __accounts=(d.accounts||[]).map(a=>({...a,token_status:{...(a.token_status||{}),_loaded_at:loadedAt}}));
     }
     if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
     const __pg=_slicePage(__accounts,'accounts');

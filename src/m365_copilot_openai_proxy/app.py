@@ -3335,7 +3335,7 @@ function renderDashboard(){
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function fmtHMS(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor(sec%3600/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return h+':'+m+':'+s}
 function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
-function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000;const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(st.seconds_remaining||0));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
+function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000,base=Number(st.seconds_remaining||0),loaded=Number(st._loaded_at||now);const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(base-(now-loaded)));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
 function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
@@ -3462,7 +3462,7 @@ function renderSelectedStatus(){
   let html='';
   html+=row(t('col_account'),esc(a.name||a.id),'valid');
   if(a.email)html+=row('Email',esc(a.email),'');
-  html+=row(t('col_token'),v?t('valid_short')+' '+fmtHMS(st.seconds_remaining||0):t('invalid_short'),v?'valid':'invalid');
+  html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
   html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
@@ -3505,7 +3505,8 @@ async function loadAccounts(localOnly=false){
       const r=await fetch('/admin/accounts',{credentials:'include'});
       if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
       const d=await r.json();
-      __accounts=d.accounts||[];
+      const loadedAt=Date.now()/1000;
+      __accounts=(d.accounts||[]).map(a=>({...a,token_status:{...(a.token_status||{}),_loaded_at:loadedAt}}));
     }
     if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
     const __pg=_slicePage(__accounts,'accounts');
@@ -4239,7 +4240,10 @@ code{color:#a5b4fc}
     </div>
     <div class="card account-card">
       <div class="account-main">
-        <h2 data-i18n="account_title">账户控制台</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.75rem">
+          <h2 data-i18n="account_title" style="margin:0">账户控制台</h2>
+          <span id="account-console-actions"></span>
+        </div>
         <div id="account-info"></div>
         <label class="section-title" data-i18n="call_params_title">调用参数</label>
         <div class="call-param-box">
@@ -4506,15 +4510,16 @@ async function loadMe(){
     }
     const keyIcon='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="14.5" r="3.5"></circle><path d="M10.2 12L21 1.2M15.5 6.7l2.8 2.8M18.2 4l2.6 2.6"></path></svg>';
     const doorIcon='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5.5A1.5 1.5 0 0 1 4 19.5v-15A1.5 1.5 0 0 1 5.5 3H9"></path><path d="M14 8l4 4-4 4"></path><path d="M18 12H8"></path><path d="M10 3h7a1.5 1.5 0 0 1 1.5 1.5v4"></path></svg>';
-    const consoleActions='<span style="display:inline-flex;gap:.35rem;margin-left:.2rem"><button class="btn-ghost account-action" title="'+t('change_password')+'" onclick="changeLoginPassword(this)" style="width:32px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#facc15;background:rgba(250,204,21,.14);border-color:rgba(250,204,21,.38)">'+keyIcon+'</button><button class="btn-ghost account-action" title="'+t('console_logout')+'" onclick="logoutConsole()" style="width:32px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#38bdf8;background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.38)">'+doorIcon+'</button></span>';
+    const consoleActions='<span style="display:inline-flex;gap:.35rem"><button class="btn-ghost account-action" title="'+t('change_password')+'" onclick="changeLoginPassword(this)" style="width:32px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#facc15;background:rgba(250,204,21,.14);border-color:rgba(250,204,21,.38)">'+keyIcon+'</button><button class="btn-ghost account-action" title="'+t('console_logout')+'" onclick="logoutConsole()" style="width:32px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#38bdf8;background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.38)">'+doorIcon+'</button></span>';
+    const actionBox=document.getElementById('account-console-actions');if(actionBox)actionBox.innerHTML=consoleActions;
     if(d.account){
       const st=d.account.token_status||{};
       const valid=st.valid;
       const rem=valid?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</span>'):'';
       acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+(d.account.name||d.account.id)+'</span>'
-        +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span>'+consoleActions+'</div>';
+        +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
     }else{
-      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span>'+consoleActions+'</div>';
+      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';
     }
     acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
