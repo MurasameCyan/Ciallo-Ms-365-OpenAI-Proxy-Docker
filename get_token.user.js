@@ -50,6 +50,8 @@
         zh: {
             title: 'Ciallo Ms-365 代理',
             proxy_url: '代理地址',
+            reset_proxy_url: '重置已保存代理地址',
+            reset_proxy_url_done: '已清除保存的代理地址',
             user_api_key: '用户 API Key（用于更新当前 /user 登录账户）',
             reset_user_key: '重置已保存 Key',
             reset_user_key_done: '已清除保存的 Key',
@@ -104,6 +106,8 @@
         en: {
             title: 'Ciallo Ms-365 Proxy',
             proxy_url: 'Proxy URL',
+            reset_proxy_url: 'Reset Saved Proxy URL',
+            reset_proxy_url_done: 'Saved proxy URL cleared',
             user_api_key: 'User API Key (updates current /user account)',
             reset_user_key: 'Reset Saved Key',
             reset_user_key_done: 'Saved key cleared',
@@ -135,6 +139,7 @@
             token_pushed: 'Token pushed! Remaining: ',
             failed: 'Failed: ',
             network_error: 'Network error: ',
+            bad_response: 'Proxy returned a non-JSON response (HTTP {status}). Check the proxy URL, it may be a login/error page.',
             gm_unavailable_alert: 'GM_cookie API not available.\n\nPlease use Tampermonkey Beta or enable "Allow scripts to access HttpOnly cookies" in Tampermonkey settings:\nSettings > Security > "Allow scripts to access cookies"',
             fetching: 'Fetching...',
             pushing: 'Pushing...',
@@ -295,9 +300,25 @@
 
     function getProxyBase() {
         const input = document.getElementById('m365-proxy-url');
-        const val = input ? input.value.trim().replace(/\/+$/, '') : PROXY_BASE;
+        let val = input ? input.value.trim().replace(/\/+$/, '') : '';
+        if (!val) {
+            try { val = GM_getValue('m365_proxy_base', '') || ''; } catch (e) {}
+            if (!val) val = PROXY_BASE;
+        }
         try { if (val) GM_setValue('m365_proxy_base', val); } catch (e) {}
         return val;
+    }
+    function resetSavedProxyBase() {
+        try { GM_setValue('m365_proxy_base', ''); } catch (e) {}
+        const input = document.getElementById('m365-proxy-url');
+        if (input) input.value = '';
+        const btn = document.getElementById('m365-reset-proxy-url');
+        if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = tr('reset_proxy_url_done');
+            btn.style.color = '#22c55e';
+            setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+        }
     }
     function getUserApiKey() {
         const input = document.getElementById('m365-user-api-key');
@@ -340,7 +361,22 @@
                             if (typeof resp.response === 'object' && resp.response !== null) {
                                 return Promise.resolve(resp.response);
                             }
-                            return Promise.resolve(JSON.parse(resp.responseText || '{}'));
+                            const raw = resp.responseText || '';
+                            try {
+                                return Promise.resolve(JSON.parse(raw || '{}'));
+                            } catch (e) {
+                                // Server returned non-JSON (HTML error/login page, wrong proxy URL,
+                                // reverse-proxy/CDN page). Surface status + snippet instead of a raw
+                                // "Unexpected token '<'" JSON error.
+                                const snippet = raw.replace(/\s+/g, ' ').trim().slice(0, 120);
+                                return Promise.resolve({
+                                    error: {
+                                        message: tr('bad_response')
+                                            .replace('{status}', resp.status)
+                                            + (snippet ? ' — ' + snippet : ''),
+                                    },
+                                });
+                            }
                         },
                     });
                 },
@@ -576,12 +612,19 @@
 
                 <div style="margin-bottom:12px;">
                     <div style="font-size:11px; color:#94a3b8; margin-bottom:5px; font-weight:500;">${tr('proxy_url')}</div>
-                    <input id="m365-proxy-url" type="text" placeholder="http://your-server:8000"
-                        value="${(() => { try { return GM_getValue('m365_proxy_base', PROXY_BASE); } catch (e) { return PROXY_BASE; } })()}"
-                        style="width:100%; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
-                               border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
-                               outline:none; transition:border-color 0.2s;"
-                        onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <input id="m365-proxy-url" type="text" placeholder="http://your-server:8000"
+                            value="${(() => { try { return GM_getValue('m365_proxy_base', PROXY_BASE); } catch (e) { return PROXY_BASE; } })()}"
+                            style="flex:1; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
+                                   border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
+                                   outline:none; transition:border-color 0.2s;"
+                            onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                        <button id="m365-reset-proxy-url" title="${tr('reset_proxy_url')}"
+                            style="padding:8px 10px; border:1px solid #334155; border-radius:8px; background:#0f172a; color:#94a3b8;
+                                   font-size:11px; cursor:pointer; white-space:nowrap; transition:all 0.2s;"
+                            onmouseover="this.style.borderColor='#f87171'; this.style.color='#f87171'"
+                            onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'">&#9851;</button>
+                    </div>
                     <div style="font-size:11px; color:#94a3b8; margin:8px 0 5px; font-weight:500;">${tr('user_api_key')}</div>
                     <div style="display:flex; gap:6px; align-items:center;">
                         <input id="m365-user-api-key" type="password" placeholder="sk-..."
@@ -676,6 +719,8 @@
         document.getElementById('m365-push-token').onclick = () => pushToken();
         document.getElementById('m365-push-cookies').onclick = () => pushCookies();
         document.getElementById('m365-one-click').onclick = () => oneClickSetup();
+        const resetProxyBtn = document.getElementById('m365-reset-proxy-url');
+        if (resetProxyBtn) resetProxyBtn.onclick = () => resetSavedProxyBase();
         const resetKeyBtn = document.getElementById('m365-reset-user-key');
         if (resetKeyBtn) resetKeyBtn.onclick = () => resetSavedUserKey();
         const pushPayloadBtn = document.getElementById('m365-push-payload');
