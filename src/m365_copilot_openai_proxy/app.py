@@ -1483,6 +1483,24 @@ def create_app(
             return _json_err(403, "This account is disabled", "auth_error")
         return {"status": "ok", "key": k.key, "name": k.name or k.username}
 
+    @app.post("/user/repassword")
+    async def user_repassword(request: Request) -> dict:
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        body = await request.json()
+        old_password = str(body.get("old_password", ""))
+        new_password = str(body.get("new_password", ""))
+        if not old_password or not new_password:
+            return _json_err(400, "Old password and new password are required", "auth_error")
+        if not k.check_password(old_password):
+            return _json_err(401, "Wrong password", "auth_error")
+        perr = _validate_password(new_password)
+        if perr:
+            return _json_err(400, perr)
+        app.state.key_store.update(k.id, password=new_password)
+        return {"status": "ok"}
+
     @app.get("/user/me")
     async def user_me(request: Request) -> dict:
         k = _resolve_user_key(request)
@@ -4302,7 +4320,7 @@ const i18n={
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_public:'公共接口',api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',api_healthz:'健康检查',
     copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置我的 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',regen_running:'重置中...',regen_failed:'重置失败',
-    logout:'登出 Microsoft',console_logout:'登出 控制台',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？将同时清除该账户 Token 和 Cookie 状态，之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',console_logout:'登出 控制台',change_password:'修改 登录密码',old_password:'当前密码',new_password:'新密码',password_changed:'密码已修改',password_change_failed:'修改失败',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？将同时清除该账户 Token 和 Cookie 状态，之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -4325,7 +4343,7 @@ const i18n={
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_public:'Public',api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',api_healthz:'Health check',
     copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset my API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',regen_running:'Resetting...',regen_failed:'Reset failed',
-    logout:'Sign out of Microsoft',console_logout:'Sign out Console',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? This will clear this account token and cookie state. You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',console_logout:'Sign out Console',change_password:'Change Login Password',old_password:'Current password',new_password:'New password',password_changed:'Password changed',password_change_failed:'Change failed',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? This will clear this account token and cookie state. You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -4377,6 +4395,32 @@ async function doLogin(){
     const ok=await loadMe();
     if(!ok){fail();sessionStorage.removeItem('user_api_key')}
   }catch(e){msg.className='msg';msg.style.color='#fca5a5';msg.style.opacity='1';msg.textContent=t('network_error')}
+}
+function userPasswordDialog(){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');ov.className='modal-backdrop';
+    ov.innerHTML='<div class="modal-card flow-box"><div style="font-weight:700;color:var(--strong);margin-bottom:.55rem">'+t('change_password')+'</div><div style="display:grid;gap:.55rem"><input id="rp-old" type="password" placeholder="'+t('old_password')+'"><input id="rp-new" type="password" placeholder="'+t('new_password')+'"></div><div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem"><button id="rp-cancel" class="btn-ghost" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button><button id="rp-ok" style="font-size:.8rem;padding:6px 14px">'+t('confirm_btn')+'</button></div></div>';
+    document.body.appendChild(ov);
+    const oldEl=ov.querySelector('#rp-old'),newEl=ov.querySelector('#rp-new');
+    const done=v=>{ov.remove();resolve(v)};
+    const submit=()=>{const oldPassword=oldEl.value,newPassword=newEl.value;if(!oldPassword||!newPassword)return;done({oldPassword,newPassword})};
+    ov.addEventListener('click',e=>{if(e.target===ov)done(null)});
+    ov.querySelector('#rp-cancel').onclick=()=>done(null);
+    ov.querySelector('#rp-ok').onclick=submit;
+    ov.addEventListener('keydown',e=>{if(e.key==='Enter')submit();if(e.key==='Escape')done(null)});
+    setTimeout(()=>oldEl.focus(),30);
+  });
+}
+async function changeLoginPassword(btn){
+  const form=await userPasswordDialog();
+  if(!form)return;
+  if(btn){btn.disabled=true}
+  let ok=false,msg='';
+  try{
+    const r=await fetch('/user/repassword',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:JSON.stringify({old_password:form.oldPassword,new_password:form.newPassword})});
+    const d=await r.json().catch(()=>({}));ok=r.ok;msg=(d.error&&d.error.message)||'';
+  }catch(e){msg=t('network_error')}
+  if(btn){btn.textContent=ok?t('password_changed'):(msg||t('password_change_failed'));btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('change_password');btn.style.color='';btn.disabled=false},2500)}
 }
 async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}let ok=false;try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}if(btn){btn.textContent=ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false;await loadMe()},3000)}else{await loadMe()}}
 function logoutConsole(){_userRemainSec=0;sessionStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden');const p=document.getElementById('password');if(p)p.value='';const m=document.getElementById('login-msg');if(m)m.textContent=''}
@@ -4477,7 +4521,7 @@ async function loadMe(){
     }else{
       acc+='';
     }
-    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:nowrap;align-items:center;white-space:nowrap;overflow-x:auto"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></div>';
+    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:nowrap;align-items:center;white-space:nowrap;overflow-x:auto"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="changeLoginPassword(this)">'+t('change_password')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
     renderAccountStatus(d);
     startUserCountdown(d.account?.token_status?.seconds_remaining||0);
