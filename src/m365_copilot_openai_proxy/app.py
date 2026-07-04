@@ -2805,11 +2805,11 @@ const i18n={
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
     col_name:'名称',col_account:'账户',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'刷新方式',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',bound_count_label:'绑定',
     col_id:'ID',col_role:'角色',col_username:'用户名',col_password:'密码',
-    btn_refresh:'刷新',btn_token_refresh:'t刷新',btn_cookie_refresh:'c刷新',btn_remove_token:'移除',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
+    btn_refresh:'刷新',btn_token_refresh:'刷新',btn_cookie_refresh:'刷新',btn_remove_token:'移除',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
     page_prev:'上一页',page_next:'下一页',page_info:'第 {cur}/{total} 页 · 共 {count} 条',page_size_label:'每页',page_size_unit:'条',
     batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',confirm_remove_token:'确定移除该账户 Token？',confirm_clear_stats:'确定清空这部分统计数据吗？',
-    valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新',cookie_expires_label:'过期',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
+    valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新时间',cookie_expires_label:'过期时间',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
     rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
     title_update_token:'更新 Token',btn_update:'更新 Token',btn_check_login:'检查登录',btn_auto_capture:'自动刷新',
@@ -2890,11 +2890,11 @@ const i18n={
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
     col_name:'Name',col_account:'Account',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'Refresh',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',bound_count_label:'Bound',
     col_id:'ID',col_role:'Role',col_username:'Username',col_password:'Password',
-    btn_refresh:'Refresh',btn_token_refresh:'T refresh',btn_cookie_refresh:'C refresh',btn_remove_token:'Remove',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
+    btn_refresh:'Refresh',btn_token_refresh:'Refresh',btn_cookie_refresh:'Refresh',btn_remove_token:'Remove',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
     page_prev:'Prev',page_next:'Next',page_info:'Page {cur}/{total} · {count} total',page_size_label:'Per page',page_size_unit:'',
     batch_refresh:'Batch refresh',batch_delete:'Batch delete',batch_enable:'Batch enable',batch_disable:'Batch disable',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',confirm_remove_token:'Remove this account token?',confirm_clear_stats:'Clear this statistics data?',
-    valid_short:'Valid',invalid_short:'Invalid',cookie_valid_short:'Valid',cookie_invalid_short:'Invalid',cookie_updated_label:'Updated',cookie_expires_label:'Expires',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
+    valid_short:'Valid',invalid_short:'Invalid',cookie_valid_short:'Valid',cookie_invalid_short:'Invalid',cookie_updated_label:'Updated at',cookie_expires_label:'Expires at',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
     rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -3276,7 +3276,8 @@ function donut(parts,centerLabel,centerVal){
       const ringCap=8.25,outerCap=10,innerCap=1.3;
       const ringLen=Math.max(0.01,len-ringCap*2),outerDrawLen=Math.max(0.01,outerLen-outerCap*2),innerDrawLen=Math.max(0.01,innerLen-innerCap*2);
       const ringStart=off+ringCap,outerStart=outerOff+outerCap,innerStart=innerOff+innerCap;
-      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/><animate attributeName="stroke-dashoffset" values="'+(-ringStart)+';'+(-ringStart-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14;16.5;14" dur="5.5s" repeatCount="indefinite"/></circle>';
+      const sa=(off/C)*Math.PI*2-Math.PI/2,ea=((off+len)/C)*Math.PI*2-Math.PI/2,sx=60+Math.cos(sa)*R,sy=60+Math.sin(sa)*R,ex=60+Math.cos(ea)*R,ey=60+Math.sin(ea)*R;
+      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="butt" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+len+' '+(C-len)+'" dur="0.55s" fill="freeze"/><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14;16.5;14" dur="5.5s" repeatCount="indefinite"/></circle><circle cx="'+sx.toFixed(2)+'" cy="'+sy.toFixed(2)+'" r="7.5" fill="'+p.color+'" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/></circle><circle cx="'+ex.toFixed(2)+'" cy="'+ey.toFixed(2)+'" r="7.5" fill="'+p.color+'" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.2"><animate attributeName="stroke-dashoffset" values="'+(-outerStart)+';'+(-outerStart-outerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.16;0.62;0.16" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="9;20;9" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="stroke-dashoffset" values="'+(-innerStart)+';'+(-innerStart-innerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.08;0.28;0.08" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.6;1" dur="5.5s" repeatCount="indefinite"/></circle>';
       if(visibleParts.length>1){
@@ -3322,6 +3323,7 @@ function renderDashboard(){
 }
 // ---- trend line chart (multi-series SVG) ----
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
+function fmtHMS(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor(sec%3600/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return h+':'+m+':'+s}
 function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
 function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000;const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(st.seconds_remaining||0));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
 function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
@@ -3446,21 +3448,16 @@ function renderSelectedStatus(){
   if(nameEl)nameEl.textContent=(a.name||a.id)+(a.email?' · '+a.email:'');
   const st=liveTokenStatus(a.token_status||{});
   const v=st.valid;
-  const exp=st.expires_at?new Date(st.expires_at).toLocaleString():'N/A';
-  const warn=(v&&(st.seconds_remaining||0)<600)?'warn':'';
   const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
   let html='';
   html+=row(t('col_account'),esc(a.name||a.id),'valid');
   if(a.email)html+=row('Email',esc(a.email),'');
-  html+=row(t('col_token'),v?t('valid_short')+' '+Math.floor((st.seconds_remaining||0)/60)+'m':t('invalid_short'),v?'valid':'invalid');
+  html+=row(t('col_token'),v?t('valid_short')+' '+fmtHMS(st.seconds_remaining||0):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
   html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
   html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),cv?'valid':'warn');
   html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(cv?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&cv?'valid':'warn');
-  html+=row(t('valid'),v?t('status_yes'):t('status_no'),v?'valid':'invalid');
-  html+=row(t('expires'),exp,warn);
-  html+=row(t('remaining'),fmtSec(st.seconds_remaining),warn);
   if(st.error)html+=row(t('error'),esc(st.error),'invalid');
   box.innerHTML=html;
 }
@@ -3506,20 +3503,24 @@ async function loadAccounts(){
     __pg.items.forEach(a=>{
       const st=liveTokenStatus(a.token_status||{});
       const valid=st.valid;
-      const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
+      const rem=valid?(' '+fmtHMS(st.seconds_remaining||0)):'';
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
-      const cookieMeta='<div style="color:var(--faint);font-size:.68rem;line-height:1.35;white-space:nowrap;margin-top:.22rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'<br>'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div>';
+      const cookieMeta='<div style="display:grid;grid-template-columns:auto auto;column-gap:.55rem;row-gap:.22rem;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button onclick="event.stopPropagation();refreshAccountCookie(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
+      const boundNames=Array.isArray(a.bound_names)?a.bound_names.filter(Boolean):[];
+      const boundMain=boundNames[0]||a.name||'name';
+      const boundTitle=boundNames.length?boundNames.join('\n'):boundMain;
+      const boundMore=boundNames.length>1?' +'+(boundNames.length-1):'';
       const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
       const refreshColor=a.token_source==='cdp'&&cookieValid?'#a78bfa':(a.token_source==='cdp'?'#f59e0b':'var(--faint)');
       const refreshBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
-        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc((a.bound_names&&a.bound_names[0])||a.name||'name')+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
-        +'<td style="padding:.4rem;white-space:nowrap">'+badge+' <button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_token_refresh')+'</button> <button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_push_token')+'</button> <button onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></td>'
-        +'<td style="padding:.4rem;white-space:nowrap">'+cookieBadge+' <button onclick="event.stopPropagation();refreshAccountCookie(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button>'+cookieMeta+'</td>'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div title="'+esc(boundTitle)+'" style="color:var(--faint);font-size:.7rem">'+esc(boundMain)+esc(boundMore)+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
+        +'<td style="padding:.4rem;white-space:nowrap"><div>'+badge+'</div><div style="margin-top:.28rem;display:flex;gap:4px;align-items:center"><button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_token_refresh')+'</button><button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_push_token')+'</button><button onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></div></td>'
+        +'<td style="padding:.4rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+refreshBadge+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
         +'<button onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'

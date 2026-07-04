@@ -67,7 +67,7 @@
             gm_unavailable: '⚠ GM_cookie 不可用，请使用 Tampermonkey Beta。',
             push_cookies: '推送 Cookie',
             quick_setup: ' 一键推送',
-            quick_setup_desc: '全量推送当前 Token 和所需 Cookie 到当前账户',
+            quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
             manual_config: ' 手动配置',
             mode_capture: ' 模式抓包',
@@ -123,7 +123,7 @@
             gm_unavailable: '⚠ GM_cookie unavailable. Use Tampermonkey Beta.',
             push_cookies: 'Push Cookies to /user',
             quick_setup: 'One-Click Push',
-            quick_setup_desc: 'Push the current Token and required Cookies to the current account.',
+            quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push /user',
             manual_config: 'Manual Config',
             mode_capture: 'Mode Capture',
@@ -647,13 +647,12 @@
 
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:8px; display:flex; align-items:center;">
-                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('quick_setup')}</span>
+                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('quick_setup')} <span style="color:#475569; font-weight:400; margin-left:4px;">${tr('quick_setup_desc')}</span></span>
                         <span style="margin-left:auto; font-weight:500; font-size:10px; display:flex; gap:8px;">
                             <span style="color:${latestToken ? '#22c55e' : '#f59e0b'};">${tr('token')} ${latestToken ? '&#10003;' : '&#9888;'}</span>
                             <span style="color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">Cookie ${hasGMCookie() ? '&#10003;' : '&#9888;'}</span>
                         </span>
                     </div>
-                    <div style="font-size:10px; color:#64748b; margin-bottom:8px;">${tr('quick_setup_desc')}</div>
                     <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
                             border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#fff;
                             cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
