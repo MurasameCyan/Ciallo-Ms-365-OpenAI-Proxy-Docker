@@ -1545,7 +1545,7 @@ def create_app(
         injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
         if injected != total:
             app.state.account_store.set_cookie_status(k.account_id, False)
-            return _json_err(502, f"Cookie injection incomplete: {injected}/{total}")
+            return _json_err(400, f"Cookie injection incomplete: {injected}/{total}")
         return {"status": "ok", "injected": injected, "total": total}
 
     @app.post("/user/regenerate-key")

@@ -157,11 +157,18 @@ class RefreshScheduler:
                     await asyncio.wait_for(ws.recv(), timeout=2)
                 except Exception:
                     pass
+                pending: set[int] = set()
+                attempted = 0
                 for i, cookie in enumerate(cookies):
+                    name = cookie.get("name", "")
+                    value = cookie.get("value", "")
+                    domain = cookie.get("domain", "") or ".microsoft.com"
+                    if not name or value is None or "microsoft" not in domain.lower() and "office.com" not in domain.lower():
+                        continue
                     params = {
-                        "name": cookie.get("name", ""),
-                        "value": cookie.get("value", ""),
-                        "domain": cookie.get("domain", ".microsoft.com"),
+                        "name": name,
+                        "value": value,
+                        "domain": domain,
                         "path": cookie.get("path", "/"),
                         "secure": cookie.get("secure", True),
                         "httpOnly": cookie.get("httpOnly", False),
@@ -175,20 +182,28 @@ class RefreshScheduler:
                         params["secure"] = True
                     if cookie.get("expirationDate") or cookie.get("expires"):
                         params["expires"] = cookie.get("expirationDate") or cookie.get("expires")
-                    await ws.send(json.dumps({"id": 100 + i, "method": "Network.setCookie", "params": params}))
+                    attempted += 1
+                    req_id = 100 + i
+                    pending.add(req_id)
+                    await ws.send(json.dumps({"id": req_id, "method": "Network.setCookie", "params": params}))
+                deadline = time.time() + 6
+                while pending and time.time() < deadline:
                     try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=2)
-                        msg = json.loads(raw)
+                        raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+                    except Exception:
+                        continue
+                    msg = json.loads(raw)
+                    msg_id = msg.get("id")
+                    if msg_id in pending:
+                        pending.remove(msg_id)
                         if msg.get("result", {}).get("success"):
                             injected += 1
-                    except Exception:
-                        pass
                 await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
-            if injected == len(cookies):
+            if attempted > 0 and injected == attempted:
                 self._accounts.set_cookie_status(account_id, True, token_source="cdp")
             else:
                 self._accounts.set_cookie_status(account_id, False)
-            return injected, len(cookies)
+            return injected, attempted
         finally:
             if proc is not None:
                 try:
