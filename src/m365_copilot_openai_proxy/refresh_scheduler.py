@@ -226,7 +226,8 @@ class RefreshScheduler:
                     name = cookie.get("name", "")
                     value = cookie.get("value", "")
                     domain = cookie.get("domain", "") or ".microsoft.com"
-                    if not name or value is None or "microsoft" not in domain.lower() and "office.com" not in domain.lower():
+                    domain_l = domain.lower()
+                    if not name or value is None or not any(d in domain_l for d in ("microsoft", "office.com", "live.com")):
                         continue
                     params = {
                         "name": name,
@@ -274,9 +275,11 @@ class RefreshScheduler:
                 except Exception:
                     pass
                 try:
-                    await ws.send(json.dumps({"id": 10000, "method": "Runtime.evaluate", "params": {"expression": "location.href"}}))
-                    raw = await asyncio.wait_for(ws.recv(), timeout=2)
-                    final_url = json.loads(raw).get("result", {}).get("result", {}).get("value", final_url)
+                    async with httpx.AsyncClient(timeout=2) as client:
+                        tabs = (await client.get(f"http://localhost:{account.cdp_port}/json")).json()
+                    cur = next((t for t in tabs if t.get("type") == "page"), None)
+                    if cur:
+                        final_url = cur.get("url", final_url)
                 except Exception:
                     pass
             if attempted > 0 and injected == attempted and not _is_login_url(final_url):
@@ -339,11 +342,17 @@ class RefreshScheduler:
                 None, _wait_for_m365_page, account.cdp_port, _LAUNCH_TIMEOUT_SECONDS
             )
             if not ready:
-                print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {_cdp_tab_summary(account.cdp_port)}", flush=True)
+                tabs = _cdp_tab_summary(account.cdp_port)
+                if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:
+                    self._accounts.set_cookie_status(account_id, False)
+                print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
                 return False
             token = await _cdp_extract_token(account.cdp_port, allow_nudge=True)
             if not token:
-                print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {_cdp_tab_summary(account.cdp_port)}", flush=True)
+                tabs = _cdp_tab_summary(account.cdp_port)
+                if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:
+                    self._accounts.set_cookie_status(account_id, False)
+                print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
                 return False
             self._accounts.update_token(account_id, token, token_source="cdp")
             print(f"Refresh succeeded for {account_id}: token updated from CDP", flush=True)

@@ -5,6 +5,7 @@
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://login.microsoftonline.com/*
+// @match        https://login.live.com/*
 // @match        https://microsoftonline.com/*
 // @match        https://www.office.com/*
 // @match        https://office.com/*
@@ -30,6 +31,7 @@
     const COOKIE_DOMAINS = [
         'https://m365.cloud.microsoft',
         'https://login.microsoftonline.com',
+        'https://login.live.com',
         'https://microsoftonline.com',
         'https://microsoft.com',
         'https://office.com',
@@ -425,11 +427,13 @@
             {},  // current document URL
             { url: 'https://m365.cloud.microsoft/' },
             { url: 'https://login.microsoftonline.com/' },
+            { url: 'https://login.live.com/' },
             { url: 'https://microsoftonline.com/' },
             { url: 'https://microsoft.com/' },
             { url: 'https://office.com/' },
             { url: 'https://www.office.com/' },
             { domain: '.login.microsoftonline.com' },
+            { domain: '.login.live.com' },
             { domain: '.microsoft.com' },
             { domain: '.microsoftonline.com' },
         ];
