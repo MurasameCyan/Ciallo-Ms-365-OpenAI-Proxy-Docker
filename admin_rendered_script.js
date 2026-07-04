@@ -695,9 +695,9 @@ function renderSelectedStatus(){
   html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
-  html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
-  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),cv?'valid':'warn');
   html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(cv?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&cv?'valid':'warn');
+  html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
+  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),'');
   if(st.error)html+=row(t('error'),esc(st.error),'invalid');
   box.innerHTML=html;
 }
