@@ -3168,7 +3168,7 @@ function donut(parts,centerLabel,centerVal){
       if(visibleParts.length>1){
         const a=((off+len)/C)*Math.PI*2-Math.PI/2;
         const x=60+Math.cos(a)*R,y=60+Math.sin(a)*R;
-        joints+='<circle cx="'+x.toFixed(2)+'" cy="'+y.toFixed(2)+'" r="2.45" fill="rgba(255,255,255,.96)" stroke="rgba(255,255,255,.35)" stroke-width="1" filter="url(#'+uid+'sh)"><animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="5.5s" repeatCount="indefinite"/></circle>';
+        joints+='<circle cx="'+x.toFixed(2)+'" cy="'+y.toFixed(2)+'" r="2.2" fill="rgba(255,255,255,.96)" stroke="rgba(255,255,255,.35)" stroke-width="1" filter="url(#'+uid+'sh)"><animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="5.5s" repeatCount="indefinite"/><animate attributeName="r" values="1.8;3.2;1.8" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.55;1;0.55" dur="5.5s" repeatCount="indefinite"/></circle>';
       }
       off+=len;
     });
