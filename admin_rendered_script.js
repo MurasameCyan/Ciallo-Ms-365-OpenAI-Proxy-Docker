@@ -510,7 +510,7 @@ function donut(parts,centerLabel,centerVal){
     +'<filter id="'+uid+'halo" x="-55%" y="-55%" width="210%" height="210%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
     +'<linearGradient id="'+uid+'gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
     +'</defs>';
-  let ring='',halo='';
+  let ring='',halo='',headRing='',headHalo='';
   // base track ring (glass groove)
   ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="var(--track)" stroke-width="16" opacity=".72"/>';
   if(total>0){
@@ -527,12 +527,18 @@ function donut(parts,centerLabel,centerVal){
       ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/><animate attributeName="stroke-dashoffset" values="'+(-ringStart)+';'+(-ringStart-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.84;1;0.84" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14;16.5;14" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.2"><animate attributeName="stroke-dashoffset" values="'+(-outerStart)+';'+(-outerStart-outerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.16;0.62;0.16" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="9;20;9" dur="5.5s" repeatCount="indefinite"/></circle>';
       halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="stroke-dashoffset" values="'+(-innerStart)+';'+(-innerStart-innerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.08;0.28;0.08" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.6;1" dur="5.5s" repeatCount="indefinite"/></circle>';
+      if(connected){
+        const coverLen=Math.min(22,Math.max(14,len*.22)),headStart=off-coverLen*.35;
+        const outerCover=outerC*(coverLen/C),outerHeadStart=outerC*(headStart/C),innerCover=innerC*(coverLen/C),innerHeadStart=innerC*(headStart/C);
+        headRing+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15.2" stroke-linecap="round" stroke-dasharray="'+coverLen+' '+(C-coverLen)+'" stroke-dashoffset="'+(-headStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.98"><animate attributeName="stroke-dashoffset" values="'+(-headStart)+';'+(-headStart-C)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.88;1;0.88" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="14.4;16.8;14.4" dur="5.5s" repeatCount="indefinite"/></circle>';
+        headHalo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+outerCover+' '+(outerC-outerCover)+'" stroke-dashoffset="'+(-outerHeadStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.22"><animate attributeName="stroke-dashoffset" values="'+(-outerHeadStart)+';'+(-outerHeadStart-outerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.18;0.66;0.18" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="10;21;10" dur="5.5s" repeatCount="indefinite"/></circle><circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="'+innerCover+' '+(innerC-innerCover)+'" stroke-dashoffset="'+(-innerHeadStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.16"><animate attributeName="stroke-dashoffset" values="'+(-innerHeadStart)+';'+(-innerHeadStart-innerC)+'" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.08;0.3;0.08" dur="5.5s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="1;2.8;1" dur="5.5s" repeatCount="indefinite"/></circle>';
+      }
       off+=len;
     });
   }
   // glossy highlight arc over the top of the ring for a glass sheen
   const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
-  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+ring+sheen
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+headHalo+ring+headRing+sheen
     +'<text x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+'</text></svg>';
   let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
@@ -728,14 +734,16 @@ function _pageFoot(which,pg){
     +'<span class="page-info">'+info+'</span>'
     +'<button class="page-btn" '+(pg.page>=pg.total?'disabled':'')+' onclick="_setPage(\''+which+'\','+(pg.page+1)+')">'+t('page_next')+'</button></div></div>';
 }
-async function loadAccounts(){
+async function loadAccounts(localOnly=false){
   const box=document.getElementById('accounts-content');
   if(!box)return;
   try{
-    const r=await fetch('/admin/accounts',{credentials:'include'});
-    if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
-    const d=await r.json();
-    __accounts=d.accounts||[];
+    if(!localOnly){
+      const r=await fetch('/admin/accounts',{credentials:'include'});
+      if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
+      const d=await r.json();
+      __accounts=d.accounts||[];
+    }
     if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
     const __pg=_slicePage(__accounts,'accounts');
     let h='<div class="tbl-tools"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
@@ -748,7 +756,7 @@ async function loadAccounts(){
       const badge='<span style="width:134px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
       const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="width:76px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
-      const cookieMeta='<div style="display:grid;grid-template-columns:76px auto;column-gap:.55rem;row-gap:.36rem;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" style="width:76px;font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
+      const cookieMeta='<div style="display:grid;grid-template-columns:76px auto;column-gap:.55rem;row-gap:2px;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" style="width:76px;font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
       const boundNames=Array.isArray(a.bound_names)?a.bound_names.filter(Boolean):[];
       const boundMain=boundNames[0]||a.name||'name';
       const boundTitle=boundNames.length?boundNames.join(String.fromCharCode(10)):boundMain;
@@ -760,7 +768,7 @@ async function loadAccounts(){
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\''+a.id+'\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\''+a.id+'\',this.checked)"></td>'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div title="'+esc(boundTitle)+'" style="color:var(--faint);font-size:.7rem">'+esc(boundMain)+esc(boundMore)+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
-        +'<td style="padding:.4rem;white-space:nowrap"><div>'+badge+'</div><div style="margin-top:.4rem;display:flex;gap:4px;align-items:center;width:134px"><button onclick="event.stopPropagation();refreshAccount(\''+a.id+'\')" style="width:42px;font-size:.72rem;padding:3px 0">'+t('btn_token_refresh')+'</button><button onclick="event.stopPropagation();toggleAccountToken(\''+a.id+'\')" style="width:42px;font-size:.72rem;padding:3px 0;background:var(--chip)">'+t('btn_push_token')+'</button><button onclick="event.stopPropagation();clearAccountToken(\''+a.id+'\')" style="width:42px;font-size:.72rem;padding:3px 0;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></div></td>'
+        +'<td style="padding:.4rem;white-space:nowrap"><div>'+badge+'</div><div style="margin-top:2px;display:flex;gap:4px;align-items:center;width:134px"><button onclick="event.stopPropagation();refreshAccount(\''+a.id+'\')" style="width:42px;font-size:.72rem;padding:3px 0">'+t('btn_token_refresh')+'</button><button onclick="event.stopPropagation();toggleAccountToken(\''+a.id+'\')" style="width:42px;font-size:.72rem;padding:3px 0;background:var(--chip)">'+t('btn_push_token')+'</button><button onclick="event.stopPropagation();clearAccountToken(\''+a.id+'\')" style="width:42px;font-size:.72rem;padding:3px 0;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></div></td>'
         +'<td style="padding:.4rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+refreshBadge+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
@@ -1070,6 +1078,7 @@ setInterval(loadCapture,5000);
 setInterval(loadTrend,60000);
 setInterval(loadStats,30000);
 setInterval(()=>{if(document.body.dataset.view==='accounts')loadAccounts()},30000);
+setInterval(()=>{if(document.body.dataset.view==='accounts'&&__accounts.length&&!document.querySelector('tr[id^="atok-"][style*="table-row"]'))loadAccounts(true)},1000);
 
 // Client-side countdown timer
 let _countdownSec=0;
