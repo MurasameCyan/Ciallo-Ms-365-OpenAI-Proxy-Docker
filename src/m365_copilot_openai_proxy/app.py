@@ -998,12 +998,12 @@ def create_app(
         for l in logs:
             tn = l.get("tone") or "Magic"
             tone_counts[tn] = tone_counts.get(tn, 0) + 1
-        # Accounts expiring within 5 minutes, for the account-page warning carousel.
+        # Accounts expiring within 10 minutes, for the account-page warning carousel.
         expiring_accounts = []
         for a in app.state.account_store.list():
             st = a.token_status()
             rem = st.get("seconds_remaining")
-            if st.get("valid") and rem is not None and 0 <= rem <= 300:
+            if st.get("valid") and rem is not None and 0 <= rem <= 600:
                 expiring_accounts.append({"name": a.name or a.id, "email": a.email, "seconds_remaining": rem})
         expiring_accounts.sort(key=lambda x: x["seconds_remaining"])
         return {
@@ -1150,6 +1150,9 @@ def create_app(
             "email": acc.email,
             "cdp_port": acc.cdp_port,
             "token_source": acc.token_source,
+            "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
+            "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
+            "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
             "has_token": bool(acc.token),
             "token_status": acc.token_status(),
             "key_count": len(app.state.key_store.list_for_account(acc.id)),
@@ -1435,6 +1438,7 @@ def create_app(
                 "has_token": bool(acc.token),
                 "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
                 "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
+                "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
                 "token_status": acc.token_status(),
             } if acc is not None else None,
             "tone_options": _TONE_OPTIONS,
@@ -2433,6 +2437,8 @@ body[data-collapsed="1"] .side-tools .icon-btn:nth-child(4){transform:translate(
 body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
 .hide-card{display:none !important}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes warnFade{0%{opacity:0;transform:translateY(4px)}18%,82%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-4px)}}
+.expiry-warn-rotate{animation:warnFade 3s ease-in-out both}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes loginPulse{50%{scale:1.08;opacity:.42}}
 @media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}}
@@ -2686,13 +2692,13 @@ const i18n={
     key_form_hint:'ID 与 API Key 自动生成。M365 账户绑定由用户在「用户页」自行推送 Token 完成。',network_error:'网络错误',
     col_login:'登录名',btn_set_login:'设置账密',no_login:'未设',not_set:'未设定',
     btn_regen_key:'重置密钥',confirm_regen_key:'确定重置该 Key 的密钥吗？旧密钥立即失效，账户绑定与历史会话不受影响。',regen_ok:'新密钥已生成并复制到剪贴板',
-    col_name:'名称',col_account:'账户',col_token:'Token',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
+    col_name:'名称',col_account:'账户',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'刷新方式',col_status:'状态',col_actions:'操作',col_key:'Key',col_mode:'模式',col_enabled:'启用',
     col_id:'ID',col_role:'角色',col_username:'用户名',col_password:'密码',
     btn_refresh:'刷新',btn_rebind:'改绑',btn_delete:'删除',btn_copy:'复制',btn_enable:'启用',btn_disable:'停用',btn_push_token:'更新',
     page_prev:'上一页',page_next:'下一页',page_info:'第 {cur}/{total} 页 · 共 {count} 条',page_size_label:'每页',page_size_unit:'条',
     batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',
-    valid_short:'有效',invalid_short:'无效',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
+    valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新',cookie_expires_label:'过期',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
     rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
     title_update_token:'更新 Token',btn_update:'更新 Token',btn_check_login:'检查登录',btn_auto_capture:'自动刷新',
@@ -2771,13 +2777,13 @@ const i18n={
     key_form_hint:'ID and API Key are generated automatically. M365 account binding is done by the user pushing a token from the User page.',network_error:'Network error',
     col_login:'Login',btn_set_login:'Set credentials',no_login:'None',not_set:'Not set',
     btn_regen_key:'Reset key',confirm_regen_key:'Reset this key\\u0027s secret? The old key stops working immediately; account binding and session history are unaffected.',regen_ok:'New key generated and copied to clipboard',
-    col_name:'Name',col_account:'Account',col_token:'Token',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
+    col_name:'Name',col_account:'Account',col_token:'Token',col_cookie:'Cookie',col_refresh_mode:'Refresh',col_status:'Status',col_actions:'Actions',col_key:'Key',col_mode:'Mode',col_enabled:'Enabled',
     col_id:'ID',col_role:'Role',col_username:'Username',col_password:'Password',
     btn_refresh:'Refresh',btn_rebind:'Rebind',btn_delete:'Delete',btn_copy:'Copy',btn_enable:'Enable',btn_disable:'Disable',btn_push_token:'Update',
     page_prev:'Prev',page_next:'Next',page_info:'Page {cur}/{total} · {count} total',page_size_label:'Per page',page_size_unit:'',
     batch_refresh:'Batch refresh',batch_delete:'Batch delete',batch_enable:'Batch enable',batch_disable:'Batch disable',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',
-    valid_short:'Valid',invalid_short:'Invalid',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
+    valid_short:'Valid',invalid_short:'Invalid',cookie_valid_short:'Valid',cookie_invalid_short:'Invalid',cookie_updated_label:'Updated',cookie_expires_label:'Expires',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
     rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -3195,6 +3201,7 @@ function renderDashboard(){
 }
 // ---- trend line chart (multi-series SVG) ----
 function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
+function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.
   if(!points||points.length<2)return '<span style="color:var(--faint)">'+t('dash_no_trend')+'</span>';
@@ -3270,22 +3277,25 @@ async function loadStats(){
         share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted)"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:var(--track);border-radius:4px;overflow:hidden;margin-top:2px"><div style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
       }
     }
-    // Expiry warnings on Accounts page: show all accounts expiring within 5 minutes; rotate when multiple.
+    // Expiry warnings on Accounts page: show all accounts expiring within 10 minutes; rotate when multiple.
     const warn=document.getElementById('accounts-warn');
     if(warn){
       if(__expiryWarnTimer){clearInterval(__expiryWarnTimer);__expiryWarnTimer=null}
-      const items=(d.expiring_accounts||[]).filter(s=>s&&s.seconds_remaining<=300).sort((a,b)=>a.seconds_remaining-b.seconds_remaining);
+      const items=(d.expiring_accounts||[]).filter(s=>s&&s.seconds_remaining<=600).sort((a,b)=>a.seconds_remaining-b.seconds_remaining);
       if(items.length){
         let idx=0;
         const show=()=>{
           const s=items[idx%items.length];
           warn.classList.remove('hide-card');
+          warn.classList.remove('expiry-warn-rotate');
+          void warn.offsetWidth;
           warn.innerHTML='&#9888; '+(items.length>1?'['+(idx%items.length+1)+'/'+items.length+'] ':'')+t('dash_expiry_warn').replace('{name}',esc(s.name)).replace('{time}',fmtClock(Math.max(0,s.seconds_remaining)));
+          if(items.length>1)warn.classList.add('expiry-warn-rotate');
           idx++;
         };
         show();
         if(items.length>1)__expiryWarnTimer=setInterval(show,3000);
-      }else{warn.classList.add('hide-card')}
+      }else{warn.classList.remove('expiry-warn-rotate');warn.classList.add('hide-card')}
     }
   }catch(e){}
 }
@@ -3309,7 +3319,11 @@ function renderSelectedStatus(){
   let html='';
   html+=row(t('col_account'),esc(a.name||a.id),'valid');
   if(a.email)html+=row('Email',esc(a.email),'');
-  html+=row(t('col_token'),esc(a.token_source),'');
+  html+=row(t('col_token'),v?t('valid_short')+' '+Math.floor((st.seconds_remaining||0)/60)+'m':t('invalid_short'),v?'valid':'invalid');
+  html+=row(t('col_cookie'),a.cookie_valid?t('cookie_valid_short'):t('cookie_invalid_short'),a.cookie_valid?'valid':'warn');
+  html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
+  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),a.cookie_valid?'valid':'warn');
+  html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(a.cookie_valid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&a.cookie_valid?'valid':'warn');
   html+=row(t('valid'),v?t('status_yes'):t('status_no'),v?'valid':'invalid');
   html+=row(t('expires'),exp,warn);
   html+=row(t('remaining'),fmtSec(st.seconds_remaining),warn);
@@ -3354,24 +3368,31 @@ async function loadAccounts(){
     const __pg=_slicePage(__accounts,'accounts');
     let h='<div class="tbl-tools"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
       +'<div class="tbl-scroll"><table class="admin-tbl"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_status')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __pg.items.forEach(a=>{
       const st=a.token_status||{};
       const valid=st.valid;
       const rem=valid?(' '+Math.floor((st.seconds_remaining||0)/60)+'m'):'';
       const badge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+rem+'</span>';
+      const cookieValid=!!a.cookie_valid;
+      const cookieBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
+      const cookieMeta='<div style="color:var(--faint);font-size:.68rem;margin-top:.18rem;line-height:1.35">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'<br>'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div>';
+      const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
+      const refreshColor=a.token_source==='cdp'&&cookieValid?'#a78bfa':(a.token_source==='cdp'?'#f59e0b':'var(--faint)');
+      const refreshBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
       const sel=a.id===__selectedAccount;
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span><div style="color:var(--faint);font-size:.7rem">'+esc(a.id)+' · '+a.key_count+' id</div></td>'
         +'<td style="padding:.4rem">'+badge+'</td>'
-        +'<td style="padding:.4rem;color:var(--faint)">'+esc(a.token_source)+'</td>'
+        +'<td style="padding:.4rem">'+cookieBadge+cookieMeta+'</td>'
+        +'<td style="padding:.4rem">'+refreshBadge+'</td>'
         +'<td style="padding:.4rem;text-align:right;white-space:nowrap">' 
         +'<button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px">'+t('btn_refresh')+'</button> '
         +'<button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('btn_push_token')+'</button> '
         +'<button onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'
-        +'<tr id="atok-'+a.id+'" style="display:none"><td colspan="5" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)" onclick="event.stopPropagation()">'
+        +'<tr id="atok-'+a.id+'" style="display:none"><td colspan="6" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)" onclick="event.stopPropagation()">'
         +'<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
         +'<textarea id="atok-val-'+a.id+'" placeholder="'+t('acct_prompt_token')+'" style="flex:1;min-width:220px;height:34px;min-height:34px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none;resize:vertical"></textarea>'
         +'<button onclick="submitAccountToken(\\''+a.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('kf_create')+'</button>'
@@ -4295,7 +4316,7 @@ async function loadMe(){
     }else{
       acc+='';
     }
-    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><span style="display:inline-flex;gap:.5rem;white-space:nowrap"><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></span></div>';
+    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:nowrap;align-items:center;white-space:nowrap;overflow-x:auto"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button><button class="btn-ghost account-action" onclick="logoutConsole()">'+t('console_logout')+'</button></div>';
     document.getElementById('account-info').innerHTML=acc;
     renderAccountStatus(d);
     startUserCountdown(d.account?.token_status?.seconds_remaining||0);

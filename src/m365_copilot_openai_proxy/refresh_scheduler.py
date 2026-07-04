@@ -160,6 +160,9 @@ class RefreshScheduler:
                 except Exception:
                     pass
                 pending: set[int] = set()
+                expires_by_id: dict[int, float] = {}
+                successful_expires: list[float] = []
+                now = time.time()
                 attempted = 0
                 for i, cookie in enumerate(cookies):
                     name = cookie.get("name", "")
@@ -186,6 +189,9 @@ class RefreshScheduler:
                         params["expires"] = cookie.get("expirationDate") or cookie.get("expires")
                     attempted += 1
                     req_id = 100 + i
+                    exp = params.get("expires")
+                    if isinstance(exp, (int, float)) and exp > now:
+                        expires_by_id[req_id] = float(exp)
                     pending.add(req_id)
                     await ws.send(json.dumps({"id": req_id, "method": "Network.setCookie", "params": params}))
                 deadline = time.time() + 6
@@ -200,9 +206,11 @@ class RefreshScheduler:
                         pending.remove(msg_id)
                         if msg.get("result", {}).get("success"):
                             injected += 1
+                            if msg_id in expires_by_id:
+                                successful_expires.append(expires_by_id[msg_id])
                 await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
             if attempted > 0 and injected == attempted:
-                self._accounts.set_cookie_status(account_id, True, token_source="cdp")
+                self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
             else:
                 self._accounts.set_cookie_status(account_id, False)
             return injected, attempted

@@ -59,6 +59,7 @@ class Account:
     token: str = ""
     cookie_valid: bool = False
     cookie_updated_at: float = 0.0
+    cookie_expires_at: float = 0.0
     cdp_port: int = _CDP_PORT_BASE
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
@@ -127,6 +128,7 @@ class AccountStore:
                     token=raw.get("token", ""),
                     cookie_valid=bool(raw.get("cookie_valid", False)),
                     cookie_updated_at=float(raw.get("cookie_updated_at", 0.0)),
+                    cookie_expires_at=float(raw.get("cookie_expires_at", 0.0)),
                     cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
                     created_at=float(raw.get("created_at", time.time())),
@@ -242,13 +244,14 @@ class AccountStore:
             self._save()
             return acc
 
-    def set_cookie_status(self, acc_id: str, valid: bool, token_source: str | None = None) -> Account | None:
+    def set_cookie_status(self, acc_id: str, valid: bool, token_source: str | None = None, expires_at: float = 0.0) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
             acc.cookie_valid = bool(valid)
             acc.cookie_updated_at = time.time() if valid else 0.0
+            acc.cookie_expires_at = float(expires_at or 0.0) if valid else 0.0
             if token_source is not None:
                 acc.token_source = token_source
             acc.updated_at = time.time()
@@ -263,6 +266,7 @@ class AccountStore:
             acc.token = ""
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
+            acc.cookie_expires_at = 0.0
             acc.updated_at = time.time()
             self._save()
             return acc
