@@ -4454,8 +4454,10 @@ body[data-theme="light"] .account-main select option{background:#fff;color:#2430
 .pill.ok{background:rgba(6,95,70,.6);color:#d1fae5}
 .pill.bad{background:rgba(127,29,29,.6);color:#fee2e2}
 .msg{font-size:.8rem;margin-left:.5rem;opacity:0;transition:opacity .2s;color:#86efac}
+#tone-msg{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:18px;margin-left:0;padding:0 .45rem;border-radius:999px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.18);font-size:.72rem;font-weight:700;line-height:1;color:#86efac;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);transform:translateY(1px);transition:opacity .22s ease}
 .hint{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
-.section-title{display:block;margin:1rem 0 .45rem;font-size:1rem;color:var(--strong);font-weight:700;letter-spacing:.01em}
+.section-title{display:flex;align-items:center;gap:.75rem;margin:1rem 0 .45rem;font-size:1rem;color:var(--strong);font-weight:700;letter-spacing:.01em}
+.section-title:before{content:"";width:46px;height:1px;border-radius:99px;background:linear-gradient(90deg,var(--cyan),var(--violet),transparent);box-shadow:0 0 10px rgba(96,242,255,.35)}
 input:focus,textarea:focus{border:1px solid transparent!important;background-image:linear-gradient(var(--inner),var(--inner)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan))!important;background-origin:border-box!important;background-clip:padding-box,border-box!important;background-size:100% 100%,300% 100%!important;background-position:0 0,0 0!important;box-shadow:0 0 0 3px rgba(96,242,255,.12),0 0 24px rgba(96,242,255,.2),inset 0 1px 0 rgba(255,255,255,.08)!important;animation:fieldFlow 2.2s linear infinite!important;outline:none}
 select:focus{border-color:var(--cyan)!important;background-image:none!important;animation:none!important;transition:none!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.08)!important;outline:none}
 @keyframes fieldFlow{to{background-position:0 0,300% 0}}
@@ -4567,7 +4569,6 @@ code{color:#a5b4fc}
           <label class="user-config-field"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
           <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
         </div>
-        <div style="color:var(--faint);font-size:.72rem;margin-top:.25rem" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
         <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。&#10;access_token / wss://substrate.office.com/..."></textarea>
