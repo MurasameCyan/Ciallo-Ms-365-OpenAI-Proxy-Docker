@@ -2525,7 +2525,7 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 body[data-view="debug"] .view-debug.details-card:not(.details-open){height:auto;min-height:0;overflow:hidden}
 body[data-view="debug"] .view-debug.details-card:not(.details-open) details:not([open])>*:not(summary){display:none!important}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
-body[data-view="debug"] .view-debug.ports-logs-card.no-details{height:auto;min-height:250px;overflow:visible}
+body[data-view="debug"] .view-debug.ports-logs-card.details-open{height:auto;min-height:250px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
 .tbl-scroll{max-height:595px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
@@ -2819,7 +2819,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 
 <div id="status-card" class="card view-accounts hide-card">
-<h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span> <span id="status-acct-name" style="font-size:.8rem;color:var(--faint)"></span></h2>
+<h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span></h2>
 <div id="status-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
 
@@ -2893,18 +2893,23 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </button>
 </div>
 
-<div class="card view-debug ports-logs-card no-details" style="padding:20px">
-<h2 data-i18n="ports_logs_title" style="margin:0 0 1rem;font-size:1.28rem;font-weight:800">端口与日志</h2>
-<div style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) auto;gap:1rem 1.1rem;align-items:end">
+<div class="card view-debug ports-logs-card" style="padding:20px">
+<details id="ports-logs-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
+<span data-i18n="ports_logs_title">端口与日志</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) auto;gap:1rem 1.1rem;align-items:end;margin-top:20px">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <div></div>
-<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
+<div style="display:flex;flex-direction:column;gap:.75rem"><label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label><div style="display:flex;align-items:center;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div></div>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <div></div>
-<div style="display:flex;align-items:end;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div>
+<div></div>
 </div>
+</details>
 </div>
 
 <div class="card view-debug details-card" style="padding:20px">
@@ -3651,12 +3656,10 @@ let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
   const card=document.getElementById('status-card');
   const box=document.getElementById('status-content');
-  const nameEl=document.getElementById('status-acct-name');
   if(!card||!box)return;
   const a=__accounts.find(x=>x.id===__selectedAccount);
   if(!a){card.classList.add('hide-card');return}
   card.classList.remove('hide-card');
-  if(nameEl)nameEl.textContent=(a.name||a.id)+(a.email?' · '+a.email:'');
   const st=liveTokenStatus(a.token_status||{});
   const v=st.valid;
   const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
