@@ -32,6 +32,13 @@ from .runtime_settings import (
     _read_runtime_settings,
     _write_runtime_settings,
 )
+from .call_log_store import (
+    append_call_log,
+    clear_call_log as clear_call_log_store,
+    load_call_log,
+    record_response_text,
+    trim_call_log,
+)
 from .response_helpers import (
     _anthropic_stream,
     _json_err,
@@ -110,16 +117,6 @@ def _update_username_from_token(token: str, state) -> None:
             write_username(name)
     except Exception:
         pass
-
-
-def _load_json_list(path: Path, limit: int) -> list[dict]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return [d for d in data if isinstance(d, dict)][-limit:]
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
-    return []
 
 
 def _write_json_list(path: Path, data: list[dict], limit: int) -> None:
@@ -207,7 +204,7 @@ def create_app(
     runtime_settings = _read_runtime_settings(resolved_settings.token_dir)
     app.state.call_log_limit = runtime_settings["call_log_limit"]
     app.state.call_log_path = Path(resolved_settings.token_dir) / "call_log.json"
-    app.state.call_log: list[dict] = _load_json_list(app.state.call_log_path, app.state.call_log_limit)  # API call log for web UI display
+    app.state.call_log: list[dict] = load_call_log(app.state.call_log_path, app.state.call_log_limit)  # API call log for web UI display
     app.state.captured_payloads: list[dict] = []  # Substrate chat payloads captured via get_token.js for mode comparison
     # Metrics time-series for the home dashboard trend chart. Snapshots are taken
     # lazily (throttled) whenever the admin polls, so no background scheduler is
@@ -269,21 +266,6 @@ def create_app(
         if _admin_secret and not _is_admin_authenticated(request):
             return JSONResponse({"error": {"message": "Admin authentication required", "type": "auth_error"}}, status_code=401)
         return None
-
-    def _append_call_log(record: dict) -> None:
-        app.state.call_log.append(record)
-        limit = int(getattr(app.state, "call_log_limit", 100))
-        if len(app.state.call_log) > limit:
-            app.state.call_log = app.state.call_log[-limit:]
-        _write_json_list(app.state.call_log_path, app.state.call_log, limit)
-
-    def _record_response_text(record: dict, text: str) -> None:
-        record["response_len"] = len(text)
-        record["response_text"] = text[:8000]
-        record["response_repr"] = repr(text[:2000])
-        if record.get("tool_calls_result") is None:
-            record["tool_calls_result"] = []
-        _write_json_list(app.state.call_log_path, app.state.call_log, int(getattr(app.state, "call_log_limit", 100)))
 
     # CORS: use configurable origin whitelist (comma-separated ALLOWED_ORIGINS env var)
     _allowed_origins_raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
@@ -788,8 +770,7 @@ def create_app(
     async def clear_call_log(request: Request) -> dict:
         err = _require_admin(request)
         if err: return err
-        app.state.call_log = []
-        _write_json_list(app.state.call_log_path, app.state.call_log, int(getattr(app.state, "call_log_limit", 100)))
+        clear_call_log_store(app.state)
         return {"status": "ok"}
 
     @app.get("/admin/metrics-history")
@@ -991,9 +972,7 @@ def create_app(
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
         app.state.call_log_limit = data["call_log_limit"]
-        if len(app.state.call_log) > app.state.call_log_limit:
-            app.state.call_log = app.state.call_log[-app.state.call_log_limit:]
-            _write_json_list(app.state.call_log_path, app.state.call_log, app.state.call_log_limit)
+        trim_call_log(app.state)
         logging.getLogger().setLevel(app.state.log_level)
         _write_runtime_settings(resolved_settings.token_dir, data)
         return {"status": "ok", "settings": data}
@@ -1656,7 +1635,7 @@ def create_app(
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
                 call_record["streaming"] = True
-                _append_call_log(call_record)
+                append_call_log(app.state, call_record)
                 if request.tools:
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
@@ -1680,7 +1659,7 @@ def create_app(
                         translated.prompt,
                         translated.additional_context,
                         session,
-                        on_text_done=lambda text: _record_response_text(call_record, text),
+                        on_text_done=lambda text: record_response_text(app.state, call_record, text),
                     ),
                     media_type="text/event-stream",
                 )
@@ -1728,7 +1707,7 @@ def create_app(
         call_record["response_text"] = text[:8000]
         call_record["response_repr"] = repr(text[:2000])
         call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
-        _append_call_log(call_record)
+        append_call_log(app.state, call_record)
         if tool_calls:
             remaining = _strip_tool_call_blocks(text)
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
@@ -1793,7 +1772,7 @@ def create_app(
 
         if request.stream:
             call_record["streaming"] = True
-            _append_call_log(call_record)
+            append_call_log(app.state, call_record)
             return StreamingResponse(
                 _responses_stream(
                     model_alias,
@@ -1801,7 +1780,7 @@ def create_app(
                     translated.prompt,
                     translated.additional_context,
                     session,
-                    on_text_done=lambda text: _record_response_text(call_record, text),
+                    on_text_done=lambda text: record_response_text(app.state, call_record, text),
                 ),
                 media_type="text/event-stream",
             )
@@ -1811,8 +1790,8 @@ def create_app(
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-        _record_response_text(call_record, text)
-        _append_call_log(call_record)
+        record_response_text(app.state, call_record, text)
+        append_call_log(app.state, call_record)
 
         return JSONResponse({
             "id": f"resp_{uuid.uuid4().hex}",
@@ -1858,7 +1837,7 @@ def create_app(
 
         if request.stream:
             call_record["streaming"] = True
-            _append_call_log(call_record)
+            append_call_log(app.state, call_record)
             return StreamingResponse(
                 _anthropic_stream(
                     model_alias,
@@ -1866,7 +1845,7 @@ def create_app(
                     translated.prompt,
                     translated.additional_context,
                     session,
-                    on_text_done=lambda text: _record_response_text(call_record, text),
+                    on_text_done=lambda text: record_response_text(app.state, call_record, text),
                 ),
                 media_type="text/event-stream",
             )
@@ -1876,8 +1855,8 @@ def create_app(
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-        _record_response_text(call_record, text)
-        _append_call_log(call_record)
+        record_response_text(app.state, call_record, text)
+        append_call_log(app.state, call_record)
 
         return JSONResponse({
             "id": f"msg_{uuid.uuid4().hex}",
