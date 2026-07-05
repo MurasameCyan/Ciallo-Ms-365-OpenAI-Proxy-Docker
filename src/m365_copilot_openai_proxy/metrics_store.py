@@ -63,5 +63,5 @@ def get_metrics_history_store(state: Any) -> list[dict]:
 
 def clear_metrics_history_store(state: Any) -> None:
     state.metrics_history = []
-    state.metrics_last_snapshot = time.time()
+    state.metrics_last_snapshot = 0.0
     _write_metrics_history(state.metrics_path, state.metrics_history)
