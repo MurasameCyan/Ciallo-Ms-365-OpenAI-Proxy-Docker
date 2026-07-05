@@ -196,7 +196,7 @@ code{color:#a5b4fc}
         </div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
-        <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。&#10;access_token / wss://substrate.office.com/..."></textarea>
+        <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。&#10;access_token / wss://substrate.office.com/..."></textarea>
       </div>
       <div class="account-side" id="account-status-panel"></div>
     </div>
@@ -242,9 +242,9 @@ const i18n={
     qs_title:'快速使用指南',qs_body:'1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
-    push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
+    push_token_hint:'粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
-    mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户',status_login:'登录',status_refresh:'刷新',status_valid:'有效',status_expire:'过期',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
+    mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户',status_login:'登录',status_refresh:'刷新',status_valid:'有效',status_expire:'过期',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',account_none:'无',account_none_token:'无 (Token)',
     tone_title:'对话模式',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',user_time_zone_label:'更改时区',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
@@ -256,7 +256,7 @@ const i18n={
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_public:'公共接口',api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',api_healthz:'健康检查',
     copy_base:'复制',copy_key:'复制',key_copied:'已复制',kf_cancel:'取消',confirm_btn:'确认',regen_my_key:'重置 API Key',regen_my_key_hint:'重置后旧密钥立即失效，需要在客户端换成新密钥。账户绑定与历史会话不受影响。',confirm_regen_my_key:'确定重置你的 API Key 吗？旧密钥立即失效，你需要在客户端换成新密钥。',regen_done:'新密钥已生效',regen_running:'重置中...',regen_failed:'重置失败',
-    logout:'登出 Microsoft',console_logout:'登出 控制台',change_password:'修改 登录密码',old_password:'当前密码',new_password:'新密码',password_changed:'密码已修改',password_change_failed:'修改失败',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？将同时清除该账户 Token 和 Cookie 状态，之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Token 后将自动创建。',
+    logout:'登出 Microsoft',console_logout:'登出 控制台',change_password:'修改 登录密码',old_password:'当前密码',new_password:'新密码',password_changed:'密码已修改',password_change_failed:'修改失败',logging_out_ms:'登出中...',logout_ok_ms:'已登出',logout_failed_ms:'登出失败',unbind_account:'解绑 Microsoft',unbinding_ms:'解绑中...',unbind_ok_ms:'已解绑',unbind_failed_ms:'解绑失败',unbind_confirm:'确认解绑当前 Microsoft 账户？将同时清除该账户 Token 和 Cookie 状态，之后需要重新推送 Token 才能使用。',unbind_confirm_btn:'确认解绑',displaced_notice:'你的账户绑定已被同一 Microsoft 账号的其他用户推送接管，当前账户已解绑。请重新推送 Token 或联系管理员。',no_account:'尚未绑定账户，推送 Cookie 后才会绑定 Microsoft。',
     key_name:'名称',bound_account:'绑定账户',token_valid:'有效',token_invalid:'无效/缺失',remaining:'剩余',
   },
   en:{
@@ -265,9 +265,9 @@ const i18n={
     qs_title:'Quick Start',qs_body:'1. Install the <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js" target="_blank" rel="noopener" class="qs-link">Tampermonkey script</a> and open <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>, then send any message to trigger the WebSocket.<br>2. Click "One-click Push" / "Push Token" in the script panel, or manually copy the access_token and paste it below to update.<br>3. Copy the Base URL and API Key from the account card into your OpenAI-compatible client.',
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account Console',push_token_label:'Push / update account token',
-    push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
+    push_token_hint:'Paste the access_token value or the full wss:// URL. Token-only mode is temporary; push cookies to bind a Microsoft account.',push_token_ph:'Paste the access_token value or the full wss:// URL. Token-only mode is temporary; push cookies to bind a Microsoft account.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
-    mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_expire:'Expires',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
+    mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_expire:'Expires',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',account_none:'None',account_none_token:'None (Token)',
     tone_title:'Conversation Mode',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',user_time_zone_label:'Change Time Zone',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
@@ -279,7 +279,7 @@ const i18n={
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_public:'Public',api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',api_healthz:'Health check',
     copy_base:'Copy',copy_key:'Copy',key_copied:'Copied',kf_cancel:'Cancel',confirm_btn:'Confirm',regen_my_key:'Reset API key',regen_my_key_hint:'After reset the old key stops working immediately; update your client with the new key. Account binding and session history are unaffected.',confirm_regen_my_key:'Reset your API key? The old key stops working immediately and you must update your client with the new one.',regen_done:'New key is now active',regen_running:'Resetting...',regen_failed:'Reset failed',
-    logout:'Sign out of Microsoft',console_logout:'Sign out Console',change_password:'Change Login Password',old_password:'Current password',new_password:'New password',password_changed:'Password changed',password_change_failed:'Change failed',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? This will clear this account token and cookie state. You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Pushing a token will create one automatically.',
+    logout:'Sign out of Microsoft',console_logout:'Sign out Console',change_password:'Change Login Password',old_password:'Current password',new_password:'New password',password_changed:'Password changed',password_change_failed:'Change failed',logging_out_ms:'Signing out...',logout_ok_ms:'Signed out',logout_failed_ms:'Sign out failed',unbind_account:'Unbind Microsoft',unbinding_ms:'Unbinding...',unbind_ok_ms:'Unbound',unbind_failed_ms:'Unbind failed',unbind_confirm:'Unbind the current Microsoft account? This will clear this account token and cookie state. You will need to push a token again before using it.',unbind_confirm_btn:'Unbind',displaced_notice:'Your account binding was taken over by another user pushing the same Microsoft account. This key is now unbound. Push your token again or contact the admin.',no_account:'No account bound yet. Push cookies to bind Microsoft.',
     key_name:'Name',bound_account:'Bound account',token_valid:'Valid',token_invalid:'Invalid/Missing',remaining:'Remaining',
   }
 };
@@ -421,13 +421,19 @@ function renderUserCountdown(){
   document.querySelectorAll('[data-user-remaining]').forEach(el=>{el.textContent=text});
 }
 function tickUserCountdown(){if(_userRemainSec>0){_userRemainSec--;renderUserCountdown()}}
+function boundAccountName(a){
+  if(!a)return t('status_unknown');
+  const state=a.binding_state||(a.cookie_valid?'cookie':(a.has_token?'token_only':'none'));
+  if(state==='cookie')return a.name||a.email||a.id;
+  return state==='token_only'?t('account_none_token'):t('account_none');
+}
 function renderAccountStatus(d){
   const box=document.getElementById('account-status-panel');if(!box)return;
   const a=d.account||null,st=a?(a.token_status||{}):{};
   const valid=!!st.valid;
   const login=!!(a&&a.cookie_valid);
   const refresh=!!(a&&a.token_source==='cdp');
-  const name=a?(a.name||a.email||a.id):t('status_unknown');
+  const name=boundAccountName(a);
   const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';
   box.innerHTML='<h3 style="margin:0;color:var(--strong);font-size:1rem;display:none">'+t('status_panel_title')+'</h3>'
     +'<div class="status-grid">'
@@ -474,7 +480,7 @@ async function loadMe(){
       const st=d.account.token_status||{};
       const valid=st.valid;
       const rem=valid?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</span>'):'';
-      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+(d.account.name||d.account.id)+'</span>'
+      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+boundAccountName(d.account)+'</span>'
         +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
     }else{
       acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';

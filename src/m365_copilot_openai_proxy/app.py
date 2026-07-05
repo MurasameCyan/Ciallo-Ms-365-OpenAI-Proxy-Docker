@@ -1247,6 +1247,12 @@ def create_app(
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         acc = app.state.account_store.get(k.account_id) if k.account_id else None
+        binding_state = "none"
+        if acc is not None:
+            if getattr(acc, "cookie_valid", False):
+                binding_state = "cookie"
+            elif acc.token:
+                binding_state = "token_only"
         return {
             "name": k.name,
             "enabled": k.enabled,
@@ -1261,11 +1267,13 @@ def create_app(
             "default_system_prompt": default_tool_system_prompt(),
             "displaced": bool(getattr(k, "displaced_at", 0.0)),
             "displaced_at": getattr(k, "displaced_at", 0.0),
+            "binding_state": binding_state,
             "account": {
                 "id": acc.id,
                 "name": acc.name,
                 "email": acc.email,
                 "token_source": acc.token_source,
+                "binding_state": binding_state,
                 "updated_at": acc.updated_at,
                 "has_token": bool(acc.token),
                 "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
