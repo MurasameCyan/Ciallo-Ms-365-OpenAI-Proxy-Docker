@@ -269,6 +269,20 @@ def create_app(
             return JSONResponse({"error": {"message": "Admin authentication required", "type": "auth_error"}}, status_code=401)
         return None
 
+    def _append_call_log(record: dict) -> None:
+        app.state.call_log.append(record)
+        if len(app.state.call_log) > 100:
+            app.state.call_log = app.state.call_log[-100:]
+        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+
+    def _record_response_text(record: dict, text: str) -> None:
+        record["response_len"] = len(text)
+        record["response_text"] = text[:8000]
+        record["response_repr"] = repr(text[:2000])
+        if record.get("tool_calls_result") is None:
+            record["tool_calls_result"] = []
+        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+
     # CORS: use configurable origin whitelist (comma-separated ALLOWED_ORIGINS env var)
     _allowed_origins_raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
     _allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()] if _allowed_origins_raw else ["*"]
@@ -1597,6 +1611,8 @@ def create_app(
                 _log.info("  tool: %s", t.function.name if t.function else "?")
         # Record call for web UI
         call_record = {
+            "api": "chat",
+            "endpoint": "/v1/chat/completions",
             "time": time.strftime("%H:%M:%S"),
             "ts": time.time(),
             "stream": request.stream,
@@ -1633,10 +1649,7 @@ def create_app(
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
                 call_record["streaming"] = True
-                app.state.call_log.append(call_record)
-                if len(app.state.call_log) > 100:
-                    app.state.call_log = app.state.call_log[-100:]
-                _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+                _append_call_log(call_record)
                 if request.tools:
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
@@ -1660,6 +1673,7 @@ def create_app(
                         translated.prompt,
                         translated.additional_context,
                         session,
+                        on_text_done=lambda text: _record_response_text(call_record, text),
                     ),
                     media_type="text/event-stream",
                 )
@@ -1707,10 +1721,7 @@ def create_app(
         call_record["response_text"] = text[:8000]
         call_record["response_repr"] = repr(text[:2000])
         call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
-        app.state.call_log.append(call_record)
-        if len(app.state.call_log) > 100:
-            app.state.call_log = app.state.call_log[-100:]
-        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+        _append_call_log(call_record)
         if tool_calls:
             remaining = _strip_tool_call_blocks(text)
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
@@ -1759,9 +1770,32 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        _key_obj = getattr(raw.state, "api_key_obj", None)
+        call_record = {
+            "api": "responses",
+            "endpoint": "/v1/responses",
+            "time": time.strftime("%H:%M:%S"),
+            "ts": time.time(),
+            "stream": request.stream,
+            "tools": [],
+            "messages": len(request.input) if isinstance(request.input, list) else 1,
+            "model": request.model,
+            "tone": (_key_obj.tone if _key_obj is not None else getattr(app.state, 'current_tone', 'Magic')) or 'Magic',
+            "tool_calls_result": None if request.stream else [],
+        }
+
         if request.stream:
+            call_record["streaming"] = True
+            _append_call_log(call_record)
             return StreamingResponse(
-                _responses_stream(model_alias, client, translated.prompt, translated.additional_context, session),
+                _responses_stream(
+                    model_alias,
+                    client,
+                    translated.prompt,
+                    translated.additional_context,
+                    session,
+                    on_text_done=lambda text: _record_response_text(call_record, text),
+                ),
                 media_type="text/event-stream",
             )
 
@@ -1769,6 +1803,9 @@ def create_app(
             text = await client.chat(translated.prompt, translated.additional_context, session)
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        _record_response_text(call_record, text)
+        _append_call_log(call_record)
 
         return JSONResponse({
             "id": f"resp_{uuid.uuid4().hex}",
@@ -1798,9 +1835,32 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        _key_obj = getattr(raw_request.state, "api_key_obj", None)
+        call_record = {
+            "api": "anthropic",
+            "endpoint": "/v1/messages",
+            "time": time.strftime("%H:%M:%S"),
+            "ts": time.time(),
+            "stream": request.stream,
+            "tools": [],
+            "messages": len(request.messages),
+            "model": request.model,
+            "tone": (_key_obj.tone if _key_obj is not None else getattr(app.state, 'current_tone', 'Magic')) or 'Magic',
+            "tool_calls_result": None if request.stream else [],
+        }
+
         if request.stream:
+            call_record["streaming"] = True
+            _append_call_log(call_record)
             return StreamingResponse(
-                _anthropic_stream(model_alias, client, translated.prompt, translated.additional_context, session),
+                _anthropic_stream(
+                    model_alias,
+                    client,
+                    translated.prompt,
+                    translated.additional_context,
+                    session,
+                    on_text_done=lambda text: _record_response_text(call_record, text),
+                ),
                 media_type="text/event-stream",
             )
 
@@ -1808,6 +1868,9 @@ def create_app(
             text = await client.chat(translated.prompt, translated.additional_context, session)
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        _record_response_text(call_record, text)
+        _append_call_log(call_record)
 
         return JSONResponse({
             "id": f"msg_{uuid.uuid4().hex}",
@@ -1959,53 +2022,3 @@ async def _openai_stream_with_tools(
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': full_text}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
         yield "data: [DONE]\n\n"
-
-
-_GLASS_SELECT_CSS = """select.glass-native{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important}
-.glass-select{position:relative;display:inline-block;min-width:120px;vertical-align:middle;z-index:20}
-.glass-select.open{z-index:80}
-.tone-select+.glass-select{min-width:180px}
-.glass-select-trigger{width:100%;min-height:30px;margin:0!important;padding:.42rem 2rem .42rem .7rem!important;border-radius:12px!important;color:var(--strong)!important;text-align:left!important;background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(96,242,255,.08),rgba(140,107,255,.08))!important;border:1px solid rgba(96,242,255,.28)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(0,0,0,.12)!important;backdrop-filter:blur(14px);position:relative;overflow:hidden;transition:none!important}
-.glass-select-trigger:after{content:"";position:absolute;right:.72rem;top:50%;width:.46rem;height:.46rem;border-right:2px solid var(--cyan);border-bottom:2px solid var(--cyan);transform:translateY(-65%) rotate(45deg);opacity:.9}
-.glass-select.open .glass-select-trigger{border-color:rgba(96,242,255,.58)!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),0 0 20px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.24)!important}
-.glass-select-menu{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(360px,calc(100vw - 32px));max-height:260px;overflow:auto;border-radius:14px;padding:.28rem;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,11,27,.78));border:1px solid rgba(96,242,255,.28);box-shadow:0 18px 44px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(145%);display:none}
-.tone-select+.glass-select .glass-select-menu{left:auto;right:0}
-.glass-select.open .glass-select-menu{display:block}
-.glass-select-menu:before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan));background-size:260% 100%;animation:flowBorder 2.2s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.75}
-.glass-select-option{position:relative;width:100%;margin:0!important;padding:.48rem .62rem!important;border-radius:10px!important;background:transparent!important;color:var(--muted)!important;box-shadow:none!important;text-align:left!important;font-size:.82rem!important;line-height:1.2!important;transition:none!important}
-.glass-select-option:hover{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.13))!important;color:var(--text)!important;transform:none!important}
-.glass-select-option.active{color:var(--text)!important;background:linear-gradient(135deg,rgba(96,242,255,.24),rgba(255,94,219,.12))!important;box-shadow:inset 3px 0 0 rgba(96,242,255,.82)!important}
-body[data-theme="light"] .glass-select-trigger{color:#243049!important;background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(96,180,242,.13),rgba(124,58,237,.1))!important;border-color:rgba(14,116,144,.24)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.86),0 8px 18px rgba(47,61,116,.08)!important}
-body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(242,247,255,.88));border-color:rgba(14,116,144,.22);box-shadow:0 18px 38px rgba(80,100,160,.16),inset 0 1px 0 rgba(255,255,255,.86)}
-body[data-theme="light"] .glass-select-option{color:#5b6785!important}
-body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#243049!important}"""
-
-_GLASS_SELECT_JS = """function initGlassSelect(root){
-  const scope=root||document;
-  scope.querySelectorAll('select').forEach(sel=>{
-    if(sel.dataset.glassReady==='1')return;
-    sel.dataset.glassReady='1';sel.classList.add('glass-native');
-    const wrap=document.createElement('span');wrap.className='glass-select';
-    if(sel.classList.contains('page-select'))wrap.style.minWidth='76px';
-    if(sel.classList.contains('tone-select'))wrap.style.minWidth='180px';
-    if(sel.id==='rebind-select')wrap.style.width='100%';
-    const trigger=document.createElement('button');trigger.type='button';trigger.className='glass-select-trigger';
-    const menu=document.createElement('div');menu.className='glass-select-menu';
-    wrap.appendChild(trigger);wrap.appendChild(menu);sel.parentNode.insertBefore(wrap,sel.nextSibling);
-    const close=()=>wrap.classList.remove('open');
-    const render=()=>{
-      const opt=sel.options[sel.selectedIndex];trigger.textContent=opt?opt.textContent:'';menu.innerHTML='';
-      Array.from(sel.options).forEach(o=>{const b=document.createElement('button');b.type='button';b.className='glass-select-option'+(o.value===sel.value?' active':'');b.textContent=o.textContent;b.onclick=e=>{e.stopPropagation();sel.value=o.value;sel.dispatchEvent(new Event('change',{bubbles:true}));render();close()};menu.appendChild(b)});
-    };
-    sel._glassRender=render;
-    trigger.onclick=e=>{e.stopPropagation();document.querySelectorAll('.glass-select.open').forEach(x=>{if(x!==wrap)x.classList.remove('open')});render();wrap.classList.toggle('open')};
-    sel.addEventListener('change',render);render();
-  });
-}
-function refreshGlassSelect(sel){
-  if(!sel)return;
-  if(sel.dataset.glassReady!=='1')initGlassSelect(sel.parentElement||document);
-  if(typeof sel._glassRender==='function')sel._glassRender();
-}
-document.addEventListener('click',()=>document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open')));
-document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.glass-select.open').forEach(x=>x.classList.remove('open'))});"""
