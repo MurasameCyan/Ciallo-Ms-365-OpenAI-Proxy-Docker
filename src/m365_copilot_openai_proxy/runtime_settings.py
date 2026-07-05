@@ -14,6 +14,7 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
     "log_level": "INFO",
+    "call_log_limit": 100,
     "run_permission": "full",
 }
 
@@ -40,6 +41,7 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
     if data["log_level"] not in _LOG_LEVELS:
         data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]
+    data["call_log_limit"] = max(1, int(data.get("call_log_limit") or _RUNTIME_SETTINGS_DEFAULTS["call_log_limit"]))
     data["run_permission"] = str(data.get("run_permission") or _RUNTIME_SETTINGS_DEFAULTS["run_permission"]).strip()
     if data["run_permission"] not in _RUN_PERMISSIONS:
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]

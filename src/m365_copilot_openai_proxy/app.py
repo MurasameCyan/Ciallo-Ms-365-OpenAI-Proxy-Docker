@@ -204,8 +204,10 @@ def create_app(
         app.state.account_store,
         profile_root=Path(resolved_settings.token_dir) / "profiles",
     )
+    runtime_settings = _read_runtime_settings(resolved_settings.token_dir)
+    app.state.call_log_limit = runtime_settings["call_log_limit"]
     app.state.call_log_path = Path(resolved_settings.token_dir) / "call_log.json"
-    app.state.call_log: list[dict] = _load_json_list(app.state.call_log_path, 100)  # API call log for web UI display
+    app.state.call_log: list[dict] = _load_json_list(app.state.call_log_path, app.state.call_log_limit)  # API call log for web UI display
     app.state.captured_payloads: list[dict] = []  # Substrate chat payloads captured via get_token.js for mode comparison
     # Metrics time-series for the home dashboard trend chart. Snapshots are taken
     # lazily (throttled) whenever the admin polls, so no background scheduler is
@@ -213,7 +215,6 @@ def create_app(
     app.state.metrics_path = Path(resolved_settings.token_dir) / "metrics_history.json"
     app.state.metrics_history: list[dict] = _load_metrics_history(app.state.metrics_path)
     app.state.metrics_last_snapshot = 0.0
-    runtime_settings = _read_runtime_settings(resolved_settings.token_dir)
     app.state.runtime_settings = runtime_settings
     app.state.model_alias = runtime_settings["model_alias"]
     app.state.time_zone = runtime_settings["time_zone"]
@@ -271,9 +272,10 @@ def create_app(
 
     def _append_call_log(record: dict) -> None:
         app.state.call_log.append(record)
-        if len(app.state.call_log) > 100:
-            app.state.call_log = app.state.call_log[-100:]
-        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+        limit = int(getattr(app.state, "call_log_limit", 100))
+        if len(app.state.call_log) > limit:
+            app.state.call_log = app.state.call_log[-limit:]
+        _write_json_list(app.state.call_log_path, app.state.call_log, limit)
 
     def _record_response_text(record: dict, text: str) -> None:
         record["response_len"] = len(text)
@@ -281,7 +283,7 @@ def create_app(
         record["response_repr"] = repr(text[:2000])
         if record.get("tool_calls_result") is None:
             record["tool_calls_result"] = []
-        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+        _write_json_list(app.state.call_log_path, app.state.call_log, int(getattr(app.state, "call_log_limit", 100)))
 
     # CORS: use configurable origin whitelist (comma-separated ALLOWED_ORIGINS env var)
     _allowed_origins_raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
@@ -787,7 +789,7 @@ def create_app(
         err = _require_admin(request)
         if err: return err
         app.state.call_log = []
-        _write_json_list(app.state.call_log_path, app.state.call_log, 100)
+        _write_json_list(app.state.call_log_path, app.state.call_log, int(getattr(app.state, "call_log_limit", 100)))
         return {"status": "ok"}
 
     @app.get("/admin/metrics-history")
@@ -971,6 +973,7 @@ def create_app(
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
+            "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
         }
         if data["log_level"] not in _LOG_LEVELS:
@@ -987,6 +990,10 @@ def create_app(
         app.state.account_cdp_port_base = data["account_cdp_port_base"]
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
+        app.state.call_log_limit = data["call_log_limit"]
+        if len(app.state.call_log) > app.state.call_log_limit:
+            app.state.call_log = app.state.call_log[-app.state.call_log_limit:]
+            _write_json_list(app.state.call_log_path, app.state.call_log, app.state.call_log_limit)
         logging.getLogger().setLevel(app.state.log_level)
         _write_runtime_settings(resolved_settings.token_dir, data)
         return {"status": "ok", "settings": data}
