@@ -2572,11 +2572,12 @@ body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,25
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 """ + _GLASS_SELECT_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
-.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(160px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.2rem!important;align-items:end!important}
-.runtime-settings-grid .runtime-field-label{min-width:0!important}
-.runtime-settings-grid input{min-height:38px!important;margin-top:.5rem!important;padding:9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
+.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(2,minmax(220px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.75rem!important;align-items:end!important;max-width:760px!important}
+.runtime-settings-grid>div{display:grid!important;gap:1rem!important}
+.runtime-settings-grid .runtime-field-label{display:flex!important;flex-direction:column!important;gap:.55rem!important;min-width:0!important;font-size:.95rem!important;font-weight:800!important;color:var(--strong)!important}
+.runtime-settings-grid input{min-height:44px!important;margin-top:0!important;padding:11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important;background:var(--inner)!important;border:1px solid var(--inner-border)!important;color:var(--strong)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12)!important}
 .runtime-settings-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
-.runtime-settings-grid .glass-select-btn{min-height:38px!important;padding:9px 34px 9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
+.runtime-settings-grid .glass-select-trigger{min-height:44px!important;padding:11px 36px 11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important}
 .runtime-settings-grid input[type=number]::-webkit-outer-spin-button,.runtime-settings-grid input[type=number]::-webkit-inner-spin-button,.ports-logs-card input[type=number]::-webkit-outer-spin-button,.ports-logs-card input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .runtime-settings-grid input[type=number],.ports-logs-card input[type=number]{appearance:textfield;-moz-appearance:textfield}
 .ports-logs-card{overflow:visible!important;z-index:10}
