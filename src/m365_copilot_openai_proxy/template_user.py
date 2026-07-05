@@ -455,7 +455,7 @@ async function loadMe(){
     document.getElementById('tone').value=d.tone||'Magic';
     refreshGlassSelect(document.getElementById('tone'));
     renderRunPermissionOptions();
-    document.getElementById('user-run-permission').value=d.run_permission||'';
+    document.getElementById('user-run-permission').value=d.run_permission||d.effective_run_permission||'full';
     refreshGlassSelect(document.getElementById('user-run-permission'));
     document.getElementById('user-model-alias').value=d.model_alias||'';
     userTimeZone=d.time_zone||'';
