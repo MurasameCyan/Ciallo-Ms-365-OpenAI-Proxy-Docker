@@ -40,6 +40,7 @@ _DEFAULT_TOOL_SYSTEM_PROMPT = (
     '{"name": "<tool_name>", "arguments": {<key-value pairs>}}\n'
     "```\n\n"
     "Rules:\n"
+    "- If the user asks to only analyze/review/read, or says not to modify/write/save/run/delete files, treat the task as read-only: request Read/search actions only and never request Write, Edit, Delete, or command execution.\n"
     "- To read a file, emit a Read action request. Do NOT claim you cannot read it — the host reads it and returns the content.\n"
     "- To create or write a file, emit a Write action request with the full content. Do NOT paste the content as a normal code block.\n"
     "- To modify a file, emit an Edit action request. Do NOT just describe the change.\n"

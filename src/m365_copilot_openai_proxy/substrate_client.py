@@ -139,6 +139,7 @@ class SubstrateCopilotClient:
                 '{"name": "Write", "arguments": {"file_path": "...", "content": "..."}}\n'
                 "```\n"
                 "You MUST NOT:\n"
+                "- Request Write/Edit/Delete/command execution when the user asks to only analyze/review/read or says not to modify/write/save/run/delete files\n"
                 "- Say you cannot access files (the host does it for you)\n"
                 "- Say a path does not exist (you don't know — the host checks)\n"
                 "- Output code in ```bat / ```python blocks without a tool_call wrapper\n"

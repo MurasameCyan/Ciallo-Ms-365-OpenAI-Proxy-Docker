@@ -28,6 +28,7 @@ from .translator import translate_anthropic_request, translate_openai_request, t
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+_RUN_PERMISSIONS = {"read_only", "full"}
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
     "model_alias": "m365-copilot",
@@ -37,6 +38,7 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
     "log_level": "INFO",
+    "run_permission": "read_only",
 }
 
 # Login credential rules (validated server-side; front-end checks are bypassable).
@@ -83,6 +85,9 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
     if data["log_level"] not in _LOG_LEVELS:
         data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]
+    data["run_permission"] = str(data.get("run_permission") or _RUNTIME_SETTINGS_DEFAULTS["run_permission"]).strip()
+    if data["run_permission"] not in _RUN_PERMISSIONS:
+        data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
     return data
 
 
@@ -113,6 +118,28 @@ def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
 
 
 import re as _re
+
+_READ_ONLY_INTENT_RE = _re.compile(
+    r"(只分析|仅分析|只读|不要修改|不要改|不要写|不要保存|不要创建|不要删除|不要执行|不要运行|不修改文件|不改文件|"
+    r"analy[sz]e only|read[- ]only|do not modify|don't modify|no changes|do not write|don't write|do not save|don't save|do not run|don't run)",
+    _re.IGNORECASE,
+)
+_READ_ONLY_TOOL_NAMES = {"read", "grep", "glob", "ls", "searchcodebase"}
+
+
+def _has_read_only_intent(*parts: str) -> bool:
+    return any(_READ_ONLY_INTENT_RE.search(part or "") for part in parts)
+
+
+def _tool_call_name(tool_call: dict) -> str:
+    try:
+        return str(tool_call.get("function", {}).get("name", "")).strip()
+    except AttributeError:
+        return ""
+
+
+def _filter_read_only_tool_calls(tool_calls: list[dict]) -> list[dict]:
+    return [tc for tc in tool_calls if _tool_call_name(tc).lower() in _READ_ONLY_TOOL_NAMES]
 
 # Primary: fenced ```tool_call blocks. Fallback: ```json blocks that look like a tool call.
 # Note: closing/opening newlines are optional — the model often emits the closing ``` right
@@ -510,6 +537,7 @@ def create_app(
     app.state.account_cdp_port_base = runtime_settings["account_cdp_port_base"]
     app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
     app.state.log_level = runtime_settings["log_level"]
+    app.state.run_permission = runtime_settings["run_permission"]
     logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0  # 0 means never received any /v1/ request
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]
@@ -1251,9 +1279,12 @@ def create_app(
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
+            "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
         }
         if data["log_level"] not in _LOG_LEVELS:
             return _json_err(400, "Invalid log level")
+        if data["run_permission"] not in _RUN_PERMISSIONS:
+            return _json_err(400, "Invalid run permission")
         app.state.runtime_settings = data
         app.state.time_zone = data["time_zone"]
         app.state.model_alias = data["model_alias"]
@@ -1331,6 +1362,10 @@ def create_app(
             "updated_at": acc.updated_at,
         }
 
+    def _effective_run_permission(k: ApiKey | None) -> str:
+        value = ((getattr(k, "run_permission", "") if k is not None else "") or "").strip()
+        return value if value in _RUN_PERMISSIONS else getattr(app.state, "run_permission", "full")
+
     def _key_public(k: ApiKey) -> dict:
         """Serialize an API key for the admin UI (raw key shown so admin can copy)."""
         acc = app.state.account_store.get(k.account_id) if k.account_id else None
@@ -1345,6 +1380,8 @@ def create_app(
             "tone": k.tone,
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
+            "run_permission": getattr(k, "run_permission", ""),
+            "effective_run_permission": _effective_run_permission(k),
             "username": k.username,
             "password": k.password,
             "has_password": bool(k.password_hash),
@@ -1533,6 +1570,11 @@ def create_app(
             if not isinstance(body["system_prompt"], str):
                 return _json_err(400, "system_prompt must be a string")
             fields["system_prompt"] = body["system_prompt"][:8000]
+        if "run_permission" in body:
+            rp = str(body["run_permission"]).strip()
+            if rp and rp not in _RUN_PERMISSIONS:
+                return _json_err(400, "Invalid run permission")
+            fields["run_permission"] = rp
         if "username" in body:
             uname = str(body["username"]).strip()
             if uname:
@@ -1643,6 +1685,9 @@ def create_app(
             "system_prompt": k.system_prompt,
             "model_alias": getattr(k, "model_alias", "") or getattr(app.state, "model_alias", resolved_settings.model_alias),
             "time_zone": getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"),
+            "run_permission": getattr(k, "run_permission", ""),
+            "effective_run_permission": _effective_run_permission(k),
+            "default_run_permission": getattr(app.state, "run_permission", "read_only"),
             "default_system_prompt": default_tool_system_prompt(),
             "displaced": bool(getattr(k, "displaced_at", 0.0)),
             "displaced_at": getattr(k, "displaced_at", 0.0),
@@ -1672,8 +1717,11 @@ def create_app(
             return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
         model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", resolved_settings.model_alias))).strip() or getattr(app.state, "model_alias", resolved_settings.model_alias)
         time_zone = str(body.get("time_zone", getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"))).strip() or getattr(app.state, "time_zone", "Asia/Shanghai")
-        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone)
-        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone}
+        run_permission = str(body.get("run_permission", getattr(k, "run_permission", ""))).strip()
+        if run_permission and run_permission not in _RUN_PERMISSIONS:
+            return _json_err(400, "Invalid run permission")
+        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission)
+        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
 
     @app.post("/user/tool-prompt")
     async def user_set_tool_prompt(request: Request) -> dict:
@@ -1899,6 +1947,10 @@ def create_app(
             # fall back to the global system prompt (admin's "系统提示词（全局）").
             _key_sp = ((_key_obj.system_prompt if _key_obj is not None else "") or "").strip()
             _system_override = _key_sp or getattr(app.state, 'system_prompt', '')
+            run_permission = _effective_run_permission(_key_obj)
+            read_only_guard = run_permission == "read_only" or _has_read_only_intent(*(flatten_content(m.content) for m in request.messages if m.role == "user"))
+            call_record["run_permission"] = run_permission
+            call_record["read_only_guard"] = read_only_guard
             translated = translate_openai_request(request, incremental=incremental, system_override=_system_override)
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
@@ -1919,6 +1971,7 @@ def create_app(
                             call_log=app.state.call_log,
                             call_record=call_record,
                             tool_names={t.function.name for t in request.tools if t.function},
+                            read_only_guard=read_only_guard,
                         ),
                         media_type="text/event-stream",
                     )
@@ -1940,7 +1993,12 @@ def create_app(
 
         # If request included tools, parse model output for tool_call blocks
         tool_calls = _extract_tool_calls(text) if request.tools else []
-        if not tool_calls and request.tools:
+        if read_only_guard and tool_calls:
+            blocked = len(tool_calls)
+            tool_calls = _filter_read_only_tool_calls(tool_calls)
+            if len(tool_calls) != blocked:
+                _log.info("  read-only guard filtered mutating tool_call(s)")
+        if not tool_calls and request.tools and not read_only_guard:
             # Prose fallback: model described "save as <path>" + code block
             tool_names = {t.function.name for t in request.tools if t.function}
             tool_calls = _extract_prose_write(text, tool_names)
@@ -1949,7 +2007,7 @@ def create_app(
         # Corrective retry: M365 sometimes "creates" a file via its native
         # attachment feature (hosted URL) instead of a tool_call. If it claims a
         # file but emitted none, force one retry demanding a real tool_call.
-        if not tool_calls and request.tools and _looks_like_fake_file_claim(text):
+        if not tool_calls and request.tools and not read_only_guard and _looks_like_fake_file_claim(text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
                 retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
@@ -2195,6 +2253,7 @@ async def _openai_stream_with_tools(
     call_log: list | None = None,
     call_record: dict | None = None,
     tool_names: set | None = None,
+    read_only_guard: bool = False,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream."""
     _log = logging.getLogger("copilot_proxy")
@@ -2204,13 +2263,18 @@ async def _openai_stream_with_tools(
     full_text = "".join(chunks)
 
     tool_calls = _extract_tool_calls(full_text)
-    if not tool_calls and tool_names:
+    if read_only_guard and tool_calls:
+        blocked = len(tool_calls)
+        tool_calls = _filter_read_only_tool_calls(tool_calls)
+        if len(tool_calls) != blocked:
+            _log.info("  read-only guard filtered mutating tool_call(s)")
+    if not tool_calls and tool_names and not read_only_guard:
         # Prose fallback: model described "save as <path>" + code block
         tool_calls = _extract_prose_write(full_text, tool_names)
         if tool_calls:
             _log.info("  prose fallback synthesized Write tool_call")
     # Corrective retry: M365 native file-gen (hosted URL) instead of a tool_call.
-    if not tool_calls and tool_names and _looks_like_fake_file_claim(full_text):
+    if not tool_calls and tool_names and not read_only_guard and _looks_like_fake_file_claim(full_text):
         _log.info("  fake file claim detected, forcing corrective retry")
         try:
             retry_chunks: list[str] = []
@@ -2834,6 +2898,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div style="display:grid;gap:.8rem">
 <label class="runtime-field-label"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 <label class="runtime-field-label"><span data-i18n="auto_refresh_label">自动刷新</span><select id="runtime-auto-refresh" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
+<label class="runtime-field-label"><span data-i18n="run_permission_label">运行权限</span><select id="runtime-run-permission" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 </div>
 <div style="display:grid;gap:.8rem">
 <label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
@@ -3063,7 +3128,7 @@ const i18n={
     dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
     title_tone:'对话模式',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
-    runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',
+    runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',
     tone_saved:'已保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
@@ -3149,7 +3214,7 @@ const i18n={
     dbg_capture_steps:'Steps: enable the switch → in M365 Copilot switch modes (Fast/Think, GPT 5.5/5.2) and send one message each → push the captures via the Tampermonkey script → compare fields under "Mode Capture Compare".',
     title_tone:'Conversation Mode',
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
-    runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP primary port',account_cdp_port_base_label:'CDP secondary port',log_level_label:'Log level',
+    runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP primary port',account_cdp_port_base_label:'CDP secondary port',log_level_label:'Log level',
     tone_saved:'Saved',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -4219,6 +4284,7 @@ async function loadRuntimeSettings(){
     set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
     const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
+    const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
   }catch(e){}
 }
 async function saveRuntimeSettings(btnId){
@@ -4229,6 +4295,7 @@ async function saveRuntimeSettings(btnId){
   const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
   put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');
   const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
+  const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
   try{
     const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){if(btn){btn.disabled=false;btn.textContent=oldText}return;}
     const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
@@ -4412,7 +4479,7 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
 .account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:600px;overflow:visible}
 .account-card:has(.glass-select.open){z-index:2000}
-.user-default-grid{display:grid;grid-template-columns:repeat(3,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
+.user-default-grid{display:grid;grid-template-columns:repeat(4,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
 .user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
 .user-config-field input{width:100%;height:38px;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.86rem;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
 .user-default-grid .glass-select{width:100%!important;min-width:0!important;height:38px!important;margin-left:0!important}
@@ -4496,6 +4563,7 @@ code{color:#a5b4fc}
         <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
         <div class="user-default-grid">
           <label class="user-config-field"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
+          <label class="user-config-field"><span data-i18n="run_permission_label">运行权限</span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>
           <label class="user-config-field"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
           <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
         </div>
@@ -4552,7 +4620,7 @@ const i18n={
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
     mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户',status_login:'登录',status_refresh:'刷新',status_valid:'有效',status_expire:'过期',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',
-    tone_title:'对话模式',user_time_zone_label:'更改时区',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
+    tone_title:'对话模式',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',user_time_zone_label:'更改时区',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
     sys_prompt_title:'系统提示词（高级）',
@@ -4575,7 +4643,7 @@ const i18n={
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
     mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_expire:'Expires',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',
-    tone_title:'Conversation Mode',user_time_zone_label:'Change Time Zone',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
+    tone_title:'Conversation Mode',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',user_time_zone_label:'Change Time Zone',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
     sys_prompt_title:'System Prompt (Advanced)',
@@ -4621,6 +4689,15 @@ function renderToneOptions(){
     sel.appendChild(opt);
   });
   if(cur)sel.value=cur;
+  initGlassSelect(sel.parentElement);
+  refreshGlassSelect(sel);
+  renderRunPermissionOptions();
+}
+function renderRunPermissionOptions(){
+  const sel=document.getElementById('user-run-permission');if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">'+t('run_permission_inherit')+'</option><option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';
+  sel.value=cur;
   initGlassSelect(sel.parentElement);
   refreshGlassSelect(sel);
 }
@@ -4750,6 +4827,9 @@ async function loadMe(){
     renderToneOptions();
     document.getElementById('tone').value=d.tone||'Magic';
     refreshGlassSelect(document.getElementById('tone'));
+    renderRunPermissionOptions();
+    document.getElementById('user-run-permission').value=d.run_permission||'';
+    refreshGlassSelect(document.getElementById('user-run-permission'));
     document.getElementById('user-model-alias').value=d.model_alias||'';
     userTimeZone=d.time_zone||'';
     document.getElementById('user-time-zone').value=userTimeZone;
@@ -4818,10 +4898,11 @@ async function saveTone(){
   const tone=document.getElementById('tone').value;
   const model_alias=document.getElementById('user-model-alias')?.value||'';
   const time_zone=document.getElementById('user-time-zone')?.value||'';
+  const run_permission=document.getElementById('user-run-permission')?.value||'';
   userTimeZone=time_zone;
   try{
-    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone})});
-    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;flash('tone-msg')}
+    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone,run_permission:run_permission})});
+    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const rp=document.getElementById('user-run-permission');if(rp){rp.value=d.run_permission||'';refreshGlassSelect(rp)}flash('tone-msg')}
   }catch(e){}
 }
 async function saveToolPrompt(){
