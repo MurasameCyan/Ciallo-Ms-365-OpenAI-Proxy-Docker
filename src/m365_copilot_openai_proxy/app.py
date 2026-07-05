@@ -16,7 +16,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 
 from .config import Settings
 from .auth_helpers import _validate_password, _validate_username
-from .account_store import Account, AccountStore, extract_identity
+from .account_store import AccountStore, extract_identity
+from .account_serializers import account_binding_state, account_public, user_account_public
 from .key_store import ApiKey, KeyStore
 from .refresh_scheduler import RefreshScheduler
 from .session_store import PersistentSession, PersistentSessionStore
@@ -912,31 +913,9 @@ def create_app(
         return {"status": "ok", "system_prompt": prompt}
 
     # ============================ Multi-tenant admin API ============================
-    def _account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict:
-        """Serialize an account for the admin UI (never leak the raw token)."""
+    def _account_public(acc, bound_keys: list[ApiKey] | None = None) -> dict:
         keys = bound_keys if bound_keys is not None else app.state.key_store.list_for_account(acc.id)
-        binding_state = "none"
-        if getattr(acc, "cookie_valid", False):
-            binding_state = "cookie"
-        elif acc.token:
-            binding_state = "token_only"
-        return {
-            "id": acc.id,
-            "name": acc.name,
-            "email": acc.email,
-            "cdp_port": acc.cdp_port,
-            "token_source": acc.token_source,
-            "binding_state": binding_state,
-            "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
-            "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
-            "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
-            "has_token": bool(acc.token),
-            "token_status": acc.token_status(),
-            "key_count": len(keys),
-            "bound_names": [k.name or k.username or k.id for k in keys],
-            "created_at": acc.created_at,
-            "updated_at": acc.updated_at,
-        }
+        return account_public(acc, keys)
 
     def _effective_run_permission(k: ApiKey | None) -> str:
         value = ((getattr(k, "run_permission", "") if k is not None else "") or "").strip()
@@ -1253,12 +1232,7 @@ def create_app(
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         acc = app.state.account_store.get(k.account_id) if k.account_id else None
-        binding_state = "none"
-        if acc is not None:
-            if getattr(acc, "cookie_valid", False):
-                binding_state = "cookie"
-            elif acc.token:
-                binding_state = "token_only"
+        binding_state = account_binding_state(acc)
         return {
             "name": k.name,
             "enabled": k.enabled,
@@ -1274,19 +1248,7 @@ def create_app(
             "displaced": bool(getattr(k, "displaced_at", 0.0)),
             "displaced_at": getattr(k, "displaced_at", 0.0),
             "binding_state": binding_state,
-            "account": {
-                "id": acc.id,
-                "name": acc.name,
-                "email": acc.email,
-                "token_source": acc.token_source,
-                "binding_state": binding_state,
-                "updated_at": acc.updated_at,
-                "has_token": bool(acc.token),
-                "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
-                "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
-                "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
-                "token_status": acc.token_status(),
-            } if acc is not None else None,
+            "account": user_account_public(acc),
             "tone_options": _TONE_OPTIONS,
         }
 
