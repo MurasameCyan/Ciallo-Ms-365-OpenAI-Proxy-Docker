@@ -1376,14 +1376,16 @@ def create_app(
         k = _resolve_user_key(request)
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
-        if not k.account_id or app.state.account_store.get(k.account_id) is None:
-            acc = app.state.account_store.add(name=k.name or k.username or "user", token="", token_source="cdp")
-            app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
-            k = app.state.key_store.get(k.id) or k
         body = await request.json()
+        username = body.get("username")
+        account_name = username.strip() if isinstance(username, str) else ""
         cookies = body.get("cookies", [])
         if not isinstance(cookies, list) or not cookies:
             return _json_err(400, "No cookies provided")
+        if not k.account_id or app.state.account_store.get(k.account_id) is None:
+            acc = app.state.account_store.add(name=account_name or k.name or k.username or "user", token="", token_source="cdp")
+            app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
+            k = app.state.key_store.get(k.id) or k
         injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
         if injected != total:
             app.state.account_store.set_cookie_status(k.account_id, False)
@@ -1391,6 +1393,8 @@ def create_app(
         acc = app.state.account_store.get(k.account_id)
         if not acc or not acc.cookie_valid:
             return _json_err(400, "Cookie injected, but Microsoft redirected to login. Please sign in to M365 in the browser and push cookies again.")
+        if account_name and acc.name != account_name:
+            app.state.account_store.rename(k.account_id, account_name)
         return {"status": "ok", "injected": injected, "total": total}
 
     @app.post("/user/regenerate-key")

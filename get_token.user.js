@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      5.3
+// @version      5.4
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://login.microsoftonline.com/*
@@ -470,10 +470,11 @@
     async function pushUserCookies(base, cookies) {
         const key = getUserApiKey();
         if (!key) throw new Error(tr('no_user_key'));
+        const username = getUsername();
         const r = await gmFetch(base + '/user/account/cookies', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-            body: JSON.stringify({ cookies })
+            body: JSON.stringify({ cookies, username })
         });
         return { response: r, data: await r.json() };
     }
