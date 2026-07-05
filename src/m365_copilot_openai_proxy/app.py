@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -45,6 +44,13 @@ from .metrics_store import (
     init_metrics_store,
     maybe_snapshot_metrics,
 )
+from .session_helpers import (
+    _PERSIST_MODEL_SUFFIX,
+    _SESSION_ID_HEADER,
+    _messages_session_key,
+    _persistent_session,
+    _responses_session_key,
+)
 from .response_helpers import (
     _anthropic_stream,
     _json_err,
@@ -61,8 +67,6 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
 )
 
-_PERSIST_MODEL_SUFFIX = ":persist"
-_SESSION_ID_HEADER = "x-m365-session-id"
 
 # Login credential rules (validated server-side; front-end checks are bypassable).
 # Username: letters + digits only. Password: letters, digits, and a safe symbol
@@ -85,25 +89,6 @@ def _validate_password(password: str) -> str | None:
         return "Password must be 6-64 chars: letters, digits, and safe symbols (!#$%&*+-.:=?@^_~)"
     return None
 
-
-def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
-    """Auto-detect conversation session from the request messages.
-
-    Returns (session_id, title):
-    - session_id: stable hash based on the first user message content
-    - title: first ~60 chars of the first user message for display
-    When the user starts a new chat in Trae, the first user message changes -> new session.
-    Agentic tool-result turns reuse the same first user message -> same session.
-    """
-    for msg in request.messages:
-        if msg.role == "user":
-            text = flatten_content(msg.content).strip()
-            if text:
-                sid = "conv_" + hashlib.sha256(text.encode()).hexdigest()[:12]
-                title = text[:60].replace("\n", " ")
-                return sid, title
-    # Fallback: random session
-    return "conv_" + uuid.uuid4().hex[:12], "New conversation"
 
 
 def _update_username_from_token(token: str, state) -> None:
@@ -225,7 +210,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=_allowed_origins,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "x-m365-session-id"],
+        allow_headers=["Content-Type", "Authorization", _SESSION_ID_HEADER],
         max_age=86400,
     )
 
@@ -244,7 +229,7 @@ def create_app(
                 if origin in _allowed_origins:
                     resp.headers["Access-Control-Allow-Origin"] = origin
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, x-m365-session-id"
+            resp.headers["Access-Control-Allow-Headers"] = f"Content-Type, Authorization, {_SESSION_ID_HEADER}"
             resp.headers["Access-Control-Max-Age"] = "86400"
             return resp
         path = request.url.path
@@ -1817,62 +1802,6 @@ def create_app(
 
     return app
 
-
-def _responses_session_key(request: OpenAIResponsesRequest) -> str | None:
-    user = getattr(request, "user", None)
-    if isinstance(user, str) and user.strip():
-        return user.strip()
-    text = json.dumps(request.input, ensure_ascii=False, sort_keys=True)
-    if text:
-        return "responses_" + hashlib.sha256(text.encode()).hexdigest()[:12]
-    return None
-
-
-def _messages_session_key(request: AnthropicMessagesRequest) -> str | None:
-    for msg in request.messages:
-        if msg.role == "user":
-            text = flatten_content(msg.content).strip()
-            if text:
-                return "messages_" + hashlib.sha256(text.encode()).hexdigest()[:12]
-    return None
-
-
-def _persistent_session(
-    app: FastAPI,
-    raw_request: Request,
-    model: str,
-    fallback_key: str | None = None,
-    request: OpenAIChatRequest | AnthropicMessagesRequest | None = None,
-) -> PersistentSession | None:
-    # Multi-tenant: prefix every session key with the caller's key id (fallback to
-    # the bound account id) so two different API keys never share an M365 thread,
-    # even when their session ids / opening messages collide.
-    key_obj = getattr(raw_request.state, "api_key_obj", None)
-    account = getattr(raw_request.state, "account", None)
-    tenant = (key_obj.id if key_obj is not None else None) or (account.id if account is not None else "global")
-    header_key = (raw_request.headers.get(_SESSION_ID_HEADER) or "").strip()
-    if header_key:
-        return app.state.session_store.get(f"{tenant}:header:{header_key}")
-    if model.endswith(_PERSIST_MODEL_SUFFIX):
-        return app.state.session_store.get(f"{tenant}:model:{fallback_key or 'default'}")
-    # Auto-detect conversation from the request messages so that all turns of the
-    # same Trae conversation reuse one M365 Copilot session (instead of creating a
-    # brand-new chat record on every request). A new Trae conversation has a
-    # different first user message -> different session key -> new M365 session.
-    if request is not None:
-        sid, _title = _detect_conversation_session(request)
-        # A conversation's opening turn carries no assistant reply yet. If two
-        # different conversations happen to share the same first user message
-        # (e.g. the same prompt reused to start a new chat), their auto key
-        # collides. Reusing the stale M365 thread would feed the model wrong
-        # context and make it hallucinate. So on an opening turn, start fresh.
-        has_assistant = any(m.role == "assistant" for m in request.messages)
-        if not has_assistant:
-            return app.state.session_store.reset(f"{tenant}:auto:{sid}")
-        return app.state.session_store.get(f"{tenant}:auto:{sid}")
-    if fallback_key:
-        return app.state.session_store.get(f"{tenant}:auto:{fallback_key}")
-    return None
 
 
 async def _openai_stream_with_tools(
