@@ -109,6 +109,12 @@ body[data-view="debug"] .view-debug.ports-logs-card.details-open{height:auto;min
 .api-badge.chat{color:var(--cyan);background:linear-gradient(135deg,rgba(96,242,255,.16),rgba(140,107,255,.12));border-color:rgba(96,242,255,.36);box-shadow:0 0 12px rgba(96,242,255,.14),inset 0 1px 0 rgba(255,255,255,.12)}
 .api-badge.responses{color:#fde68a;background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(255,215,111,.12));border-color:rgba(245,158,11,.36);box-shadow:0 0 12px rgba(245,158,11,.14),inset 0 1px 0 rgba(255,255,255,.12)}
 .api-badge.anthropic{color:#f0abfc;background:linear-gradient(135deg,rgba(217,70,239,.18),rgba(140,107,255,.12));border-color:rgba(217,70,239,.36);box-shadow:0 0 12px rgba(217,70,239,.14),inset 0 1px 0 rgba(255,255,255,.12)}
+.call-filter-bar{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-top:20px}
+.call-filter-group{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
+.call-filter-btn{min-width:74px;padding:5px 10px!important;border-radius:999px!important;font-size:.68rem!important;font-weight:900!important;letter-spacing:.03em;text-transform:uppercase;background:var(--chip)!important;color:var(--faint)!important;border:1px solid var(--chip-border)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)!important}
+.call-filter-btn.active.chat{color:var(--cyan)!important;background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.12))!important;border-color:rgba(96,242,255,.42)!important;box-shadow:0 0 14px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.12)!important}
+.call-filter-btn.active.responses{color:#fde68a!important;background:linear-gradient(135deg,rgba(245,158,11,.22),rgba(255,215,111,.12))!important;border-color:rgba(245,158,11,.4)!important;box-shadow:0 0 14px rgba(245,158,11,.16),inset 0 1px 0 rgba(255,255,255,.12)!important}
+.call-filter-btn.active.anthropic{color:#f0abfc!important;background:linear-gradient(135deg,rgba(217,70,239,.2),rgba(140,107,255,.12))!important;border-color:rgba(217,70,239,.4)!important;box-shadow:0 0 14px rgba(217,70,239,.16),inset 0 1px 0 rgba(255,255,255,.12)!important}
 .tbl-foot{position:absolute;left:1.5rem;right:1.5rem;bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);z-index:6;background:linear-gradient(180deg,rgba(8,13,32,.78),rgba(8,13,32,.9));border:1px solid rgba(96,242,255,.12);border-radius:14px;padding:.45rem .6rem;backdrop-filter:blur(14px)}
 .page-size{display:flex;align-items:center;gap:.4rem}
 .page-nav{display:flex;align-items:center;gap:.5rem}
@@ -171,6 +177,10 @@ body[data-theme="light"] .role-badge.user{color:#0e7490;background:linear-gradie
 body[data-theme="light"] .api-badge.chat{color:#0e7490;background:linear-gradient(135deg,rgba(96,180,242,.16),rgba(124,58,237,.08));border-color:rgba(14,116,144,.28);box-shadow:0 0 12px rgba(14,116,144,.12),inset 0 1px 0 rgba(255,255,255,.82)}
 body[data-theme="light"] .api-badge.responses{color:#92400e;background:linear-gradient(135deg,rgba(245,158,11,.18),rgba(255,215,111,.12));border-color:rgba(217,119,6,.3);box-shadow:0 0 12px rgba(245,158,11,.12),inset 0 1px 0 rgba(255,255,255,.82)}
 body[data-theme="light"] .api-badge.anthropic{color:#a21caf;background:linear-gradient(135deg,rgba(217,70,239,.13),rgba(124,58,237,.08));border-color:rgba(162,28,175,.28);box-shadow:0 0 12px rgba(162,28,175,.1),inset 0 1px 0 rgba(255,255,255,.82)}
+body[data-theme="light"] .call-filter-btn{color:#5b6785!important;background:rgba(99,102,180,.08)!important;border-color:rgba(99,102,180,.22)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.82)!important}
+body[data-theme="light"] .call-filter-btn.active.chat{color:#0e7490!important;background:linear-gradient(135deg,rgba(96,180,242,.16),rgba(124,58,237,.08))!important;border-color:rgba(14,116,144,.28)!important;box-shadow:0 0 12px rgba(14,116,144,.12),inset 0 1px 0 rgba(255,255,255,.82)!important}
+body[data-theme="light"] .call-filter-btn.active.responses{color:#92400e!important;background:linear-gradient(135deg,rgba(245,158,11,.18),rgba(255,215,111,.12))!important;border-color:rgba(217,119,6,.3)!important;box-shadow:0 0 12px rgba(245,158,11,.12),inset 0 1px 0 rgba(255,255,255,.82)!important}
+body[data-theme="light"] .call-filter-btn.active.anthropic{color:#a21caf!important;background:linear-gradient(135deg,rgba(217,70,239,.13),rgba(124,58,237,.08))!important;border-color:rgba(162,28,175,.28)!important;box-shadow:0 0 12px rgba(162,28,175,.1),inset 0 1px 0 rgba(255,255,255,.82)!important}
 body[data-theme="light"] .debug-gate{background:radial-gradient(circle at 50% 38%,rgba(96,180,242,.16),transparent 30%),linear-gradient(135deg,rgba(255,255,255,.82),rgba(238,244,255,.72));color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 20px 48px rgba(80,100,160,.14)}
 body[data-theme="light"] .debug-gate:after{background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(239,245,255,.76))}
 body[data-theme="light"] .debug-gate:before{opacity:.34}
@@ -479,7 +489,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:flex;align-items:center;justify-content:flex-end;margin-top:20px"><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div class="call-filter-bar"><div class="call-filter-group"><button class="call-filter-btn chat" data-api-filter="chat" onclick="setCallLogFilter('chat')">chat</button><button class="call-filter-btn responses" data-api-filter="responses" onclick="setCallLogFilter('responses')">responses</button><button class="call-filter-btn anthropic" data-api-filter="anthropic" onclick="setCallLogFilter('anthropic')">anthropic</button></div><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="call-log-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
@@ -1651,23 +1661,37 @@ function copyCaptureText(key){
     if(b){const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)}
   }).catch(()=>{});
 }
+function updateCallLogFilterButtons(){
+  const cur=window.__callLogFilter||'';
+  document.querySelectorAll('[data-api-filter]').forEach(b=>b.classList.toggle('active',b.getAttribute('data-api-filter')===cur));
+}
+function setCallLogFilter(api){
+  window.__callLogFilter=window.__callLogFilter===api?'':api;
+  window.__callLogSig='';
+  updateCallLogFilterButtons();
+  loadCallLog();
+}
 async function loadCallLog(){
   try{
     const r=await fetch('/admin/call-log',{credentials:'include'});
     if(r.status===401){showInlineLogin();return}
     const d=await r.json();
     const logs=d.logs||[];
-    document.getElementById('call-log-count').textContent=logs.length;
+    const filter=window.__callLogFilter||'';
+    const filtered=filter?logs.filter(l=>((l.api||'chat').toLowerCase()===filter)):logs;
+    document.getElementById('call-log-count').textContent=filter?(filtered.length+'/'+logs.length):logs.length;
     const el=document.getElementById('call-log-content');
-    if(!logs.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';window.__callLogSig='';return}
+    if(!logs.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';window.__callLogSig='';updateCallLogFilterButtons();return}
     // Skip re-render if nothing changed — prevents open <details> from collapsing every 5s
-    const sig=JSON.stringify(logs);
+    const sig=filter+'|'+JSON.stringify(logs);
     if(sig===window.__callLogSig)return;
     window.__callLogSig=sig;
+    updateCallLogFilterButtons();
     window.__callTexts={};
     let html='';
-    for(let i=logs.length-1;i>=0;i--){
-      const l=logs[i];
+    if(!filtered.length)html='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';
+    for(let i=filtered.length-1;i>=0;i--){
+      const l=filtered[i];
       const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const tc=l.tools&&l.tools.length?l.tools.join(', '):'—';
       const api=(l.api||'chat').toLowerCase();
