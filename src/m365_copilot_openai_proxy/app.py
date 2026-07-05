@@ -532,9 +532,9 @@ def create_app(
     _LOGIN_LOCKOUT_SEC = 60.0   # lockout duration
 
     app.state.copilot_client_factory = copilot_client_factory or (
-        lambda token=None, tone=None, tool_prompt=None: SubstrateCopilotClient(
+        lambda token=None, tone=None, tool_prompt=None, time_zone=None: SubstrateCopilotClient(
             token if token is not None else app.state.token_store.get(),
-            getattr(app.state, 'time_zone', 'Asia/Shanghai'),
+            time_zone if time_zone is not None else getattr(app.state, 'time_zone', 'Asia/Shanghai'),
             tone if tone is not None else getattr(app.state, 'current_tone', 'Magic'),
             tool_prompt if tool_prompt is not None else getattr(app.state, 'tool_prompt', ''),
         )
@@ -663,7 +663,8 @@ def create_app(
             global_tp = (getattr(app.state, "tool_prompt", "") or "").strip()
             key_tp = ((key_obj.tool_prompt if key_obj is not None else "") or "").strip()
             tool_prompt = "\n\n".join(p for p in (global_tp, key_tp) if p) or None
-            return app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt)
+            time_zone = getattr(key_obj, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai")
+            return app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone)
         except TypeError:
             # Test-injected factory may take no arguments.
             return app.state.copilot_client_factory()
@@ -1633,6 +1634,8 @@ def create_app(
             "tone": k.tone,
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
+            "model_alias": getattr(k, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias),
+            "time_zone": getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"),
             "default_system_prompt": default_tool_system_prompt(),
             "displaced": bool(getattr(k, "displaced_at", 0.0)),
             "displaced_at": getattr(k, "displaced_at", 0.0),
@@ -1660,8 +1663,8 @@ def create_app(
         tone = str(body.get("tone", "")).strip()
         if tone not in _TONE_VALUES:
             return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
-        model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias))).strip() or settings.model_alias
-        time_zone = str(body.get("time_zone", getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"))).strip() or "Asia/Shanghai"
+        model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias))).strip() or getattr(app.state, "model_alias", settings.model_alias)
+        time_zone = str(body.get("time_zone", getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"))).strip() or getattr(app.state, "time_zone", "Asia/Shanghai")
         app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone)
         return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone}
 
@@ -4386,8 +4389,9 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .account-card:has(.glass-select.open){z-index:2000}
 .user-default-grid{display:grid;grid-template-columns:repeat(3,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
 .user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
-.user-config-field input{width:100%;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
-.user-default-grid .glass-select{width:100%!important;min-width:0!important;margin-left:0!important}
+.user-config-field input{width:100%;height:38px;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.86rem;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
+.user-default-grid .glass-select{width:100%!important;min-width:0!important;height:38px!important;margin-left:0!important}
+.user-default-grid .glass-select-btn{height:38px!important;width:100%!important;box-sizing:border-box!important;padding:9px 14px!important;border-radius:14px!important;font-size:.86rem!important}
 .account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
@@ -4790,7 +4794,10 @@ async function saveTone(){
   const model_alias=document.getElementById('user-model-alias')?.value||'';
   const time_zone=document.getElementById('user-time-zone')?.value||'';
   userTimeZone=time_zone;
-  try{await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone})});flash('tone-msg')}catch(e){}
+  try{
+    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone})});
+    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;flash('tone-msg')}
+  }catch(e){}
 }
 async function saveToolPrompt(){
   const p=document.getElementById('tool-prompt').value;

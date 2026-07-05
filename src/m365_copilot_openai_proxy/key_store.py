@@ -102,6 +102,8 @@ class KeyStore:
                     tone=raw.get("tone", "Magic"),
                     tool_prompt=raw.get("tool_prompt", ""),
                     system_prompt=raw.get("system_prompt", ""),
+                    model_alias=raw.get("model_alias", ""),
+                    time_zone=raw.get("time_zone", ""),
                     username=raw.get("username", ""),
                     password=raw.get("password", ""),
                     password_hash=raw.get("password_hash", ""),
