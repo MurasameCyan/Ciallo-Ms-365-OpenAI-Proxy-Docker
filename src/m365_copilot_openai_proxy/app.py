@@ -4479,7 +4479,7 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .api-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.12rem 0}
 .api-row>span:first-child{color:#f3f6ff;white-space:pre}
 .api-row>span:last-child{color:var(--faint);text-align:right;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.74rem}
-.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:center;min-height:600px;overflow:visible}
+.account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:start;min-height:600px;overflow:visible}
 .account-card:has(.glass-select.open){z-index:2000}
 .user-default-grid{display:grid;grid-template-columns:repeat(4,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
 .user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
