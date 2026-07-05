@@ -2586,6 +2586,7 @@ body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 .ports-logs-card input{min-height:38px!important;margin-top:.5rem!important;padding:9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
 .ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.5rem!important;position:relative;z-index:20}
 .ports-log-level .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
+.ports-log-level .glass-select-trigger{min-height:44px!important;padding:11px 36px 11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important}
 .ports-log-level .glass-select.open{z-index:3100!important}
 .ports-log-level .glass-select-menu{z-index:3200!important}
 .layout .glass-select.open{z-index:2000}
@@ -2681,6 +2682,7 @@ body[data-theme="light"] .brand .tenant-pill{color:#243049;background:linear-gra
 .debug-gate.on .gate-flow{opacity:1;border:1px solid transparent;background:linear-gradient(90deg,transparent,rgba(96,242,255,.5),rgba(140,107,255,.4),rgba(255,94,219,.3),transparent);background-size:300% 100%;animation:gateFlow 2.6s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px}
 .debug-gate-card{display:flex;align-items:center;justify-content:center}
 .debug-gate-card .debug-gate{background:transparent;box-shadow:none;border:none;border-radius:inherit;padding:0;overflow:visible}
+.debug-gate-card .debug-gate-core{transform:translateY(14px)}
 .debug-gate-card .debug-gate:before,.debug-gate-card .debug-gate:after,.debug-gate-card .gate-flow{display:none}
 .debug-gate-card .debug-gate:hover{transform:none;box-shadow:none}
 .debug-gate-card .debug-gate.on{box-shadow:none}
@@ -4396,7 +4398,7 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
 .user-config-field input{width:100%;height:38px;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.86rem;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
 .user-default-grid .glass-select{width:100%!important;min-width:0!important;height:38px!important;margin-left:0!important}
-.user-default-grid .glass-select-btn{height:38px!important;width:100%!important;box-sizing:border-box!important;padding:9px 14px!important;border-radius:14px!important;font-size:.86rem!important}
+.user-default-grid .glass-select-trigger{height:38px!important;width:100%!important;box-sizing:border-box!important;padding:9px 34px 9px 14px!important;border-radius:14px!important;font-size:.86rem!important;font-weight:700!important}
 .account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
