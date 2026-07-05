@@ -1634,7 +1634,7 @@ def create_app(
             "tone": k.tone,
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
-            "model_alias": getattr(k, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias),
+            "model_alias": getattr(k, "model_alias", "") or getattr(app.state, "model_alias", resolved_settings.model_alias),
             "time_zone": getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"),
             "default_system_prompt": default_tool_system_prompt(),
             "displaced": bool(getattr(k, "displaced_at", 0.0)),
@@ -1663,7 +1663,7 @@ def create_app(
         tone = str(body.get("tone", "")).strip()
         if tone not in _TONE_VALUES:
             return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
-        model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", settings.model_alias))).strip() or getattr(app.state, "model_alias", settings.model_alias)
+        model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", resolved_settings.model_alias))).strip() or getattr(app.state, "model_alias", resolved_settings.model_alias)
         time_zone = str(body.get("time_zone", getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"))).strip() or getattr(app.state, "time_zone", "Asia/Shanghai")
         app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone)
         return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone}
@@ -2504,7 +2504,7 @@ body[data-view="users"] .view-users{display:block}
 .view-users .tbl-scroll{max-height:605px}
 body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:relative;top:auto}
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
-body[data-view="debug"] .debug-gate-card{height:250px;min-height:250px}
+body[data-view="debug"] .debug-gate-card{height:250px;min-height:250px;display:flex;align-items:center;justify-content:center}
 body[data-view="debug"] .debug-guide-card{height:200px!important;min-height:200px!important;overflow:hidden}
 body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!important;min-height:200px!important;overflow:visible}
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
@@ -2572,14 +2572,18 @@ body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,25
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 """ + _GLASS_SELECT_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
-.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:1rem .8rem!important;margin-top:.2rem!important}
+.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(160px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.2rem!important;align-items:end!important}
 .runtime-settings-grid .runtime-field-label{min-width:0!important}
+.runtime-settings-grid input{min-height:38px!important;margin-top:.5rem!important;padding:9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
 .runtime-settings-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
+.runtime-settings-grid .glass-select-btn{min-height:38px!important;padding:9px 34px 9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
 .runtime-settings-grid input[type=number]::-webkit-outer-spin-button,.runtime-settings-grid input[type=number]::-webkit-inner-spin-button,.ports-logs-card input[type=number]::-webkit-outer-spin-button,.ports-logs-card input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .runtime-settings-grid input[type=number],.ports-logs-card input[type=number]{appearance:textfield;-moz-appearance:textfield}
 .ports-logs-card{overflow:visible!important;z-index:10}
 .ports-logs-card:has(.glass-select.open){z-index:3000!important}
-.ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.6rem!important;position:relative;z-index:20}
+.ports-logs-card label{font-size:.875rem!important;font-weight:800!important;color:var(--strong)!important}
+.ports-logs-card input{min-height:38px!important;margin-top:.5rem!important;padding:9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
+.ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.5rem!important;position:relative;z-index:20}
 .ports-log-level .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
 .ports-log-level .glass-select.open{z-index:3100!important}
 .ports-log-level .glass-select-menu{z-index:3200!important}
@@ -2826,7 +2830,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 
 </div>
-<div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem"><button id="runtime-settings-save" onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings('runtime-settings-save')" data-i18n="save">保存</button><span id="tone-saved" style="display:none"></span><span id="runtime-settings-saved" style="display:none"></span></div>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:.85rem"><button id="runtime-settings-save" onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings('runtime-settings-save')" data-i18n="save">保存</button><span id="tone-saved" style="display:none"></span><span id="runtime-settings-saved" style="display:none"></span></div>
 </details>
 </div>
 
