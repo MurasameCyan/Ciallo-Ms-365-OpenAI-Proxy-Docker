@@ -25,6 +25,13 @@ from .token_store import AccessTokenStore, write_token, write_username, read_use
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
 from .translator import translate_anthropic_request, translate_openai_request, translate_responses_request, flatten_content, default_tool_system_prompt
 from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
+from .runtime_settings import (
+    _LOG_LEVELS,
+    _RUN_PERMISSIONS,
+    _RUNTIME_SETTINGS_DEFAULTS,
+    _read_runtime_settings,
+    _write_runtime_settings,
+)
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
     _extract_prose_write,
@@ -37,19 +44,6 @@ from .tool_call_parser import (
 
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
-_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-_RUN_PERMISSIONS = {"read_only", "full"}
-_RUNTIME_SETTINGS_DEFAULTS = {
-    "time_zone": "Asia/Shanghai",
-    "model_alias": "m365-copilot",
-    "auto_refresh": True,
-    "refresh_before_seconds": 300,
-    "idle_timeout_minutes": 30,
-    "cdp_port": 9222,
-    "account_cdp_port_base": 9322,
-    "log_level": "INFO",
-    "run_permission": "full",
-}
 
 # Login credential rules (validated server-side; front-end checks are bypassable).
 # Username: letters + digits only. Password: letters, digits, and a safe symbol
@@ -71,40 +65,6 @@ def _validate_password(password: str) -> str | None:
     if not _PASSWORD_RE.match(password):
         return "Password must be 6-64 chars: letters, digits, and safe symbols (!#$%&*+-.:=?@^_~)"
     return None
-
-
-def _runtime_settings_path(token_dir: str) -> Path:
-    return Path(token_dir) / "runtime_settings.json"
-
-
-def _read_runtime_settings(token_dir: str) -> dict:
-    data = dict(_RUNTIME_SETTINGS_DEFAULTS)
-    try:
-        raw = json.loads(_runtime_settings_path(token_dir).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        raw = {}
-    if isinstance(raw, dict):
-        data.update({k: raw[k] for k in data.keys() if k in raw})
-    data["time_zone"] = str(data.get("time_zone") or _RUNTIME_SETTINGS_DEFAULTS["time_zone"]).strip()
-    data["model_alias"] = str(data.get("model_alias") or _RUNTIME_SETTINGS_DEFAULTS["model_alias"]).strip()
-    data["auto_refresh"] = bool(data.get("auto_refresh"))
-    data["refresh_before_seconds"] = max(0, int(data.get("refresh_before_seconds") or 0))
-    data["idle_timeout_minutes"] = max(1, int(data.get("idle_timeout_minutes") or 1))
-    data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
-    data["account_cdp_port_base"] = max(1, int(data.get("account_cdp_port_base") or _RUNTIME_SETTINGS_DEFAULTS["account_cdp_port_base"]))
-    data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
-    if data["log_level"] not in _LOG_LEVELS:
-        data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]
-    data["run_permission"] = str(data.get("run_permission") or _RUNTIME_SETTINGS_DEFAULTS["run_permission"]).strip()
-    if data["run_permission"] not in _RUN_PERMISSIONS:
-        data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
-    return data
-
-
-def _write_runtime_settings(token_dir: str, data: dict) -> None:
-    path = _runtime_settings_path(token_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
