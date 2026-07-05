@@ -4560,14 +4560,13 @@ code{color:#a5b4fc}
           <div class="call-param-row"><span>API Key:</span><code id="my-key"></code><button onclick="copyMyKey(this)" class="btn-ghost compact-action" data-i18n="copy_key">复制</button></div>
         </div>
         <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey(this)" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
-        <label class="section-title" data-i18n="mode_profile_title">默认配置</label>
+        <div style="display:flex;align-items:center;gap:20px;margin:1rem 0 .45rem"><label class="section-title" data-i18n="mode_profile_title" style="margin:0">默认配置</label><span id="tone-msg" class="msg"></span></div>
         <div class="user-default-grid">
           <label class="user-config-field"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
           <label class="user-config-field"><span data-i18n="run_permission_label">运行权限</span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>
           <label class="user-config-field"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
           <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
         </div>
-        <div><span id="tone-msg" class="msg"></span></div>
         <div style="color:var(--faint);font-size:.72rem;margin-top:.25rem" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
