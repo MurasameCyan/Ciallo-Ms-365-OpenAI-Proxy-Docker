@@ -368,7 +368,7 @@ async function changeLoginPassword(btn){
     const r=await fetch('/user/repassword',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:JSON.stringify({old_password:form.oldPassword,new_password:form.newPassword})});
     const d=await r.json().catch(()=>({}));ok=r.ok;msg=(d.error&&d.error.message)||'';
   }catch(e){msg=t('network_error')}
-  if(btn){btn.textContent=ok?t('password_changed'):(msg||t('password_change_failed'));btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.textContent=t('change_password');btn.style.color='';btn.disabled=false},2500)}
+  if(btn){const oldTitle=btn.title;btn.title=ok?t('password_changed'):(msg||t('password_change_failed'));btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(()=>{btn.title=oldTitle||t('change_password');btn.style.color='';btn.disabled=false},2500)}
 }
 async function logout(btn){if(btn){btn.disabled=true;btn.textContent=t('logging_out_ms')}let ok=false;try{const r=await fetch('/user/account/logout',{method:'POST',headers:authHeaders()});ok=r.ok}catch(e){}if(btn){btn.textContent=ok?t('logout_ok_ms'):t('logout_failed_ms');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('logout');btn.style.color='';btn.disabled=false;await loadMe()},3000)}else{await loadMe()}}
 function logoutConsole(){_userRemainSec=0;sessionStorage.removeItem('user_api_key');document.getElementById('app').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden');const p=document.getElementById('password');if(p)p.value='';const m=document.getElementById('login-msg');if(m)m.textContent=''}

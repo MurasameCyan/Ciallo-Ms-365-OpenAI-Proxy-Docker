@@ -22,6 +22,7 @@ from .refresh_scheduler import RefreshScheduler
 from .session_store import PersistentSession, PersistentSessionStore
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
 from .token_store import AccessTokenStore, write_token, write_username, read_username, decode_jwt_payload, is_substrate_token_claims, init_token_dir, write_tone, read_tone, write_tool_prompt, read_tool_prompt, write_system_prompt, read_system_prompt
+from .token_identity import update_username_from_token
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
 from .translator import translate_anthropic_request, translate_openai_request, translate_responses_request, flatten_content, default_tool_system_prompt
 from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
@@ -68,25 +69,6 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
 )
 
-
-
-def _update_username_from_token(token: str, state) -> None:
-    """Extract username from JWT claims and persist it if not already set."""
-    if getattr(state, 'username', None) and len(state.username) > 1:
-        return  # Already have a valid username, keep it
-    try:
-        claims = decode_jwt_payload(token)
-        name = claims.get("name") or claims.get("upn") or ""
-        if isinstance(name, str):
-            name = name.strip()
-            # If upn is email, take the local part
-            if "@" in name and " " not in name:
-                name = name.split("@")[0]
-        if name and len(name) > 1:
-            state.username = name
-            write_username(name)
-    except Exception:
-        pass
 
 
 
@@ -356,7 +338,7 @@ def create_app(
             app.state.username = username
             write_username(username)
         else:
-            _update_username_from_token(token, app.state)
+            update_username_from_token(token, app.state)
         _, email = extract_identity(token)
         if email:
             acc = app.state.account_store.find_by_email(email)
@@ -382,7 +364,7 @@ def create_app(
         write_token(token)
         app.state.token_store._token = token
         app.state.token_store._mtime_ns = None
-        _update_username_from_token(token, app.state)
+        update_username_from_token(token, app.state)
         return {"status": "ok", "message": "Token auto-captured", "token_status": app.state.token_store.status()}
 
     @app.post("/admin/cookie/inject")
