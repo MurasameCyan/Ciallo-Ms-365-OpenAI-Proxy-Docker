@@ -39,6 +39,12 @@ from .call_log_store import (
     record_response_text,
     trim_call_log,
 )
+from .metrics_store import (
+    clear_metrics_history_store,
+    get_metrics_history_store,
+    init_metrics_store,
+    maybe_snapshot_metrics,
+)
 from .response_helpers import (
     _anthropic_stream,
     _json_err,
@@ -119,60 +125,6 @@ def _update_username_from_token(token: str, state) -> None:
         pass
 
 
-def _write_json_list(path: Path, data: list[dict], limit: int) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data[-limit:], ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
-    except OSError:
-        pass
-
-
-def _load_metrics_history(path: Path) -> list[dict]:
-    """Load the persisted metrics time-series (best-effort, empty on any error)."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return [d for d in data if isinstance(d, dict)][-500:]
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
-    return []
-
-
-def _maybe_snapshot_metrics(app: FastAPI, min_interval: float = 300.0) -> None:
-    """Append a metrics snapshot if enough time has passed since the last one.
-
-    Throttled to `min_interval` seconds and driven by admin polling, so it needs
-    no background task. Keeps the last 500 points and persists best-effort.
-    """
-    now = time.time()
-    if now - getattr(app.state, "metrics_last_snapshot", 0.0) < min_interval:
-        return
-    app.state.metrics_last_snapshot = now
-    keys = app.state.key_store.list()
-    accts = app.state.account_store.list()
-    valid = sum(1 for a in accts if a.token_status().get("valid"))
-    snap = {
-        "ts": now,
-        "users": len(keys),
-        "accounts": len(accts),
-        "enabled_users": sum(1 for k in keys if k.enabled),
-        "valid_accounts": valid,
-        "expired_accounts": len(accts) - valid,
-    }
-    hist = app.state.metrics_history
-    hist.append(snap)
-    if len(hist) > 500:
-        del hist[:-500]
-    try:
-        app.state.metrics_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = app.state.metrics_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(hist, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(app.state.metrics_path)
-    except OSError:
-        pass
-
 
 def create_app(
     settings: Settings | None = None,
@@ -206,12 +158,8 @@ def create_app(
     app.state.call_log_path = Path(resolved_settings.token_dir) / "call_log.json"
     app.state.call_log: list[dict] = load_call_log(app.state.call_log_path, app.state.call_log_limit)  # API call log for web UI display
     app.state.captured_payloads: list[dict] = []  # Substrate chat payloads captured via get_token.js for mode comparison
-    # Metrics time-series for the home dashboard trend chart. Snapshots are taken
-    # lazily (throttled) whenever the admin polls, so no background scheduler is
-    # needed. Persisted so the trend survives restarts.
-    app.state.metrics_path = Path(resolved_settings.token_dir) / "metrics_history.json"
-    app.state.metrics_history: list[dict] = _load_metrics_history(app.state.metrics_path)
-    app.state.metrics_last_snapshot = 0.0
+    # Metrics time-series for the home dashboard trend chart.
+    init_metrics_store(app.state, Path(resolved_settings.token_dir) / "metrics_history.json")
     app.state.runtime_settings = runtime_settings
     app.state.model_alias = runtime_settings["model_alias"]
     app.state.time_zone = runtime_settings["time_zone"]
@@ -777,16 +725,14 @@ def create_app(
     async def get_metrics_history(request: Request) -> dict:
         err = _require_admin(request)
         if err: return err
-        _maybe_snapshot_metrics(app)  # lazy, throttled snapshot on poll
-        return {"history": getattr(app.state, 'metrics_history', [])}
+        maybe_snapshot_metrics(app.state)  # lazy, throttled snapshot on poll
+        return {"history": get_metrics_history_store(app.state)}
 
     @app.post("/admin/metrics-history/clear")
     async def clear_metrics_history(request: Request) -> dict:
         err = _require_admin(request)
         if err: return err
-        app.state.metrics_history = []
-        app.state.metrics_last_snapshot = time.time()
-        _write_json_list(app.state.metrics_path, app.state.metrics_history, 500)
+        clear_metrics_history_store(app.state)
         return {"status": "ok"}
 
     @app.get("/admin/summary")
