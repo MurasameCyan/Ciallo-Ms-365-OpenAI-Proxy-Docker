@@ -1170,6 +1170,13 @@ def create_app(
         if err: return err
         return {"payloads": getattr(app.state, 'captured_payloads', [])}
 
+    @app.post("/admin/capture-payload/clear")
+    async def clear_captured_payload(request: Request) -> dict:
+        err = _require_admin(request)
+        if err: return err
+        app.state.captured_payloads = []
+        return {"status": "ok"}
+
     @app.get("/admin/capture-toggle")
     async def get_capture_toggle(request: Request) -> dict:
         err = _require_admin(request)
@@ -2907,7 +2914,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div id="call-log-content" style="margin-top:20px;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
+<div style="display:flex;align-items:center;justify-content:flex-end;margin-top:20px"><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div id="call-log-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
 </details>
@@ -2917,8 +2925,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="capture-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="margin-top:20px;font-size:.75rem;color:var(--faint)" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div>
-<div id="capture-content" style="margin-top:20px;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div><button onclick="clearCapturePayloads()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div id="capture-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
 <span style="color:var(--faint)" data-i18n="no_capture_yet">暂无抓包数据</span>
 </div>
 </details>
@@ -2952,6 +2960,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="api-row"><span>POST /admin/metrics-history/clear</span><span data-i18n="api_metrics_clear">清空趋势数据</span></div>
 <div class="api-row"><span>GET&nbsp; /admin/capture-payload</span><span data-i18n="api_cap_get">查看抓包数据</span></div>
 <div class="api-row"><span>POST /admin/capture-payload</span><span data-i18n="api_cap_post">推送抓包数据</span></div>
+<div class="api-row"><span>POST /admin/capture-payload/clear</span><span data-i18n="api_cap_clear">清空抓包数据</span></div>
 <div class="api-row"><span>GET&nbsp; /admin/capture-toggle</span><span data-i18n="api_captgl_get">接收开关状态</span></div>
 <div class="api-row"><span>POST /admin/capture-toggle</span><span data-i18n="api_captgl_post">设置接收开关</span></div>
 <div class="api-row"><span>GET&nbsp; /admin/chromium/login-status</span><span data-i18n="api_login_status">Chromium 登录状态</span></div>
@@ -3015,7 +3024,7 @@ const i18n={
     qs_paste_above:'然后粘贴到上方。',title_api_endpoints:'API 端点',
     api_grp_public:'公共接口',api_grp_v1:'OpenAI 兼容接口',api_grp_admin:'管理接口',
     api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',
-    api_call_log:'调用记录',api_call_log_clear:'清空调用记录',api_metrics_history:'趋势数据',api_metrics_clear:'清空趋势数据',api_cap_get:'查看抓包数据',api_cap_post:'推送抓包数据',api_captgl_get:'接收开关状态',api_captgl_post:'设置接收开关',
+    api_call_log:'调用记录',api_call_log_clear:'清空调用记录',api_metrics_history:'趋势数据',api_metrics_clear:'清空趋势数据',api_cap_get:'查看抓包数据',api_cap_post:'推送抓包数据',api_cap_clear:'清空抓包数据',api_captgl_get:'接收开关状态',api_captgl_post:'设置接收开关',
     api_login_status:'Chromium 登录状态',api_chromium_logout:'退出 Chromium 登录',api_cookie_inject:'注入 Cookie',
     api_sys_get:'查看系统提示词',api_sys_post:'设置系统提示词',api_auto_cap:'自动抓取 Token',api_tok_status:'Token 状态',api_tok_update:'更新 Token',
     api_tone_get:'查看默认模式',api_tone_post:'设置默认模式',api_tool_get:'查看工具提示词',api_tool_post:'设置工具提示词',api_healthz:'健康检查',
@@ -3101,7 +3110,7 @@ const i18n={
     qs_paste_above:'from DevTools (Network → WS → wss://substrate.office.com/...), then paste above.',title_api_endpoints:'API Endpoints',
     api_grp_public:'Public',api_grp_v1:'OpenAI-compatible',api_grp_admin:'Admin',
     api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',
-    api_call_log:'Call log',api_call_log_clear:'Clear call log',api_metrics_history:'Trend data',api_metrics_clear:'Clear trend data',api_cap_get:'View captures',api_cap_post:'Push captures',api_captgl_get:'Receive toggle state',api_captgl_post:'Set receive toggle',
+    api_call_log:'Call log',api_call_log_clear:'Clear call log',api_metrics_history:'Trend data',api_metrics_clear:'Clear trend data',api_cap_get:'View captures',api_cap_post:'Push captures',api_cap_clear:'Clear captures',api_captgl_get:'Receive toggle state',api_captgl_post:'Set receive toggle',
     api_login_status:'Chromium login status',api_chromium_logout:'Sign out of Chromium',api_cookie_inject:'Inject cookies',
     api_sys_get:'View system prompt',api_sys_post:'Set system prompt',api_auto_cap:'Auto-capture token',api_tok_status:'Token status',api_tok_update:'Update token',
     api_tone_get:'View default mode',api_tone_post:'Set default mode',api_tool_get:'View tool prompt',api_tool_post:'Set tool prompt',api_healthz:'Health check',
@@ -3587,6 +3596,11 @@ async function clearCallStats(){
   if(!await adminConfirm(t('confirm_clear_stats')))return;
   await fetch('/admin/call-log/clear',{method:'POST',credentials:'include'}).catch(()=>{});
   loadStats();loadCallLog();
+}
+async function clearCapturePayloads(){
+  if(!await adminConfirm(t('confirm_clear_stats')))return;
+  await fetch('/admin/capture-payload/clear',{method:'POST',credentials:'include'}).catch(()=>{});
+  loadCapture();
 }
 let __expiryWarnTimer=null;
 async function loadStats(){
