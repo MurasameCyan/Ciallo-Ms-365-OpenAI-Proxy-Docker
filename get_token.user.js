@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      5.0
+// @version      5.3
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://login.microsoftonline.com/*
@@ -15,8 +15,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
-// @updateURL    https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js
-// @downloadURL  https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js
+// @updateURL    https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js
+// @downloadURL  https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js
 // @connect      *
 // ==/UserScript==
 
@@ -82,14 +82,14 @@
             enter_proxy_first: '请先填写代理地址',
             no_token_ws: '尚未捕获 Token。在 Copilot 输入内容以触发 WebSocket。',
             no_user_key: '请先填写用户 API Key。',
-            token_pushed: 'Token 已推送！剩余：',
+            token_pushed: 'Token 已更新，剩余：',
             failed: '失败：',
             network_error: '网络错误：',
             gm_unavailable_alert: 'GM_cookie API 不可用。\n\n请使用 Tampermonkey Beta，或在 Tampermonkey 设置中启用「允许脚本访问 HttpOnly cookie」：\n设置 > 安全 > 「允许脚本访问 cookie」',
             fetching: '获取中...',
             pushing: '推送中...',
             no_cookies: '未找到 Cookie。',
-            cookies_pushed: 'Cookie 已推送到 /user：',
+            cookies_pushed: 'Cookie 已推送：',
             httponly_included: '（含 httpOnly：',
             error: '错误：',
             no_token_copy: '尚未捕获 Token',
@@ -97,8 +97,8 @@
             copy_failed: '复制失败',
             working: '处理中...',
             pushing_cookies: '检查 Cookie...',
-            pushing_token: '更新 /user Token...',
-            setup_complete: '/user 更新完成！Token 剩余：',
+            pushing_token: '更新 Token...',
+            setup_complete: '更新完成，Token 剩余：',
             proxy_ready: '秒',
             token_push_failed: 'Token 推送失败：',
             no_payload: '暂无抓包数据。先在 Copilot 选择模式并发送一条消息。',
@@ -117,14 +117,14 @@
             token_captured: '✓ captured',
             token_not_captured: '⚠ not captured yet',
             copy_token: 'Copy Token',
-            push_token: 'Push to /user',
+            push_token: 'Push Token',
             cookie_login: 'Cookie Status',
             gm_available: '✓ GM_cookie available',
             gm_unavailable: '⚠ GM_cookie unavailable. Use Tampermonkey Beta.',
-            push_cookies: 'Push Cookies to /user',
+            push_cookies: 'Push Cookies',
             quick_setup: 'One-Click Push',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
-            one_click: 'Push /user',
+            one_click: 'Push',
             manual_config: 'Manual Config',
             mode_capture: 'Mode Capture',
             click_expand: '(click to expand)',
@@ -138,7 +138,7 @@
             enter_proxy_first: 'Please enter proxy URL first',
             no_token_ws: 'No token captured yet. Type something in Copilot to trigger WebSocket.',
             no_user_key: 'Please enter User API Key first.',
-            token_pushed: 'Token pushed! Remaining: ',
+            token_pushed: 'Token updated. Remaining: ',
             failed: 'Failed: ',
             network_error: 'Network error: ',
             bad_response: 'Proxy returned a non-JSON response (HTTP {status}). Check the proxy URL, it may be a login/error page.',
@@ -146,7 +146,7 @@
             fetching: 'Fetching...',
             pushing: 'Pushing...',
             no_cookies: 'No cookies found.',
-            cookies_pushed: 'Cookies pushed to /user: ',
+            cookies_pushed: 'Cookies pushed: ',
             httponly_included: '(httpOnly included: ',
             error: 'Error: ',
             no_token_copy: 'No token captured yet',
@@ -154,8 +154,8 @@
             copy_failed: 'Copy failed',
             working: 'Working...',
             pushing_cookies: 'Checking cookies...',
-            pushing_token: 'Updating /user token...',
-            setup_complete: '/user updated! Token remaining: ',
+            pushing_token: 'Updating token...',
+            setup_complete: 'Updated successfully. Token remaining: ',
             proxy_ready: 's',
             token_push_failed: 'Token push failed: ',
             no_payload: 'No chat payload captured yet. Pick a mode in Copilot and send a message first.',

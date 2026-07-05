@@ -2525,6 +2525,7 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 body[data-view="debug"] .view-debug.details-card:not(.details-open){height:auto;min-height:0;overflow:hidden}
 body[data-view="debug"] .view-debug.details-card:not(.details-open) details:not([open])>*:not(summary){display:none!important}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
+body[data-view="debug"] .view-debug.ports-logs-card{height:100px;min-height:100px}
 body[data-view="debug"] .view-debug.ports-logs-card.details-open{height:auto;min-height:250px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
@@ -2871,7 +2872,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div style="margin-top:.75rem">
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="system_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。</div>
 <div id="system-prompt-locked">
-<button id="system-prompt-unlock" onclick="unlockSystemPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑（高级）</button>
+<button id="system-prompt-unlock" onclick="unlockSystemPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑</button>
 </div>
 <div id="system-prompt-editor" style="display:none">
 <textarea id="system-prompt-input" rows="10" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid #7f1d1d;border-radius:8px;color:var(--strong);font-size:.8rem;font-family:monospace;outline:none;resize:vertical" placeholder=""></textarea>
@@ -3071,7 +3072,7 @@ const i18n={
     prompt_reset:'恢复默认',
     title_system_prompt:'系统提示词（全局）',
     system_prompt_hint:'全局系统级提示词：覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则），作用于所有未单独设置系统提示词的用户。改错会导致工具调用失效，仅供高级用户调试。动态工具列表始终自动追加，不可编辑。留空则使用内置默认。',
-    system_prompt_unlock:'解锁编辑（高级）',
+    system_prompt_unlock:'解锁编辑',
     system_prompt_save:'保存',
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     system_prompt_reset_confirm:'确定要将系统级提示词恢复为内置默认吗？当前自定义内容将被清空。',
@@ -3157,7 +3158,7 @@ const i18n={
     prompt_reset:'Restore default',
     title_system_prompt:'System Prompt (Global)',
     system_prompt_hint:'Global system prompt: overrides the base system prompt for tool calls (defines the tool_call format and rules) for all users who have not set their own. A wrong edit will break tool calling. For advanced debugging only. The dynamic tool list is always appended and is not editable. Leave empty to use the built-in default.',
-    system_prompt_unlock:'Unlock editing (Advanced)',
+    system_prompt_unlock:'Unlock editing',
     system_prompt_save:'Save',
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     system_prompt_reset_confirm:'Restore the system prompt to the built-in default? Your current custom content will be cleared.',
@@ -4462,7 +4463,7 @@ code{color:#a5b4fc}
   <div id="app" class="hidden">
     <div class="card">
       <h2 data-i18n="qs_title">快速使用指南</h2>
-      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
+      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
       <details style="margin-top:.75rem;cursor:pointer">
         <summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
           <span data-i18n="endpoints_title">OpenAI 兼容接口</span>
@@ -4528,7 +4529,7 @@ code{color:#a5b4fc}
       <div style="margin-top:.75rem">
       <div class="hint" data-i18n="sys_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。</div>
       <div id="sys-prompt-locked">
-      <button onclick="unlockSysPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑（高级）</button>
+      <button onclick="unlockSysPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑</button>
       </div>
       <div id="sys-prompt-editor" style="display:none">
       <textarea id="sys-prompt" style="border-color:#7f1d1d"></textarea>
@@ -4545,7 +4546,7 @@ const i18n={
   zh:{
     title:'Ciallo Ms-365 Copilot 代理 · 用户',
     login_title:'登录',login_hint:'输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。',
-    qs_title:'快速使用指南',qs_body:'1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
+    qs_title:'快速使用指南',qs_body:'1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。',
     username_ph:'用户名',password_ph:'密码',login_btn:'登录',login_failed:'用户名或密码错误',network_error:'网络错误',
     account_title:'账户控制台',push_token_label:'推送 / 更新账户 Token',
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。若尚未绑定账户，将自动创建并绑定。\\naccess_token / wss://substrate.office.com/...',
@@ -4557,7 +4558,7 @@ const i18n={
     sys_prompt_title:'系统提示词（高级）',
     sys_prompt_hint:'覆盖工具调用的基础系统提示词。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。',
     sys_prompt_reset_confirm:'确定要将系统提示词恢复为内置默认吗？当前自定义内容将被清空。',
-    system_prompt_unlock:'解锁编辑（高级）',
+    system_prompt_unlock:'解锁编辑',
     system_prompt_warn:'警告：系统级提示词定义了工具调用（tool_call）的格式与核心规则。修改不当会直接导致工具调用失效、模型无法读写文件。仅在你清楚自己在做什么时继续。\\n\\n确定要解锁编辑吗？',
     endpoints_title:'OpenAI 兼容接口',endpoints_hint:'在你的 OpenAI 兼容客户端里填入上面的 Base URL 和你的 API Key。',
     api_grp_public:'公共接口',api_grp_v1:'OpenAI 兼容接口',api_chat:'OpenAI 兼容对话',api_messages:'Anthropic 兼容消息',api_models:'模型列表',api_responses:'Responses 接口',api_healthz:'健康检查',
@@ -4568,7 +4569,7 @@ const i18n={
   en:{
     title:'Ciallo Ms-365 Copilot Proxy · User',
     login_title:'Login',login_hint:'Enter the username and password assigned by the admin to manage your own conversation mode, prompts and account token.',
-    qs_title:'Quick Start',qs_body:'1. Install the <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js" target="_blank" rel="noopener" class="qs-link">Tampermonkey script</a> and open <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>, then send any message to trigger the WebSocket.<br>2. Click "One-click Push" / "Push Token" in the script panel, or manually copy the access_token and paste it below to update.<br>3. Copy the Base URL and API Key from the account card into your OpenAI-compatible client.',
+    qs_title:'Quick Start',qs_body:'1. Install the <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js" target="_blank" rel="noopener" class="qs-link">Tampermonkey script</a> and open <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>, then send any message to trigger the WebSocket.<br>2. Click "One-click Push" / "Push Token" in the script panel, or manually copy the access_token and paste it below to update.<br>3. Copy the Base URL and API Key from the account card into your OpenAI-compatible client.',
     username_ph:'Username',password_ph:'Password',login_btn:'Login',login_failed:'Wrong username or password',network_error:'Network error',
     account_title:'Account Console',push_token_label:'Push / update account token',
     push_token_hint:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.',push_token_ph:'Paste the access_token value or the full wss:// URL. If no account is bound yet, one will be created and bound automatically.\\naccess_token / wss://substrate.office.com/...',
@@ -4580,7 +4581,7 @@ const i18n={
     sys_prompt_title:'System Prompt (Advanced)',
     sys_prompt_hint:'Overrides the base system prompt for tool calls (defines tool_call format and rules). A wrong edit will break tool calling. For advanced debugging only. Leave empty to use the built-in default.',
     sys_prompt_reset_confirm:'Restore the system prompt to the built-in default? Your current custom content will be cleared.',
-    system_prompt_unlock:'Unlock editing (advanced)',
+    system_prompt_unlock:'Unlock editing',
     system_prompt_warn:'WARNING: the system prompt defines the format and core rules of tool calls (tool_call). An incorrect edit will break tool calling and the model will be unable to read/write files. Continue only if you know what you are doing.\\n\\nUnlock editing?',
     endpoints_title:'OpenAI-compatible',endpoints_hint:'Point your OpenAI-compatible client at the Base URL above with your API key.',
     api_grp_public:'Public',api_grp_v1:'OpenAI-compatible',api_chat:'OpenAI-compatible chat',api_messages:'Anthropic-compatible messages',api_models:'Model list',api_responses:'Responses API',api_healthz:'Health check',
