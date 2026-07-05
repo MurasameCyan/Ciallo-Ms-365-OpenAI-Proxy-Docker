@@ -4696,8 +4696,10 @@ function renderToneOptions(){
 function renderRunPermissionOptions(){
   const sel=document.getElementById('user-run-permission');if(!sel)return;
   const cur=sel.value;
-  sel.innerHTML='<option value="">'+t('run_permission_inherit')+'</option><option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';
-  sel.value=cur;
+  sel.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';
+  sel.value=cur==='read_only'||cur==='full'?cur:'full';
+  sel.dataset.glassReady='';
+  const old=sel.nextElementSibling;if(old&&old.classList.contains('glass-select'))old.remove();
   initGlassSelect(sel.parentElement);
   refreshGlassSelect(sel);
 }
