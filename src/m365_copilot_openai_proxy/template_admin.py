@@ -77,9 +77,7 @@ body[data-view="debug"] .view-debug.details-card:not(.details-open){height:auto;
 body[data-view="debug"] .view-debug.details-card:not(.details-open) details:not([open])>*:not(summary){display:none!important}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
 body[data-view="debug"] .view-debug.ports-logs-card{height:100px;min-height:100px;padding:18px 20px!important}
-body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])){display:flex;align-items:center}
-body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])) details{width:100%}
-body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])) summary{min-height:58px}
+body[data-view="debug"] .view-debug.ports-logs-card summary{min-height:58px}
 body[data-view="debug"] .view-debug.ports-logs-card.details-open{height:auto;min-height:250px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
