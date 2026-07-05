@@ -76,10 +76,10 @@ body[data-view="accounts"] .view-accounts{animation:none!important}
 body[data-view="debug"] .view-debug.details-card:not(.details-open){height:auto;min-height:0;overflow:hidden}
 body[data-view="debug"] .view-debug.details-card:not(.details-open) details:not([open])>*:not(summary){display:none!important}
 body[data-view="debug"] .view-debug.no-details,body[data-view="debug"] .view-debug:not(.debug-gate-card):not(:has(details)){height:auto;min-height:260px;overflow:visible}
-body[data-view="debug"] .view-debug.ports-logs-card{height:100px;min-height:100px}
-body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])){display:flex;align-items:center;padding:14px 20px!important}
+body[data-view="debug"] .view-debug.ports-logs-card{height:100px;min-height:100px;padding:18px 20px!important}
+body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])){display:flex;align-items:center}
 body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])) details{width:100%}
-body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])) summary{min-height:64px;padding:0 20px!important}
+body[data-view="debug"] .view-debug.ports-logs-card:not(:has(details[open])) summary{min-height:58px}
 body[data-view="debug"] .view-debug.ports-logs-card.details-open{height:auto;min-height:250px;overflow:visible}
 .debug-gate-card .debug-gate{height:100%;min-height:0}
 .debug-gate{min-height:280px}
@@ -145,6 +145,7 @@ body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 .ports-logs-card{overflow:visible!important;z-index:10}
 .ports-logs-card:has(.glass-select.open){z-index:3000!important}
 .ports-logs-card label{font-size:.875rem!important;font-weight:800!important;color:var(--strong)!important}
+.ports-logs-grid{align-items:start!important}
 .ports-logs-card input{min-height:38px!important;margin-top:.5rem!important;padding:9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
 .ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.5rem!important;position:relative;z-index:20}
 .ports-log-level .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
@@ -455,15 +456,12 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span data-i18n="ports_logs_title">端口与日志</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) auto;gap:1rem 1.1rem;align-items:end;margin-top:20px">
+<div class="ports-logs-grid" style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:1rem 1.1rem;align-items:start;margin-top:20px">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
-<div></div>
 <div style="display:flex;flex-direction:column;gap:.75rem"><label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label><div style="display:flex;align-items:center;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div></div>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<div></div>
-<div></div>
 </div>
 </details>
 </div>
