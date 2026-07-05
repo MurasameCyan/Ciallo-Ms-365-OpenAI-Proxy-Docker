@@ -915,12 +915,18 @@ def create_app(
     def _account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict:
         """Serialize an account for the admin UI (never leak the raw token)."""
         keys = bound_keys if bound_keys is not None else app.state.key_store.list_for_account(acc.id)
+        binding_state = "none"
+        if getattr(acc, "cookie_valid", False):
+            binding_state = "cookie"
+        elif acc.token:
+            binding_state = "token_only"
         return {
             "id": acc.id,
             "name": acc.name,
             "email": acc.email,
             "cdp_port": acc.cdp_port,
             "token_source": acc.token_source,
+            "binding_state": binding_state,
             "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
             "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
             "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
