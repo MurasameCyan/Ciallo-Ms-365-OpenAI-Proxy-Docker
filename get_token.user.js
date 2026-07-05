@@ -96,7 +96,7 @@
             token_copied: 'Token 已复制！',
             copy_failed: '复制失败',
             working: '处理中...',
-            pushing_cookies: '检查 Cookie...',
+            pushing_cookies: '正在检查 Cookie...',
             pushing_token: '更新 Token...',
             setup_complete: '更新完成，Token 剩余：',
             proxy_ready: '秒',
