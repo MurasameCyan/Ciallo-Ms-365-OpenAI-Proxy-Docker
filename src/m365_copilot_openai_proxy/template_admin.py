@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from .template_admin_dashboard import _ADMIN_DASHBOARD_JS
+from .template_admin_tables import _ADMIN_TABLES_JS
 from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS
 
 _ADMIN_HTML = """<!DOCTYPE html>
@@ -1105,6 +1106,7 @@ function renderDashboard(){
 """ + _ADMIN_DASHBOARD_JS + """
 let __summary=null;
 let __runtimeSettings={};
+""" + _ADMIN_TABLES_JS + """
 """ + _ADMIN_ACCOUNTS_JS + """
 let __keys=[];
 let __selectedKeyIds=new Set();

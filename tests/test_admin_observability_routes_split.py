@@ -6,6 +6,7 @@ from m365_copilot_openai_proxy.routes_admin_observability import register_admin_
 from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
+from m365_copilot_openai_proxy.template_admin_tables import _ADMIN_TABLES_JS
 
 
 def test_admin_observability_routes_are_registered_by_observability_routes_module(tmp_path):
@@ -56,4 +57,15 @@ def test_admin_accounts_javascript_is_split_into_accounts_module():
     assert "function renderSelectedStatus()" in _ADMIN_ACCOUNTS_JS
     assert "async function submitAccount()" in _ADMIN_ACCOUNTS_JS
     assert "async function batchDeleteAccounts()" in _ADMIN_ACCOUNTS_JS
+    assert "const __page={keys:1,accounts:1};" not in _ADMIN_ACCOUNTS_JS
     assert _ADMIN_ACCOUNTS_JS in _ADMIN_HTML
+
+
+def test_admin_table_pagination_javascript_is_split_into_tables_module():
+    assert "const __page={keys:1,accounts:1};" in _ADMIN_TABLES_JS
+    assert "function _slicePage(arr,which)" in _ADMIN_TABLES_JS
+    assert "function _setPage(which,p)" in _ADMIN_TABLES_JS
+    assert "function _setPageSize(which,s)" in _ADMIN_TABLES_JS
+    assert "function _pageFoot(which,pg)" in _ADMIN_TABLES_JS
+    assert _ADMIN_TABLES_JS in _ADMIN_HTML
+    assert _ADMIN_HTML.index(_ADMIN_TABLES_JS) < _ADMIN_HTML.index(_ADMIN_ACCOUNTS_JS)
