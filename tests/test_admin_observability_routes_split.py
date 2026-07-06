@@ -6,6 +6,7 @@ from m365_copilot_openai_proxy.routes_admin_observability import register_admin_
 from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
+from m365_copilot_openai_proxy.template_admin_dialogs import _ADMIN_DIALOGS_JS
 from m365_copilot_openai_proxy.template_admin_keys import _ADMIN_KEYS_JS
 from m365_copilot_openai_proxy.template_admin_tables import _ADMIN_TABLES_JS
 
@@ -51,6 +52,15 @@ def test_admin_dashboard_javascript_is_split_into_dashboard_module():
     assert "async function loadStats()" in _ADMIN_DASHBOARD_JS
     assert "async function loadTrend()" in _ADMIN_DASHBOARD_JS
     assert _ADMIN_DASHBOARD_JS in _ADMIN_HTML
+
+
+def test_admin_dialog_javascript_is_split_into_dialogs_module():
+    assert "function adminDialog(message,okOnly)" in _ADMIN_DIALOGS_JS
+    assert "const adminAlert=message=>adminDialog(message,true);" in _ADMIN_DIALOGS_JS
+    assert "const adminConfirm=message=>adminDialog(message,false);" in _ADMIN_DIALOGS_JS
+    assert _ADMIN_DIALOGS_JS in _ADMIN_HTML
+    assert _ADMIN_HTML.index("function esc(s)") < _ADMIN_HTML.index(_ADMIN_DIALOGS_JS)
+    assert _ADMIN_HTML.index(_ADMIN_DIALOGS_JS) < _ADMIN_HTML.index(_ADMIN_DASHBOARD_JS)
 
 
 def test_admin_accounts_javascript_is_split_into_accounts_module():
