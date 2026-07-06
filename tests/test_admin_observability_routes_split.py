@@ -19,12 +19,13 @@ def test_admin_observability_routes_are_registered_by_observability_routes_modul
     assert "/admin/summary" in paths
 
 
-def test_admin_trend_chart_uses_stable_polyline_rendering():
+def test_admin_trend_chart_uses_stable_polyline_rendering_with_breathing_glow():
     start = _ADMIN_HTML.index("function lineChart(points,series){")
     end = _ADMIN_HTML.index("async function loadSummary()", start)
     chart_code = _ADMIN_HTML[start:end]
 
-    assert "<polyline" in chart_code
+    assert chart_code.count("<polyline") >= 2
+    assert 'attributeName="opacity"' in chart_code
     assert "smoothPath" not in chart_code
+    assert "<path" not in chart_code
     assert "drop-shadow" not in chart_code
-    assert "<animate" not in chart_code
