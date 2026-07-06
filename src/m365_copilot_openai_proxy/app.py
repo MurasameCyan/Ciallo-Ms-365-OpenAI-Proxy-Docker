@@ -11,6 +11,7 @@ from .dependencies import create_api_dependencies
 from .error_handlers import register_error_handlers
 from .state_init import init_app_state
 from .substrate_client import SubstrateCopilotClient
+from .tone_options import TONE_OPTIONS, TONE_VALUES
 from .routes_admin import register_admin_account_key_routes
 from .routes_api import register_api_routes
 from .routes_admin_debug import register_admin_debug_routes
@@ -57,25 +58,12 @@ def create_app(
 
     register_admin_debug_routes(app, admin_auth.require_admin)
 
-    # Conversation tone (mode) options discovered from M365 Copilot's mode picker.
-    # The `tone` field in the Substrate chat payload controls which model/mode is used.
-    _TONE_OPTIONS = [
-        {"value": "Magic", "label": "自动 / Auto", "label_zh": "自动", "label_en": "Auto"},
-        {"value": "Chat", "label": "快速答复 / Fast", "label_zh": "快速答复", "label_en": "Fast"},
-        {"value": "Reasoning", "label": "深度思考 / Think", "label_zh": "深度思考", "label_en": "Think"},
-        {"value": "Gpt_5_5_Chat", "label": "GPT 5.5 快速响应", "label_zh": "GPT 5.5 快速响应", "label_en": "GPT 5.5 Fast"},
-        {"value": "Gpt_5_5_Reasoning", "label": "GPT 5.5 深度思考", "label_zh": "GPT 5.5 深度思考", "label_en": "GPT 5.5 Think"},
-        {"value": "Gpt_5_2_Chat", "label": "GPT 5.2 快速响应", "label_zh": "GPT 5.2 快速响应", "label_en": "GPT 5.2 Fast"},
-        {"value": "Gpt_5_2_Reasoning", "label": "GPT 5.2 深度思考", "label_zh": "GPT 5.2 深度思考", "label_en": "GPT 5.2 Think"},
-    ]
-    _TONE_VALUES = {o["value"] for o in _TONE_OPTIONS}
-
-    register_admin_settings_routes(app, admin_auth.require_admin, resolved_settings, _TONE_OPTIONS, _TONE_VALUES)
+    register_admin_settings_routes(app, admin_auth.require_admin, resolved_settings, TONE_OPTIONS, TONE_VALUES)
 
     # ============================ Multi-tenant admin API ============================
-    register_admin_account_key_routes(app, admin_auth.require_admin, _TONE_VALUES)
+    register_admin_account_key_routes(app, admin_auth.require_admin, TONE_VALUES)
 
-    register_user_routes(app, resolved_settings, _TONE_OPTIONS)
+    register_user_routes(app, resolved_settings, TONE_OPTIONS)
 
     register_api_routes(app, get_settings, get_copilot_client)
 
