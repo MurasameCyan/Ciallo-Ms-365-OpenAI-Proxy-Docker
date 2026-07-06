@@ -1115,26 +1115,11 @@ function lineChart(points,series){
   let g='';
   // horizontal gridlines + y labels (0, mid, max)
   [0,0.5,1].forEach(f=>{const v=Math.round(ymax*f);const y=Y(v);g+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="var(--grid)"/><text x="'+(pl-6)+'" y="'+(y+3)+'" text-anchor="end" fill="var(--faint)" font-size="10">'+v+'</text>'});
-  // build a smooth curve path (Catmull-Rom -> cubic Bezier) through the points
-  const smoothPath=pts=>{
-    if(pts.length<2)return pts.length?('M'+pts[0].x.toFixed(1)+' '+pts[0].y.toFixed(1)):'';
-    let dd='M'+pts[0].x.toFixed(1)+' '+pts[0].y.toFixed(1);
-    for(let i=0;i<pts.length-1;i++){
-      const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||pts[i+1];
-      const c1x=p1.x+(p2.x-p0.x)/6,c2x=p2.x-(p3.x-p1.x)/6;
-      // clamp control-point Y within the segment's endpoint range to avoid overshoot on step data
-      const lo=Math.min(p1.y,p2.y),hi=Math.max(p1.y,p2.y);
-      const c1y=Math.max(lo,Math.min(hi,p1.y+(p2.y-p0.y)/6));
-      const c2y=Math.max(lo,Math.min(hi,p2.y-(p3.y-p1.y)/6));
-      dd+=' C'+c1x.toFixed(1)+' '+c1y.toFixed(1)+' '+c2x.toFixed(1)+' '+c2y.toFixed(1)+' '+p2.x.toFixed(1)+' '+p2.y.toFixed(1);
-    }
-    return dd;
-  };
   series.forEach(s=>{
     const pts=points.map(p=>({x:X(p.ts),y:Y(p[s.key]||0)}));
-    const d=smoothPath(pts);
-    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.1" filter="drop-shadow(0 0 7px '+s.color+')"><animate attributeName="opacity" values="0.06;0.18;0.06" dur="3.2s" repeatCount="indefinite"/><animate attributeName="stroke-width" values="4;8;4" dur="3.2s" repeatCount="indefinite"/></path>';
-    g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="drop-shadow(0 0 5px '+s.color+')"><animate attributeName="opacity" values="0.9;1;0.9" dur="3.2s" repeatCount="indefinite"/></path>';
+    const poly=pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+    g+='<polyline points="'+poly+'" fill="none" stroke="'+s.color+'" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>';
+    pts.forEach((p,i)=>{if(i===0||i===pts.length-1)g+='<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="2.6" fill="var(--inner)" stroke="'+s.color+'" stroke-width="1.6"/>'});
   });
   // x labels: first + last time
   const tf=ts=>new Date(ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
