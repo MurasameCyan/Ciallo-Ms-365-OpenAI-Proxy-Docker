@@ -6,6 +6,7 @@ from m365_copilot_openai_proxy.routes_admin_observability import register_admin_
 from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
+from m365_copilot_openai_proxy.template_admin_keys import _ADMIN_KEYS_JS
 from m365_copilot_openai_proxy.template_admin_tables import _ADMIN_TABLES_JS
 
 
@@ -69,3 +70,13 @@ def test_admin_table_pagination_javascript_is_split_into_tables_module():
     assert "function _pageFoot(which,pg)" in _ADMIN_TABLES_JS
     assert _ADMIN_TABLES_JS in _ADMIN_HTML
     assert _ADMIN_HTML.index(_ADMIN_TABLES_JS) < _ADMIN_HTML.index(_ADMIN_ACCOUNTS_JS)
+
+
+def test_admin_keys_javascript_is_split_into_keys_module():
+    assert "let __keys=[];" in _ADMIN_KEYS_JS
+    assert "async function loadKeys()" in _ADMIN_KEYS_JS
+    assert "function toggleKeyForm(show)" in _ADMIN_KEYS_JS
+    assert "async function submitKey()" in _ADMIN_KEYS_JS
+    assert "async function batchDeleteKeys()" in _ADMIN_KEYS_JS
+    assert _ADMIN_KEYS_JS in _ADMIN_HTML
+    assert _ADMIN_HTML.index(_ADMIN_ACCOUNTS_JS) < _ADMIN_HTML.index(_ADMIN_KEYS_JS)
