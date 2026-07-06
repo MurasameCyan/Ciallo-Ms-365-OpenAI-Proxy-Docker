@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import secrets
 from collections.abc import Callable
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import FastAPI
 
 from .config import Settings
+from .admin_auth import create_admin_auth
 from .auth_middleware import register_auth_middleware
 from .dependencies import create_api_dependencies
 from .error_handlers import register_error_handlers
@@ -33,32 +32,9 @@ def create_app(
     init_app_state(app, resolved_settings, copilot_client_factory)
     if not resolved_settings.api_key:
         print("WARNING: API_KEY is not set. All /v1/ API endpoints are open without authentication. Set API_KEY in .env to secure your instance.")
-    _admin_secret = resolved_settings.admin_password or resolved_settings.api_key
-    if not _admin_secret:
+    admin_auth = create_admin_auth(resolved_settings)
+    if not admin_auth.admin_secret:
         print("WARNING: Neither API_KEY nor ADMIN_PASSWORD is set. Web admin page is open without authentication. Set ADMIN_PASSWORD in .env to secure it.")
-
-    # Generate a random admin session token instead of deterministic hash
-    _admin_session_token: str | None = secrets.token_hex(32) if _admin_secret else None
-
-    # Login rate limiting: track failed attempts by client IP
-    _login_failures: dict[str, list[float]] = {}
-    _LOGIN_RATE_LIMIT = 5       # max failures
-    _LOGIN_LOCKOUT_SEC = 60.0   # lockout duration
-
-    def _is_admin_authenticated(request: Request) -> bool:
-        """Check if the request has a valid admin auth cookie."""
-        if not _admin_secret:
-            return True
-        if _admin_session_token is None:
-            return False
-        cookie_val = request.cookies.get("admin_auth", "")
-        return secrets.compare_digest(cookie_val, _admin_session_token)
-
-    def _require_admin(request: Request):
-        """Check admin cookie auth; return error response or None."""
-        if _admin_secret and not _is_admin_authenticated(request):
-            return JSONResponse({"error": {"message": "Admin authentication required", "type": "auth_error"}}, status_code=401)
-        return None
 
     register_auth_middleware(app, resolved_settings)
 
@@ -67,19 +43,19 @@ def create_app(
 
     register_web_routes(
         app,
-        _admin_secret,
-        _admin_session_token,
-        _is_admin_authenticated,
-        _login_failures,
-        _LOGIN_RATE_LIMIT,
-        _LOGIN_LOCKOUT_SEC,
+        admin_auth.admin_secret,
+        admin_auth.admin_session_token,
+        admin_auth.is_admin_authenticated,
+        admin_auth.login_failures,
+        admin_auth.login_rate_limit,
+        admin_auth.login_lockout_sec,
     )
 
-    register_admin_token_routes(app, _require_admin)
+    register_admin_token_routes(app, admin_auth.require_admin)
 
-    register_admin_observability_routes(app, _require_admin)
+    register_admin_observability_routes(app, admin_auth.require_admin)
 
-    register_admin_debug_routes(app, _require_admin)
+    register_admin_debug_routes(app, admin_auth.require_admin)
 
     # Conversation tone (mode) options discovered from M365 Copilot's mode picker.
     # The `tone` field in the Substrate chat payload controls which model/mode is used.
@@ -94,10 +70,10 @@ def create_app(
     ]
     _TONE_VALUES = {o["value"] for o in _TONE_OPTIONS}
 
-    register_admin_settings_routes(app, _require_admin, resolved_settings, _TONE_OPTIONS, _TONE_VALUES)
+    register_admin_settings_routes(app, admin_auth.require_admin, resolved_settings, _TONE_OPTIONS, _TONE_VALUES)
 
     # ============================ Multi-tenant admin API ============================
-    register_admin_account_key_routes(app, _require_admin, _TONE_VALUES)
+    register_admin_account_key_routes(app, admin_auth.require_admin, _TONE_VALUES)
 
     register_user_routes(app, resolved_settings, _TONE_OPTIONS)
 
