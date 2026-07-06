@@ -1,19 +1,24 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      5.4
+// @version      5.6
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
+// @match        https://microsoft365.com/*
+// @match        https://*.microsoft365.com/*
 // @match        https://login.microsoftonline.com/*
 // @match        https://login.live.com/*
 // @match        https://microsoftonline.com/*
 // @match        https://www.office.com/*
+// @match        https://*.office.com/*
 // @match        https://office.com/*
 // @match        https://microsoft.com/*
+// @match        https://*.microsoft.com/*
 // @grant        GM_cookie
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @updateURL    https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js
 // @downloadURL  https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js
@@ -589,6 +594,15 @@
         }).join('');
     }
 
+    function togglePanel() {
+        const existing = document.getElementById('m365-token-panel');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+        showPanel();
+    }
+
     function showPanel() {
         if (document.getElementById('m365-token-panel')) {
             document.getElementById('m365-token-panel').remove();
@@ -609,8 +623,7 @@
                     ${ic('spark')} ${tr('title')}
                     <button id="m365-lang-toggle" style="margin-left:auto; padding:3px 12px; border:1px solid #334155;
                             border-radius:8px; background:transparent; color:#60f2ff; cursor:pointer;
-                            font-weight:600; font-size:11px; transition:all 0.2s;"
-                            onmouseover="this.style.borderColor='#60f2ff'" onmouseout="this.style.borderColor='#334155'">
+                            font-weight:600; font-size:11px; transition:all 0.2s;">
                         ${tr('lang_btn')}
                     </button>
                 </div>
@@ -622,13 +635,10 @@
                             value="${(() => { try { return GM_getValue('m365_proxy_base', PROXY_BASE); } catch (e) { return PROXY_BASE; } })()}"
                             style="flex:1; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
                                    border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
-                                   outline:none; transition:border-color 0.2s;"
-                            onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                                   outline:none; transition:border-color 0.2s;">
                         <button id="m365-reset-proxy-url" title="${tr('reset_proxy_url')}"
                             style="padding:8px 10px; border:1px solid #334155; border-radius:8px; background:#0f172a; color:#94a3b8;
-                                   font-size:11px; cursor:pointer; white-space:nowrap; transition:all 0.2s;"
-                            onmouseover="this.style.borderColor='#f87171'; this.style.color='#f87171'"
-                            onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'">&#9851;</button>
+                                   font-size:11px; cursor:pointer; white-space:nowrap; transition:all 0.2s;">&#9851;</button>
                     </div>
                     <div style="font-size:11px; color:#94a3b8; margin:8px 0 5px; font-weight:500;">${tr('user_api_key')}</div>
                     <div style="display:flex; gap:6px; align-items:center;">
@@ -636,13 +646,10 @@
                             value="${(() => { try { return GM_getValue('m365_user_api_key', ''); } catch (e) { return ''; } })()}"
                             style="flex:1; box-sizing:border-box; padding:8px 12px; background:#0f172a; border:1px solid #334155;
                                    border-radius:8px; color:#e2e8f0; font-size:12px; font-family:monospace;
-                                   outline:none; transition:border-color 0.2s;"
-                            onfocus="this.style.borderColor='#60f2ff'" onblur="this.style.borderColor='#334155'">
+                                   outline:none; transition:border-color 0.2s;">
                         <button id="m365-reset-user-key" title="${tr('reset_user_key')}"
                             style="padding:8px 10px; border:1px solid #334155; border-radius:8px; background:#0f172a; color:#94a3b8;
-                                   font-size:11px; cursor:pointer; white-space:nowrap; transition:all 0.2s;"
-                            onmouseover="this.style.borderColor='#f87171'; this.style.color='#f87171'"
-                            onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'">&#9851;</button>
+                                   font-size:11px; cursor:pointer; white-space:nowrap; transition:all 0.2s;">&#9851;</button>
                     </div>
                 </div>
 
@@ -657,7 +664,7 @@
                     <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
                             border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#fff;
                             cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
-                            transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                            transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
                         ${ic('rocket')}<span id="m365-one-click-text">${tr('one_click')}</span>
                     </button>
                 </div>
@@ -670,13 +677,13 @@
                         <button id="m365-copy-token" style="flex:1; padding:8px 0; border:none;
                                 border-radius:8px; background:#0ea5e9; color:#fff;
                                 cursor:pointer; font-weight:600; font-size:12px;
-                                transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                                transition:opacity 0.2s;">
                             &#128203; ${tr('copy_token')}
                         </button>
                         <button id="m365-push-token" style="flex:1; padding:8px 0; border:none;
                                 border-radius:8px; background:#22c55e; color:#fff;
                                 cursor:pointer; font-weight:600; font-size:12px;
-                                transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                                transition:opacity 0.2s;">
                             &#128228; ${tr('push_token')}
                         </button>
                     </div>
@@ -685,7 +692,7 @@
                     <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
                             border-radius:8px; background:linear-gradient(135deg,#8c6bff,#7c3aed); color:#fff;
                             cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                            transition:opacity 0.2s;">
                         &#127850; ${tr('push_cookies')}
                     </button>
                 </details>
@@ -699,7 +706,7 @@
                     <button id="m365-push-payload" style="width:100%; padding:8px 0; border:none;
                             border-radius:8px; background:linear-gradient(135deg,#f59e0b,#ef4444); color:#fff;
                             cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+                            transition:opacity 0.2s;">
                         &#128228; ${tr('push_payloads')}
                     </button>
                 </details>
@@ -709,13 +716,13 @@
                     <button id="m365-close-panel" style="padding:6px 16px; border:1px solid #334155;
                             border-radius:8px; background:transparent; color:#94a3b8;
                             cursor:pointer; font-weight:500; font-size:12px;
-                            transition:all 0.2s;" onmouseover="this.style.borderColor=#ef4444;this.style.color=#ef4444" onmouseout="this.style.borderColor=#334155;this.style.color=#94a3b8">
+                            transition:all 0.2s;">
                         ${tr('close')}
                     </button>
                 </div>
             </div>
         `;
-        document.body.appendChild(panel);
+        (document.body || document.documentElement).appendChild(panel);
 
         const langBtn = document.getElementById('m365-lang-toggle');
         if (langBtn) langBtn.onclick = () => toggleLang();
@@ -733,10 +740,21 @@
         renderCaptured();
     }
 
-    // Show panel on demand via keyboard shortcut (Ctrl+Shift+M)
-    pageWindow.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.shiftKey && e.key === 'M') {
-            showPanel();
+    function handlePanelShortcut(e) {
+        const key = String(e.key || '').toLowerCase();
+        if (key !== 'm' || !e.shiftKey || (!e.ctrlKey && !e.altKey)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        togglePanel();
+    }
+
+    try {
+        if (typeof GM_registerMenuCommand === 'function') {
+            GM_registerMenuCommand('打开/关闭 M365 Proxy 面板', togglePanel);
         }
-    });
+    } catch (e) {}
+
+    // Show panel on demand via keyboard shortcut (Ctrl+Shift+M / Alt+Shift+M)
+    pageWindow.addEventListener('keydown', handlePanelShortcut, true);
+    document.addEventListener('keydown', handlePanelShortcut, true);
 })();

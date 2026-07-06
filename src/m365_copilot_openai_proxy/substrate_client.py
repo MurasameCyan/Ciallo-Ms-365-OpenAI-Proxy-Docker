@@ -263,7 +263,7 @@ class SubstrateCopilotClient:
                         if t == 1 and msg.get("target") == "update":
                             args = (msg.get("arguments") or [{}])[0]
                             delta = args.get("writeAtCursor")
-                            if delta:
+                            if delta and not _is_image_loading_placeholder(delta):
                                 if not yielded_any and fallback_text:
                                     yield fallback_text
                                     streamed_text += fallback_text
@@ -285,7 +285,7 @@ class SubstrateCopilotClient:
                                     break
                         for image_url in _extract_image_urls(msg):
                             if image_url not in yielded_images:
-                                markdown = "\n\n" + _image_markdown(image_url)
+                                markdown = ("\n\n" if streamed_text else "") + _image_markdown(image_url)
                                 yield markdown
                                 streamed_text += markdown
                                 yielded_images.add(image_url)
@@ -338,9 +338,15 @@ def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
 def _message_content(entry: dict) -> str:
     text = str(entry.get("text") or "")
     image_urls = _extract_image_urls(entry)
+    if image_urls and _is_image_loading_placeholder(text):
+        text = ""
     image_markdown = [_image_markdown(url) for url in image_urls]
     parts = [part for part in [text, *image_markdown] if part]
     return "\n\n".join(parts)
+
+
+def _is_image_loading_placeholder(text: str) -> bool:
+    return text.strip().lower() == "loading image"
 
 
 def _image_markdown(url: str) -> str:

@@ -7,7 +7,7 @@ from m365_copilot_openai_proxy import substrate_client
 from m365_copilot_openai_proxy.substrate_client import SIGNALR_SEP, SubstrateCopilotClient, _message_content, _remaining_fallback_text
 
 
-def test_message_content_includes_adaptive_card_image_markdown():
+def test_message_content_suppresses_loading_placeholder_when_image_exists():
     entry = {
         "author": "bot",
         "text": "Loading image",
@@ -21,7 +21,7 @@ def test_message_content_includes_adaptive_card_image_markdown():
         ],
     }
 
-    assert _message_content(entry) == "Loading image\n\n![image](https://images.example/generated.png)"
+    assert _message_content(entry) == "![image](https://images.example/generated.png)"
 
 
 def test_message_content_includes_attachment_content_url_image_markdown():
@@ -124,7 +124,7 @@ def test_chat_stream_appends_final_image_markdown_after_loading_delta(monkeypatc
             )
         ]
 
-    assert asyncio.run(collect()) == ["Loading image", f"\n\n![image]({image_url})"]
+    assert asyncio.run(collect()) == [f"![image]({image_url})"]
 
 
 def test_chat_stream_appends_image_reference_url_from_final_progress_message(monkeypatch):
@@ -203,7 +203,103 @@ def test_chat_stream_appends_image_reference_url_from_final_progress_message(mon
             )
         ]
 
-    assert asyncio.run(collect()) == ["Loading image", f"\n\n![image]({image_url})"]
+    assert asyncio.run(collect()) == [f"![image]({image_url})"]
+
+
+
+def test_chat_stream_outputs_single_image_reference_url_without_loading_placeholder(monkeypatch):
+    image_url = "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fgenerated.png&fileToken=abc"
+    progress_without_image = {
+        "type": 1,
+        "target": "update",
+        "arguments": [
+            {
+                "messages": [
+                    {
+                        "author": "bot",
+                        "text": "Loading image",
+                        "contentType": "GraphicArt",
+                        "contentGenerationProgressList": [
+                            {"contentType": "image", "ImageReferenceUrls": []}
+                        ],
+                    }
+                ]
+            }
+        ],
+    }
+    progress_with_image = {
+        "type": 1,
+        "target": "update",
+        "arguments": [
+            {
+                "messages": [
+                    {
+                        "author": "bot",
+                        "text": "Loading image",
+                        "contentType": "GraphicArt",
+                        "contentGenerationProgressList": [
+                            {
+                                "contentType": "image",
+                                "ImageReferenceUrls": [f" `{image_url}` "],
+                                "status": 2,
+                            }
+                        ],
+                    }
+                ]
+            }
+        ],
+    }
+
+    class FakeWebSocket:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def send(self, data):
+            return None
+
+        async def recv(self):
+            return "{}" + SIGNALR_SEP
+
+        def __aiter__(self):
+            self._messages = iter(
+                [
+                    json.dumps(progress_without_image) + SIGNALR_SEP,
+                    json.dumps(progress_with_image) + SIGNALR_SEP,
+                    json.dumps({"type": 3}) + SIGNALR_SEP,
+                ]
+            )
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._messages)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    monkeypatch.setattr(substrate_client.websockets, "connect", lambda *args, **kwargs: FakeWebSocket())
+    client = SubstrateCopilotClient.__new__(SubstrateCopilotClient)
+    client._token = "token"
+    client._time_zone = "Asia/Shanghai"
+    client._tone = "Magic"
+    client._extra_tool_prompt = ""
+    client._oid = "oid"
+    client._tid = "tid"
+
+    async def collect():
+        return [
+            chunk
+            async for chunk in client._chat_stream_for_turn(
+                text="帮我生成图片",
+                conv_id="conv",
+                session_id="session",
+                is_start_of_session=True,
+            )
+        ]
+
+    assert asyncio.run(collect()) == [f"![image]({image_url})"]
 
 
 
@@ -259,7 +355,7 @@ def test_chat_stream_captures_suspicious_signalr_event_for_debug(monkeypatch):
             )
         ]
 
-    assert asyncio.run(collect()) == ["Loading image"]
+    assert asyncio.run(collect()) == []
     assert captured == [event]
 
 
@@ -327,4 +423,4 @@ def test_chat_stream_appends_image_markdown_from_event_level_payload(monkeypatch
             )
         ]
 
-    assert asyncio.run(collect()) == ["Loading image", f"\n\n![image]({image_url})"]
+    assert asyncio.run(collect()) == [f"![image]({image_url})"]
