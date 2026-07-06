@@ -25,11 +25,16 @@ def write_call_log(path: Path, data: list[dict], limit: int) -> None:
         pass
 
 
+def _bump_call_log_version(state: Any) -> None:
+    state.call_log_version = int(getattr(state, "call_log_version", 0)) + 1
+
+
 def append_call_log(state: Any, record: dict) -> None:
     state.call_log.append(record)
     limit = int(getattr(state, "call_log_limit", 100))
     if len(state.call_log) > limit:
         state.call_log = state.call_log[-limit:]
+    _bump_call_log_version(state)
     write_call_log(state.call_log_path, state.call_log, limit)
 
 
@@ -39,11 +44,13 @@ def record_response_text(state: Any, record: dict, text: str) -> None:
     record["response_repr"] = repr(text[:2000])
     if record.get("tool_calls_result") is None:
         record["tool_calls_result"] = []
+    _bump_call_log_version(state)
     write_call_log(state.call_log_path, state.call_log, int(getattr(state, "call_log_limit", 100)))
 
 
 def clear_call_log(state: Any) -> None:
     state.call_log = []
+    _bump_call_log_version(state)
     write_call_log(state.call_log_path, state.call_log, int(getattr(state, "call_log_limit", 100)))
 
 
@@ -51,4 +58,5 @@ def trim_call_log(state: Any) -> None:
     limit = int(getattr(state, "call_log_limit", 100))
     if len(state.call_log) > limit:
         state.call_log = state.call_log[-limit:]
+        _bump_call_log_version(state)
         write_call_log(state.call_log_path, state.call_log, limit)

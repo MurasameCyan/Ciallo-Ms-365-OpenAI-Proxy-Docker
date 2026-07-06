@@ -14,10 +14,14 @@ from .metrics_store import (
 
 def register_admin_observability_routes(app: FastAPI, require_admin: Callable[[Request], object | None]) -> None:
     @app.get("/admin/call-log")
-    async def get_call_log(request: Request) -> dict:
+    async def get_call_log(request: Request, version: int | None = None) -> dict:
         err = require_admin(request)
         if err: return err
-        return {"logs": getattr(app.state, 'call_log', [])}
+        logs = getattr(app.state, 'call_log', [])
+        current_version = int(getattr(app.state, 'call_log_version', 0))
+        if version is not None and version == current_version:
+            return {"version": current_version, "unchanged": True, "count": len(logs), "logs": []}
+        return {"version": current_version, "count": len(logs), "logs": logs}
 
     @app.post("/admin/call-log/clear")
     async def clear_call_log(request: Request) -> dict:

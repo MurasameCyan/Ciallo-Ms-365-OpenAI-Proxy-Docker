@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from .template_admin_accounts import _ADMIN_ACCOUNTS_JS
+from .template_admin_copy import _ADMIN_COPY_JS
 from .template_admin_dashboard import _ADMIN_DASHBOARD_JS
 from .template_admin_dialogs import _ADMIN_DIALOGS_JS
 from .template_admin_keys import _ADMIN_KEYS_JS
+from .template_admin_settings_js import _ADMIN_SETTINGS_JS
 from .template_admin_tables import _ADMIN_TABLES_JS
 from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS
 
@@ -1092,6 +1094,7 @@ let __summary=null;
 let __runtimeSettings={};
 """ + _ADMIN_TABLES_JS + """
 """ + _ADMIN_ACCOUNTS_JS + """
+""" + _ADMIN_COPY_JS + """
 """ + _ADMIN_KEYS_JS + """
 function initDetailsCards(){
   document.querySelectorAll('.view-settings,.view-debug').forEach(card=>{
@@ -1164,25 +1167,15 @@ function updateCallLogFilterButtons(){
 }
 function setCallLogFilter(api){
   window.__callLogFilter=window.__callLogFilter===api?'':api;
-  window.__callLogSig='';
   updateCallLogFilterButtons();
-  loadCallLog();
+  renderCallLog(window.__callLogItems||[]);
 }
-async function loadCallLog(){
-  try{
-    const r=await fetch('/admin/call-log',{credentials:'include'});
-    if(r.status===401){showInlineLogin();return}
-    const d=await r.json();
-    const logs=d.logs||[];
+function renderCallLog(logs){
     const filter=window.__callLogFilter||'';
     const filtered=filter?logs.filter(l=>((l.api||'chat').toLowerCase()===filter)):logs;
     document.getElementById('call-log-count').textContent=filter?(filtered.length+'/'+logs.length):logs.length;
     const el=document.getElementById('call-log-content');
-    if(!logs.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';window.__callLogSig='';updateCallLogFilterButtons();return}
-    // Skip re-render if nothing changed — prevents open <details> from collapsing every 5s
-    const sig=filter+'|'+JSON.stringify(logs);
-    if(sig===window.__callLogSig)return;
-    window.__callLogSig=sig;
+    if(!logs.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';updateCallLogFilterButtons();return}
     updateCallLogFilterButtons();
     window.__callTexts={};
     let html='';
@@ -1225,20 +1218,25 @@ async function loadCallLog(){
     el.querySelectorAll('.copybtn').forEach(function(b){
       b.addEventListener('click',function(){copyCallText(b.getAttribute('data-key'))});
     });
+}
+async function loadCallLog(){
+  try{
+    const v=window.__callLogVersion;
+    const url=v==null?'/admin/call-log':'/admin/call-log?version='+encodeURIComponent(v);
+    const r=await fetch(url,{credentials:'include'});
+    if(r.status===401){showInlineLogin();return}
+    const d=await r.json();
+    document.getElementById('call-log-count').textContent=d.count||0;
+    if(d.unchanged)return;
+    window.__callLogVersion=d.version;
+    window.__callLogItems=d.logs||[];
+    renderCallLog(window.__callLogItems);
   }catch(e){}
 }
-async function loadCapture(){
-  try{
-    const r=await fetch('/admin/capture-payload',{credentials:'include'});
-    if(r.status===401){return}
-    const d=await r.json();
-    const ps=d.payloads||[];
+function renderCapture(ps){
     document.getElementById('capture-count').textContent=ps.length;
     const el=document.getElementById('capture-content');
-    if(!ps.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_capture_yet')+'</span>';window.__capSig='';return}
-    const sig=JSON.stringify(ps);
-    if(sig===window.__capSig)return;
-    window.__capSig=sig;
+    if(!ps.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_capture_yet')+'</span>';return}
     const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     window.__capTexts={};
     let html='';
@@ -1261,136 +1259,22 @@ async function loadCapture(){
     el.querySelectorAll('.capcopybtn').forEach(function(b){
       b.addEventListener('click',function(){copyCaptureText(b.getAttribute('data-key'))});
     });
-  }catch(e){}
 }
-async function loadTone(){
+async function loadCapture(){
   try{
-    const r=await fetch('/admin/tone',{credentials:'include'});
+    const v=window.__capVersion;
+    const url=v==null?'/admin/capture-payload':'/admin/capture-payload?version='+encodeURIComponent(v);
+    const r=await fetch(url,{credentials:'include'});
     if(r.status===401){return}
     const d=await r.json();
-    const sel=document.getElementById('tone-select');
-    if(!sel)return;
-    const cur=d.tone||'Magic';
-    const opts=d.options||[];
-    window.__toneOpts=opts;
-    // Skip re-render if unchanged (avoids resetting an open dropdown). Signature
-    // includes lang so switching language re-renders the localized labels.
-    const sig=JSON.stringify(opts)+'|'+cur+'|'+lang;
-    if(sig===window.__toneSig)return;
-    window.__toneSig=sig;
-    const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
-    sel.innerHTML=opts.map(o=>'<option value="'+o.value+'">'+lbl(o)+'</option>').join('');
-    sel.value=opts.some(o=>o.value===cur)?cur:(opts[0]?opts[0].value:'');
-    initGlassSelect(sel.parentElement);
-    refreshGlassSelect(sel);
-    sel.onchange=()=>saveTone(sel.value);
+    document.getElementById('capture-count').textContent=d.count||0;
+    if(d.unchanged)return;
+    window.__capVersion=d.version;
+    window.__capItems=d.payloads||[];
+    renderCapture(window.__capItems);
   }catch(e){}
 }
-async function saveTone(tone){
-  try{
-    const r=await fetch('/admin/tone',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone})});
-    if(!r.ok)return;
-    window.__toneSig='';
-    const s=document.getElementById('tone-saved');
-    if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
-  }catch(e){}
-}
-async function loadRuntimeSettings(){
-  try{
-    const r=await fetch('/admin/runtime-settings',{credentials:'include'});if(!r.ok)return;
-    const d=await r.json(),s=d.settings||{};
-    __runtimeSettings={...s};
-    const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
-    const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
-    const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
-    const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
-  }catch(e){}
-}
-async function saveRuntimeSettings(btnId){
-  const btn=btnId?document.getElementById(btnId):null;
-  const oldText=btn?.textContent;
-  if(btn){btn.disabled=true;btn.textContent='...'}
-  const body={...__runtimeSettings};
-  const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
-  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
-  const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
-  const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
-  try{
-    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){if(btn){btn.disabled=false;btn.textContent=oldText}return;}
-    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
-    if(btn){btn.textContent=t('tone_saved');setTimeout(()=>{btn.disabled=false;btn.textContent=oldText},1500)}
-  }catch(e){if(btn){btn.disabled=false;btn.textContent=oldText}}
-}
-async function loadToolPrompt(){
-  try{
-    const r=await fetch('/admin/tool-prompt',{credentials:'include'});
-    if(r.status===401){return}
-    const d=await r.json();
-    const ta=document.getElementById('tool-prompt-input');
-    if(!ta)return;
-    if(document.activeElement!==ta)ta.value=d.tool_prompt||'';
-  }catch(e){}
-}
-async function saveToolPrompt(){
-  try{
-    const ta=document.getElementById('tool-prompt-input');
-    if(!ta)return;
-    const r=await fetch('/admin/tool-prompt',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool_prompt:ta.value})});
-    if(!r.ok)return;
-    const s=document.getElementById('tool-prompt-saved');
-    if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
-  }catch(e){}
-}
-async function resetToolPrompt(){
-  // Extra instruction default is empty.
-  const ta=document.getElementById('tool-prompt-input');
-  if(ta)ta.value='';
-  await saveToolPrompt();
-}
-
-let __systemPromptDefault='';
-async function loadSystemPrompt(){
-  try{
-    const r=await fetch('/admin/system-prompt',{credentials:'include'});
-    if(r.status===401){return}
-    const d=await r.json();
-    __systemPromptDefault=d.default||'';
-    const ta=document.getElementById('system-prompt-input');
-    if(!ta)return;
-    // Show the saved override, or fall back to the default text for reference.
-    if(document.activeElement!==ta)ta.value=(d.system_prompt&&d.system_prompt.length)?d.system_prompt:__systemPromptDefault;
-  }catch(e){}
-}
-async function unlockSystemPrompt(){
-  if(!await adminConfirm(t('system_prompt_warn')))return;
-  const locked=document.getElementById('system-prompt-locked');
-  const editor=document.getElementById('system-prompt-editor');
-  if(locked)locked.style.display='none';
-  if(editor)editor.style.display='block';
-}
-async function saveSystemPrompt(){
-  try{
-    const ta=document.getElementById('system-prompt-input');
-    if(!ta)return;
-    const r=await fetch('/admin/system-prompt',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_prompt:ta.value})});
-    if(!r.ok)return;
-    const s=document.getElementById('system-prompt-saved');
-    if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
-  }catch(e){}
-}
-async function resetSystemPrompt(){
-  if(!await adminConfirm(t('system_prompt_reset_confirm')))return;
-  const ta=document.getElementById('system-prompt-input');
-  // Saving an empty override makes the backend fall back to the built-in default.
-  if(ta)ta.value=__systemPromptDefault;
-  try{
-    const r=await fetch('/admin/system-prompt',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_prompt:''})});
-    if(!r.ok)return;
-    const s=document.getElementById('system-prompt-saved');
-    if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
-  }catch(e){}
-}
+""" + _ADMIN_SETTINGS_JS + """
 
 </script>
 </body>

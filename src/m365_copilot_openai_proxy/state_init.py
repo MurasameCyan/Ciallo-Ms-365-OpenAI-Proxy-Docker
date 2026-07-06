@@ -50,7 +50,9 @@ def init_app_state(
     app.state.call_log_limit = runtime_settings["call_log_limit"]
     app.state.call_log_path = Path(settings.token_dir) / "call_log.json"
     app.state.call_log: list[dict] = load_call_log(app.state.call_log_path, app.state.call_log_limit)
+    app.state.call_log_version = len(app.state.call_log)
     app.state.captured_payloads: list[dict] = []
+    app.state.capture_payload_version = 0
     init_metrics_store(app.state, Path(settings.token_dir) / "metrics_history.json")
     app.state.runtime_settings = runtime_settings
     app.state.model_alias = runtime_settings["model_alias"]

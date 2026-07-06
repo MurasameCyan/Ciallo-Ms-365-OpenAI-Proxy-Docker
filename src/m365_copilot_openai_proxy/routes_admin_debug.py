@@ -65,20 +65,26 @@ def register_admin_debug_routes(app: FastAPI, require_admin: Callable[[Request],
         if not isinstance(payloads, list):
             return _json_err(400, "payloads must be a list")
         app.state.captured_payloads = payloads[:20]
-        return {"status": "ok", "count": len(app.state.captured_payloads)}
+        app.state.capture_payload_version = int(getattr(app.state, "capture_payload_version", 0)) + 1
+        return {"status": "ok", "count": len(app.state.captured_payloads), "version": app.state.capture_payload_version}
 
     @app.get("/admin/capture-payload")
-    async def get_captured_payload(request: Request) -> dict:
+    async def get_captured_payload(request: Request, version: int | None = None) -> dict:
         err = require_admin(request)
         if err: return err
-        return {"payloads": getattr(app.state, 'captured_payloads', [])}
+        payloads = getattr(app.state, 'captured_payloads', [])
+        current_version = int(getattr(app.state, 'capture_payload_version', 0))
+        if version is not None and version == current_version:
+            return {"version": current_version, "unchanged": True, "count": len(payloads), "payloads": []}
+        return {"version": current_version, "count": len(payloads), "payloads": payloads}
 
     @app.post("/admin/capture-payload/clear")
     async def clear_captured_payload(request: Request) -> dict:
         err = require_admin(request)
         if err: return err
         app.state.captured_payloads = []
-        return {"status": "ok"}
+        app.state.capture_payload_version = int(getattr(app.state, "capture_payload_version", 0)) + 1
+        return {"status": "ok", "version": app.state.capture_payload_version}
 
     @app.get("/admin/capture-toggle")
     async def get_capture_toggle(request: Request) -> dict:

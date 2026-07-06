@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
 from m365_copilot_openai_proxy.app import create_app
+from m365_copilot_openai_proxy.call_log_store import append_call_log
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.routes_admin_observability import register_admin_observability_routes
 from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
+from m365_copilot_openai_proxy.template_admin_copy import _ADMIN_COPY_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
 from m365_copilot_openai_proxy.template_admin_dialogs import _ADMIN_DIALOGS_JS
 from m365_copilot_openai_proxy.template_admin_keys import _ADMIN_KEYS_JS
+from m365_copilot_openai_proxy.template_admin_settings_js import _ADMIN_SETTINGS_JS
 from m365_copilot_openai_proxy.template_admin_tables import _ADMIN_TABLES_JS
 
 
@@ -22,6 +27,29 @@ def test_admin_observability_routes_are_registered_by_observability_routes_modul
     assert "/admin/metrics-history" in paths
     assert "/admin/metrics-history/clear" in paths
     assert "/admin/summary" in paths
+
+
+def test_admin_call_log_returns_version_and_short_circuits_unchanged_payload(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
+    client = TestClient(app)
+
+    initial = client.get("/admin/call-log").json()
+    assert initial["version"] == 0
+    assert initial["logs"] == []
+
+    append_call_log(app.state, {"time": "12:00:00", "ts": 1, "api": "chat"})
+    changed = client.get("/admin/call-log?version=0").json()
+    assert changed["version"] > 0
+    assert changed["count"] == 1
+    assert changed["logs"] == [{"time": "12:00:00", "ts": 1, "api": "chat"}]
+
+    unchanged = client.get(f"/admin/call-log?version={changed['version']}").json()
+    assert unchanged == {
+        "version": changed["version"],
+        "unchanged": True,
+        "count": 1,
+        "logs": [],
+    }
 
 
 def test_admin_trend_chart_uses_stable_polyline_rendering_with_breathing_glow():
@@ -88,5 +116,42 @@ def test_admin_keys_javascript_is_split_into_keys_module():
     assert "function toggleKeyForm(show)" in _ADMIN_KEYS_JS
     assert "async function submitKey()" in _ADMIN_KEYS_JS
     assert "async function batchDeleteKeys()" in _ADMIN_KEYS_JS
+    assert "function _fallbackCopy(text)" not in _ADMIN_KEYS_JS
     assert _ADMIN_KEYS_JS in _ADMIN_HTML
     assert _ADMIN_HTML.index(_ADMIN_ACCOUNTS_JS) < _ADMIN_HTML.index(_ADMIN_KEYS_JS)
+
+
+def test_admin_copy_javascript_is_split_into_copy_module():
+    assert "function _fallbackCopy(text)" in _ADMIN_COPY_JS
+    assert "function copyText(text,cb)" in _ADMIN_COPY_JS
+    assert "function _adminCopyFeedback(btn)" in _ADMIN_COPY_JS
+    assert "function copyKey(id,btn)" in _ADMIN_COPY_JS
+    assert "function copyPwd(id,btn)" in _ADMIN_COPY_JS
+    assert _ADMIN_COPY_JS in _ADMIN_HTML
+    assert _ADMIN_HTML.index(_ADMIN_COPY_JS) < _ADMIN_HTML.index(_ADMIN_KEYS_JS)
+
+
+def test_admin_debug_polling_uses_backend_versions_instead_of_full_json_signatures():
+    assert "JSON.stringify(logs)" not in _ADMIN_HTML
+    assert "JSON.stringify(ps)" not in _ADMIN_HTML
+    assert "__callLogVersion" in _ADMIN_HTML
+    assert "__capVersion" in _ADMIN_HTML
+    assert "/admin/call-log?version=" in _ADMIN_HTML
+    assert "/admin/capture-payload?version=" in _ADMIN_HTML
+
+
+def test_admin_settings_javascript_is_split_into_settings_module():
+    assert "async function loadTone()" in _ADMIN_SETTINGS_JS
+    assert "async function saveTone(tone)" in _ADMIN_SETTINGS_JS
+    assert "async function loadRuntimeSettings()" in _ADMIN_SETTINGS_JS
+    assert "async function saveRuntimeSettings(btnId)" in _ADMIN_SETTINGS_JS
+    assert "async function loadToolPrompt()" in _ADMIN_SETTINGS_JS
+    assert "async function saveToolPrompt()" in _ADMIN_SETTINGS_JS
+    assert "async function resetToolPrompt()" in _ADMIN_SETTINGS_JS
+    assert "let __systemPromptDefault='';" in _ADMIN_SETTINGS_JS
+    assert "async function loadSystemPrompt()" in _ADMIN_SETTINGS_JS
+    assert "async function unlockSystemPrompt()" in _ADMIN_SETTINGS_JS
+    assert "async function saveSystemPrompt()" in _ADMIN_SETTINGS_JS
+    assert "async function resetSystemPrompt()" in _ADMIN_SETTINGS_JS
+    assert _ADMIN_SETTINGS_JS in _ADMIN_HTML
+    assert _ADMIN_HTML.index("let __runtimeSettings={};") < _ADMIN_HTML.index(_ADMIN_SETTINGS_JS)
