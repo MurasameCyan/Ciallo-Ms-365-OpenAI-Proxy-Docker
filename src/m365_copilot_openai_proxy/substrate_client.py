@@ -353,15 +353,20 @@ def _extract_image_urls(value: object) -> list[str]:
     def add(url: object) -> None:
         if not isinstance(url, str):
             return
-        if not url.startswith(("http://", "https://")):
+        cleaned = url.strip().strip("`").strip()
+        if not cleaned.startswith(("http://", "https://")):
             return
-        if url not in urls:
-            urls.append(url)
+        if cleaned not in urls:
+            urls.append(cleaned)
 
     def walk(node: object, image_context: bool = False) -> None:
         if isinstance(node, list):
             for item in node:
                 walk(item, image_context)
+            return
+        if isinstance(node, str):
+            if image_context:
+                add(node)
             return
         if not isinstance(node, dict):
             return
