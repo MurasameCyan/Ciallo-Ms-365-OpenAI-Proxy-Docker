@@ -20,26 +20,23 @@ from .key_store import ApiKey, KeyStore
 from .refresh_scheduler import RefreshScheduler
 from .session_store import PersistentSession, PersistentSessionStore
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
-from .token_store import AccessTokenStore, write_token, write_username, read_username, decode_jwt_payload, init_token_dir, write_tone, read_tone, write_tool_prompt, read_tool_prompt, write_system_prompt, read_system_prompt
+from .token_store import AccessTokenStore, write_token, write_username, read_username, decode_jwt_payload, init_token_dir, read_tone, read_tool_prompt, read_system_prompt
 from .token_identity import update_username_from_token
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
-from .translator import translate_anthropic_request, translate_openai_request, translate_responses_request, flatten_content, default_tool_system_prompt
+from .translator import translate_anthropic_request, translate_openai_request, translate_responses_request, flatten_content
 from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
 from .routes_admin import register_admin_account_key_routes
+from .routes_admin_settings import register_admin_settings_routes
 from .routes_user import register_user_routes
 from .runtime_settings import (
-    _LOG_LEVELS,
     _RUN_PERMISSIONS,
-    _RUNTIME_SETTINGS_DEFAULTS,
     _read_runtime_settings,
-    _write_runtime_settings,
 )
 from .call_log_store import (
     append_call_log,
     clear_call_log as clear_call_log_store,
     load_call_log,
     record_response_text,
-    trim_call_log,
 )
 from .metrics_store import (
     clear_metrics_history_store,
@@ -803,114 +800,7 @@ def create_app(
     ]
     _TONE_VALUES = {o["value"] for o in _TONE_OPTIONS}
 
-    @app.get("/admin/tone")
-    async def get_tone(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        return {"tone": getattr(app.state, 'current_tone', 'Magic'), "options": _TONE_OPTIONS}
-
-    @app.post("/admin/tone")
-    async def set_tone(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        body = await request.json()
-        tone = (body.get("tone") or "").strip()
-        if tone not in _TONE_VALUES:
-            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(_TONE_VALUES))}")
-        app.state.current_tone = tone
-        write_tone(tone)
-        return {"status": "ok", "tone": tone}
-
-    @app.get("/admin/runtime-settings")
-    async def get_runtime_settings(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        return {"settings": dict(getattr(app.state, "runtime_settings", _RUNTIME_SETTINGS_DEFAULTS))}
-
-    @app.post("/admin/runtime-settings")
-    async def set_runtime_settings(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        body = await request.json()
-        current = dict(getattr(app.state, "runtime_settings", _RUNTIME_SETTINGS_DEFAULTS))
-        def int_setting(name: str, minimum: int) -> int:
-            try:
-                return max(minimum, int(body.get(name, current[name])))
-            except (TypeError, ValueError):
-                return int(current[name])
-        data = {
-            "time_zone": str(body.get("time_zone", current["time_zone"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["time_zone"],
-            "model_alias": str(body.get("model_alias", current["model_alias"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["model_alias"],
-            "auto_refresh": bool(body.get("auto_refresh", current["auto_refresh"])),
-            "refresh_before_seconds": int_setting("refresh_before_seconds", 0),
-            "idle_timeout_minutes": int_setting("idle_timeout_minutes", 1),
-            "cdp_port": int_setting("cdp_port", 1),
-            "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
-            "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
-            "call_log_limit": int_setting("call_log_limit", 1),
-            "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
-        }
-        if data["log_level"] not in _LOG_LEVELS:
-            return _json_err(400, "Invalid log level")
-        if data["run_permission"] not in _RUN_PERMISSIONS:
-            return _json_err(400, "Invalid run permission")
-        app.state.runtime_settings = data
-        app.state.time_zone = data["time_zone"]
-        app.state.model_alias = data["model_alias"]
-        app.state.auto_refresh_enabled = data["auto_refresh"]
-        app.state.refresh_before_seconds = data["refresh_before_seconds"]
-        app.state.idle_timeout_minutes = data["idle_timeout_minutes"]
-        app.state.cdp_port = data["cdp_port"]
-        app.state.account_cdp_port_base = data["account_cdp_port_base"]
-        app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
-        app.state.log_level = data["log_level"]
-        app.state.call_log_limit = data["call_log_limit"]
-        trim_call_log(app.state)
-        logging.getLogger().setLevel(app.state.log_level)
-        _write_runtime_settings(resolved_settings.token_dir, data)
-        return {"status": "ok", "settings": data}
-
-    @app.get("/admin/tool-prompt")
-    async def get_tool_prompt(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        return {"tool_prompt": getattr(app.state, 'tool_prompt', '')}
-
-    @app.post("/admin/tool-prompt")
-    async def set_tool_prompt(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        body = await request.json()
-        prompt = body.get("tool_prompt")
-        if not isinstance(prompt, str):
-            return _json_err(400, "tool_prompt must be a string")
-        prompt = prompt[:4000]  # cap length to avoid bloating every request
-        app.state.tool_prompt = prompt
-        write_tool_prompt(prompt)
-        return {"status": "ok", "tool_prompt": prompt}
-
-    @app.get("/admin/system-prompt")
-    async def get_system_prompt(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        # Return the saved override plus the built-in default (for restore/initial fill).
-        return {
-            "system_prompt": getattr(app.state, 'system_prompt', ''),
-            "default": default_tool_system_prompt(),
-        }
-
-    @app.post("/admin/system-prompt")
-    async def set_system_prompt(request: Request) -> dict:
-        err = _require_admin(request)
-        if err: return err
-        body = await request.json()
-        prompt = body.get("system_prompt")
-        if not isinstance(prompt, str):
-            return _json_err(400, "system_prompt must be a string")
-        prompt = prompt[:8000]  # cap length to avoid bloating every request
-        app.state.system_prompt = prompt
-        write_system_prompt(prompt)
-        return {"status": "ok", "system_prompt": prompt}
+    register_admin_settings_routes(app, _require_admin, resolved_settings, _TONE_OPTIONS, _TONE_VALUES)
 
     # ============================ Multi-tenant admin API ============================
     def _effective_run_permission(k: ApiKey | None) -> str:
