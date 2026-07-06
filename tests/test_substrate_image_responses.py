@@ -127,6 +127,63 @@ def test_chat_stream_appends_final_image_markdown_after_loading_delta(monkeypatc
     assert asyncio.run(collect()) == ["Loading image", f"\n\n![image]({image_url})"]
 
 
+def test_chat_stream_captures_suspicious_signalr_event_for_debug(monkeypatch):
+    captured = []
+    event = {
+        "type": 1,
+        "target": "update",
+        "arguments": [{"writeAtCursor": "Loading image", "operation": "imageGenerationProgress"}],
+    }
+
+    class FakeWebSocket:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def send(self, data):
+            return None
+
+        async def recv(self):
+            return "{}" + SIGNALR_SEP
+
+        def __aiter__(self):
+            self._messages = iter([json.dumps(event) + SIGNALR_SEP, json.dumps({"type": 3}) + SIGNALR_SEP])
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._messages)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    monkeypatch.setattr(substrate_client.websockets, "connect", lambda *args, **kwargs: FakeWebSocket())
+    client = SubstrateCopilotClient.__new__(SubstrateCopilotClient)
+    client._token = "token"
+    client._time_zone = "Asia/Shanghai"
+    client._tone = "Magic"
+    client._extra_tool_prompt = ""
+    client._oid = "oid"
+    client._tid = "tid"
+    client._response_debug_sink = captured.append
+
+    async def collect():
+        return [
+            chunk
+            async for chunk in client._chat_stream_for_turn(
+                text="帮我生成图片",
+                conv_id="conv",
+                session_id="session",
+                is_start_of_session=True,
+            )
+        ]
+
+    assert asyncio.run(collect()) == ["Loading image"]
+    assert captured == [event]
+
+
+
 def test_chat_stream_appends_image_markdown_from_event_level_payload(monkeypatch):
     image_url = "https://images.example/generated-from-event.png"
     update = {

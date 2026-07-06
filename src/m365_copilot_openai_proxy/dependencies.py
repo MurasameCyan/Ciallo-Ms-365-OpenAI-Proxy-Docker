@@ -8,6 +8,24 @@ from .config import Settings
 from .substrate_client import SubstrateCopilotClient
 
 
+_CAPTURE_LIMIT = 20
+
+
+def _attach_response_debug_sink(app: FastAPI, client: SubstrateCopilotClient) -> None:
+    def sink(payload: dict) -> None:
+        if not getattr(app.state, "capture_enabled", False):
+            return
+        captured = list(getattr(app.state, "captured_payloads", []))
+        captured.append({"source": "copilot_response", "payload": payload})
+        app.state.captured_payloads = captured[-_CAPTURE_LIMIT:]
+        app.state.capture_payload_version = int(getattr(app.state, "capture_payload_version", 0)) + 1
+
+    try:
+        client._response_debug_sink = sink
+    except Exception:
+        return
+
+
 def create_api_dependencies(
     app: FastAPI,
 ) -> tuple[Callable[[], Settings], Callable[[Request], SubstrateCopilotClient]]:
@@ -24,9 +42,13 @@ def create_api_dependencies(
             key_tp = ((key_obj.tool_prompt if key_obj is not None else "") or "").strip()
             tool_prompt = "\n\n".join(p for p in (global_tp, key_tp) if p) or None
             time_zone = getattr(key_obj, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai")
-            return app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone)
+            client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone)
+            _attach_response_debug_sink(app, client)
+            return client
         except TypeError:
-            return app.state.copilot_client_factory()
+            client = app.state.copilot_client_factory()
+            _attach_response_debug_sink(app, client)
+            return client
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

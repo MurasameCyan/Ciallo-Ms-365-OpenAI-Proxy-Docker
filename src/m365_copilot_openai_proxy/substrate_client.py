@@ -93,6 +93,7 @@ class SubstrateCopilotClient:
         self._time_zone = time_zone
         self._tone = tone or "Magic"
         self._extra_tool_prompt = extra_tool_prompt or ""
+        self._response_debug_sink = None
         try:
             claims = decode_jwt_payload(access_token)
         except Exception as exc:
@@ -258,6 +259,7 @@ class SubstrateCopilotClient:
                         t = msg.get("type")
                         if t == 6:
                             continue
+                        _capture_suspicious_response_event(getattr(self, "_response_debug_sink", None), msg)
                         if t == 1 and msg.get("target") == "update":
                             args = (msg.get("arguments") or [{}])[0]
                             delta = args.get("writeAtCursor")
@@ -308,6 +310,17 @@ class SubstrateCopilotClient:
         async for chunk in self.chat_stream(prompt, additional_context, session):
             chunks.append(chunk)
         return "".join(chunks)
+
+
+def _capture_suspicious_response_event(sink, msg: dict) -> None:
+    if sink is None:
+        return
+    try:
+        probe = json.dumps(msg, ensure_ascii=False).lower()
+    except (TypeError, ValueError):
+        return
+    if any(key in probe for key in ("image", "card", "render", "attachment", "contenturl", "thumbnail", "generatedgraphic")):
+        sink(msg)
 
 
 def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
