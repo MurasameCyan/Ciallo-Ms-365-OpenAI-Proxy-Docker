@@ -296,6 +296,8 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes warnFade{0%{opacity:0;transform:translateY(4px)}18%,82%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-4px)}}
 .expiry-warn-rotate{animation:warnFade 3s ease-in-out both}
+.tone-share-fill{box-shadow:0 0 12px currentColor;animation:toneShareBreath 3.2s ease-in-out infinite}
+@keyframes toneShareBreath{0%,100%{opacity:.82;filter:saturate(1)}50%{opacity:1;filter:saturate(1.35) brightness(1.12)}}
 @keyframes loginSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes loginPulse{50%{scale:1.08;opacity:.42}}
 @media(max-width:680px){.sidebar{width:60px;padding:1rem .4rem}.brand,.nav-item span:not(.nav-ico){display:none}.nav-item{justify-content:center}.main{padding:1rem}.ports-logs-card>div{grid-template-columns:1fr!important}}
@@ -1179,7 +1181,7 @@ async function loadStats(){
       else{
         const pal=['#38bdf8','#a78bfa','#22c55e','#f59e0b','#ef4444','#06b6d4','#e879f9'];
         const ents=Object.entries(tc).sort((a,b)=>b[1]-a[1]);
-        share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted)"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:var(--track);border-radius:4px;overflow:hidden;margin-top:2px"><div style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
+        share.innerHTML=ents.map((e,i)=>{const pct=Math.round(e[1]/total*100);return '<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted)"><span>'+esc(e[0])+'</span><span>'+e[1]+' ('+pct+'%)</span></div><div style="height:8px;background:var(--track);border-radius:4px;overflow:hidden;margin-top:2px"><div class="tone-share-fill" style="width:'+pct+'%;height:100%;background:'+pal[i%pal.length]+';color:'+pal[i%pal.length]+'"></div></div></div>'}).join('');
       }
     }
     // Expiry warnings on Accounts page: show all accounts expiring within 10 minutes; rotate when multiple.

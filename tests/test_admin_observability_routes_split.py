@@ -29,3 +29,14 @@ def test_admin_trend_chart_uses_stable_polyline_rendering_with_breathing_glow():
     assert "smoothPath" not in chart_code
     assert "<path" not in chart_code
     assert "drop-shadow" not in chart_code
+
+
+def test_admin_tone_share_bars_use_breathing_fill_effect():
+    start = _ADMIN_HTML.index("async function loadStats()")
+    end = _ADMIN_HTML.index("// Expiry warnings", start)
+    load_stats_code = _ADMIN_HTML[start:end]
+
+    assert ".tone-share-fill" in _ADMIN_HTML
+    assert "@keyframes toneShareBreath" in _ADMIN_HTML
+    assert "animation:toneShareBreath" in _ADMIN_HTML
+    assert 'class="tone-share-fill"' in load_stats_code

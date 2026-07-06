@@ -10,6 +10,7 @@ from .auth_middleware import register_auth_middleware
 from .dependencies import create_api_dependencies
 from .error_handlers import register_error_handlers
 from .state_init import init_app_state
+from .startup_warnings import report_startup_warnings
 from .substrate_client import SubstrateCopilotClient
 from .tone_options import TONE_OPTIONS, TONE_VALUES
 from .routes_admin import register_admin_account_key_routes
@@ -31,11 +32,8 @@ def create_app(
     app = FastAPI(title="Ciallo Ms-365 OpenAI Proxy")
     resolved_settings = settings or Settings()
     init_app_state(app, resolved_settings, copilot_client_factory)
-    if not resolved_settings.api_key:
-        print("WARNING: API_KEY is not set. All /v1/ API endpoints are open without authentication. Set API_KEY in .env to secure your instance.")
+    report_startup_warnings(resolved_settings)
     admin_auth = create_admin_auth(resolved_settings)
-    if not admin_auth.admin_secret:
-        print("WARNING: Neither API_KEY nor ADMIN_PASSWORD is set. Web admin page is open without authentication. Set ADMIN_PASSWORD in .env to secure it.")
 
     register_auth_middleware(app, resolved_settings)
 
