@@ -58,6 +58,7 @@ def init_app_state(
     app.state.model_alias = runtime_settings["model_alias"]
     app.state.time_zone = runtime_settings["time_zone"]
     app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
+    app.state.image_proxy_secret = settings.api_key or settings.admin_password or "m365-image-proxy"
     app.state.refresh_before_seconds = runtime_settings["refresh_before_seconds"]
     app.state.cdp_port = runtime_settings["cdp_port"]
     app.state.account_cdp_port_base = runtime_settings["account_cdp_port_base"]

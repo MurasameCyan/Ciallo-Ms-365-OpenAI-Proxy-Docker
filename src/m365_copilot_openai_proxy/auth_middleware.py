@@ -46,6 +46,9 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
         if path.startswith("/v1/"):
             app.state.last_request_time = time.time()
 
+        if path == "/v1/m365-image":
+            return await call_next(request)
+
         if path in ("/", "/admin", "/favicon.ico", "/healthz") or path.startswith("/admin/") or path.startswith("/user/"):
             return await call_next(request)
 

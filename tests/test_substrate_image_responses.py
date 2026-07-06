@@ -38,6 +38,16 @@ def test_message_content_includes_attachment_content_url_image_markdown():
     assert _message_content(entry) == "![image](https://images.example/generated-image)"
 
 
+def test_message_content_normalizes_raw_bang_backtick_designer_image_text():
+    image_url = "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fgenerated.png&fileToken=abc"
+    entry = {
+        "author": "bot",
+        "text": f"! `{image_url}` ",
+    }
+
+    assert _message_content(entry) == f"![image]({image_url})"
+
+
 def test_remaining_fallback_text_appends_image_after_loading_stream_delta():
     assert (
         _remaining_fallback_text(

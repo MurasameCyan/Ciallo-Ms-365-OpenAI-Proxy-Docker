@@ -26,6 +26,7 @@ async def _openai_stream(
     additional_context: list[str],
     session: PersistentSession | None = None,
     on_text_done: Callable[[str], None] | None = None,
+    text_transform: Callable[[str], str] | None = None,
 ) -> AsyncIterator[str]:
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -40,6 +41,8 @@ async def _openai_stream(
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session):
+            if text_transform is not None:
+                delta = text_transform(delta)
             full_text += delta
             chunk = {
                 "id": completion_id,
@@ -85,6 +88,8 @@ async def _responses_stream(
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session):
+            if text_transform is not None:
+                delta = text_transform(delta)
             full_text += delta
             yield f"data: {json.dumps({'type': 'response.output_text.delta', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'delta': delta})}\n\n"
     except SubstrateCopilotError as exc:
@@ -104,6 +109,7 @@ async def _anthropic_stream(
     additional_context: list[str],
     session: PersistentSession | None = None,
     on_text_done: Callable[[str], None] | None = None,
+    text_transform: Callable[[str], str] | None = None,
 ) -> AsyncIterator[str]:
     msg_id = f"msg_{uuid.uuid4().hex}"
 
@@ -117,6 +123,8 @@ async def _anthropic_stream(
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session):
+            if text_transform is not None:
+                delta = text_transform(delta)
             full_text += delta
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
     except SubstrateCopilotError as exc:

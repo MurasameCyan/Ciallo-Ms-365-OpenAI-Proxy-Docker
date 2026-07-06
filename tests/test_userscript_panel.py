@@ -7,7 +7,7 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      5.6" in SCRIPT
+    assert "// @version      5.7" in SCRIPT
 
 
 
@@ -15,6 +15,11 @@ def test_userscript_matches_m365_account_variant_hosts():
     assert "// @match        https://*.microsoft365.com/*" in SCRIPT
     assert "// @match        https://microsoft365.com/*" in SCRIPT
     assert "// @match        https://*.office.com/*" in SCRIPT
+
+
+def test_userscript_collects_officeapps_live_cookies_for_generated_images():
+    assert "https://designerapp.officeapps.live.com/" in SCRIPT
+    assert "{ domain: '.officeapps.live.com' }" in SCRIPT
 
 
 def test_userscript_registers_menu_command_as_panel_fallback():

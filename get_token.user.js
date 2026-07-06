@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      5.6
+// @version      5.7
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -41,6 +41,7 @@
         'https://microsoft.com',
         'https://office.com',
         'https://www.office.com',
+        'https://designerapp.officeapps.live.com/',
     ];
 
     // Store the latest token
@@ -437,10 +438,12 @@
             { url: 'https://microsoft.com/' },
             { url: 'https://office.com/' },
             { url: 'https://www.office.com/' },
+            { url: 'https://designerapp.officeapps.live.com/' },
             { domain: '.login.microsoftonline.com' },
             { domain: '.login.live.com' },
             { domain: '.microsoft.com' },
             { domain: '.microsoftonline.com' },
+            { domain: '.officeapps.live.com' },
         ];
 
         // Run all queries in parallel
