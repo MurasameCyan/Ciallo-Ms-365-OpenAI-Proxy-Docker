@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
+from .dependencies import create_api_dependencies
 from .account_store import AccountStore
 from .key_store import KeyStore
 from .refresh_scheduler import RefreshScheduler
@@ -216,29 +217,7 @@ def create_app(
             content={"error": {"message": "Invalid API key", "type": "auth_error"}},
         ))
 
-    def get_settings() -> Settings:
-        return app.state.settings
-
-    def get_copilot_client(raw_request: Request) -> SubstrateCopilotClient:
-        try:
-            key_obj = getattr(raw_request.state, "api_key_obj", None)
-            account = getattr(raw_request.state, "account", None)
-            # Per-key overrides: bound account's token + the key's own tone.
-            # Tool prompt: the global app.state.tool_prompt acts as a shared base
-            # that admins set for everyone, and the key's own tool_prompt is
-            # appended on top (global base + user addition).
-            token = account.token if account is not None else None
-            tone = key_obj.tone if key_obj is not None else None
-            global_tp = (getattr(app.state, "tool_prompt", "") or "").strip()
-            key_tp = ((key_obj.tool_prompt if key_obj is not None else "") or "").strip()
-            tool_prompt = "\n\n".join(p for p in (global_tp, key_tp) if p) or None
-            time_zone = getattr(key_obj, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai")
-            return app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone)
-        except TypeError:
-            # Test-injected factory may take no arguments.
-            return app.state.copilot_client_factory()
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    get_settings, get_copilot_client = create_api_dependencies(app)
 
     # Global exception handler — always return JSON (never HTML error pages)
     @app.exception_handler(Exception)
