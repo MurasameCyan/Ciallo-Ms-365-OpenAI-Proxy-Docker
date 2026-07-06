@@ -4,6 +4,7 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.routes_admin_observability import register_admin_observability_routes
 from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
 
 
 def test_admin_observability_routes_are_registered_by_observability_routes_module(tmp_path):
@@ -40,3 +41,10 @@ def test_admin_tone_share_bars_use_breathing_fill_effect():
     assert "@keyframes toneShareBreath" in _ADMIN_HTML
     assert "animation:toneShareBreath" in _ADMIN_HTML
     assert 'class="tone-share-fill"' in load_stats_code
+
+
+def test_admin_dashboard_javascript_is_split_into_dashboard_module():
+    assert "function lineChart(points,series){" in _ADMIN_DASHBOARD_JS
+    assert "async function loadStats()" in _ADMIN_DASHBOARD_JS
+    assert "async function loadTrend()" in _ADMIN_DASHBOARD_JS
+    assert _ADMIN_DASHBOARD_JS in _ADMIN_HTML
