@@ -4,6 +4,7 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.routes_admin_observability import register_admin_observability_routes
 from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
 
 
@@ -48,3 +49,11 @@ def test_admin_dashboard_javascript_is_split_into_dashboard_module():
     assert "async function loadStats()" in _ADMIN_DASHBOARD_JS
     assert "async function loadTrend()" in _ADMIN_DASHBOARD_JS
     assert _ADMIN_DASHBOARD_JS in _ADMIN_HTML
+
+
+def test_admin_accounts_javascript_is_split_into_accounts_module():
+    assert "async function loadAccounts(localOnly=false)" in _ADMIN_ACCOUNTS_JS
+    assert "function renderSelectedStatus()" in _ADMIN_ACCOUNTS_JS
+    assert "async function submitAccount()" in _ADMIN_ACCOUNTS_JS
+    assert "async function batchDeleteAccounts()" in _ADMIN_ACCOUNTS_JS
+    assert _ADMIN_ACCOUNTS_JS in _ADMIN_HTML
