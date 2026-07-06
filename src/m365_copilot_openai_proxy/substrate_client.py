@@ -243,6 +243,7 @@ class SubstrateCopilotClient:
                 await ws.recv()
                 await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session))
                 fallback_text = ""
+                streamed_text = ""
                 yielded_any = False
                 async for raw in ws:
                     for part in raw.split(SIGNALR_SEP):
@@ -262,24 +263,27 @@ class SubstrateCopilotClient:
                             if delta:
                                 if not yielded_any and fallback_text:
                                     yield fallback_text
+                                    streamed_text += fallback_text
                                 yielded_any = True
                                 yield delta
+                                streamed_text += delta
                             msgs = args.get("messages")
                             if msgs:
                                 entries = msgs if isinstance(msgs, list) else [msgs]
                                 for entry in reversed(entries):
                                     if entry.get("author") != "user":
-                                        fallback_text = entry.get("text", "")
+                                        fallback_text = _message_content(entry)
                                         break
                         if t == 2:
                             item_msgs = (msg.get("item") or {}).get("messages") or []
                             for entry in reversed(item_msgs):
                                 if entry.get("author") != "user":
-                                    fallback_text = entry.get("text", "")
+                                    fallback_text = _message_content(entry)
                                     break
                         if t == 3:
-                            if not yielded_any and fallback_text:
-                                yield fallback_text
+                            remaining = _remaining_fallback_text(streamed_text, fallback_text)
+                            if remaining:
+                                yield remaining
                             return
         except SubstrateCopilotError:
             raise
@@ -296,6 +300,60 @@ class SubstrateCopilotClient:
         async for chunk in self.chat_stream(prompt, additional_context, session):
             chunks.append(chunk)
         return "".join(chunks)
+
+
+def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
+    if not fallback_text:
+        return ""
+    if not streamed_text:
+        return fallback_text
+    if fallback_text.startswith(streamed_text):
+        return fallback_text[len(streamed_text):]
+    if fallback_text in streamed_text:
+        return ""
+    return fallback_text
+
+
+def _message_content(entry: dict) -> str:
+    text = str(entry.get("text") or "")
+    image_urls = _extract_image_urls(entry)
+    image_markdown = [f"![image]({url})" for url in image_urls]
+    parts = [part for part in [text, *image_markdown] if part]
+    return "\n\n".join(parts)
+
+
+def _extract_image_urls(value: object) -> list[str]:
+    urls: list[str] = []
+
+    def add(url: object) -> None:
+        if not isinstance(url, str):
+            return
+        if not url.startswith(("http://", "https://")):
+            return
+        if url not in urls:
+            urls.append(url)
+
+    def walk(node: object, image_context: bool = False) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item, image_context)
+            return
+        if not isinstance(node, dict):
+            return
+
+        type_value = str(node.get("type") or node.get("contentType") or node.get("mediaType") or "").lower()
+        local_image_context = image_context or type_value == "image" or type_value.startswith("image/")
+
+        for key in ("url", "contentUrl", "source", "src", "imageUrl", "thumbnailUrl"):
+            if key in node and local_image_context:
+                add(node.get(key))
+
+        for key, child in node.items():
+            key_image_context = local_image_context or key in {"adaptiveCards", "attachments", "images", "image", "thumbnail", "previewImage"}
+            walk(child, key_image_context)
+
+    walk(value)
+    return urls
 
 
 def _combine_text(prompt: str, context: list[str]) -> str:
