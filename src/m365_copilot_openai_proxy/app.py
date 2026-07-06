@@ -3,12 +3,13 @@ from __future__ import annotations
 import secrets
 from collections.abc import Callable
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
 from .auth_middleware import register_auth_middleware
 from .dependencies import create_api_dependencies
+from .error_handlers import register_error_handlers
 from .state_init import init_app_state
 from .substrate_client import SubstrateCopilotClient
 from .routes_admin import register_admin_account_key_routes
@@ -62,23 +63,7 @@ def create_app(
     register_auth_middleware(app, resolved_settings)
 
     get_settings, get_copilot_client = create_api_dependencies(app)
-
-    # Global exception handler — always return JSON (never HTML error pages)
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
-        return JSONResponse(
-            status_code=500,
-            content={"error": {"message": str(exc), "type": "internal_error"}},
-            headers={"Access-Control-Allow-Origin": "*"},
-        )
-
-    @app.exception_handler(HTTPException)
-    async def http_exception_handler(request: Request, exc: HTTPException):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"error": {"message": exc.detail, "type": "http_error"}},
-            headers={"Access-Control-Allow-Origin": "*"},
-        )
+    register_error_handlers(app)
 
     register_web_routes(
         app,
