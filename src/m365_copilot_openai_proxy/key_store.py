@@ -105,6 +105,7 @@ class KeyStore:
                     system_prompt=raw.get("system_prompt", ""),
                     model_alias=raw.get("model_alias", ""),
                     time_zone=raw.get("time_zone", ""),
+                    run_permission=raw.get("run_permission", ""),
                     username=raw.get("username", ""),
                     password=raw.get("password", ""),
                     password_hash=raw.get("password_hash", ""),
