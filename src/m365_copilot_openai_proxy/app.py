@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import Settings
 from .account_store import AccountStore
@@ -19,7 +19,6 @@ from .refresh_scheduler import RefreshScheduler
 from .session_store import PersistentSessionStore
 from .substrate_client import SubstrateCopilotClient
 from .token_store import AccessTokenStore, read_username, decode_jwt_payload, init_token_dir, read_tone, read_tool_prompt, read_system_prompt
-from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
 from .routes_admin import register_admin_account_key_routes
 from .routes_api import register_api_routes
 from .routes_admin_debug import register_admin_debug_routes
@@ -27,6 +26,7 @@ from .routes_admin_observability import register_admin_observability_routes
 from .routes_admin_settings import register_admin_settings_routes
 from .routes_admin_token import register_admin_token_routes
 from .routes_user import register_user_routes
+from .routes_web import register_web_routes
 from .runtime_settings import _read_runtime_settings
 from .call_log_store import load_call_log
 from .metrics_store import init_metrics_store
@@ -257,40 +257,17 @@ def create_app(
             headers={"Access-Control-Allow-Origin": "*"},
         )
 
-    @app.get("/healthz")
-    async def healthz() -> dict:
-        return {"status": "ok", "token": app.state.token_store.status()}
+    register_web_routes(
+        app,
+        _admin_secret,
+        _admin_session_token,
+        _is_admin_authenticated,
+        _login_failures,
+        _LOGIN_RATE_LIMIT,
+        _LOGIN_LOCKOUT_SEC,
+    )
 
     register_admin_token_routes(app, _require_admin)
-
-    @app.post("/admin/login")
-    async def admin_login(request: Request) -> Response:
-        # Rate limiting: check if client IP is locked out
-        client_ip = request.client.host if request.client else "unknown"
-        now = time.time()
-        failures = _login_failures.get(client_ip, [])
-        # Remove expired entries
-        failures = [t for t in failures if now - t < _LOGIN_LOCKOUT_SEC]
-        _login_failures[client_ip] = failures
-        if len(failures) >= _LOGIN_RATE_LIMIT:
-            return JSONResponse({"error": {"message": "Too many login attempts, try again later", "type": "auth_error"}}, status_code=429)
-
-        body = await request.json()
-        password = body.get("password", "")
-        if _admin_secret and secrets.compare_digest(password, _admin_secret):
-            resp = JSONResponse({"status": "ok"})
-            resp.set_cookie("admin_auth", _admin_session_token, max_age=86400 * 7, httponly=True, samesite="lax", secure=bool(int(os.environ.get("ADMIN_COOKIE_SECURE", "0"))), path="/")
-            return resp
-        # Record failed attempt
-        _login_failures.setdefault(client_ip, []).append(now)
-        return JSONResponse({"error": {"message": "Wrong password", "type": "auth_error"}}, status_code=401)
-
-    @app.post("/admin/logout")
-    async def admin_logout(request: Request) -> Response:
-        """Clear the admin_auth cookie so the console requires re-login."""
-        resp = JSONResponse({"status": "ok"})
-        resp.delete_cookie("admin_auth", path="/")
-        return resp
 
     register_admin_observability_routes(app, _require_admin)
 
@@ -315,22 +292,6 @@ def create_app(
     register_admin_account_key_routes(app, _require_admin, _TONE_VALUES)
 
     register_user_routes(app, resolved_settings, _TONE_OPTIONS)
-
-    @app.get("/", response_class=HTMLResponse)
-    async def user_page(request: Request) -> HTMLResponse:
-        # Root is the user-facing page. Admin console moved to /admin.    
-        return HTMLResponse(_USER_HTML, headers={"Cache-Control": "no-store"})
-
-    @app.get("/admin", response_class=HTMLResponse)
-    async def admin_page(request: Request) -> HTMLResponse:
-        if _admin_secret and not _is_admin_authenticated(request):        
-            return HTMLResponse(_LOGIN_HTML, headers={"Cache-Control": "no-store"})
-        return HTMLResponse(_ADMIN_HTML, headers={"Cache-Control": "no-store"})
-
-    @app.get("/favicon.ico")
-    async def favicon():
-        from starlette.responses import Response
-        return Response(status_code=204)
 
     register_api_routes(app, get_settings, get_copilot_client)
 
