@@ -244,6 +244,7 @@ class SubstrateCopilotClient:
                 await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session))
                 fallback_text = ""
                 streamed_text = ""
+                yielded_images: set[str] = set()
                 yielded_any = False
                 async for raw in ws:
                     for part in raw.split(SIGNALR_SEP):
@@ -280,6 +281,13 @@ class SubstrateCopilotClient:
                                 if entry.get("author") != "user":
                                     fallback_text = _message_content(entry)
                                     break
+                        for image_url in _extract_image_urls(msg):
+                            if image_url not in yielded_images:
+                                markdown = "\n\n" + _image_markdown(image_url)
+                                yield markdown
+                                streamed_text += markdown
+                                yielded_images.add(image_url)
+                                yielded_any = True
                         if t == 3:
                             remaining = _remaining_fallback_text(streamed_text, fallback_text)
                             if remaining:
@@ -317,9 +325,13 @@ def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
 def _message_content(entry: dict) -> str:
     text = str(entry.get("text") or "")
     image_urls = _extract_image_urls(entry)
-    image_markdown = [f"![image]({url})" for url in image_urls]
+    image_markdown = [_image_markdown(url) for url in image_urls]
     parts = [part for part in [text, *image_markdown] if part]
     return "\n\n".join(parts)
+
+
+def _image_markdown(url: str) -> str:
+    return f"![image]({url})"
 
 
 def _extract_image_urls(value: object) -> list[str]:
@@ -342,7 +354,8 @@ def _extract_image_urls(value: object) -> list[str]:
             return
 
         type_value = str(node.get("type") or node.get("contentType") or node.get("mediaType") or "").lower()
-        local_image_context = image_context or type_value == "image" or type_value.startswith("image/")
+        kind_value = str(node.get("kind") or node.get("role") or "").lower()
+        local_image_context = image_context or type_value == "image" or type_value.startswith("image/") or "image" in kind_value
 
         for key in ("url", "contentUrl", "source", "src", "imageUrl", "thumbnailUrl"):
             if key in node and local_image_context:
