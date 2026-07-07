@@ -28,7 +28,7 @@ def register_admin_observability_routes(app: FastAPI, require_admin: Callable[[R
         err = require_admin(request)
         if err: return err
         clear_call_log_store(app.state)
-        return {"status": "ok"}
+        return {"status": "ok", "version": int(getattr(app.state, 'call_log_version', 0))}
 
     @app.get("/admin/metrics-history")
     async def get_metrics_history(request: Request) -> dict:

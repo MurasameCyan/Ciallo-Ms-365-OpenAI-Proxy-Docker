@@ -36,13 +36,17 @@ def _chromium_path() -> str:
         return shutil.which("chromium") or shutil.which("chrome") or "chromium"
     if platform.system() == "Darwin":
         return "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
-    # Linux (container default): prefer chromium.
+    configured = os.environ.get("CHROME_BIN")
+    if configured and shutil.which(configured):
+        return configured
+    # Linux (container default): prefer chromium-headless-shell, keep full Chromium as fallback.
     return (
-        shutil.which("chromium")
+        shutil.which("chromium-headless-shell")
+        or shutil.which("chromium")
         or shutil.which("chromium-browser")
         or shutil.which("microsoft-edge")
         or shutil.which("microsoft-edge-stable")
-        or "chromium"
+        or "chromium-headless-shell"
     )
 
 

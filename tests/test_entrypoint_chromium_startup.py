@@ -25,6 +25,18 @@ def test_entrypoint_checks_cdp_version_endpoint_for_readiness():
     assert 'http://localhost:$CDP_PORT/json/version' in ENTRYPOINT
 
 
+def test_entrypoint_prefers_configured_or_headless_shell_browser_binary():
+    assert 'if [ -n "${CHROME_BIN:-}" ] && command -v "$CHROME_BIN"' in ENTRYPOINT
+    assert 'command -v chromium-headless-shell' in ENTRYPOINT
+    assert ENTRYPOINT.index('chromium-headless-shell') < ENTRYPOINT.index('command -v chromium &> /dev/null')
+
+
+def test_entrypoint_skips_startup_cdp_when_no_initial_token():
+    assert 'STARTUP_CDP="false"' in ENTRYPOINT
+    assert 'if [ -z "$M365_ACCESS_TOKEN" ]; then' in ENTRYPOINT
+    assert '[ "$STARTUP_CDP" = "true" ]' in ENTRYPOINT
+
+
 def test_entrypoint_uses_container_safe_headless_mode():
     launch_block = ENTRYPOINT[ENTRYPOINT.index('"$CHROME_BIN" \\'):ENTRYPOINT.index('CHROME_PID=$!')]
 

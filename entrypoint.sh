@@ -30,7 +30,11 @@ fi
 # --- Below runs as app user ---
 
 # Detect Chromium binary (name varies by distro)
-if command -v chromium &> /dev/null; then
+if [ -n "${CHROME_BIN:-}" ] && command -v "$CHROME_BIN" &> /dev/null; then
+    CHROME_BIN="$CHROME_BIN"
+elif command -v chromium-headless-shell &> /dev/null; then
+    CHROME_BIN="chromium-headless-shell"
+elif command -v chromium &> /dev/null; then
     CHROME_BIN="chromium"
 elif command -v chromium-browser &> /dev/null; then
     CHROME_BIN="chromium-browser"
@@ -43,8 +47,17 @@ else
     CHROME_BIN=""
 fi
 
-# Start Chrome headless + CDP (only if binary found and AUTO_REFRESH is true)
+STARTUP_CDP="false"
 if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
+    if [ -z "$M365_ACCESS_TOKEN" ]; then
+        echo "M365_ACCESS_TOKEN is not set; skipping startup Chromium CDP."
+    else
+        STARTUP_CDP="true"
+    fi
+fi
+
+# Start Chrome headless + CDP (only if binary found, AUTO_REFRESH is true, and a startup token exists)
+if [ "$STARTUP_CDP" = "true" ]; then
     CHROME_LOG="/tmp/chromium-cdp.log"
     : > "$CHROME_LOG"
     echo "Starting $CHROME_BIN headless on CDP port $CDP_PORT ..."
@@ -102,7 +115,7 @@ fi
 # Use --no-launch-edge to prevent Python from launching another Chromium instance
 SERVE_ARGS="--host 0.0.0.0 --port 8000 --no-launch-edge"
 
-if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
+if [ "$STARTUP_CDP" = "true" ]; then
     SERVE_ARGS="$SERVE_ARGS --cdp-port $CDP_PORT --refresh-before-seconds ${REFRESH_BEFORE_SECONDS:-300}"
 else
     SERVE_ARGS="$SERVE_ARGS --no-auto-refresh --no-capture-on-start"

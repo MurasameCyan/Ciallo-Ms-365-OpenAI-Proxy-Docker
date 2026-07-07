@@ -1,16 +1,16 @@
 FROM python:3.11-slim-bookworm
 
-# Install Chromium (available on both amd64 and arm64 via Debian repos)
-# NOTE: Chromium version is pinned by Debian repo snapshot; for reproducible builds
-# consider pinning or using Chrome for Testing with explicit version.
+# Install Chromium headless shell first; keep full Chromium only as a fallback.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        chromium-headless-shell \
         chromium \
         chromium-common \
         fonts-wqy-zenhei \
         gosu \
         curl \
     && rm -rf /var/lib/apt/lists/* \
+    && echo "Chromium headless shell version: $(chromium-headless-shell --version || echo 'unknown')" \
     && echo "Chromium version: $(chromium --version || echo 'unknown')"
 
 # Install uv package manager
