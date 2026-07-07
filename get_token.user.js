@@ -512,7 +512,8 @@
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
-            alert(cr.response.ok ? tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' : tr('failed') + (cr.data.error?.message || cr.data.error));
+            const warning = cr.data.warning ? '\n' + cr.data.warning : '';
+            alert(cr.response.ok ? tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' + warning : tr('failed') + (cr.data.error?.message || cr.data.error));
         } catch (e) {
             alert(tr('error') + e);
         } finally {
@@ -547,7 +548,8 @@
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
-            alert(cr.response.ok ? tr('setup_complete') + (ur.data.token_status?.seconds_remaining) + tr('proxy_ready') + '\n' + tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total : tr('failed') + (cr.data.error?.message || cr.data.error));
+            const warning = cr.data.warning ? '\n' + cr.data.warning : '';
+            alert(cr.response.ok ? tr('setup_complete') + (ur.data.token_status?.seconds_remaining) + tr('proxy_ready') + '\n' + tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + warning : tr('failed') + (cr.data.error?.message || cr.data.error));
         } catch (e) {
             alert(tr('error') + e);
         } finally {

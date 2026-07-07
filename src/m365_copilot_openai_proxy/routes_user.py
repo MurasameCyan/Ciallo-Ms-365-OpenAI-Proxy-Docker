@@ -209,17 +209,21 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             acc = app.state.account_store.add(name=account_name or k.name or k.username or "user", token="", token_source="cdp")
             app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             k = app.state.key_store.get(k.id) or k
+        app.state.account_store.set_cookies(k.account_id, cookies)
         injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
+        acc = app.state.account_store.get(k.account_id)
+        warning = ""
         if injected != total:
             app.state.account_store.set_cookie_status(k.account_id, False)
-            return _json_err(400, f"Cookie injection incomplete: {injected}/{total}")
-        acc = app.state.account_store.get(k.account_id)
-        if not acc or not acc.cookie_valid:
-            return _json_err(400, "Cookie injected, but Microsoft redirected to login. Please sign in to M365 in the browser and push cookies again.")
-        app.state.account_store.set_cookies(k.account_id, cookies)
-        if account_name and acc.name != account_name:
+            warning = f"Cookie saved, but Chromium injection incomplete: {injected}/{total}"
+        elif not acc or not acc.cookie_valid:
+            warning = "Cookie saved, but Microsoft redirected to login. Please sign in to M365 in the browser and push cookies again."
+        if account_name and acc and acc.name != account_name:
             app.state.account_store.rename(k.account_id, account_name)
-        return {"status": "ok", "injected": injected, "total": total}
+        result = {"status": "ok", "injected": injected, "total": total}
+        if warning:
+            result["warning"] = warning
+        return result
 
     @app.post("/user/regenerate-key")
     async def user_regenerate_key(request: Request) -> dict:

@@ -46,3 +46,7 @@ def test_userscript_panel_avoids_inline_event_handlers_blocked_by_csp():
 def test_userscript_panel_inline_handlers_keep_color_literals_quoted():
     assert "this.style.borderColor=#" not in SCRIPT
     assert "this.style.color=#" not in SCRIPT
+
+
+def test_userscript_displays_cookie_push_warning_response():
+    assert "cr.data.warning ? '\\n' + cr.data.warning : ''" in SCRIPT

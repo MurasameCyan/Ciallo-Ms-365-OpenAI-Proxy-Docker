@@ -15,6 +15,11 @@ class FakeRefreshScheduler:
         return len(cookies), len(cookies)
 
 
+class FailingRefreshScheduler:
+    async def inject_cookies(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
+        return 0, len(cookies)
+
+
 def make_test_app(tmp_path):
     app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
     app.state.refresh_scheduler = FakeRefreshScheduler(app.state.account_store)
@@ -55,6 +60,26 @@ def test_cookie_push_persists_cookies_for_image_proxy(tmp_path):
     updated_key = app.state.key_store.get(key.id)
     account = app.state.account_store.get(updated_key.account_id)
     assert account.cookies == cookies
+
+
+def test_cookie_push_stores_cookies_even_when_chromium_injection_is_incomplete(tmp_path):
+    app = make_test_app(tmp_path)
+    app.state.refresh_scheduler = FailingRefreshScheduler()
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+    cookies = [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com", "path": "/"}]
+
+    response = TestClient(app).post(
+        "/user/account/cookies",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"username": "Microsoft User", "cookies": cookies},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["warning"] == "Cookie saved, but Chromium injection incomplete: 0/1"
+    updated_key = app.state.key_store.get(key.id)
+    account = app.state.account_store.get(updated_key.account_id)
+    assert account.cookies == cookies
+    assert account.cookie_valid is False
 
 
 def test_cookie_push_renames_existing_account_to_microsoft_username(tmp_path):
