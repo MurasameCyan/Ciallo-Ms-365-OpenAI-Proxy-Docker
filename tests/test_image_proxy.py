@@ -119,7 +119,11 @@ def test_image_proxy_route_rejects_unsigned_request(tmp_path):
     response = client.get(f"/v1/m365-image?u={SOURCE_IMAGE_URL}&account_id=acct_1&exp=4102444800&sig=bad")
 
     assert response.status_code == 403
-    assert app.state.image_proxy_events[-1]["phase"] == "invalid_signature"
+    event = app.state.image_proxy_events[-1]
+    assert event["phase"] == "invalid_signature"
+    assert event["exp"] == "4102444800"
+    assert event["now"] > 0
+    assert event["expired"] is False
 
 
 def test_image_proxy_route_rejects_non_designer_hosts(tmp_path):

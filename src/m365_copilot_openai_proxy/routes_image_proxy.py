@@ -43,7 +43,12 @@ def register_image_proxy_routes(app: FastAPI) -> None:
         emit("request")
         source_url = verify_signed_image_proxy_params(account_id, u, exp, sig, secret)
         if source_url is None:
-            emit("invalid_signature")
+            now = int(time.time())
+            try:
+                expires_at = int(exp)
+            except ValueError:
+                expires_at = 0
+            emit("invalid_signature", exp=exp, now=now, expired=bool(expires_at and expires_at < now))
             raise HTTPException(status_code=403, detail="Invalid image proxy signature")
         parsed = urlsplit(source_url)
         if not is_allowed_m365_image_url(source_url):

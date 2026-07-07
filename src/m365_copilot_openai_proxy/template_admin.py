@@ -497,7 +497,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-debug details-card" style="padding:20px">
 <details id="call-log-details" style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
-<span data-i18n="title_call_log">API 调用记录</span>
+<span data-i18n="title_call_log">API 调用日志</span>
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
@@ -508,18 +508,18 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </details>
 <details id="image-proxy-details" style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
-<span>图片代理诊断</span>
+<span>媒体代理日志</span>
 <span id="image-proxy-event-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录 /v1/m365-image 的签名、直连 HTTP、Chromium fallback、超时和最终状态。</div><button onclick="clearImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-image，后续可扩展到视频、音频和文件。</div><button onclick="clearImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="image-proxy-event-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
-<span style="color:var(--faint)">暂无图片代理诊断记录</span>
+<span style="color:var(--faint)">暂无媒体代理日志</span>
 </div>
 </details>
 <details id="capture-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
-<span data-i18n="title_capture">模式抓包对比</span>
+<span data-i18n="title_capture">抓包调试日志</span>
 <span id="capture-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
@@ -536,7 +536,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 <p style="color:var(--muted);font-size:.85rem;line-height:1.6;margin-bottom:.75rem">
 <span data-i18n="dbg_capture_desc">非必要时请勿开启，避免恶意数据写入；调试完成后请及时关闭。</span><br>
-<span data-i18n="dbg_capture_steps">调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。</span>
+<span data-i18n="dbg_capture_steps">调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「抓包调试日志」中比对字段。</span>
 </p>
 <details style="cursor:pointer">
 <summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
@@ -641,18 +641,18 @@ const i18n={
     auto_refresh_stopped:'自动刷新已停止',auto_refresh_started:'自动刷新已启动',
     auto_refresh_label:'自动刷新',
     username_label:'用户名',
-    title_call_log:'API 调用记录',
+    title_call_log:'API 调用日志',
     click_expand:'点击展开',
     no_calls_yet:'暂无调用记录',
     tool_calls_parsed:'解析出工具调用',
     view_raw:'查看原文',
     copy:'复制',copied:'已复制',copy_record:'复制整条',
-    title_capture:'模式抓包对比',
+    title_capture:'抓包调试日志',
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
     dbg_guide_title:'调试指南',dbg_capture_recv:'接收抓包',dbg_gate_hint:'点击切换调试接收通道',
     dbg_capture_desc:'非必要时请勿开启，避免恶意数据写入；调试完成后请及时关闭。',
-    dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「模式抓包对比」中比对字段。',
+    dbg_capture_steps:'调试步骤：开启开关 → 在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息 → 用油猴脚本推送抓包 → 在「抓包调试日志」中比对字段。',
     title_tone:'对话模式',
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
     runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',call_log_limit_label:'调用记录上限',
@@ -733,7 +733,7 @@ const i18n={
     tool_calls_parsed:'Parsed tool calls',
     view_raw:'View raw',
     copy:'Copy',copied:'Copied',copy_record:'Copy record',
-    title_capture:'Mode Capture Compare',
+    title_capture:'Capture Debug Records',
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
     dbg_guide_title:'Debug Guide',dbg_capture_recv:'Receive captures',dbg_gate_hint:'Click to toggle the debug receive channel',
@@ -1176,6 +1176,13 @@ function copyCaptureText(key){
     if(b){const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)}
   }).catch(()=>{});
 }
+function copyImageProxyTrace(traceId){
+  const items=(window.__imageProxyEvents||[]).filter(e=>e.trace_id===traceId);
+  if(!items.length)return;
+  navigator.clipboard.writeText(JSON.stringify(items,null,2)).then(()=>{
+    document.querySelectorAll('[data-image-trace="'+traceId+'"]').forEach(b=>{const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)});
+  }).catch(()=>{});
+}
 function updateCallLogFilterButtons(){
   const cur=window.__callLogFilter||'';
   document.querySelectorAll('[data-api-filter]').forEach(b=>b.classList.toggle('active',b.getAttribute('data-api-filter')===cur));
@@ -1293,12 +1300,14 @@ function renderImageProxyEvents(items){
   const count=document.getElementById('image-proxy-event-count');if(count)count.textContent=items.length;
   const el=document.getElementById('image-proxy-event-content');if(!el)return;
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  if(!items.length){el.innerHTML='<span style="color:var(--faint)">暂无图片代理诊断记录</span>';return}
+  if(!items.length){el.innerHTML='<span style="color:var(--faint)">暂无媒体代理日志</span>';return}
   el.innerHTML=items.slice().reverse().map(e=>{
     const ts=e.ts?new Date(e.ts*1000).toLocaleTimeString():'';
     const meta={...e};delete meta.ts;delete meta.trace_id;delete meta.phase;
+    const trace=String(e.trace_id||'');
+    const copyBtn='<button data-image-trace="'+esc(trace)+'" onclick="copyImageProxyTrace(\''+esc(trace)+'\')" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
     return '<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
-      '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><span style="color:#38bdf8">'+esc(ts)+'</span><b style="color:var(--strong)">'+esc(e.phase)+'</b><span style="color:var(--faint)">'+esc(e.trace_id)+'</span></div>'+
+      '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><span style="color:#38bdf8">'+esc(ts)+'</span><b style="color:var(--strong)">'+esc(e.phase)+'</b><span style="color:var(--faint)">'+esc(trace)+'</span>'+copyBtn+'</div>'+
       '<pre style="white-space:pre-wrap;word-break:break-all;color:var(--muted);margin:4px 0 0">'+esc(JSON.stringify(meta,null,2))+'</pre></div>';
   }).join('');
 }

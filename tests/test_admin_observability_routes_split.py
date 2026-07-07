@@ -102,9 +102,18 @@ def test_admin_accounts_javascript_is_split_into_accounts_module():
     assert _ADMIN_ACCOUNTS_JS in _ADMIN_HTML
 
 
-def test_admin_debug_page_includes_image_proxy_events_panel():
+def test_admin_debug_page_includes_media_proxy_records_panel_with_trace_copy():
+    assert "API 调用日志" in _ADMIN_HTML
+    assert "API调用日志" not in _ADMIN_HTML
+    assert "媒体代理日志" in _ADMIN_HTML
+    assert "媒体代理记录" not in _ADMIN_HTML
+    assert "图片代理诊断" not in _ADMIN_HTML
+    assert "抓包调试日志" in _ADMIN_HTML
+    assert "抓包调试记录" not in _ADMIN_HTML
+    assert "模式抓包对比" not in _ADMIN_HTML
     assert "image-proxy-event-content" in _ADMIN_HTML
     assert "loadImageProxyEvents()" in _ADMIN_HTML
+    assert "copyImageProxyTrace" in _ADMIN_HTML
     assert "/admin/image-proxy/events" in _ADMIN_HTML
 
 
