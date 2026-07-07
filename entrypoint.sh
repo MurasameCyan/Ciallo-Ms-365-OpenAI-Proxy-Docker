@@ -14,8 +14,8 @@ AUTO_REFRESH="${AUTO_REFRESH:-true}"
 # --- Root-only section: fix permissions and clean stale locks ---
 if [ "$(id -u)" = "0" ]; then
     # Fix volume ownership (Docker volumes default to root:root on first mount)
-    chown -R app:app "$CHROME_PROFILE" 2>/dev/null || true
     mkdir -p "$CHROME_PROFILE" 2>/dev/null || true
+    chown -R app:app "$CHROME_PROFILE" 2>/dev/null || true
     rm -f "$CHROME_PROFILE/SingletonLock" "$CHROME_PROFILE/SingletonCookie" "$CHROME_PROFILE/SingletonSocket" 2>/dev/null || true
 
     # Prepare token storage on tmpfs-backed volume
@@ -45,6 +45,8 @@ fi
 
 # Start Chrome headless + CDP (only if binary found and AUTO_REFRESH is true)
 if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
+    CHROME_LOG="/tmp/chromium-cdp.log"
+    : > "$CHROME_LOG"
     echo "Starting $CHROME_BIN headless on CDP port $CDP_PORT ..."
     "$CHROME_BIN" \
         --headless=new \
@@ -63,7 +65,7 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
         --disable-breakpad \
         --no-experiments \
         --crash-dumps-dir=/tmp \
-        "https://m365.cloud.microsoft/chat" 2>&1 | grep -v -E '(dbus|system_bus_socket|DEPRECATED_ENDPOINT|NameHasOwner|Properties\.GetAll|crashpad)' &
+        "https://m365.cloud.microsoft/chat" > "$CHROME_LOG" 2>&1 &
 
     CHROME_PID=$!
     echo "Chromium started with PID $CHROME_PID"
@@ -71,12 +73,24 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
     # Wait for Chrome CDP to be ready
     echo "Waiting for Chromium CDP on port $CDP_PORT ..."
     for i in $(seq 1 30); do
-        if curl -sf "http://localhost:$CDP_PORT/json" >/dev/null 2>&1; then
+        if curl -sf "http://localhost:$CDP_PORT/json/version" >/dev/null 2>&1; then
             echo "Chromium CDP ready."
+            break
+        fi
+        if ! kill -0 "$CHROME_PID" 2>/dev/null; then
+            echo "WARNING: Chromium process exited before CDP became ready. Last Chromium log lines:"
+            tail -n 80 "$CHROME_LOG" || true
             break
         fi
         if [ $i -eq 30 ]; then
             echo "WARNING: Chromium CDP did not become ready in 30s. Continuing without CDP."
+            if ! kill -0 "$CHROME_PID" 2>/dev/null; then
+                echo "WARNING: Chromium process exited before CDP became ready. Last Chromium log lines:"
+                tail -n 80 "$CHROME_LOG" || true
+            else
+                echo "Last Chromium log lines:"
+                tail -n 80 "$CHROME_LOG" || true
+            fi
         fi
         sleep 1
     done

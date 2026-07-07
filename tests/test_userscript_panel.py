@@ -50,3 +50,9 @@ def test_userscript_panel_inline_handlers_keep_color_literals_quoted():
 
 def test_userscript_displays_cookie_push_warning_response():
     assert "cr.data.warning ? '\\n' + cr.data.warning : ''" in SCRIPT
+
+
+def test_userscript_one_click_reports_token_and_cookie_status_separately():
+    assert "const tokenLine = tr('token_push_status')" in SCRIPT
+    assert "const cookieLine = tr('cookie_push_status')" in SCRIPT
+    assert "alert(tokenLine + '\\n' + cookieLine" in SCRIPT

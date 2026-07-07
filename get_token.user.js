@@ -107,6 +107,12 @@
             setup_complete: '更新完成，Token 剩余：',
             proxy_ready: '秒',
             token_push_failed: 'Token 推送失败：',
+            token_push_status: 'Token 推送：',
+            cookie_push_status: 'Cookie 推送：',
+            status_success: '成功',
+            status_warning: '成功（警告）',
+            status_failed: '失败',
+            status_skipped: '未执行',
             no_payload: '暂无抓包数据。先在 Copilot 选择模式并发送一条消息。',
             pushed_n_payloads: '已推送 {n} 条 payload 到代理。',
             capture_disabled: '代理已关闭「接收抓包」。请先在 /admin 调试页面打开开关，调试完成后再关闭。',
@@ -164,6 +170,12 @@
             setup_complete: 'Updated successfully. Token remaining: ',
             proxy_ready: 's',
             token_push_failed: 'Token push failed: ',
+            token_push_status: 'Token push: ',
+            cookie_push_status: 'Cookie push: ',
+            status_success: 'success',
+            status_warning: 'success with warning',
+            status_failed: 'failed',
+            status_skipped: 'skipped',
             no_payload: 'No chat payload captured yet. Pick a mode in Copilot and send a message first.',
             pushed_n_payloads: 'Pushed {n} payload(s) to proxy.',
             capture_disabled: 'The proxy has "Receive captures" turned off. Enable the switch on the /admin debug page first, and turn it off after debugging.',
@@ -540,16 +552,21 @@
         btn.disabled = true;
         try {
             const ur = await pushUserToken(base, latestToken);
+            const tokenLine = tr('token_push_status') + (ur.response.ok ? tr('status_success') + ' (' + (ur.data.token_status?.seconds_remaining) + tr('proxy_ready') + ')' : tr('status_failed') + ' - ' + (ur.data.error?.message || ur.data.error));
             if (!ur.response.ok) {
-                alert(tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
+                const cookieLine = tr('cookie_push_status') + tr('status_skipped');
+                alert(tokenLine + '\n' + cookieLine);
                 return;
             }
             setBtnText(tr('pushing_cookies'));
             const cookies = await getAllCookies();
-            if (!cookies.length) { alert(tr('no_cookies')); return; }
+            if (!cookies.length) { alert(tokenLine + '\n' + tr('cookie_push_status') + tr('status_failed') + ' - ' + tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
             const warning = cr.data.warning ? '\n' + cr.data.warning : '';
-            alert(cr.response.ok ? tr('setup_complete') + (ur.data.token_status?.seconds_remaining) + tr('proxy_ready') + '\n' + tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + warning : tr('failed') + (cr.data.error?.message || cr.data.error));
+            const cookieState = cr.response.ok ? (cr.data.warning ? tr('status_warning') : tr('status_success')) : tr('status_failed');
+            const cookieDetail = cr.response.ok ? ' (' + cr.data.injected + '/' + cr.data.total + ')' + warning : ' - ' + (cr.data.error?.message || cr.data.error);
+            const cookieLine = tr('cookie_push_status') + cookieState + cookieDetail;
+            alert(tokenLine + '\n' + cookieLine);
         } catch (e) {
             alert(tr('error') + e);
         } finally {
