@@ -49,7 +49,7 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
     : > "$CHROME_LOG"
     echo "Starting $CHROME_BIN headless on CDP port $CDP_PORT ..."
     "$CHROME_BIN" \
-        --headless=new \
+        --headless \
         --no-sandbox \
         --remote-debugging-address=127.0.0.1 \
         --remote-debugging-port="$CDP_PORT" \
@@ -57,7 +57,6 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
         --no-first-run \
         --disable-gpu \
         --disable-dev-shm-usage \
-        --disable-software-rasterizer \
         --disable-background-networking \
         --disable-sync \
         --no-default-browser-check \

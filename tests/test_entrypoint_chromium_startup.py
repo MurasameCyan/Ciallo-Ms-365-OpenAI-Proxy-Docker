@@ -25,12 +25,12 @@ def test_entrypoint_checks_cdp_version_endpoint_for_readiness():
     assert 'http://localhost:$CDP_PORT/json/version' in ENTRYPOINT
 
 
-def test_entrypoint_disables_chromium_crash_reporter_components():
+def test_entrypoint_uses_container_safe_headless_mode():
     launch_block = ENTRYPOINT[ENTRYPOINT.index('"$CHROME_BIN" \\'):ENTRYPOINT.index('CHROME_PID=$!')]
 
-    assert '--disable-crash-reporter' in launch_block
-    assert '--disable-in-process-stack-traces' in launch_block
-    assert '--enable-crash-reporter' not in launch_block
+    assert '--headless \\' in launch_block
+    assert '--headless=new' not in launch_block
+    assert '--disable-software-rasterizer' not in launch_block
     assert '--crash-dumps-dir=' not in launch_block
 
 
