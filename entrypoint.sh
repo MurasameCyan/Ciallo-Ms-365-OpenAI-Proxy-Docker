@@ -63,9 +63,10 @@ if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
         --no-default-browser-check \
         --disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI \
         --disable-breakpad \
+        --disable-crash-reporter \
+        --disable-in-process-stack-traces \
         --no-experiments \
-        --crash-dumps-dir=/tmp \
-        "https://m365.cloud.microsoft/chat" > "$CHROME_LOG" 2>&1 &
+        "about:blank" > "$CHROME_LOG" 2>&1 &
 
     CHROME_PID=$!
     echo "Chromium started with PID $CHROME_PID"

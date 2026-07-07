@@ -23,3 +23,19 @@ def test_entrypoint_starts_chromium_without_pipeline_so_pid_is_browser():
 
 def test_entrypoint_checks_cdp_version_endpoint_for_readiness():
     assert 'http://localhost:$CDP_PORT/json/version' in ENTRYPOINT
+
+
+def test_entrypoint_disables_chromium_crash_reporter_components():
+    launch_block = ENTRYPOINT[ENTRYPOINT.index('"$CHROME_BIN" \\'):ENTRYPOINT.index('CHROME_PID=$!')]
+
+    assert '--disable-crash-reporter' in launch_block
+    assert '--disable-in-process-stack-traces' in launch_block
+    assert '--enable-crash-reporter' not in launch_block
+    assert '--crash-dumps-dir=' not in launch_block
+
+
+def test_entrypoint_starts_chromium_on_blank_page_until_cdp_is_ready():
+    launch_block = ENTRYPOINT[ENTRYPOINT.index('"$CHROME_BIN" \\'):ENTRYPOINT.index('CHROME_PID=$!')]
+
+    assert '"about:blank" > "$CHROME_LOG" 2>&1 &' in launch_block
+    assert 'm365.cloud.microsoft/chat" > "$CHROME_LOG"' not in launch_block
