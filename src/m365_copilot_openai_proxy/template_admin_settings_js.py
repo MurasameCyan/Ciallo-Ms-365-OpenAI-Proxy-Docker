@@ -40,6 +40,7 @@ async function loadRuntimeSettings(){
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
     set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-cdp-port',s.cdp_port);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
+    const ms=document.getElementById('media-suffix-input');if(ms&&document.activeElement!==ms)ms.value=(s.media_proxy_suffixes||[]).join('\\n');
     const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
     const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
   }catch(e){}
@@ -53,11 +54,34 @@ async function saveRuntimeSettings(btnId){
   put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
   const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
   const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
+  body.media_proxy_suffixes=_mediaSuffixListFromInput();
   try{
     const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){if(btn){btn.disabled=false;btn.textContent=oldText}return;}
     const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
     if(btn){btn.textContent=t('tone_saved');setTimeout(()=>{btn.disabled=false;btn.textContent=oldText},1500)}
   }catch(e){if(btn){btn.disabled=false;btn.textContent=oldText}}
+}
+function _mediaSuffixListFromInput(){
+  const ta=document.getElementById('media-suffix-input');
+  return (ta?.value||'').split(/[\\s,;]+/).map(s=>s.trim().replace(/^\\.+/,'').toLowerCase()).filter(Boolean);
+}
+async function saveMediaSuffixes(){
+  const body={...__runtimeSettings,media_proxy_suffixes:_mediaSuffixListFromInput()};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
+    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    const ta=document.getElementById('media-suffix-input');if(ta)ta.value=(__runtimeSettings.media_proxy_suffixes||[]).join('\\n');
+    const s=document.getElementById('media-suffix-saved');if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+  }catch(e){}
+}
+async function resetMediaSuffixes(){
+  const body={...__runtimeSettings,media_proxy_suffixes:[]};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
+    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    const ta=document.getElementById('media-suffix-input');if(ta)ta.value=(__runtimeSettings.media_proxy_suffixes||[]).join('\\n');
+    const s=document.getElementById('media-suffix-saved');if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+  }catch(e){}
 }
 async function loadToolPrompt(){
   try{

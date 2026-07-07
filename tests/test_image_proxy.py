@@ -15,6 +15,10 @@ SOURCE_IMAGE_URL = "https://designerapp.officeapps.live.com/designerapp/document
 SOURCE_AUDIO_URL = "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original/bird_chirp.wav"
 
 
+def _asyncgw_url(filename: str) -> str:
+    return f"https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original/{filename}"
+
+
 class FakeRefreshScheduler:
     def __init__(self, content: bytes = b"png-bytes", content_type: str = "image/png"):
         self.calls: list[tuple[str, str]] = []
@@ -153,6 +157,54 @@ def test_image_proxy_route_rejects_unsigned_request(tmp_path):
     assert event["expired"] is False
 
 
+def test_m365_media_default_suffixes_cover_common_media_and_programming_files():
+    allowed = [
+        "generated.png",
+        "photo.webp",
+        "clip.mkv",
+        "song.wav",
+        "slides.pptx",
+        "table.xlsx",
+        "archive.7z",
+        "main.py",
+        "component.tsx",
+        "Dockerfile",
+    ]
+
+    for filename in allowed:
+        rewritten = rewrite_m365_image_urls(
+            f"文件： `{_asyncgw_url(filename)}`",
+            base_url="http://proxy.example",
+            account_id="acct_1",
+            secret="secret",
+            now=1000,
+        )
+        assert f"[下载 {filename}](http://proxy.example/v1/m365-media?" in rewritten
+
+
+def test_m365_media_runtime_suffixes_can_allow_custom_extensions():
+    custom_url = _asyncgw_url("model.glb")
+
+    assert custom_url in rewrite_m365_image_urls(
+        f"文件： `{custom_url}`",
+        base_url="http://proxy.example",
+        account_id="acct_1",
+        secret="secret",
+        now=1000,
+    )
+    rewritten = rewrite_m365_image_urls(
+        f"文件： `{custom_url}`",
+        base_url="http://proxy.example",
+        account_id="acct_1",
+        secret="secret",
+        now=1000,
+        allowed_suffixes=["glb"],
+    )
+
+    assert "[下载 model.glb](http://proxy.example/v1/m365-media?" in rewritten
+    assert custom_url not in rewritten
+
+
 def test_image_proxy_route_returns_audio_bytes_for_valid_signed_asyncgw_url(tmp_path):
     app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
     account = app.state.account_store.add(name="Audio Account", token="", token_source="cdp")
@@ -173,6 +225,29 @@ def test_image_proxy_route_returns_audio_bytes_for_valid_signed_asyncgw_url(tmp_
     assert response.content == b"wav-bytes"
     assert response.headers["content-type"] == "audio/wav"
     assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_AUDIO_URL)]
+
+
+def test_image_proxy_route_uses_runtime_suffixes_for_custom_media(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
+    account = app.state.account_store.add(name="Media Account", token="", token_source="cdp")
+    app.state.image_proxy_secret = "secret"
+    app.state.runtime_settings["media_proxy_suffixes"] = ["glb"]
+    app.state.refresh_scheduler = FakeRefreshScheduler(content=b"glb-bytes", content_type="model/gltf-binary")
+    client = TestClient(app)
+    source_url = _asyncgw_url("model.glb")
+    signed_url = make_signed_image_proxy_url(
+        "http://testserver",
+        account.id,
+        source_url,
+        "secret",
+        expires_at=4_102_444_800,
+    )
+
+    response = client.get(_path_from_url(signed_url))
+
+    assert response.status_code == 200
+    assert response.content == b"glb-bytes"
+    assert app.state.refresh_scheduler.calls == [(account.id, source_url)]
 
 
 def test_image_proxy_route_rejects_non_designer_hosts(tmp_path):

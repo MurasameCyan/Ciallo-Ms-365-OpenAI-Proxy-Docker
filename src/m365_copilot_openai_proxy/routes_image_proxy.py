@@ -25,7 +25,8 @@ def request_image_rewriter(app: FastAPI, request: Request):
     secret = str(getattr(app.state, "image_proxy_secret", "") or "")
 
     def rewrite(text: str) -> str:
-        return rewrite_m365_image_urls(text, base_url=base_url, account_id=account_id, secret=secret)
+        suffixes = dict(getattr(app.state, "runtime_settings", {}) or {}).get("media_proxy_suffixes")
+        return rewrite_m365_image_urls(text, base_url=base_url, account_id=account_id, secret=secret, allowed_suffixes=suffixes)
 
     return rewrite
 
@@ -51,7 +52,8 @@ def register_image_proxy_routes(app: FastAPI) -> None:
             emit("invalid_signature", exp=exp, now=now, expired=bool(expires_at and expires_at < now))
             raise HTTPException(status_code=403, detail="Invalid image proxy signature")
         parsed = urlsplit(source_url)
-        if not is_allowed_m365_image_url(source_url):
+        suffixes = dict(getattr(app.state, "runtime_settings", {}) or {}).get("media_proxy_suffixes")
+        if not is_allowed_m365_image_url(source_url, suffixes):
             emit("blocked_source", source_host=parsed.netloc, source_path=parsed.path)
             raise HTTPException(status_code=400, detail="Unsupported image host")
         account = app.state.account_store.get(account_id)

@@ -119,6 +119,17 @@ def test_admin_debug_page_includes_media_proxy_records_panel_with_trace_copy():
     assert "/admin/image-proxy/events" in _ADMIN_HTML
 
 
+def test_admin_settings_include_media_suffix_card():
+    assert 'id="media-suffix-details"' in _ADMIN_HTML
+    assert 'id="media-suffix-input"' in _ADMIN_HTML
+    assert 'data-i18n="media_suffix_title"' in _ADMIN_HTML
+    assert 'data-i18n="media_suffix_hint"' in _ADMIN_HTML
+    assert "media_proxy_suffixes" in _ADMIN_SETTINGS_JS
+    assert "saveMediaSuffixes" in _ADMIN_SETTINGS_JS
+    assert "resetMediaSuffixes" in _ADMIN_SETTINGS_JS
+
+
+
 def test_admin_generated_javascript_passes_node_check(tmp_path):
     import shutil
     import subprocess

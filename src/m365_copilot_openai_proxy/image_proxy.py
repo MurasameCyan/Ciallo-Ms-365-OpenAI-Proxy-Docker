@@ -7,11 +7,12 @@ import re
 import time
 from urllib.parse import unquote, urlencode, urlsplit
 
+from .runtime_settings import _DEFAULT_MEDIA_PROXY_SUFFIXES, normalize_media_proxy_suffixes
+
 _IMAGE_PROXY_TTL_SECONDS = 10 * 60
 _ALLOWED_IMAGE_HOST = "designerapp.officeapps.live.com"
 _ALLOWED_IMAGE_PATH = "/designerapp/document.ashx"
 _ALLOWED_ASYNCGW_HOST_RE = re.compile(r"(?:^|\.)asyncgw\.teams\.microsoft\.com$", re.IGNORECASE)
-_ALLOWED_ASYNCGW_PATH_RE = re.compile(r"^/v1/objects/[^/]+/views/original/[^/]+\.(?:wav|mp3|m4a|ogg|oga|flac|aac|mp4|webm|mov|pdf|zip)$", re.IGNORECASE)
 _DESIGNER_URL_RE = re.compile(r"https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^\s`)]+")
 _RAW_IMAGE_RE = re.compile(
     r"!\s*`((?:https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx|https?://[^`\s]+/v1/m365-media\?|/v1/m365-media\?)[^`]+)`"
@@ -38,14 +39,32 @@ def _decode_url(encoded_url: str) -> str:
     return base64.urlsafe_b64decode((encoded_url + padding).encode("ascii")).decode("utf-8")
 
 
-def is_allowed_m365_image_url(source_url: str) -> bool:
+def _media_suffixes(allowed_suffixes: list[str] | None = None) -> set[str]:
+    suffixes = normalize_media_proxy_suffixes(allowed_suffixes) if allowed_suffixes is not None else list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
+    return set(suffixes or _DEFAULT_MEDIA_PROXY_SUFFIXES)
+
+
+def _filename_matches_suffixes(filename: str, suffixes: set[str]) -> bool:
+    name = filename.lower().lstrip(".")
+    return any(name == suffix or name.endswith("." + suffix) for suffix in suffixes)
+
+
+def is_allowed_m365_image_url(source_url: str, allowed_suffixes: list[str] | None = None) -> bool:
     parsed = urlsplit(source_url)
     if parsed.scheme != "https":
         return False
     if parsed.netloc == _ALLOWED_IMAGE_HOST and parsed.path == _ALLOWED_IMAGE_PATH:
         return True
     host = parsed.hostname or ""
-    return bool(_ALLOWED_ASYNCGW_HOST_RE.search(host) and _ALLOWED_ASYNCGW_PATH_RE.match(unquote(parsed.path)))
+    if not _ALLOWED_ASYNCGW_HOST_RE.search(host):
+        return False
+    path = unquote(parsed.path)
+    prefix = "/v1/objects/"
+    marker = "/views/original/"
+    if not path.startswith(prefix) or marker not in path:
+        return False
+    filename = path.rsplit("/", 1)[-1]
+    return _filename_matches_suffixes(filename, _media_suffixes(allowed_suffixes))
 
 
 def make_signed_image_proxy_url(
@@ -113,6 +132,7 @@ def rewrite_m365_image_urls(
     account_id: str | None,
     secret: str,
     now: float | None = None,
+    allowed_suffixes: list[str] | None = None,
 ) -> str:
     if not account_id or not secret:
         return normalize_m365_image_text(text)
@@ -122,7 +142,7 @@ def rewrite_m365_image_urls(
     def md_repl(match: re.Match[str]) -> str:
         alt = match.group(1) or "image"
         source_url = match.group(2).strip()
-        if not is_allowed_m365_image_url(source_url):
+        if not is_allowed_m365_image_url(source_url, allowed_suffixes):
             return match.group(0)
         proxy_url = make_signed_image_proxy_url(base_url, account_id, source_url, secret, expires_at=expires_at)
         return f"![{alt}]({proxy_url})"
@@ -130,7 +150,7 @@ def rewrite_m365_image_urls(
     def media_repl(match: re.Match[str]) -> str:
         label = match.group(1) or f"下载 {_media_filename(match.group(2))}"
         source_url = match.group(2).strip()
-        if not is_allowed_m365_image_url(source_url):
+        if not is_allowed_m365_image_url(source_url, allowed_suffixes):
             return match.group(0)
         proxy_url = make_signed_image_proxy_url(base_url, account_id, source_url, secret, expires_at=expires_at)
         return f"[{label}]({proxy_url})"

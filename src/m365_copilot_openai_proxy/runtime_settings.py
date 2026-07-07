@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _RUN_PERMISSIONS = {"read_only", "full"}
+_MEDIA_SUFFIX_RE = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,39}$")
+_DEFAULT_MEDIA_PROXY_SUFFIXES = [
+    "png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "tif", "tiff", "ico", "heic", "heif", "avif",
+    "wav", "mp3", "m4a", "ogg", "oga", "flac", "aac", "opus", "wma", "mid", "midi",
+    "mp4", "webm", "mov", "mkv", "avi", "m4v", "3gp", "wmv", "flv", "mpeg", "mpg",
+    "pdf", "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "xml", "html", "htm", "yaml", "yml", "toml", "ini", "env",
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "tar.gz", "tar.bz2", "tar.xz",
+    "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "java", "go", "rs", "c", "h", "cpp", "cxx", "cc", "hpp", "cs",
+    "php", "rb", "swift", "kt", "kts", "scala", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "sql", "r", "lua", "pl", "pm",
+    "vue", "svelte", "css", "scss", "sass", "less", "dockerfile", "makefile", "cmake", "gradle", "lock", "log", "conf", "cfg",
+]
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
     "model_alias": "m365-copilot",
@@ -16,7 +29,26 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "log_level": "INFO",
     "call_log_limit": 100,
     "run_permission": "full",
+    "media_proxy_suffixes": list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
 }
+
+
+def normalize_media_proxy_suffixes(value) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\s,;]+", value)
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+    suffixes: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        suffix = str(item or "").strip().lower().lstrip(".")
+        if not suffix or suffix in seen or not _MEDIA_SUFFIX_RE.match(suffix):
+            continue
+        seen.add(suffix)
+        suffixes.append(suffix)
+    return suffixes
 
 
 def _runtime_settings_path(token_dir: str) -> Path:
@@ -45,6 +77,7 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["run_permission"] = str(data.get("run_permission") or _RUNTIME_SETTINGS_DEFAULTS["run_permission"]).strip()
     if data["run_permission"] not in _RUN_PERMISSIONS:
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
+    data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     return data
 
 

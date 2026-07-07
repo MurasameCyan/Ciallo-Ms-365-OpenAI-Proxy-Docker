@@ -9,10 +9,12 @@ from .config import Settings
 from .response_helpers import _json_err
 from .call_log_store import trim_call_log
 from .runtime_settings import (
+    _DEFAULT_MEDIA_PROXY_SUFFIXES,
     _LOG_LEVELS,
     _RUNTIME_SETTINGS_DEFAULTS,
     _RUN_PERMISSIONS,
     _write_runtime_settings,
+    normalize_media_proxy_suffixes,
 )
 from .token_store import write_system_prompt, write_tone, write_tool_prompt
 from .translator import default_tool_system_prompt
@@ -71,6 +73,7 @@ def register_admin_settings_routes(
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
+            "media_proxy_suffixes": normalize_media_proxy_suffixes(body.get("media_proxy_suffixes", current.get("media_proxy_suffixes"))) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
         }
         if data["log_level"] not in _LOG_LEVELS:
             return _json_err(400, "Invalid log level")

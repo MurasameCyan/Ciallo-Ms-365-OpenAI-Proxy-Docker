@@ -430,6 +430,23 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 
 <div class="card view-settings">
+<details id="media-suffix-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="media_suffix_title">媒体后缀名</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:.75rem">
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="media_suffix_hint">控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。</div>
+<textarea id="media-suffix-input" rows="6" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical" placeholder="png jpg wav mp4 py tsx"></textarea>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
+<button id="media-suffix-save" onclick="saveMediaSuffixes()" data-i18n="media_suffix_save">保存</button>
+<button id="media-suffix-reset" onclick="resetMediaSuffixes()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
+<span id="media-suffix-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
+</div>
+</div>
+</details>
+</div>
+
+<div class="card view-settings">
 <details id="tool-prompt-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="title_tool_prompt">提示词微调</span>
@@ -658,6 +675,9 @@ const i18n={
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
     runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',call_log_limit_label:'调用记录上限',
     tone_saved:'已保存',
+    media_suffix_title:'媒体后缀名',
+    media_suffix_hint:'控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。',
+    media_suffix_save:'保存后缀',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
     tool_prompt_save:'保存',
@@ -744,6 +764,9 @@ const i18n={
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
     runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP primary port',account_cdp_port_base_label:'CDP secondary port',log_level_label:'Log level',call_log_limit_label:'Call log limit',
     tone_saved:'Saved',
+    media_suffix_title:'Media suffixes',
+    media_suffix_hint:'Controls file suffixes allowed by /v1/m365-media. Separate with commas, spaces, or new lines. Applies immediately after saving.',
+    media_suffix_save:'Save suffixes',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
     tool_prompt_save:'Save',
