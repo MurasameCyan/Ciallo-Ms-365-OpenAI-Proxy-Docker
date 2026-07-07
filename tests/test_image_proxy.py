@@ -46,7 +46,7 @@ def _path_from_url(url: str) -> str:
 
 
 def test_normalize_m365_image_text_converts_raw_proxy_image_url_to_markdown():
-    proxy_url = "http://multi.qovop.cyou/v1/m365-image?account_id=acct_1&u=abc&exp=123&sig=abc"
+    proxy_url = "http://multi.qovop.cyou/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
 
     assert normalize_m365_image_text(f"! `{proxy_url}` ") == f"![image]({proxy_url})"
 
@@ -60,7 +60,7 @@ def test_rewrite_m365_image_urls_replaces_designer_url_with_signed_proxy_url():
         now=1000,
     )
 
-    assert rewritten.startswith("![image](http://proxy.example/v1/m365-image?")
+    assert rewritten.startswith("![image](http://proxy.example/v1/m365-media?")
     assert "designerapp.officeapps.live.com" not in rewritten
     assert "acct_1" in rewritten
 
@@ -126,7 +126,7 @@ def test_image_proxy_route_rejects_unsigned_request(tmp_path):
     app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
     client = TestClient(app)
 
-    response = client.get(f"/v1/m365-image?u={SOURCE_IMAGE_URL}&account_id=acct_1&exp=4102444800&sig=bad")
+    response = client.get(f"/v1/m365-media?u={SOURCE_IMAGE_URL}&account_id=acct_1&exp=4102444800&sig=bad")
 
     assert response.status_code == 403
     event = app.state.image_proxy_events[-1]
@@ -171,5 +171,5 @@ def test_chat_stream_rewrites_m365_image_markdown_to_proxy_url(tmp_path):
     )
 
     assert response.status_code == 200
-    assert "/v1/m365-image?" in response.text
+    assert "/v1/m365-media?" in response.text
     assert "designerapp.officeapps.live.com" not in response.text

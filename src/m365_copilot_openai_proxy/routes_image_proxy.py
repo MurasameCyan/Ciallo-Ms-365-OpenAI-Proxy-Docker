@@ -31,7 +31,7 @@ def request_image_rewriter(app: FastAPI, request: Request):
 
 
 def register_image_proxy_routes(app: FastAPI) -> None:
-    @app.get("/v1/m365-image")
+    @app.get("/v1/m365-media")
     async def m365_image(account_id: str, u: str, exp: str, sig: str):
         trace_id = f"img_{uuid.uuid4().hex[:12]}"
         started = time.perf_counter()

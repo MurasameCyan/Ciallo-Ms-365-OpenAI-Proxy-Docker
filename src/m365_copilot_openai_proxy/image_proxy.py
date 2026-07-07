@@ -12,7 +12,7 @@ _ALLOWED_IMAGE_HOST = "designerapp.officeapps.live.com"
 _ALLOWED_IMAGE_PATH = "/designerapp/document.ashx"
 _DESIGNER_URL_RE = re.compile(r"https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^\s`)]+")
 _RAW_IMAGE_RE = re.compile(
-    r"!\s*`((?:https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx|https?://[^`\s]+/v1/m365-image\?|/v1/m365-image\?)[^`]+)`"
+    r"!\s*`((?:https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx|https?://[^`\s]+/v1/m365-media\?|/v1/m365-media\?)[^`]+)`"
 )
 _MARKDOWN_DESIGNER_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^)]+)\)")
 
@@ -50,7 +50,7 @@ def make_signed_image_proxy_url(
     expires = int(expires_at if expires_at is not None else time.time() + _IMAGE_PROXY_TTL_SECONDS)
     signature = _sign(account_id, expires, source_url, secret)
     query = urlencode({"account_id": account_id, "u": _encode_url(source_url), "exp": str(expires), "sig": signature})
-    return f"{base_url.rstrip('/')}/v1/m365-image?{query}"
+    return f"{base_url.rstrip('/')}/v1/m365-media?{query}"
 
 
 def verify_signed_image_proxy_params(
