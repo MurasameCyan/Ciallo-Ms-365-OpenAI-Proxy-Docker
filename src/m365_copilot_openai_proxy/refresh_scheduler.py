@@ -76,6 +76,11 @@ def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
     return "; ".join(pairs)
 
 
+def _auth_headers_for_token(token: str) -> dict[str, str]:
+    token = token.strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _normalize_cookie_expires(value: object) -> float:
     expires = float(value)
     if expires > 10_000_000_000:
@@ -278,11 +283,12 @@ class RefreshScheduler:
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
         cookie_header = _cookie_header_for_url(account.cookies, url)
+        auth_headers = _auth_headers_for_token(account.token)
         if cookie_header:
             if event_sink:
-                event_sink("direct_start", cookie_count=cookie_header.count(";") + 1)
+                event_sink("direct_start", cookie_count=cookie_header.count(";") + 1, token_header=bool(auth_headers))
             try:
-                return await self._fetch_image_with_cookies(url, cookie_header, event_sink=event_sink)
+                return await self._fetch_image_with_cookies(url, cookie_header, auth_headers=auth_headers, event_sink=event_sink)
             except Exception as exc:
                 if event_sink:
                     event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
@@ -294,7 +300,7 @@ class RefreshScheduler:
             async with self._lock:
                 return await self._fetch_image_one(account_id, url, event_sink=event_sink)
 
-    async def _fetch_image_with_cookies(self, url: str, cookie_header: str, event_sink=None) -> tuple[bytes, str]:
+    async def _fetch_image_with_cookies(self, url: str, cookie_header: str, auth_headers: dict[str, str] | None = None, event_sink=None) -> tuple[bytes, str]:
         import httpx
 
         headers = {
@@ -302,17 +308,22 @@ class RefreshScheduler:
             "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Referer": "https://designerapp.officeapps.live.com/",
+            **(auth_headers or {}),
         }
         started = time.perf_counter()
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
         if event_sink:
+            response_url = urlsplit(str(response.url))
             event_sink(
                 "direct_response",
                 status_code=response.status_code,
                 content_type=response.headers.get("content-type", ""),
                 bytes=len(response.content),
                 duration_ms=round((time.perf_counter() - started) * 1000),
+                response_host=response_url.hostname or "",
+                response_path=response_url.path,
+                www_authenticate=response.headers.get("www-authenticate", ""),
             )
         if response.status_code >= 400:
             raise RuntimeError(f"upstream image returned HTTP {response.status_code}")
@@ -387,9 +398,12 @@ class RefreshScheduler:
                             return msg
 
                 await cdp_call("Network.enable")
+                auth_headers = _auth_headers_for_token(account.token)
+                if auth_headers:
+                    await cdp_call("Network.setExtraHTTPHeaders", {"headers": auth_headers})
                 await cdp_call("Page.enable")
                 if event_sink:
-                    event_sink("chromium_navigate")
+                    event_sink("chromium_navigate", token_header=bool(auth_headers))
                 navigate_id = next_id
                 next_id += 1
                 await ws.send(json.dumps({"id": navigate_id, "method": "Page.navigate", "params": {"url": url}}))
@@ -412,8 +426,16 @@ class RefreshScheduler:
                             request_id = str(params.get("requestId") or "")
                             status = int(response.get("status") or 0)
                             content_type = str(response.get("mimeType") or "application/octet-stream")
+                            response_headers = response.get("headers") or {}
                             if event_sink:
-                                event_sink("chromium_response", status_code=status, content_type=content_type)
+                                event_sink(
+                                    "chromium_response",
+                                    status_code=status,
+                                    content_type=content_type,
+                                    response_host=urlsplit(response_url).hostname or "",
+                                    response_path=urlsplit(response_url).path,
+                                    www_authenticate=str(response_headers.get("www-authenticate") or response_headers.get("WWW-Authenticate") or ""),
+                                )
                             if status >= 400:
                                 raise RuntimeError(f"upstream image returned HTTP {status}")
                     elif method == "Network.loadingFinished" and request_id and params.get("requestId") == request_id:

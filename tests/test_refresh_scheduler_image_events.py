@@ -22,7 +22,24 @@ class FakeAsyncClient:
         return False
 
     async def get(self, url, headers=None):
-        return httpx.Response(401, headers={"content-type": "text/html"}, content=b"login")
+        return httpx.Response(401, headers={"content-type": "text/html"}, content=b"login", request=httpx.Request("GET", url))
+
+
+class FakeAuthorizedImageClient:
+    last_headers: dict | None = None
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers=None):
+        FakeAuthorizedImageClient.last_headers = dict(headers or {})
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=b"png", request=httpx.Request("GET", url))
 
 
 def test_fetch_image_with_cookies_records_upstream_status_before_raising(tmp_path, monkeypatch):
@@ -44,6 +61,29 @@ def test_fetch_image_with_cookies_records_upstream_status_before_raising(tmp_pat
     assert events[0]["content_type"] == "text/html"
     assert events[0]["bytes"] == len(b"login")
     assert events[0]["duration_ms"] >= 0
+
+
+def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAuthorizedImageClient)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Image Account", token="account-token", token_source="manual")
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com"}])
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    body, content_type = asyncio.run(
+        scheduler.fetch_image(
+            account.id,
+            "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimage.png",
+            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+        )
+    )
+
+    assert body == b"png"
+    assert content_type == "image/png"
+    assert FakeAuthorizedImageClient.last_headers["Authorization"] == "Bearer account-token"
+    assert events[0]["phase"] == "direct_start"
+    assert events[0]["token_header"] is True
 
 
 class FakeBrowserProcess:
@@ -74,6 +114,7 @@ class FakeTabListClient:
 class FakeImageWebSocket:
     def __init__(self):
         self.messages: list[str] = []
+        self.extra_headers: dict | None = None
 
     async def __aenter__(self):
         return self
@@ -86,6 +127,9 @@ class FakeImageWebSocket:
         msg_id = payload["id"]
         method = payload["method"]
         if method in {"Network.enable", "Page.enable"}:
+            self.messages.append(json.dumps({"id": msg_id, "result": {}}))
+        elif method == "Network.setExtraHTTPHeaders":
+            self.extra_headers = dict((payload.get("params") or {}).get("headers") or {})
             self.messages.append(json.dumps({"id": msg_id, "result": {}}))
         elif method == "Page.navigate":
             self.messages.extend(
@@ -155,5 +199,6 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
 
     assert body == b"png"
     assert content_type == "image/png"
+    assert fake_websockets.ws.extra_headers["Authorization"] == "Bearer token"
     assert any(event["phase"] == "chromium_response" for event in events)
     assert any(event["phase"] == "chromium_body" for event in events)
