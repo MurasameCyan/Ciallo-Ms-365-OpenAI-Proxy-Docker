@@ -273,21 +273,28 @@ class RefreshScheduler:
             async with self._lock:
                 return await self._inject_cookies_one(account_id, cookies)
 
-    async def fetch_image(self, account_id: str, url: str) -> tuple[bytes, str]:
+    async def fetch_image(self, account_id: str, url: str, event_sink=None) -> tuple[bytes, str]:
         account = self._accounts.get(account_id)
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
         cookie_header = _cookie_header_for_url(account.cookies, url)
         if cookie_header:
+            if event_sink:
+                event_sink("direct_start", cookie_count=cookie_header.count(";") + 1)
             try:
-                return await self._fetch_image_with_cookies(url, cookie_header)
-            except Exception:
-                pass
+                return await self._fetch_image_with_cookies(url, cookie_header, event_sink=event_sink)
+            except Exception as exc:
+                if event_sink:
+                    event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
+        elif event_sink:
+            event_sink("direct_skip", reason="no_matching_cookies")
+        if event_sink:
+            event_sink("chromium_fallback_start")
         async with self._account_lock(account_id):
             async with self._lock:
-                return await self._fetch_image_one(account_id, url)
+                return await self._fetch_image_one(account_id, url, event_sink=event_sink)
 
-    async def _fetch_image_with_cookies(self, url: str, cookie_header: str) -> tuple[bytes, str]:
+    async def _fetch_image_with_cookies(self, url: str, cookie_header: str, event_sink=None) -> tuple[bytes, str]:
         import httpx
 
         headers = {
@@ -296,13 +303,22 @@ class RefreshScheduler:
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Referer": "https://designerapp.officeapps.live.com/",
         }
+        started = time.perf_counter()
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
+        if event_sink:
+            event_sink(
+                "direct_response",
+                status_code=response.status_code,
+                content_type=response.headers.get("content-type", ""),
+                bytes=len(response.content),
+                duration_ms=round((time.perf_counter() - started) * 1000),
+            )
         if response.status_code >= 400:
             raise RuntimeError(f"upstream image returned HTTP {response.status_code}")
         return response.content, response.headers.get("content-type", "application/octet-stream")
 
-    async def _fetch_image_one(self, account_id: str, url: str) -> tuple[bytes, str]:
+    async def _fetch_image_one(self, account_id: str, url: str, event_sink=None) -> tuple[bytes, str]:
         account = self._accounts.get(account_id)
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
@@ -312,9 +328,13 @@ class RefreshScheduler:
         _cleanup_profile_locks(profile_dir)
         proc = None
         try:
+            chrome_bin = _chromium_path()
+            cdp_port = account.cdp_port
+            if event_sink:
+                event_sink("chromium_launch", cdp_port=cdp_port, browser=chrome_bin)
             proc = subprocess.Popen([
-                _chromium_path(),
-                f"--remote-debugging-port={account.cdp_port}",
+                chrome_bin,
+                f"--remote-debugging-port={cdp_port}",
                 f"--user-data-dir={profile_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
@@ -336,7 +356,7 @@ class RefreshScheduler:
             while time.time() < deadline:
                 try:
                     async with httpx.AsyncClient(timeout=2) as client:
-                        tabs = (await client.get(f"http://localhost:{account.cdp_port}/json/list")).json()
+                        tabs = (await client.get(f"http://localhost:{cdp_port}/json/list")).json()
                     tab = next((t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")), None)
                     if tab:
                         break
@@ -344,7 +364,11 @@ class RefreshScheduler:
                     pass
                 await asyncio.sleep(0.3)
             if not tab:
+                if event_sink:
+                    event_sink("chromium_cdp_timeout", cdp_port=cdp_port)
                 raise RuntimeError("Chromium CDP tab did not become ready")
+            if event_sink:
+                event_sink("chromium_cdp_ready", cdp_port=cdp_port)
 
             async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
                 next_id = 1
@@ -364,6 +388,8 @@ class RefreshScheduler:
 
                 await cdp_call("Network.enable")
                 await cdp_call("Page.enable")
+                if event_sink:
+                    event_sink("chromium_navigate")
                 await cdp_call("Page.navigate", {"url": url})
                 request_id = ""
                 content_type = "application/octet-stream"
@@ -384,6 +410,8 @@ class RefreshScheduler:
                             request_id = str(params.get("requestId") or "")
                             status = int(response.get("status") or 0)
                             content_type = str(response.get("mimeType") or "application/octet-stream")
+                            if event_sink:
+                                event_sink("chromium_response", status_code=status, content_type=content_type)
                             if status >= 400:
                                 raise RuntimeError(f"upstream image returned HTTP {status}")
                     elif method == "Network.loadingFinished" and request_id and params.get("requestId") == request_id:
@@ -398,8 +426,14 @@ class RefreshScheduler:
                 result = body_response.get("result") or {}
                 body = str(result.get("body") or "")
                 if result.get("base64Encoded"):
-                    return base64.b64decode(body), content_type
-                return body.encode("utf-8"), content_type
+                    decoded = base64.b64decode(body)
+                    if event_sink:
+                        event_sink("chromium_body", bytes=len(decoded), base64_encoded=True)
+                    return decoded, content_type
+                encoded = body.encode("utf-8")
+                if event_sink:
+                    event_sink("chromium_body", bytes=len(encoded), base64_encoded=False)
+                return encoded, content_type
         finally:
             await _close_chromium_gracefully(account.cdp_port, proc)
             if proc is not None and proc.poll() is None:

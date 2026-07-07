@@ -24,6 +24,8 @@ def test_admin_observability_routes_are_registered_by_observability_routes_modul
     assert callable(register_admin_observability_routes)
     assert "/admin/call-log" in paths
     assert "/admin/call-log/clear" in paths
+    assert "/admin/image-proxy/events" in paths
+    assert "/admin/image-proxy/events/clear" in paths
     assert "/admin/metrics-history" in paths
     assert "/admin/metrics-history/clear" in paths
     assert "/admin/summary" in paths
@@ -98,6 +100,12 @@ def test_admin_accounts_javascript_is_split_into_accounts_module():
     assert "async function batchDeleteAccounts()" in _ADMIN_ACCOUNTS_JS
     assert "const __page={keys:1,accounts:1};" not in _ADMIN_ACCOUNTS_JS
     assert _ADMIN_ACCOUNTS_JS in _ADMIN_HTML
+
+
+def test_admin_debug_page_includes_image_proxy_events_panel():
+    assert "image-proxy-event-content" in _ADMIN_HTML
+    assert "loadImageProxyEvents()" in _ADMIN_HTML
+    assert "/admin/image-proxy/events" in _ADMIN_HTML
 
 
 def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scrollbar():

@@ -84,7 +84,10 @@ def test_image_proxy_route_returns_bytes_for_valid_signed_designer_url(tmp_path)
     assert response.status_code == 200
     assert response.content == b"png-bytes"
     assert response.headers["content-type"] == "image/png"
+    assert response.headers["x-image-proxy-trace"].startswith("img_")
     assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_IMAGE_URL)]
+    phases = [event["phase"] for event in app.state.image_proxy_events]
+    assert phases == ["request", "fetch_start", "ok"]
 
 
 def test_image_proxy_route_times_out_slow_fetcher(tmp_path):
@@ -105,6 +108,8 @@ def test_image_proxy_route_times_out_slow_fetcher(tmp_path):
     response = client.get(_path_from_url(signed_url))
 
     assert response.status_code == 504
+    assert app.state.image_proxy_events[-1]["phase"] == "timeout"
+    assert app.state.image_proxy_events[-1]["trace_id"].startswith("img_")
 
 
 def test_image_proxy_route_rejects_unsigned_request(tmp_path):
@@ -114,6 +119,7 @@ def test_image_proxy_route_rejects_unsigned_request(tmp_path):
     response = client.get(f"/v1/m365-image?u={SOURCE_IMAGE_URL}&account_id=acct_1&exp=4102444800&sig=bad")
 
     assert response.status_code == 403
+    assert app.state.image_proxy_events[-1]["phase"] == "invalid_signature"
 
 
 def test_image_proxy_route_rejects_non_designer_hosts(tmp_path):

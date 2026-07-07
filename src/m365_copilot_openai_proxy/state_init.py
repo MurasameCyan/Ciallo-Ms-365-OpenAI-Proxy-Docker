@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from .account_store import AccountStore
 from .call_log_store import load_call_log
 from .config import Settings
+from .image_proxy_events import init_image_proxy_events
 from .key_store import KeyStore
 from .metrics_store import init_metrics_store
 from .refresh_scheduler import RefreshScheduler
@@ -53,6 +54,7 @@ def init_app_state(
     app.state.call_log_version = len(app.state.call_log)
     app.state.captured_payloads: list[dict] = []
     app.state.capture_payload_version = 0
+    init_image_proxy_events(app.state)
     init_metrics_store(app.state, Path(settings.token_dir) / "metrics_history.json")
     app.state.runtime_settings = runtime_settings
     app.state.model_alias = runtime_settings["model_alias"]

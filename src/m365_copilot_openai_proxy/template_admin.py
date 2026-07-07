@@ -506,6 +506,17 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
 </details>
+<details id="image-proxy-details" style="cursor:pointer;margin-bottom:20px">
+<summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
+<span>图片代理诊断</span>
+<span id="image-proxy-event-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录 /v1/m365-image 的签名、直连 HTTP、Chromium fallback、超时和最终状态。</div><button onclick="clearImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div id="image-proxy-event-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
+<span style="color:var(--faint)">暂无图片代理诊断记录</span>
+</div>
+</details>
 <details id="capture-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
 <span data-i18n="title_capture">模式抓包对比</span>
@@ -835,7 +846,7 @@ function loadViewData(view){
   if(view==='accounts'){loadAccounts();loadStats();return}
   if(view==='users'){loadKeys();return}
   if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
-  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadCapture()}
+  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadImageProxyEvents();loadCapture()}
 }
 switchView(localStorage.getItem('admin_view')||'home');
 
@@ -1122,6 +1133,7 @@ loadStatus();
 initGlassSelect(document);
 setInterval(loadStatus,60000);
 setInterval(()=>{if(document.body.dataset.view==='debug')loadCallLog()},5000);
+setInterval(()=>{if(document.body.dataset.view==='debug')loadImageProxyEvents()},5000);
 setInterval(()=>{if(document.body.dataset.view==='debug')loadCapture()},5000);
 setInterval(()=>{if(document.body.dataset.view==='home'){loadSummary();loadTrend()}},60000);
 setInterval(()=>{if(document.body.dataset.view==='home')loadStats()},30000);
@@ -1275,6 +1287,33 @@ async function loadCapture(){
     window.__capVersion=d.version;
     window.__capItems=d.payloads||[];
     renderCapture(window.__capItems);
+  }catch(e){}
+}
+function renderImageProxyEvents(items){
+  const count=document.getElementById('image-proxy-event-count');if(count)count.textContent=items.length;
+  const el=document.getElementById('image-proxy-event-content');if(!el)return;
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if(!items.length){el.innerHTML='<span style="color:var(--faint)">暂无图片代理诊断记录</span>';return}
+  el.innerHTML=items.slice().reverse().map(e=>{
+    const ts=e.ts?new Date(e.ts*1000).toLocaleTimeString():'';
+    const meta={...e};delete meta.ts;delete meta.trace_id;delete meta.phase;
+    return '<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
+      '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><span style="color:#38bdf8">'+esc(ts)+'</span><b style="color:var(--strong)">'+esc(e.phase)+'</b><span style="color:var(--faint)">'+esc(e.trace_id)+'</span></div>'+
+      '<pre style="white-space:pre-wrap;word-break:break-all;color:var(--muted);margin:4px 0 0">'+esc(JSON.stringify(meta,null,2))+'</pre></div>';
+  }).join('');
+}
+async function loadImageProxyEvents(){
+  try{
+    const v=window.__imageProxyEventsVersion;
+    const url=v==null?'/admin/image-proxy/events':'/admin/image-proxy/events?version='+encodeURIComponent(v);
+    const r=await fetch(url,{credentials:'include'});
+    if(r.status===401){return}
+    const d=await r.json();
+    const count=document.getElementById('image-proxy-event-count');if(count)count.textContent=d.count||0;
+    if(d.unchanged)return;
+    window.__imageProxyEventsVersion=d.version;
+    window.__imageProxyEvents=d.events||[];
+    renderImageProxyEvents(window.__imageProxyEvents);
   }catch(e){}
 }
 """ + _ADMIN_SETTINGS_JS + """

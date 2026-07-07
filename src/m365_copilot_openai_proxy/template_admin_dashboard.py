@@ -65,6 +65,11 @@ async function clearCapturePayloads(){
   await fetch('/admin/capture-payload/clear',{method:'POST',credentials:'include'}).catch(()=>{});
   loadCapture();
 }
+async function clearImageProxyEvents(){
+  if(!await adminConfirm(t('confirm_clear_stats')))return;
+  await fetch('/admin/image-proxy/events/clear',{method:'POST',credentials:'include'}).catch(()=>{});
+  loadImageProxyEvents();
+}
 let __expiryWarnTimer=null;
 async function loadStats(){
   const kpi=document.getElementById('dash-stat-kpi');
