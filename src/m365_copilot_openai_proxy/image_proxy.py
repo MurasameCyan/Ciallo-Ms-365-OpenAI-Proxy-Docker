@@ -11,7 +11,9 @@ _IMAGE_PROXY_TTL_SECONDS = 10 * 60
 _ALLOWED_IMAGE_HOST = "designerapp.officeapps.live.com"
 _ALLOWED_IMAGE_PATH = "/designerapp/document.ashx"
 _DESIGNER_URL_RE = re.compile(r"https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^\s`)]+")
-_RAW_DESIGNER_IMAGE_RE = re.compile(r"!\s*`(https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^`]+)`")
+_RAW_IMAGE_RE = re.compile(
+    r"!\s*`((?:https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx|https?://[^`\s]+/v1/m365-image\?|/v1/m365-image\?)[^`]+)`"
+)
 _MARKDOWN_DESIGNER_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^)]+)\)")
 
 
@@ -77,7 +79,7 @@ def normalize_m365_image_text(text: str) -> str:
     def raw_repl(match: re.Match[str]) -> str:
         return f"![image]({match.group(1).strip()})"
 
-    normalized = _RAW_DESIGNER_IMAGE_RE.sub(raw_repl, text)
+    normalized = _RAW_IMAGE_RE.sub(raw_repl, text)
     stripped = normalized.strip()
     if stripped.startswith("!") and "`" not in stripped:
         direct = _DESIGNER_URL_RE.search(stripped)

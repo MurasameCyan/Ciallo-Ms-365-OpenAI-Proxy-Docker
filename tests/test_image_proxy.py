@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
+from m365_copilot_openai_proxy.image_proxy import normalize_m365_image_text
 from m365_copilot_openai_proxy.routes_image_proxy import make_signed_image_proxy_url, rewrite_m365_image_urls
 
 
@@ -35,6 +36,12 @@ class FakeCopilotClient:
 def _path_from_url(url: str) -> str:
     parsed = urlsplit(url)
     return parsed.path + "?" + parsed.query
+
+
+def test_normalize_m365_image_text_converts_raw_proxy_image_url_to_markdown():
+    proxy_url = "http://multi.qovop.cyou/v1/m365-image?account_id=acct_1&u=abc&exp=123&sig=abc"
+
+    assert normalize_m365_image_text(f"! `{proxy_url}` ") == f"![image]({proxy_url})"
 
 
 def test_rewrite_m365_image_urls_replaces_designer_url_with_signed_proxy_url():
