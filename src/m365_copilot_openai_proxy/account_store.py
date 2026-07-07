@@ -60,6 +60,7 @@ class Account:
     cookie_valid: bool = False
     cookie_updated_at: float = 0.0
     cookie_expires_at: float = 0.0
+    cookies: list[dict[str, Any]] = field(default_factory=list)
     cdp_port: int = _CDP_PORT_BASE
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"

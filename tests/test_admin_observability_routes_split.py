@@ -119,6 +119,24 @@ def test_admin_debug_page_includes_media_proxy_records_panel_with_trace_copy():
     assert "/admin/image-proxy/events" in _ADMIN_HTML
 
 
+def test_admin_generated_javascript_passes_node_check(tmp_path):
+    import shutil
+    import subprocess
+
+    import pytest
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    script = _ADMIN_HTML.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+    script_path = tmp_path / "admin.js"
+    script_path.write_text(script, encoding="utf-8")
+
+    result = subprocess.run([node, "--check", str(script_path)], text=True, capture_output=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scrollbar():
     assert ".accounts-main-card{position:relative;padding-bottom:64px;height:450px}" in _ADMIN_HTML
     assert ".accounts-main-card .accounts-table-scroll{height:260px;max-height:260px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML

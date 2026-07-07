@@ -33,3 +33,18 @@ def test_admin_accounts_include_binding_state_without_ui_changes(tmp_path):
     assert accounts[none_account.id]["binding_state"] == "none"
     assert accounts[token_account.id]["binding_state"] == "token_only"
     assert accounts[cookie_account.id]["binding_state"] == "cookie"
+
+
+def test_admin_accounts_survive_cookie_persistence_reload(tmp_path):
+    app, _ = make_admin_client(tmp_path)
+    account = app.state.account_store.add(name="Cookie Bound", token="", token_source="cdp")
+    cookies = [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com", "path": "/"}]
+    app.state.account_store.set_cookies(account.id, cookies)
+
+    reloaded_app, reloaded_client = make_admin_client(tmp_path)
+    response = reloaded_client.get("/admin/accounts")
+
+    assert response.status_code == 200
+    accounts = {account["id"]: account for account in response.json()["accounts"]}
+    assert account.id in accounts
+    assert reloaded_app.state.account_store.get(account.id).cookies == cookies
