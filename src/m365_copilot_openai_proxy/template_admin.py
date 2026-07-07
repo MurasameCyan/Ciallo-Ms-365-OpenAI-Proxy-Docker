@@ -501,7 +501,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div class="call-filter-bar"><div class="call-filter-group"><button class="call-filter-btn chat" data-api-filter="chat" onclick="setCallLogFilter('chat')">chat</button><button class="call-filter-btn responses" data-api-filter="responses" onclick="setCallLogFilter('responses')">responses</button><button class="call-filter-btn anthropic" data-api-filter="anthropic" onclick="setCallLogFilter('anthropic')">anthropic</button></div><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div class="call-filter-bar"><div class="call-filter-group"><button class="call-filter-btn chat" data-api-filter="chat" onclick="setCallLogFilter('chat')">chat</button><button class="call-filter-btn responses" data-api-filter="responses" onclick="setCallLogFilter('responses')">responses</button><button class="call-filter-btn anthropic" data-api-filter="anthropic" onclick="setCallLogFilter('anthropic')">anthropic</button></div><button id="copy-call-log-all" onclick="copyAllCallLog()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="call-log-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
@@ -512,7 +512,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="image-proxy-event-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-image，后续可扩展到视频、音频和文件。</div><button onclick="clearImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-image，后续可扩展到视频、音频和文件。</div><button id="copy-image-proxy-all" onclick="copyAllImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="image-proxy-event-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
 <span style="color:var(--faint)">暂无媒体代理日志</span>
 </div>
@@ -523,7 +523,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="capture-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div><button onclick="clearCapturePayloads()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1" data-i18n="capture_hint">在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。</div><button id="copy-capture-all" onclick="copyAllCapturePayloads()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearCapturePayloads()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div>
 <div id="capture-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
 <span style="color:var(--faint)" data-i18n="no_capture_yet">暂无抓包数据</span>
 </div>
@@ -646,7 +646,7 @@ const i18n={
     no_calls_yet:'暂无调用记录',
     tool_calls_parsed:'解析出工具调用',
     view_raw:'查看原文',
-    copy:'复制',copied:'已复制',copy_record:'复制整条',
+    copy:'复制',copied:'已复制',copy_record:'复制整条',copy_all:'复制全部',
     title_capture:'抓包调试日志',
     capture_hint:'在 M365 Copilot 切换不同模式（快速答复/深度思考、GPT 5.5/5.2）各发一条消息，用油猴脚本推送抓包，下方对比哪些字段控制模式。',
     no_capture_yet:'暂无抓包数据',
@@ -732,7 +732,7 @@ const i18n={
     no_calls_yet:'No calls yet',
     tool_calls_parsed:'Parsed tool calls',
     view_raw:'View raw',
-    copy:'Copy',copied:'Copied',copy_record:'Copy record',
+    copy:'Copy',copied:'Copied',copy_record:'Copy record',copy_all:'Copy all',
     title_capture:'Capture Debug Records',
     capture_hint:'In M365 Copilot switch between modes (Fast/Think, GPT 5.5/5.2) and send one message each, then push the captures via the Tampermonkey script. Compare which fields control the mode below.',
     no_capture_yet:'No captures yet',
@@ -1176,6 +1176,15 @@ function copyCaptureText(key){
     if(b){const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)}
   }).catch(()=>{});
 }
+function copyJsonToButton(value,buttonId){
+  navigator.clipboard.writeText(JSON.stringify(value||[],null,2)).then(()=>{
+    const b=document.getElementById(buttonId);
+    if(b){const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)}
+  }).catch(()=>{});
+}
+function copyAllCallLog(){copyJsonToButton(window.__callLogItems||[],'copy-call-log-all')}
+function copyAllImageProxyEvents(){copyJsonToButton(window.__imageProxyEvents||[],'copy-image-proxy-all')}
+function copyAllCapturePayloads(){copyJsonToButton(window.__capItems||[],'copy-capture-all')}
 function copyImageProxyTrace(traceId){
   const items=(window.__imageProxyEvents||[]).filter(e=>e.trace_id===traceId);
   if(!items.length)return;

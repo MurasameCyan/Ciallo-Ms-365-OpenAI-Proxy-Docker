@@ -390,7 +390,9 @@ class RefreshScheduler:
                 await cdp_call("Page.enable")
                 if event_sink:
                     event_sink("chromium_navigate")
-                await cdp_call("Page.navigate", {"url": url})
+                navigate_id = next_id
+                next_id += 1
+                await ws.send(json.dumps({"id": navigate_id, "method": "Page.navigate", "params": {"url": url}}))
                 request_id = ""
                 content_type = "application/octet-stream"
                 status = 0

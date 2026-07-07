@@ -90,6 +90,12 @@ def test_image_proxy_route_returns_bytes_for_valid_signed_designer_url(tmp_path)
     assert phases == ["request", "fetch_start", "ok"]
 
 
+def test_image_proxy_default_timeout_allows_chromium_fallback_window(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
+
+    assert app.state.image_proxy_timeout >= 55.0
+
+
 def test_image_proxy_route_times_out_slow_fetcher(tmp_path):
     app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
     account = app.state.account_store.add(name="Image Account", token="", token_source="cdp")

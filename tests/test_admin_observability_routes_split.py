@@ -137,6 +137,15 @@ def test_admin_generated_javascript_passes_node_check(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_admin_debug_logs_include_copy_all_buttons():
+    assert "copyAllCallLog" in _ADMIN_HTML
+    assert "copyAllImageProxyEvents" in _ADMIN_HTML
+    assert "copyAllCapturePayloads" in _ADMIN_HTML
+    assert _ADMIN_HTML.count('data-i18n="copy_all"') == 3
+    assert "copy_all:'复制全部'" in _ADMIN_HTML
+    assert "copy_all:'Copy all'" in _ADMIN_HTML
+
+
 def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scrollbar():
     assert ".accounts-main-card{position:relative;padding-bottom:64px;height:450px}" in _ADMIN_HTML
     assert ".accounts-main-card .accounts-table-scroll{height:260px;max-height:260px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML
