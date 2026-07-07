@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import time
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
@@ -63,7 +63,16 @@ def register_image_proxy_routes(app: FastAPI) -> None:
             emit("fetcher_missing", source_host=parsed.netloc, source_path=parsed.path)
             raise HTTPException(status_code=503, detail="Image fetcher is unavailable")
         timeout = float(getattr(app.state, "image_proxy_timeout", 20.0) or 20.0)
-        emit("fetch_start", source_host=parsed.netloc, source_path=parsed.path, timeout_seconds=timeout)
+        query_keys = sorted({key for key, _ in parse_qsl(parsed.query, keep_blank_values=True)})
+        emit(
+            "fetch_start",
+            source_host=parsed.hostname or "",
+            source_path=parsed.path,
+            source_query_keys=query_keys,
+            has_file_token="fileToken" in query_keys,
+            has_path="path" in query_keys,
+            timeout_seconds=timeout,
+        )
         try:
             kwargs = {}
             if "event_sink" in inspect.signature(fetcher).parameters:

@@ -88,6 +88,10 @@ def test_image_proxy_route_returns_bytes_for_valid_signed_designer_url(tmp_path)
     assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_IMAGE_URL)]
     phases = [event["phase"] for event in app.state.image_proxy_events]
     assert phases == ["request", "fetch_start", "ok"]
+    fetch_start = app.state.image_proxy_events[1]
+    assert fetch_start["source_query_keys"] == ["fileToken", "path"]
+    assert fetch_start["has_file_token"] is True
+    assert fetch_start["has_path"] is True
 
 
 def test_image_proxy_default_timeout_allows_chromium_fallback_window(tmp_path):

@@ -81,6 +81,21 @@ def _auth_headers_for_token(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _cookie_names_for_url(cookies: list[dict[str, Any]], url: str) -> list[str]:
+    host = urlsplit(url).hostname or ""
+    names: list[str] = []
+    for cookie in cookies:
+        name = str(cookie.get("name") or "").strip()
+        domain = str(cookie.get("domain") or "").lstrip(".").lower()
+        if name and domain and (host == domain or host.endswith("." + domain)):
+            names.append(name)
+    return names
+
+
+def _body_preview(content: bytes, limit: int = 300) -> str:
+    return content[:limit].decode("utf-8", errors="replace")
+
+
 def _normalize_cookie_expires(value: object) -> float:
     expires = float(value)
     if expires > 10_000_000_000:
@@ -283,10 +298,11 @@ class RefreshScheduler:
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
         cookie_header = _cookie_header_for_url(account.cookies, url)
+        cookie_names = _cookie_names_for_url(account.cookies, url)
         auth_headers = _auth_headers_for_token(account.token)
         if cookie_header:
             if event_sink:
-                event_sink("direct_start", cookie_count=cookie_header.count(";") + 1, token_header=bool(auth_headers))
+                event_sink("direct_start", cookie_count=cookie_header.count(";") + 1, cookie_names=cookie_names, token_header=bool(auth_headers))
             try:
                 return await self._fetch_image_with_cookies(url, cookie_header, auth_headers=auth_headers, event_sink=event_sink)
             except Exception as exc:
@@ -315,16 +331,18 @@ class RefreshScheduler:
             response = await client.get(url, headers=headers)
         if event_sink:
             response_url = urlsplit(str(response.url))
-            event_sink(
-                "direct_response",
-                status_code=response.status_code,
-                content_type=response.headers.get("content-type", ""),
-                bytes=len(response.content),
-                duration_ms=round((time.perf_counter() - started) * 1000),
-                response_host=response_url.hostname or "",
-                response_path=response_url.path,
-                www_authenticate=response.headers.get("www-authenticate", ""),
-            )
+            fields = {
+                "status_code": response.status_code,
+                "content_type": response.headers.get("content-type", ""),
+                "bytes": len(response.content),
+                "duration_ms": round((time.perf_counter() - started) * 1000),
+                "response_host": response_url.hostname or "",
+                "response_path": response_url.path,
+                "www_authenticate": response.headers.get("www-authenticate", ""),
+            }
+            if response.status_code >= 400:
+                fields["body_preview"] = _body_preview(response.content)
+            event_sink("direct_response", **fields)
         if response.status_code >= 400:
             raise RuntimeError(f"upstream image returned HTTP {response.status_code}")
         return response.content, response.headers.get("content-type", "application/octet-stream")
@@ -436,27 +454,27 @@ class RefreshScheduler:
                                     response_path=urlsplit(response_url).path,
                                     www_authenticate=str(response_headers.get("www-authenticate") or response_headers.get("WWW-Authenticate") or ""),
                                 )
-                            if status >= 400:
-                                raise RuntimeError(f"upstream image returned HTTP {status}")
                     elif method == "Network.loadingFinished" and request_id and params.get("requestId") == request_id:
                         break
                     elif method == "Network.loadingFailed" and request_id and params.get("requestId") == request_id:
                         raise RuntimeError(str(params.get("errorText") or "image loading failed"))
                 if not request_id:
                     raise RuntimeError("image response was not observed in Chromium")
-                if status >= 400:
-                    raise RuntimeError(f"upstream image returned HTTP {status}")
                 body_response = await cdp_call("Network.getResponseBody", {"requestId": request_id})
                 result = body_response.get("result") or {}
                 body = str(result.get("body") or "")
                 if result.get("base64Encoded"):
                     decoded = base64.b64decode(body)
                     if event_sink:
-                        event_sink("chromium_body", bytes=len(decoded), base64_encoded=True)
+                        event_sink("chromium_body", bytes=len(decoded), base64_encoded=True, body_preview=_body_preview(decoded) if status >= 400 else "")
+                    if status >= 400:
+                        raise RuntimeError(f"upstream image returned HTTP {status}")
                     return decoded, content_type
                 encoded = body.encode("utf-8")
                 if event_sink:
-                    event_sink("chromium_body", bytes=len(encoded), base64_encoded=False)
+                    event_sink("chromium_body", bytes=len(encoded), base64_encoded=False, body_preview=_body_preview(encoded) if status >= 400 else "")
+                if status >= 400:
+                    raise RuntimeError(f"upstream image returned HTTP {status}")
                 return encoded, content_type
         finally:
             await _close_chromium_gracefully(account.cdp_port, proc)

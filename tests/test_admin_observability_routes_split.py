@@ -144,6 +144,9 @@ def test_admin_debug_logs_include_copy_all_buttons():
     assert _ADMIN_HTML.count('data-i18n="copy_all"') == 3
     assert "copy_all:'复制全部'" in _ADMIN_HTML
     assert "copy_all:'Copy all'" in _ADMIN_HTML
+    assert '<div class="debug-actions"><button id="copy-call-log-all"' in _ADMIN_HTML
+    assert '<div class="debug-actions"><button id="copy-image-proxy-all"' in _ADMIN_HTML
+    assert '<div class="debug-actions"><button id="copy-capture-all"' in _ADMIN_HTML
 
 
 def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scrollbar():

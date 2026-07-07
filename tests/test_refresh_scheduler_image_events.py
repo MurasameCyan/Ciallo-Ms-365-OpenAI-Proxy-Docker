@@ -61,6 +61,7 @@ def test_fetch_image_with_cookies_records_upstream_status_before_raising(tmp_pat
     assert events[0]["content_type"] == "text/html"
     assert events[0]["bytes"] == len(b"login")
     assert events[0]["duration_ms"] >= 0
+    assert events[0]["body_preview"] == "login"
 
 
 def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypatch):
@@ -84,6 +85,7 @@ def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypat
     assert FakeAuthorizedImageClient.last_headers["Authorization"] == "Bearer account-token"
     assert events[0]["phase"] == "direct_start"
     assert events[0]["token_header"] is True
+    assert events[0]["cookie_names"] == ["MUID"]
 
 
 class FakeBrowserProcess:
