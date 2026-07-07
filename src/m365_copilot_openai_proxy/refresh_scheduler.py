@@ -60,7 +60,7 @@ def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
         domain = str(cookie.get("domain") or "").lstrip(".").lower()
         expires = cookie.get("expirationDate") or cookie.get("expires") or 0
         try:
-            if expires and float(expires) < now:
+            if expires and _normalize_cookie_expires(expires) < now:
                 continue
         except (TypeError, ValueError):
             pass
@@ -70,6 +70,66 @@ def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
             continue
         pairs.append(f"{name}={value}")
     return "; ".join(pairs)
+
+
+def _normalize_cookie_expires(value: object) -> float:
+    expires = float(value)
+    if expires > 10_000_000_000:
+        expires = expires / 1000
+    return expires
+
+
+def _normalize_cookie_same_site(value: object) -> str | None:
+    same_site = str(value or "").strip().lower().replace("-", "_")
+    if same_site in ("", "unspecified", "no_restriction_unspecified"):
+        return None
+    if same_site in ("none", "no_restriction"):
+        return "None"
+    if same_site == "lax":
+        return "Lax"
+    if same_site == "strict":
+        return "Strict"
+    return None
+
+
+def _cdp_cookie_params(cookie: dict, now: float) -> tuple[dict, float, bool]:
+    name = str(cookie.get("name") or "")
+    raw_value = cookie.get("value")
+    if not name or raw_value is None:
+        raise ValueError("cookie name and value are required")
+    value = str(raw_value)
+    domain = str(cookie.get("domain") or ".microsoft.com").strip()
+    host = domain.lstrip(".")
+    if not host:
+        host = "microsoft.com"
+    params = {
+        "name": name,
+        "value": value,
+        "url": f"https://{host}/",
+        "path": cookie.get("path", "/") or "/",
+        "secure": bool(cookie.get("secure", True)),
+        "httpOnly": bool(cookie.get("httpOnly", False)),
+    }
+    if name.startswith("__Host-"):
+        params["path"] = "/"
+        params["secure"] = True
+    else:
+        params["domain"] = domain
+        if name.startswith("__Secure-"):
+            params["secure"] = True
+    same_site = _normalize_cookie_same_site(cookie.get("sameSite"))
+    if same_site:
+        params["sameSite"] = same_site
+    if params.get("sameSite") == "None":
+        params["secure"] = True
+    raw_expires = cookie.get("expirationDate") or cookie.get("expires")
+    if raw_expires:
+        expires = _normalize_cookie_expires(raw_expires)
+        params["expires"] = expires
+        return params, expires, False
+    expires = now + _SESSION_COOKIE_PERSIST_SECONDS
+    params["expires"] = expires
+    return params, expires, True
 
 
 async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | None) -> None:
@@ -408,37 +468,21 @@ class RefreshScheduler:
                 now = time.time()
                 session_persisted = 0
                 attempted = 0
+                failures: list[str] = []
                 for i, cookie in enumerate(cookies):
-                    name = cookie.get("name", "")
-                    value = cookie.get("value", "")
-                    domain = cookie.get("domain", "") or ".microsoft.com"
+                    domain = str(cookie.get("domain", "") or ".microsoft.com")
                     domain_l = domain.lower()
-                    if not name or value is None or not any(d in domain_l for d in ("microsoft", "office.com", "live.com")):
+                    if not any(d in domain_l for d in ("microsoft", "office.com", "live.com")):
                         continue
-                    params = {
-                        "name": name,
-                        "value": value,
-                        "domain": domain,
-                        "path": cookie.get("path", "/"),
-                        "secure": cookie.get("secure", True),
-                        "httpOnly": cookie.get("httpOnly", False),
-                    }
-                    ss = cookie.get("sameSite", "")
-                    if ss:
-                        ss_cap = str(ss).capitalize()
-                        if ss_cap in ("Strict", "Lax", "None"):
-                            params["sameSite"] = ss_cap
-                    if params.get("sameSite") == "None":
-                        params["secure"] = True
-                    if cookie.get("expirationDate") or cookie.get("expires"):
-                        params["expires"] = cookie.get("expirationDate") or cookie.get("expires")
-                    else:
-                        params["expires"] = now + _SESSION_COOKIE_PERSIST_SECONDS
+                    try:
+                        params, exp, was_session = _cdp_cookie_params(cookie, now)
+                    except (TypeError, ValueError):
+                        continue
+                    if was_session:
                         session_persisted += 1
                     attempted += 1
                     req_id = 100 + i
-                    exp = params.get("expires")
-                    if isinstance(exp, (int, float)) and exp > now:
+                    if exp > now:
                         expires_by_id[req_id] = float(exp)
                     pending.add(req_id)
                     await ws.send(json.dumps({"id": req_id, "method": "Network.setCookie", "params": params}))
@@ -456,6 +500,8 @@ class RefreshScheduler:
                             injected += 1
                             if msg_id in expires_by_id:
                                 successful_expires.append(expires_by_id[msg_id])
+                        elif len(failures) < 5:
+                            failures.append(json.dumps(msg.get("error") or msg.get("result") or {}, ensure_ascii=False))
                 await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
                 await asyncio.sleep(8)
                 try:
@@ -476,6 +522,8 @@ class RefreshScheduler:
                 print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
             else:
                 self._accounts.set_cookie_status(account_id, False)
+                if failures:
+                    print(f"Cookie injection CDP failures for {account_id}: {' | '.join(failures)}", flush=True)
                 if attempted > 0 and injected == attempted and _is_login_url(final_url):
                     print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
             return injected, attempted
