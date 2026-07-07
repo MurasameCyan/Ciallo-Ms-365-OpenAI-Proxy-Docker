@@ -16,6 +16,7 @@ from .image_proxy import (
     verify_signed_image_proxy_params,
 )
 from .image_proxy_events import append_image_proxy_event
+from .refresh_scheduler import UpstreamMediaNotFound
 
 
 def request_image_rewriter(app: FastAPI, request: Request):
@@ -82,10 +83,13 @@ def register_image_proxy_routes(app: FastAPI) -> None:
             content, content_type = await asyncio.wait_for(fetcher(account_id, source_url, **kwargs), timeout=timeout)
         except asyncio.TimeoutError as exc:
             emit("timeout", duration_ms=round((time.perf_counter() - started) * 1000))
-            raise HTTPException(status_code=504, detail="Image fetch timed out") from exc
+            raise HTTPException(status_code=504, detail="Media fetch timed out") from exc
+        except UpstreamMediaNotFound as exc:
+            emit("not_found", error_type=type(exc).__name__, error=str(exc), duration_ms=round((time.perf_counter() - started) * 1000))
+            raise HTTPException(status_code=404, detail="Media not found") from exc
         except Exception as exc:
             emit("error", error_type=type(exc).__name__, error=str(exc), duration_ms=round((time.perf_counter() - started) * 1000))
-            raise HTTPException(status_code=502, detail=f"Image fetch failed: {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"Media fetch failed: {exc}") from exc
         emit("ok", content_type=content_type or "application/octet-stream", bytes=len(content), duration_ms=round((time.perf_counter() - started) * 1000))
         return Response(
             content=content,

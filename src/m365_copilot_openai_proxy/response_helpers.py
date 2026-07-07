@@ -8,7 +8,13 @@ from collections.abc import AsyncIterator, Callable
 from fastapi.responses import JSONResponse
 
 from .session_store import PersistentSession
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
+from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, _remaining_fallback_text
+
+
+def _dedupe_transformed_delta(full_text: str, delta: str, text_transform: Callable[[str], str] | None) -> str:
+    if text_transform is None or not full_text or not delta:
+        return delta
+    return _remaining_fallback_text(full_text, delta)
 
 
 def _json_err(status: int, message: str, error_type: str = "error") -> JSONResponse:
@@ -43,6 +49,9 @@ async def _openai_stream(
         async for delta in client.chat_stream(prompt, additional_context, session):
             if text_transform is not None:
                 delta = text_transform(delta)
+            delta = _dedupe_transformed_delta(full_text, delta, text_transform)
+            if not delta:
+                continue
             full_text += delta
             chunk = {
                 "id": completion_id,
@@ -90,6 +99,9 @@ async def _responses_stream(
         async for delta in client.chat_stream(prompt, additional_context, session):
             if text_transform is not None:
                 delta = text_transform(delta)
+            delta = _dedupe_transformed_delta(full_text, delta, text_transform)
+            if not delta:
+                continue
             full_text += delta
             yield f"data: {json.dumps({'type': 'response.output_text.delta', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'delta': delta})}\n\n"
     except SubstrateCopilotError as exc:
@@ -125,6 +137,9 @@ async def _anthropic_stream(
         async for delta in client.chat_stream(prompt, additional_context, session):
             if text_transform is not None:
                 delta = text_transform(delta)
+            delta = _dedupe_transformed_delta(full_text, delta, text_transform)
+            if not delta:
+                continue
             full_text += delta
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
     except SubstrateCopilotError as exc:

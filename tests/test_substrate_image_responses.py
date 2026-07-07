@@ -70,6 +70,36 @@ def test_remaining_fallback_text_avoids_repeating_media_citation_variant():
     assert _remaining_fallback_text(streamed, fallback) == ""
 
 
+def test_remaining_fallback_text_avoids_repeating_proxied_audio_and_citation_variant():
+    proxy_url = "http://multi.qovop.cyou/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
+    streamed = (
+        "已生成流水声（WAV 格式）：\n\n"
+        f"🎧 `{proxy_url}` \n\n"
+        "这是一个约 12 秒的潺潺流水音效，适合放松、冥想或作为环境白噪音。\n\n"
+        "如果需要其他风格，我也可以生成：\n"
+        "- 🏞️ 山间小溪\n"
+        "- 🌊 宽阔河流\n"
+        "- 💧 近距离水流\n"
+        "- 🌧️ 雨后溪流\n"
+        "- 🌲 森林溪流 + 鸟鸣\n"
+        "- 🧘 长时白噪音版（1分钟/5分钟）"
+    )
+    fallback = (
+        "已生成流水声（WAV 格式）：\n\n"
+        "🎧 [流水声](\ue200cite\ue202turn1file1\ue201)\n\n"
+        "这是一个约 12 秒的潺潺流水音效，适合放松、冥想或作为环境白噪音。\n\n"
+        "如果需要其他风格，我也可以生成：\n"
+        "- 🏞️ 山间小溪\n"
+        "- 🌊 宽阔河流\n"
+        "- 💧 近距离水流\n"
+        "- 🌧️ 雨后溪流\n"
+        "- 🌲 森林溪流 + 鸟鸣\n"
+        "- 🧘 长时白噪音版（1分钟/5分钟）"
+    )
+
+    assert _remaining_fallback_text(streamed, fallback) == ""
+
+
 def test_chat_stream_appends_final_image_markdown_after_loading_delta(monkeypatch):
     image_url = "https://images.example/generated.png"
     update = {

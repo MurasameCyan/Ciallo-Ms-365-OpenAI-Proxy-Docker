@@ -25,6 +25,20 @@ class FakeAsyncClient:
         return httpx.Response(401, headers={"content-type": "text/html"}, content=b"login", request=httpx.Request("GET", url))
 
 
+class FakeNotFoundMediaClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers=None):
+        return httpx.Response(404, content=b"", request=httpx.Request("GET", url))
+
+
 class FakeAuthorizedImageClient:
     last_headers: dict | None = None
 
@@ -62,6 +76,33 @@ def test_fetch_image_with_cookies_records_upstream_status_before_raising(tmp_pat
     assert events[0]["bytes"] == len(b"login")
     assert events[0]["duration_ms"] >= 0
     assert events[0]["body_preview"] == "login"
+
+
+def test_fetch_image_does_not_fallback_to_chromium_after_direct_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", FakeNotFoundMediaClient)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Media Account", token="account-token", token_source="manual")
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".asyncgw.teams.microsoft.com"}])
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    async def fail_if_called(account_id, url, event_sink=None):
+        raise AssertionError("chromium fallback should not run after upstream 404")
+
+    scheduler._fetch_image_one = fail_if_called
+
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        asyncio.run(
+            scheduler.fetch_image(
+                account.id,
+                "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0/views/original/missing.wav",
+                event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+            )
+        )
+
+    assert any(event["phase"] == "direct_response" and event["status_code"] == 404 for event in events)
+    assert not any(event["phase"] == "chromium_fallback_start" for event in events)
+
 
 
 def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypatch):

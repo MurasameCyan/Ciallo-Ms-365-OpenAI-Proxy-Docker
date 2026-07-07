@@ -119,10 +119,20 @@ def test_admin_debug_page_includes_media_proxy_records_panel_with_trace_copy():
     assert "/admin/image-proxy/events" in _ADMIN_HTML
 
 
+def test_admin_ports_logs_swaps_idle_timeout_before_account_cdp_port():
+    idle_pos = _ADMIN_HTML.index('id="runtime-idle-timeout"')
+    account_cdp_pos = _ADMIN_HTML.index('id="runtime-account-cdp-port-base"')
+
+    assert idle_pos < account_cdp_pos
+
+
+
 def test_admin_settings_include_media_suffix_card():
     assert 'id="media-suffix-details"' in _ADMIN_HTML
     assert 'id="media-suffix-input"' in _ADMIN_HTML
     assert 'data-i18n="media_suffix_title"' in _ADMIN_HTML
+    assert "媒体后缀名（全局）" in _ADMIN_HTML
+    assert "Media suffixes (Global)" in _ADMIN_HTML
     assert 'data-i18n="media_suffix_hint"' in _ADMIN_HTML
     assert "media_proxy_suffixes" in _ADMIN_SETTINGS_JS
     assert "saveMediaSuffixes" in _ADMIN_SETTINGS_JS

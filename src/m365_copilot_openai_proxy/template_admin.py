@@ -432,7 +432,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="card view-settings">
 <details id="media-suffix-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-<span data-i18n="media_suffix_title">媒体后缀名</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span data-i18n="media_suffix_title">媒体后缀名（全局）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="margin-top:.75rem">
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="media_suffix_hint">控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。</div>
@@ -503,9 +503,9 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </summary>
 <div class="ports-logs-grid" style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:1rem 1.1rem;align-items:start;margin-top:20px">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <div style="display:flex;flex-direction:column;gap:.75rem"><label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label><div style="display:flex;align-items:center;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div></div>
+<label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="call_log_limit_label">调用记录上限</span><input id="runtime-call-log-limit" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 </div>
@@ -675,7 +675,7 @@ const i18n={
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
     runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',call_log_limit_label:'调用记录上限',
     tone_saved:'已保存',
-    media_suffix_title:'媒体后缀名',
+    media_suffix_title:'媒体后缀名（全局）',
     media_suffix_hint:'控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。',
     media_suffix_save:'保存后缀',
     title_tool_prompt:'提示词增强（全局）',
@@ -764,7 +764,7 @@ const i18n={
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
     runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP primary port',account_cdp_port_base_label:'CDP secondary port',log_level_label:'Log level',call_log_limit_label:'Call log limit',
     tone_saved:'Saved',
-    media_suffix_title:'Media suffixes',
+    media_suffix_title:'Media suffixes (Global)',
     media_suffix_hint:'Controls file suffixes allowed by /v1/m365-media. Separate with commas, spaces, or new lines. Applies immediately after saving.',
     media_suffix_save:'Save suffixes',
     title_tool_prompt:'Prompt Enhancement (Global)',

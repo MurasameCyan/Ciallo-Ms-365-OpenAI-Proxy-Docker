@@ -93,6 +93,10 @@ def _cookie_names_for_url(cookies: list[dict[str, Any]], url: str) -> list[str]:
     return names
 
 
+class UpstreamMediaNotFound(RuntimeError):
+    pass
+
+
 def _body_preview(content: bytes, limit: int = 300) -> str:
     return content[:limit].decode("utf-8", errors="replace")
 
@@ -306,6 +310,10 @@ class RefreshScheduler:
                 event_sink("direct_start", cookie_count=cookie_header.count(";") + 1, cookie_names=cookie_names, token_header=bool(auth_headers))
             try:
                 return await self._fetch_image_with_cookies(url, cookie_header, auth_headers=auth_headers, event_sink=event_sink)
+            except UpstreamMediaNotFound as exc:
+                if event_sink:
+                    event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
+                raise
             except Exception as exc:
                 if event_sink:
                     event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
@@ -344,6 +352,8 @@ class RefreshScheduler:
             if response.status_code >= 400:
                 fields["body_preview"] = _body_preview(response.content)
             event_sink("direct_response", **fields)
+        if response.status_code == 404:
+            raise UpstreamMediaNotFound("upstream media returned HTTP 404")
         if response.status_code >= 400:
             raise RuntimeError(f"upstream image returned HTTP {response.status_code}")
         return response.content, response.headers.get("content-type", "application/octet-stream")
@@ -459,7 +469,7 @@ class RefreshScheduler:
                     if method == "Network.responseReceived":
                         response = params.get("response") or {}
                         response_url = str(response.get("url") or "")
-                        if response_url.startswith("https://designerapp.officeapps.live.com/designerapp/document.ashx"):
+                        if response_url == url or response_url.startswith("https://designerapp.officeapps.live.com/designerapp/document.ashx"):
                             request_id = str(params.get("requestId") or "")
                             status = int(response.get("status") or 0)
                             content_type = str(response.get("mimeType") or "application/octet-stream")

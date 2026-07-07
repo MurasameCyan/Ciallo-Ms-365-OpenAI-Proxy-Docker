@@ -327,6 +327,7 @@ def _capture_suspicious_response_event(sink, msg: dict) -> None:
 
 def _dedupe_signature(text: str) -> str:
     normalized = re.sub(r"`https?://[^`\s]+`", "", text)
+    normalized = re.sub(r"\[[^\]]+\]\(https?://[^\)]+\)", "", normalized)
     normalized = re.sub(r"\[[^\]]+\]\(\ue200cite\ue202[^\)]+\ue201\)", "", normalized)
     normalized = re.sub(r"\s+", "", normalized)
     return normalized

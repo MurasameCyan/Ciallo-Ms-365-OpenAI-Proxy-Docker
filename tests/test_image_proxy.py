@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.image_proxy import normalize_m365_image_text
+from m365_copilot_openai_proxy.refresh_scheduler import UpstreamMediaNotFound
 from m365_copilot_openai_proxy.routes_image_proxy import make_signed_image_proxy_url, rewrite_m365_image_urls
 
 
@@ -31,6 +32,12 @@ class FakeRefreshScheduler:
     async def fetch_image(self, account_id: str, url: str) -> tuple[bytes, str]:
         self.calls.append((account_id, url))
         return self.content, self.content_type
+
+
+class FakeNotFoundRefreshScheduler(FakeRefreshScheduler):
+    async def fetch_image(self, account_id: str, url: str) -> tuple[bytes, str]:
+        self.calls.append((account_id, url))
+        raise UpstreamMediaNotFound("upstream media returned HTTP 404")
 
 
 class FakeCopilotClient:
@@ -224,6 +231,27 @@ def test_image_proxy_route_returns_audio_bytes_for_valid_signed_asyncgw_url(tmp_
     assert response.status_code == 200
     assert response.content == b"wav-bytes"
     assert response.headers["content-type"] == "audio/wav"
+    assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_AUDIO_URL)]
+
+
+def test_image_proxy_route_returns_404_for_upstream_media_not_found(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
+    account = app.state.account_store.add(name="Missing Media Account", token="", token_source="cdp")
+    app.state.image_proxy_secret = "secret"
+    app.state.refresh_scheduler = FakeNotFoundRefreshScheduler()
+    client = TestClient(app)
+    signed_url = make_signed_image_proxy_url(
+        "http://testserver",
+        account.id,
+        SOURCE_AUDIO_URL,
+        "secret",
+        expires_at=4_102_444_800,
+    )
+
+    response = client.get(_path_from_url(signed_url))
+
+    assert response.status_code == 404
+    assert response.json()["error"]["message"] == "Media not found"
     assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_AUDIO_URL)]
 
 
