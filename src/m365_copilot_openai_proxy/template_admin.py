@@ -73,6 +73,9 @@ body[data-view="debug"] .debug-gate-card{height:250px;min-height:250px;display:f
 body[data-view="debug"] .debug-guide-card{height:200px!important;min-height:200px!important;overflow:hidden}
 body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!important;min-height:200px!important;overflow:visible}
 .accounts-main-card{position:relative;padding-bottom:64px;height:450px}
+.accounts-main-card .accounts-table-scroll{height:300px;max-height:300px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}
+.accounts-main-card .accounts-table-scroll::-webkit-scrollbar{width:0;height:0;display:none}
+.accounts-main-card .accounts-table thead th{position:sticky;top:0;z-index:5;background:var(--card)}
 body[data-view="accounts"] .view-accounts{animation:none!important}
 .view-accounts + .view-accounts,.view-settings + .view-settings,.view-debug + .view-debug{margin-top:0}
 #status-card{position:relative!important;top:auto!important;margin-top:0!important;margin-bottom:10px!important;transform:none!important;animation:none!important;height:330px}

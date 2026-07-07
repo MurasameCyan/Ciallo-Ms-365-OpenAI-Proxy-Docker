@@ -100,6 +100,14 @@ def test_admin_accounts_javascript_is_split_into_accounts_module():
     assert _ADMIN_ACCOUNTS_JS in _ADMIN_HTML
 
 
+def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scrollbar():
+    assert ".accounts-main-card{position:relative;padding-bottom:64px;height:450px}" in _ADMIN_HTML
+    assert ".accounts-main-card .accounts-table-scroll{height:300px;max-height:300px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML
+    assert ".accounts-main-card .accounts-table-scroll::-webkit-scrollbar{width:0;height:0;display:none}" in _ADMIN_HTML
+    assert ".accounts-main-card .accounts-table thead th{position:sticky;top:0;z-index:5;background:var(--card)}" in _ADMIN_HTML
+    assert '<div class="tbl-scroll accounts-table-scroll"><table class="admin-tbl accounts-table">' in _ADMIN_ACCOUNTS_JS
+
+
 def test_admin_table_pagination_javascript_is_split_into_tables_module():
     assert "const __page={keys:1,accounts:1};" in _ADMIN_TABLES_JS
     assert "function _slicePage(arr,which)" in _ADMIN_TABLES_JS
