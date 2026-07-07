@@ -89,6 +89,11 @@ def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypat
 
 
 class FakeBrowserProcess:
+    last_args: list[str] | None = None
+
+    def __init__(self, args=None):
+        FakeBrowserProcess.last_args = list(args or [])
+
     def poll(self):
         return 0
 
@@ -117,6 +122,7 @@ class FakeImageWebSocket:
     def __init__(self):
         self.messages: list[str] = []
         self.extra_headers: dict | None = None
+        self.set_cookies: list[dict] = []
 
     async def __aenter__(self):
         return self
@@ -130,6 +136,9 @@ class FakeImageWebSocket:
         method = payload["method"]
         if method in {"Network.enable", "Page.enable"}:
             self.messages.append(json.dumps({"id": msg_id, "result": {}}))
+        elif method == "Network.setCookie":
+            self.set_cookies.append(dict(payload.get("params") or {}))
+            self.messages.append(json.dumps({"id": msg_id, "result": {"success": True}}))
         elif method == "Network.setExtraHTTPHeaders":
             self.extra_headers = dict((payload.get("params") or {}).get("headers") or {})
             self.messages.append(json.dumps({"id": msg_id, "result": {}}))
@@ -177,7 +186,7 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
     monkeypatch.setattr(httpx, "AsyncClient", FakeTabListClient)
     fake_websockets = FakeWebsocketsModule()
     monkeypatch.setattr(websockets, "connect", fake_websockets.connect)
-    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeBrowserProcess())
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: FakeBrowserProcess(args))
     monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._chromium_path", lambda: "chrome")
     monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._cleanup_profile_locks", lambda profile_dir: None)
 
@@ -187,6 +196,7 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
     monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._close_chromium_gracefully", close_noop)
     store = AccountStore(Path(tmp_path) / "accounts.json")
     account = store.add(name="Image Account", token="token", token_source="manual")
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com", "path": "/"}])
     (tmp_path / "profiles" / account.id).mkdir(parents=True)
     scheduler = RefreshScheduler(store, tmp_path / "profiles")
     events: list[dict] = []
@@ -201,6 +211,10 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
 
     assert body == b"png"
     assert content_type == "image/png"
+    user_data_arg = next(arg for arg in FakeBrowserProcess.last_args if arg.startswith("--user-data-dir="))
+    assert user_data_arg != f"--user-data-dir={tmp_path / 'profiles' / account.id}"
     assert fake_websockets.ws.extra_headers["Authorization"] == "Bearer token"
+    assert any(cookie["name"] == "MUID" for cookie in fake_websockets.ws.set_cookies)
+    assert any(event["phase"] == "chromium_cookies" and event["cookie_count"] == 1 for event in events)
     assert any(event["phase"] == "chromium_response" for event in events)
     assert any(event["phase"] == "chromium_body" for event in events)

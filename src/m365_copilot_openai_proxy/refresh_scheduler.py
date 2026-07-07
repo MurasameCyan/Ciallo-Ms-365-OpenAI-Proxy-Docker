@@ -8,6 +8,7 @@ import platform
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -351,9 +352,11 @@ class RefreshScheduler:
         account = self._accounts.get(account_id)
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
-        profile_dir = self._profile_root / account_id
-        if not profile_dir.exists():
+        account_profile_dir = self._profile_root / account_id
+        if not account_profile_dir.exists():
             raise RuntimeError("account browser profile is missing; push cookies again")
+        self._profile_root.mkdir(parents=True, exist_ok=True)
+        profile_dir = Path(tempfile.mkdtemp(prefix=f"{account_id}-media-", dir=self._profile_root))
         _cleanup_profile_locks(profile_dir)
         proc = None
         try:
@@ -416,6 +419,22 @@ class RefreshScheduler:
                             return msg
 
                 await cdp_call("Network.enable")
+                injected_cookies = 0
+                now = time.time()
+                for cookie in account.cookies:
+                    domain = str(cookie.get("domain", "") or ".microsoft.com")
+                    domain_l = domain.lower()
+                    if not any(d in domain_l for d in ("microsoft", "office.com", "live.com")):
+                        continue
+                    try:
+                        params, _, _ = _cdp_cookie_params(cookie, now)
+                    except (TypeError, ValueError):
+                        continue
+                    result = await cdp_call("Network.setCookie", params)
+                    if result.get("result", {}).get("success"):
+                        injected_cookies += 1
+                if event_sink:
+                    event_sink("chromium_cookies", cookie_count=injected_cookies)
                 auth_headers = _auth_headers_for_token(account.token)
                 if auth_headers:
                     await cdp_call("Network.setExtraHTTPHeaders", {"headers": auth_headers})
@@ -483,6 +502,7 @@ class RefreshScheduler:
                     proc.kill()
                 except Exception:
                     pass
+            shutil.rmtree(profile_dir, ignore_errors=True)
 
     async def _inject_cookies_one(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
         account = self._accounts.get(account_id)
