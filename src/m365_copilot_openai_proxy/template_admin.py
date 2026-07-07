@@ -1180,9 +1180,14 @@ function copyImageProxyTrace(traceId){
   const items=(window.__imageProxyEvents||[]).filter(e=>e.trace_id===traceId);
   if(!items.length)return;
   navigator.clipboard.writeText(JSON.stringify(items,null,2)).then(()=>{
-    document.querySelectorAll('[data-image-trace="'+traceId+'"]').forEach(b=>{const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)});
+    document.querySelectorAll('[data-image-trace="'+CSS.escape(traceId)+'"]').forEach(b=>{const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)});
   }).catch(()=>{});
 }
+document.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-image-trace]');
+  if(!btn)return;
+  copyImageProxyTrace(btn.getAttribute('data-image-trace')||'');
+});
 function updateCallLogFilterButtons(){
   const cur=window.__callLogFilter||'';
   document.querySelectorAll('[data-api-filter]').forEach(b=>b.classList.toggle('active',b.getAttribute('data-api-filter')===cur));
@@ -1305,7 +1310,7 @@ function renderImageProxyEvents(items){
     const ts=e.ts?new Date(e.ts*1000).toLocaleTimeString():'';
     const meta={...e};delete meta.ts;delete meta.trace_id;delete meta.phase;
     const trace=String(e.trace_id||'');
-    const copyBtn='<button data-image-trace="'+esc(trace)+'" onclick="copyImageProxyTrace(\''+esc(trace)+'\')" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
+    const copyBtn='<button data-image-trace="'+esc(trace)+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
     return '<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
       '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><span style="color:#38bdf8">'+esc(ts)+'</span><b style="color:var(--strong)">'+esc(e.phase)+'</b><span style="color:var(--faint)">'+esc(trace)+'</span>'+copyBtn+'</div>'+
       '<pre style="white-space:pre-wrap;word-break:break-all;color:var(--muted);margin:4px 0 0">'+esc(JSON.stringify(meta,null,2))+'</pre></div>';

@@ -114,6 +114,8 @@ def test_admin_debug_page_includes_media_proxy_records_panel_with_trace_copy():
     assert "image-proxy-event-content" in _ADMIN_HTML
     assert "loadImageProxyEvents()" in _ADMIN_HTML
     assert "copyImageProxyTrace" in _ADMIN_HTML
+    assert "onclick=\"copyImageProxyTrace" not in _ADMIN_HTML
+    assert "data-image-trace" in _ADMIN_HTML
     assert "/admin/image-proxy/events" in _ADMIN_HTML
 
 
