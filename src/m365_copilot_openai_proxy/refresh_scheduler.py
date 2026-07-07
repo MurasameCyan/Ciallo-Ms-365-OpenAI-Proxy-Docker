@@ -10,6 +10,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .account_store import AccountStore
 
@@ -47,6 +48,28 @@ def _chromium_path() -> str:
 
 def _is_login_url(url: str) -> bool:
     return url.startswith(("https://login.microsoftonline.com/", "https://login.live.com/"))
+
+
+def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
+    host = urlsplit(url).hostname or ""
+    now = time.time()
+    pairs: list[str] = []
+    for cookie in cookies:
+        name = str(cookie.get("name") or "")
+        value = str(cookie.get("value") or "")
+        domain = str(cookie.get("domain") or "").lstrip(".").lower()
+        expires = cookie.get("expirationDate") or cookie.get("expires") or 0
+        try:
+            if expires and float(expires) < now:
+                continue
+        except (TypeError, ValueError):
+            pass
+        if not name or not value:
+            continue
+        if domain and host != domain and not host.endswith("." + domain):
+            continue
+        pairs.append(f"{name}={value}")
+    return "; ".join(pairs)
 
 
 async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | None) -> None:
@@ -190,9 +213,30 @@ class RefreshScheduler:
         account = self._accounts.get(account_id)
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
+        cookie_header = _cookie_header_for_url(account.cookies, url)
+        if cookie_header:
+            try:
+                return await self._fetch_image_with_cookies(url, cookie_header)
+            except Exception:
+                pass
         async with self._account_lock(account_id):
             async with self._lock:
                 return await self._fetch_image_one(account_id, url)
+
+    async def _fetch_image_with_cookies(self, url: str, cookie_header: str) -> tuple[bytes, str]:
+        import httpx
+
+        headers = {
+            "Cookie": cookie_header,
+            "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": "https://designerapp.officeapps.live.com/",
+        }
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code >= 400:
+            raise RuntimeError(f"upstream image returned HTTP {response.status_code}")
+        return response.content, response.headers.get("content-type", "application/octet-stream")
 
     async def _fetch_image_one(self, account_id: str, url: str) -> tuple[bytes, str]:
         account = self._accounts.get(account_id)

@@ -1,0 +1,15 @@
+{
+  "acct_e769d932ede0": {
+    "id": "acct_e769d932ede0",
+    "name": "Image Account",
+    "email": "",
+    "token": "",
+    "cookie_valid": false,
+    "cookie_updated_at": 0.0,
+    "cookie_expires_at": 0.0,
+    "cdp_port": 9322,
+    "token_source": "cdp",
+    "created_at": 1783393311.6254132,
+    "updated_at": 1783393311.6254132
+  }
+}

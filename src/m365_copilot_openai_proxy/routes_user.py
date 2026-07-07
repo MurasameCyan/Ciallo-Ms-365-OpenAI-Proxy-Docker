@@ -216,6 +216,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         acc = app.state.account_store.get(k.account_id)
         if not acc or not acc.cookie_valid:
             return _json_err(400, "Cookie injected, but Microsoft redirected to login. Please sign in to M365 in the browser and push cookies again.")
+        app.state.account_store.set_cookies(k.account_id, cookies)
         if account_name and acc.name != account_name:
             app.state.account_store.rename(k.account_id, account_name)
         return {"status": "ok", "injected": injected, "total": total}

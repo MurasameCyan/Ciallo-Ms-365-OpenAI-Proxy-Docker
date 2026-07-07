@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 
@@ -38,8 +40,11 @@ def register_image_proxy_routes(app: FastAPI) -> None:
         fetcher = getattr(app.state.refresh_scheduler, "fetch_image", None)
         if fetcher is None:
             raise HTTPException(status_code=503, detail="Image fetcher is unavailable")
+        timeout = float(getattr(app.state, "image_proxy_timeout", 20.0) or 20.0)
         try:
-            content, content_type = await fetcher(account_id, source_url)
+            content, content_type = await asyncio.wait_for(fetcher(account_id, source_url), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Image fetch timed out") from exc
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Image fetch failed: {exc}") from exc
         return Response(

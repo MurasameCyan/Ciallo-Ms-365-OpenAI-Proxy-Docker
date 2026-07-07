@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import urlsplit
 
 from fastapi.testclient import TestClient
@@ -31,6 +32,12 @@ class FakeCopilotClient:
 
     async def chat(self, prompt, additional_context, session=None):
         return f"![image]({SOURCE_IMAGE_URL})"
+
+
+class SlowRefreshScheduler:
+    async def fetch_image(self, account_id: str, url: str) -> tuple[bytes, str]:
+        await asyncio.sleep(0.05)
+        return b"late", "image/png"
 
 
 def _path_from_url(url: str) -> str:
@@ -78,6 +85,26 @@ def test_image_proxy_route_returns_bytes_for_valid_signed_designer_url(tmp_path)
     assert response.content == b"png-bytes"
     assert response.headers["content-type"] == "image/png"
     assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_IMAGE_URL)]
+
+
+def test_image_proxy_route_times_out_slow_fetcher(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
+    account = app.state.account_store.add(name="Image Account", token="", token_source="cdp")
+    app.state.image_proxy_secret = "secret"
+    app.state.image_proxy_timeout = 0.01
+    app.state.refresh_scheduler = SlowRefreshScheduler()
+    client = TestClient(app)
+    signed_url = make_signed_image_proxy_url(
+        "http://testserver",
+        account.id,
+        SOURCE_IMAGE_URL,
+        "secret",
+        expires_at=4_102_444_800,
+    )
+
+    response = client.get(_path_from_url(signed_url))
+
+    assert response.status_code == 504
 
 
 def test_image_proxy_route_rejects_unsigned_request(tmp_path):
