@@ -12,18 +12,21 @@ from m365_copilot_openai_proxy.routes_image_proxy import make_signed_image_proxy
 
 
 SOURCE_IMAGE_URL = "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fgenerated.png&fileToken=abc"
+SOURCE_AUDIO_URL = "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original/bird_chirp.wav"
 
 
 class FakeRefreshScheduler:
-    def __init__(self):
+    def __init__(self, content: bytes = b"png-bytes", content_type: str = "image/png"):
         self.calls: list[tuple[str, str]] = []
+        self.content = content
+        self.content_type = content_type
 
     async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
         return True
 
     async def fetch_image(self, account_id: str, url: str) -> tuple[bytes, str]:
         self.calls.append((account_id, url))
-        return b"png-bytes", "image/png"
+        return self.content, self.content_type
 
 
 class FakeCopilotClient:
@@ -63,6 +66,20 @@ def test_rewrite_m365_image_urls_replaces_designer_url_with_signed_proxy_url():
     assert rewritten.startswith("![image](http://proxy.example/v1/m365-media?")
     assert "designerapp.officeapps.live.com" not in rewritten
     assert "acct_1" in rewritten
+
+
+def test_rewrite_m365_image_urls_replaces_asyncgw_audio_url_with_signed_proxy_url():
+    rewritten = rewrite_m365_image_urls(
+        f"已生成音频：\n\n `{SOURCE_AUDIO_URL}` ",
+        base_url="http://proxy.example",
+        account_id="acct_1",
+        secret="secret",
+        now=1000,
+    )
+
+    assert rewritten.startswith("已生成音频：")
+    assert "[下载 bird_chirp.wav](http://proxy.example/v1/m365-media?" in rewritten
+    assert SOURCE_AUDIO_URL not in rewritten
 
 
 def test_image_proxy_route_returns_bytes_for_valid_signed_designer_url(tmp_path):
@@ -134,6 +151,28 @@ def test_image_proxy_route_rejects_unsigned_request(tmp_path):
     assert event["exp"] == "4102444800"
     assert event["now"] > 0
     assert event["expired"] is False
+
+
+def test_image_proxy_route_returns_audio_bytes_for_valid_signed_asyncgw_url(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"))
+    account = app.state.account_store.add(name="Audio Account", token="", token_source="cdp")
+    app.state.image_proxy_secret = "secret"
+    app.state.refresh_scheduler = FakeRefreshScheduler(content=b"wav-bytes", content_type="audio/wav")
+    client = TestClient(app)
+    signed_url = make_signed_image_proxy_url(
+        "http://testserver",
+        account.id,
+        SOURCE_AUDIO_URL,
+        "secret",
+        expires_at=4_102_444_800,
+    )
+
+    response = client.get(_path_from_url(signed_url))
+
+    assert response.status_code == 200
+    assert response.content == b"wav-bytes"
+    assert response.headers["content-type"] == "audio/wav"
+    assert app.state.refresh_scheduler.calls == [(account.id, SOURCE_AUDIO_URL)]
 
 
 def test_image_proxy_route_rejects_non_designer_hosts(tmp_path):

@@ -5,16 +5,20 @@ import hashlib
 import hmac
 import re
 import time
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import unquote, urlencode, urlsplit
 
 _IMAGE_PROXY_TTL_SECONDS = 10 * 60
 _ALLOWED_IMAGE_HOST = "designerapp.officeapps.live.com"
 _ALLOWED_IMAGE_PATH = "/designerapp/document.ashx"
+_ALLOWED_ASYNCGW_HOST_RE = re.compile(r"(?:^|\.)asyncgw\.teams\.microsoft\.com$", re.IGNORECASE)
+_ALLOWED_ASYNCGW_PATH_RE = re.compile(r"^/v1/objects/[^/]+/views/original/[^/]+\.(?:wav|mp3|m4a|ogg|oga|flac|aac|mp4|webm|mov|pdf|zip)$", re.IGNORECASE)
 _DESIGNER_URL_RE = re.compile(r"https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^\s`)]+")
 _RAW_IMAGE_RE = re.compile(
     r"!\s*`((?:https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx|https?://[^`\s]+/v1/m365-media\?|/v1/m365-media\?)[^`]+)`"
 )
+_RAW_ASYNCGW_MEDIA_RE = re.compile(r"`(https://[^`\s]+\.asyncgw\.teams\.microsoft\.com/v1/objects/[^`\s]+/views/original/[^`\s]+)`", re.IGNORECASE)
 _MARKDOWN_DESIGNER_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^)]+)\)")
+_MARKDOWN_ASYNCGW_MEDIA_RE = re.compile(r"(?<!!)\[([^\]]*)\]\((https://[^)\s]+\.asyncgw\.teams\.microsoft\.com/v1/objects/[^)\s]+/views/original/[^)\s]+)\)", re.IGNORECASE)
 
 
 def _payload(account_id: str, expires_at: int, source_url: str) -> bytes:
@@ -36,7 +40,12 @@ def _decode_url(encoded_url: str) -> str:
 
 def is_allowed_m365_image_url(source_url: str) -> bool:
     parsed = urlsplit(source_url)
-    return parsed.scheme == "https" and parsed.netloc == _ALLOWED_IMAGE_HOST and parsed.path == _ALLOWED_IMAGE_PATH
+    if parsed.scheme != "https":
+        return False
+    if parsed.netloc == _ALLOWED_IMAGE_HOST and parsed.path == _ALLOWED_IMAGE_PATH:
+        return True
+    host = parsed.hostname or ""
+    return bool(_ALLOWED_ASYNCGW_HOST_RE.search(host) and _ALLOWED_ASYNCGW_PATH_RE.match(unquote(parsed.path)))
 
 
 def make_signed_image_proxy_url(
@@ -75,11 +84,20 @@ def verify_signed_image_proxy_params(
     return source_url
 
 
+def _media_filename(source_url: str) -> str:
+    name = unquote(urlsplit(source_url).path.rstrip("/").rsplit("/", 1)[-1])
+    return name or "media"
+
+
 def normalize_m365_image_text(text: str) -> str:
     def raw_repl(match: re.Match[str]) -> str:
         return f"![image]({match.group(1).strip()})"
 
-    normalized = _RAW_IMAGE_RE.sub(raw_repl, text)
+    def raw_media_repl(match: re.Match[str]) -> str:
+        source_url = match.group(1).strip()
+        return f"[下载 {_media_filename(source_url)}]({source_url})"
+
+    normalized = _RAW_ASYNCGW_MEDIA_RE.sub(raw_media_repl, _RAW_IMAGE_RE.sub(raw_repl, text))
     stripped = normalized.strip()
     if stripped.startswith("!") and "`" not in stripped:
         direct = _DESIGNER_URL_RE.search(stripped)
@@ -109,4 +127,12 @@ def rewrite_m365_image_urls(
         proxy_url = make_signed_image_proxy_url(base_url, account_id, source_url, secret, expires_at=expires_at)
         return f"![{alt}]({proxy_url})"
 
-    return _MARKDOWN_DESIGNER_IMAGE_RE.sub(md_repl, normalized)
+    def media_repl(match: re.Match[str]) -> str:
+        label = match.group(1) or f"下载 {_media_filename(match.group(2))}"
+        source_url = match.group(2).strip()
+        if not is_allowed_m365_image_url(source_url):
+            return match.group(0)
+        proxy_url = make_signed_image_proxy_url(base_url, account_id, source_url, secret, expires_at=expires_at)
+        return f"[{label}]({proxy_url})"
+
+    return _MARKDOWN_ASYNCGW_MEDIA_RE.sub(media_repl, _MARKDOWN_DESIGNER_IMAGE_RE.sub(md_repl, normalized))

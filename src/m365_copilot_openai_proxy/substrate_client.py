@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -324,6 +325,13 @@ def _capture_suspicious_response_event(sink, msg: dict) -> None:
         sink(msg)
 
 
+def _dedupe_signature(text: str) -> str:
+    normalized = re.sub(r"`https?://[^`\s]+`", "", text)
+    normalized = re.sub(r"\[[^\]]+\]\(\ue200cite\ue202[^\)]+\ue201\)", "", normalized)
+    normalized = re.sub(r"\s+", "", normalized)
+    return normalized
+
+
 def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
     if not fallback_text:
         return ""
@@ -332,6 +340,10 @@ def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
     if fallback_text.startswith(streamed_text):
         return fallback_text[len(streamed_text):]
     if fallback_text in streamed_text:
+        return ""
+    streamed_sig = _dedupe_signature(streamed_text)
+    fallback_sig = _dedupe_signature(fallback_text)
+    if streamed_sig and fallback_sig and (streamed_sig in fallback_sig or fallback_sig in streamed_sig):
         return ""
     return fallback_text
 

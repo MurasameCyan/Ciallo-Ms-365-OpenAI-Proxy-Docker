@@ -62,6 +62,14 @@ def test_remaining_fallback_text_avoids_repeating_identical_stream_text():
     assert _remaining_fallback_text("Loading image", "Loading image") == ""
 
 
+def test_remaining_fallback_text_avoids_repeating_media_citation_variant():
+    media_url = "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original/bird_chirp.wav"
+    streamed = f"已为你生成一段模拟小鸟叫声的 WAV 音频：\n\n `{media_url}` \n\n如果需要不同风格，我也可以生成对应版本。"
+    fallback = "已为你生成一段模拟小鸟叫声的 WAV 音频：\n\n[下载小鸟叫声](\ue200cite\ue202turn3file1\ue201)\n\n如果需要不同风格，我也可以生成对应版本。"
+
+    assert _remaining_fallback_text(streamed, fallback) == ""
+
+
 def test_chat_stream_appends_final_image_markdown_after_loading_delta(monkeypatch):
     image_url = "https://images.example/generated.png"
     update = {
