@@ -11,6 +11,7 @@ from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.media_proxy import (
     asyncgw_object_fetch_url,
     content_disposition_for_media,
+    designer_file_token,
     designer_object_fetch_url,
     make_signed_media_proxy_url,
     normalize_m365_media_text,
@@ -492,4 +493,27 @@ def test_designer_object_fetch_url_keeps_url_without_file_token_unchanged():
 def test_designer_object_fetch_url_leaves_non_designer_urls_unchanged():
     # asyncgw audio URLs must not be touched by the designer normalizer.
     assert designer_object_fetch_url(SOURCE_AUDIO_URL) == SOURCE_AUDIO_URL
+
+
+def test_designer_file_token_extracts_raw_value():
+    # The browser moves the fileToken from the query string into a dedicated
+    # FileToken request header. Extract its RAW value (no URL-decoding) so the
+    # base64url token is replayed byte-for-byte.
+    source = (
+        "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+        "?path=%2Fgenerated.png&dcHint=JapanEast&fileToken=eyJraWQ.abc-def_123"
+    )
+    assert designer_file_token(source) == "eyJraWQ.abc-def_123"
+
+
+def test_designer_file_token_absent_returns_empty():
+    source = (
+        "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+        "?path=%2Fgenerated.png&dcHint=JapanEast"
+    )
+    assert designer_file_token(source) == ""
+
+
+def test_designer_file_token_ignores_non_designer_urls():
+    assert designer_file_token(SOURCE_AUDIO_URL) == ""
 

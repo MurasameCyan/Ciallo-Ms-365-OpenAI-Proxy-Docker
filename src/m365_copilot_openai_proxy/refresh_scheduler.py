@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .account_store import AccountStore
-from .media_proxy import asyncgw_object_fetch_url, designer_object_fetch_url
+from .media_proxy import asyncgw_object_fetch_url, designer_file_token, designer_object_fetch_url
 
 
 # How many seconds before token expiry we proactively refresh. Matches the
@@ -99,13 +99,20 @@ def _auth_headers_for_account(account, url: str) -> tuple[dict[str, str], str]:
         return _auth_headers_for_token(media_token), "media"
     if _is_designer_media_url(url):
         # designerapp uses a dedicated Authorization token (a raw JWE) that the
-        # browser sends WITHOUT a "Bearer " prefix; replay it verbatim. The
-        # substrate account token has the wrong audience (HTTP 401), so only fall
-        # back to cookies-only when we have not captured the designer token yet.
+        # browser sends WITHOUT a "Bearer " prefix; replay it verbatim. It also
+        # moves the fileToken out of the query string into a FileToken request
+        # header, so extract and replay that too. The substrate account token has
+        # the wrong audience (HTTP 401), so only fall back to cookies-only when we
+        # have not captured the designer token yet.
+        headers: dict[str, str] = {}
+        file_token = designer_file_token(url)
+        if file_token:
+            headers["FileToken"] = file_token
         designer_token = str(getattr(account, "designer_auth_token", "") or "").strip()
         if designer_token:
-            return {"Authorization": designer_token}, "designer"
-        return {}, "designer_cookie"
+            headers["Authorization"] = designer_token
+            return headers, "designer"
+        return headers, "designer_cookie"
     if account.token:
         return _auth_headers_for_token(account.token), "account"
     return {}, ""
@@ -337,17 +344,17 @@ class RefreshScheduler:
         fetch_url = asyncgw_object_fetch_url(url)
         if event_sink and fetch_url != url:
             event_sink("asyncgw_url_normalized", original_path=urlsplit(url).path, fetch_path=urlsplit(fetch_url).path)
-        url = fetch_url
         # designerapp rejects requests that still carry the model's fileToken query
-        # param when a dedicated Authorization token is used; the browser fetches
-        # the image without it, so strip it before any (direct or Chromium) request.
-        designer_url = designer_object_fetch_url(url)
-        if event_sink and designer_url != url:
-            event_sink("designer_url_normalized", original_query=urlsplit(url).query, fetch_query=urlsplit(designer_url).query)
-        url = designer_url
-        cookie_header = _cookie_header_for_url(account.cookies, url)
-        cookie_names = _cookie_names_for_url(account.cookies, url)
-        auth_headers, auth_source = _auth_headers_for_account(account, url)
+        # param; the browser moves it into a FileToken header instead. Compute auth
+        # from the URL that STILL carries the fileToken (so it can be lifted into the
+        # header), then request the stripped URL. The Chromium fallback receives the
+        # unstripped URL and strips it internally for the same reason.
+        auth_headers, auth_source = _auth_headers_for_account(account, fetch_url)
+        designer_url = designer_object_fetch_url(fetch_url)
+        if event_sink and designer_url != fetch_url:
+            event_sink("designer_url_normalized", original_query=urlsplit(fetch_url).query, fetch_query=urlsplit(designer_url).query)
+        cookie_header = _cookie_header_for_url(account.cookies, designer_url)
+        cookie_names = _cookie_names_for_url(account.cookies, designer_url)
         if cookie_header or auth_headers:
             if event_sink:
                 event_sink(
@@ -358,7 +365,7 @@ class RefreshScheduler:
                     auth_source=auth_source,
                 )
             try:
-                return await self._fetch_image_with_cookies(url, cookie_header, auth_headers=auth_headers, event_sink=event_sink)
+                return await self._fetch_image_with_cookies(designer_url, cookie_header, auth_headers=auth_headers, event_sink=event_sink)
             except UpstreamMediaNotFound as exc:
                 if event_sink:
                     event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
@@ -371,7 +378,7 @@ class RefreshScheduler:
             event_sink("chromium_fallback_start")
         async with self._account_lock(account_id):
             async with self._lock:
-                return await self._fetch_image_one(account_id, url, event_sink=event_sink)
+                return await self._fetch_image_one(account_id, fetch_url, event_sink=event_sink)
 
     async def _fetch_image_with_cookies(self, url: str, cookie_header: str, auth_headers: dict[str, str] | None = None, event_sink=None) -> tuple[bytes, str]:
         import httpx
@@ -494,7 +501,11 @@ class RefreshScheduler:
                         injected_cookies += 1
                 if event_sink:
                     event_sink("chromium_cookies", cookie_count=injected_cookies)
+                # Auth is derived from the URL that still carries the fileToken so it
+                # can be lifted into the FileToken header; navigation itself must use
+                # the stripped URL, or designerapp rejects the request.
                 auth_headers, auth_source = _auth_headers_for_account(account, url)
+                nav_url = designer_object_fetch_url(url)
                 if auth_headers:
                     await cdp_call("Network.setExtraHTTPHeaders", {"headers": auth_headers})
                 await cdp_call("Page.enable")
@@ -502,7 +513,7 @@ class RefreshScheduler:
                     event_sink("chromium_navigate", token_header=bool(auth_headers), auth_source=auth_source)
                 navigate_id = next_id
                 next_id += 1
-                await ws.send(json.dumps({"id": navigate_id, "method": "Page.navigate", "params": {"url": url}}))
+                await ws.send(json.dumps({"id": navigate_id, "method": "Page.navigate", "params": {"url": nav_url}}))
                 request_id = ""
                 content_type = "application/octet-stream"
                 status = 0
@@ -518,7 +529,7 @@ class RefreshScheduler:
                     if method == "Network.responseReceived":
                         response = params.get("response") or {}
                         response_url = str(response.get("url") or "")
-                        if response_url == url or response_url.startswith("https://designerapp.officeapps.live.com/designerapp/document.ashx"):
+                        if response_url == nav_url or response_url.startswith("https://designerapp.officeapps.live.com/designerapp/document.ashx"):
                             request_id = str(params.get("requestId") or "")
                             status = int(response.get("status") or 0)
                             content_type = str(response.get("mimeType") or "application/octet-stream")

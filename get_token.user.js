@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.62
+// @version      1.0.63
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.62';
+    const SCRIPT_VERSION = '1.0.63';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
@@ -355,6 +355,70 @@
         }
     }
 
+    // Request-header diagnostic probe: the browser's designerapp GET returns 200
+    // but our proxy replay (same URL + same designer token) returns 400. To find
+    // the missing field we record ALL request header NAMES (with sanitized value
+    // summaries) plus the exact request URL, so we can diff the browser's REAL
+    // request against ours. Read-only: sensitive headers are recorded as
+    // "present" only (never their value); other headers keep a short truncated
+    // value that helps compare (e.g. sec-fetch-mode, accept, origin, referer).
+    const MEDIA_REQUEST_SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-skypetoken', 'skypetoken', 'x-anchormailbox', 'x-routing-id'];
+    const seenMediaRequestProbes = new Set();
+
+    function summarizeMediaRequestHeaders(headersLike) {
+        const out = {};
+        if (!headersLike) return out;
+        const take = (name, value) => {
+            const n = String(name || '').toLowerCase();
+            if (!n) return;
+            if (MEDIA_REQUEST_SENSITIVE_HEADERS.includes(n)) {
+                out[n] = value ? 'present' : '';
+                return;
+            }
+            const v = String(value || '');
+            out[n] = v.length > 80 ? v.slice(0, 80) + '…' : v;
+        };
+        try {
+            if (typeof headersLike.forEach === 'function') {
+                headersLike.forEach((value, name) => take(name, value));
+                return out;
+            }
+            if (Array.isArray(headersLike)) {
+                headersLike.forEach((entry) => {
+                    if (Array.isArray(entry) && entry.length >= 2) take(entry[0], entry[1]);
+                });
+                return out;
+            }
+            if (typeof headersLike === 'object') {
+                Object.keys(headersLike).forEach((name) => take(name, headersLike[name]));
+            }
+        } catch (e) {}
+        return out;
+    }
+
+    function captureMediaRequestHeaders(method, url, headersLike, via) {
+        const host = mediaAuthHostFromUrl(url);
+        if (!host) return;
+        const headerSummary = summarizeMediaRequestHeaders(headersLike);
+        const headerNames = Object.keys(headerSummary).sort();
+        if (!headerNames.length) return;
+        const fullUrl = String(url || '');
+        const key = via + '|' + (method || '') + '|' + fullUrl + '|' + headerNames.join(',');
+        if (seenMediaRequestProbes.has(key)) return;
+        seenMediaRequestProbes.add(key);
+        capturedPayloads.unshift({
+            time: new Date().toLocaleTimeString(),
+            source: 'media_request_probe',
+            frameType: 'media-request',
+            target: host,
+            tone: via,
+            modelId: (method || 'GET') + ' ' + headerNames.length + ' headers',
+            rawText: JSON.stringify({ source: 'media_request_probe', via, method: method || 'GET', url: fullUrl, headerNames, headers: headerSummary }),
+        });
+        if (capturedPayloads.length > 20) capturedPayloads.pop();
+        renderCaptured();
+    }
+
     // Response-level probe: records the browser's REAL asyncgw request outcome
     // (status code, method, full URL with query params, key response headers).
     // Read-only: never consumes/clones the body and never logs token values.
@@ -418,6 +482,10 @@
                 if (input && typeof input === 'object' && input.headers) captureMediaAuthProbe(input, input.headers, 'fetch-request');
                 reqUrl = (input && typeof input === 'object' && typeof input.url === 'string') ? input.url : String(input || '');
                 reqMethod = (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET';
+                if (mediaAuthHostFromUrl(reqUrl)) {
+                    const reqHeaders = (init && init.headers) || (input && typeof input === 'object' && input.headers) || null;
+                    captureMediaRequestHeaders(reqMethod, reqUrl, reqHeaders, 'fetch-request');
+                }
             } catch (e) {}
             const p = OrigFetch.apply(this, arguments);
             try {
@@ -456,6 +524,7 @@
                 try {
                     const finalUrl = xhr.responseURL || probeUrl;
                     if (mediaAuthHostFromUrl(finalUrl)) {
+                        captureMediaRequestHeaders(probeMethod, probeUrl, probeHeaders, 'xhr-request');
                         captureMediaResponse(probeMethod, finalUrl, xhr.status, xhr.getAllResponseHeaders(), 'xhr-response');
                     }
                 } catch (e) {}

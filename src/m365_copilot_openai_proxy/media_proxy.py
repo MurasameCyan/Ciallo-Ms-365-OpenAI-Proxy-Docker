@@ -171,6 +171,25 @@ def designer_object_fetch_url(source_url: str) -> str:
     return f"{base}?{new_query}" if new_query else base
 
 
+def designer_file_token(source_url: str) -> str:
+    """Return the RAW fileToken value from a designer image URL.
+
+    The browser moves the ``fileToken`` out of the query string and into a
+    dedicated ``FileToken`` request header. Return its value byte-for-byte (no
+    URL-decoding) so the base64url token is replayed exactly as supplied. Only
+    officeapps.live.com hosts are considered; other URLs return an empty string.
+    """
+    parsed = urlsplit(source_url)
+    host = (parsed.hostname or "").lower()
+    if host != _ALLOWED_IMAGE_HOST and not host.endswith(".officeapps.live.com"):
+        return ""
+    for pair in parsed.query.split("&"):
+        key, sep, value = pair.partition("=")
+        if sep and key.lower() == "filetoken":
+            return value
+    return ""
+
+
 def normalize_m365_media_text(text: str) -> str:
     def raw_repl(match: re.Match[str]) -> str:
         return f"![image]({match.group(1).strip()})"

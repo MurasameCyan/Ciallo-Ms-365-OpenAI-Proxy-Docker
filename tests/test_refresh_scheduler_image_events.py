@@ -164,9 +164,11 @@ def test_fetch_image_uses_designer_auth_token_and_strips_file_token(tmp_path, mo
     assert content_type == "image/png"
     # Raw token, replayed exactly as the browser sends it (no Bearer prefix).
     assert FakeAuthorizedImageClient.last_headers["Authorization"] == "raw-designer-jwe-token"
-    # fileToken must be stripped from the fetched URL.
+    # fileToken must be stripped from the URL and replayed as the FileToken header,
+    # exactly as the browser sends it (query-clean + header-carried).
     assert "fileToken=" not in FakeAuthorizedImageClient.last_url
     assert "path=%2Fimg.png" in FakeAuthorizedImageClient.last_url
+    assert FakeAuthorizedImageClient.last_headers["FileToken"] == "eyJraWQ"
     assert any(e["phase"] == "designer_url_normalized" for e in events)
     direct_start = next(e for e in events if e["phase"] == "direct_start")
     assert direct_start["token_header"] is True

@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.62" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.62';" in SCRIPT
+    assert "// @version      1.0.63" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.63';" in SCRIPT
 
 
 def test_userscript_panel_title_displays_script_version_on_the_right():
@@ -69,6 +69,20 @@ def test_userscript_captures_media_response_details_for_asyncgw():
     # must not consume/clone the response body
     assert "resp.clone" not in SCRIPT
     assert "resp.text()" not in SCRIPT
+
+
+def test_userscript_captures_full_request_headers_for_media_hosts():
+    # Diagnostic probe: the browser's designerapp GET returns 200 but our proxy
+    # replay (same URL, same designer token) returns 400. To find the missing
+    # field we record ALL request header names (with sanitized summaries) plus
+    # the exact request URL, so we can diff the browser's REAL request against
+    # ours. Read-only: sensitive headers are recorded as "present" only.
+    assert "captureMediaRequestHeaders" in SCRIPT
+    assert "source: 'media_request_probe'" in SCRIPT
+    # sensitive headers must never leak their value
+    assert "MEDIA_REQUEST_SENSITIVE_HEADERS" in SCRIPT
+    # records the exact request URL (to confirm whether fileToken is present)
+    assert "summarizeMediaRequestHeaders" in SCRIPT
 
 
 def test_userscript_media_probe_covers_designerapp_officeapps_host():
