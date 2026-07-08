@@ -6,12 +6,12 @@ import time
 import uuid
 from urllib.parse import parse_qsl, urlsplit
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 
 from .media_proxy import (
     is_allowed_m365_media_url,
-    make_signed_media_proxy_url,
     rewrite_m365_media_urls,
     verify_signed_media_proxy_params,
 )
@@ -19,9 +19,18 @@ from .media_proxy_events import append_media_proxy_event
 from .refresh_scheduler import UpstreamMediaNotFound
 
 
+_GLOBAL_MEDIA_ACCOUNT_ID = "__global__"
+
+
+def _body_preview(content: bytes, limit: int = 300) -> str:
+    return content[:limit].decode("utf-8", errors="replace")
+
+
 def request_media_rewriter(app: FastAPI, request: Request):
     account = getattr(request.state, "account", None)
     account_id = getattr(account, "id", None)
+    if account_id is None and getattr(app.state, "token_store", None) is not None and app.state.token_store.get():
+        account_id = _GLOBAL_MEDIA_ACCOUNT_ID
     base_url = str(request.base_url).rstrip("/")
     secret = str(getattr(app.state, "media_proxy_secret", "") or "")
 
@@ -30,6 +39,41 @@ def request_media_rewriter(app: FastAPI, request: Request):
         return rewrite_m365_media_urls(text, base_url=base_url, account_id=account_id, secret=secret, allowed_suffixes=suffixes)
 
     return rewrite
+
+
+async def _fetch_global_media(app: FastAPI, source_url: str, emit) -> tuple[bytes, str]:
+    token = app.state.token_store.get() if getattr(app.state, "token_store", None) is not None else ""
+    if not token:
+        emit("global_token_missing")
+        raise RuntimeError("global M365 token is unavailable")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,audio/*,video/*,*/*;q=0.8",
+        "Referer": "https://designerapp.officeapps.live.com/",
+    }
+    emit("global_direct_start", token_header=True)
+    started = time.perf_counter()
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        response = await client.get(source_url, headers=headers)
+    response_url = urlsplit(str(response.url))
+    fields = {
+        "status_code": response.status_code,
+        "content_type": response.headers.get("content-type", ""),
+        "bytes": len(response.content),
+        "duration_ms": round((time.perf_counter() - started) * 1000),
+        "response_host": response_url.hostname or "",
+        "response_path": response_url.path,
+        "www_authenticate": response.headers.get("www-authenticate", ""),
+    }
+    if response.status_code >= 400:
+        fields["body_preview"] = _body_preview(response.content)
+    emit("global_direct_response", **fields)
+    if response.status_code == 404:
+        raise UpstreamMediaNotFound("upstream media returned HTTP 404")
+    if response.status_code >= 400:
+        raise RuntimeError(f"upstream media returned HTTP {response.status_code}")
+    return response.content, response.headers.get("content-type", "application/octet-stream")
 
 
 def register_media_proxy_routes(app: FastAPI) -> None:
@@ -57,14 +101,6 @@ def register_media_proxy_routes(app: FastAPI) -> None:
         if not is_allowed_m365_media_url(source_url, suffixes):
             emit("blocked_source", source_host=parsed.netloc, source_path=parsed.path)
             raise HTTPException(status_code=400, detail="Unsupported media host")
-        account = app.state.account_store.get(account_id)
-        if account is None:
-            emit("account_missing", source_host=parsed.netloc, source_path=parsed.path)
-            raise HTTPException(status_code=404, detail="Account not found")
-        fetcher = getattr(app.state.refresh_scheduler, "fetch_image", None)
-        if fetcher is None:
-            emit("fetcher_missing", source_host=parsed.netloc, source_path=parsed.path)
-            raise HTTPException(status_code=503, detail="Media fetcher is unavailable")
         timeout = float(getattr(app.state, "media_proxy_timeout", 20.0) or 20.0)
         query_keys = sorted({key for key, _ in parse_qsl(parsed.query, keep_blank_values=True)})
         emit(
@@ -77,16 +113,29 @@ def register_media_proxy_routes(app: FastAPI) -> None:
             timeout_seconds=timeout,
         )
         try:
-            kwargs = {}
-            if "event_sink" in inspect.signature(fetcher).parameters:
-                kwargs["event_sink"] = emit
-            content, content_type = await asyncio.wait_for(fetcher(account_id, source_url, **kwargs), timeout=timeout)
+            if account_id == _GLOBAL_MEDIA_ACCOUNT_ID:
+                content, content_type = await asyncio.wait_for(_fetch_global_media(app, source_url, emit), timeout=timeout)
+            else:
+                account = app.state.account_store.get(account_id)
+                if account is None:
+                    emit("account_missing", source_host=parsed.netloc, source_path=parsed.path)
+                    raise HTTPException(status_code=404, detail="Account not found")
+                fetcher = getattr(app.state.refresh_scheduler, "fetch_image", None)
+                if fetcher is None:
+                    emit("fetcher_missing", source_host=parsed.netloc, source_path=parsed.path)
+                    raise HTTPException(status_code=503, detail="Media fetcher is unavailable")
+                kwargs = {}
+                if "event_sink" in inspect.signature(fetcher).parameters:
+                    kwargs["event_sink"] = emit
+                content, content_type = await asyncio.wait_for(fetcher(account_id, source_url, **kwargs), timeout=timeout)
         except asyncio.TimeoutError as exc:
             emit("timeout", duration_ms=round((time.perf_counter() - started) * 1000))
             raise HTTPException(status_code=504, detail="Media fetch timed out") from exc
         except UpstreamMediaNotFound as exc:
             emit("not_found", error_type=type(exc).__name__, error=str(exc), duration_ms=round((time.perf_counter() - started) * 1000))
             raise HTTPException(status_code=404, detail="Media not found") from exc
+        except HTTPException:
+            raise
         except Exception as exc:
             emit("error", error_type=type(exc).__name__, error=str(exc), duration_ms=round((time.perf_counter() - started) * 1000))
             raise HTTPException(status_code=502, detail=f"Media fetch failed: {exc}") from exc

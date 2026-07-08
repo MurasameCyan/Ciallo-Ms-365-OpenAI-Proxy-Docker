@@ -11,10 +11,8 @@ from .session_store import PersistentSession
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, _remaining_fallback_text
 
 
-def _dedupe_transformed_delta(full_text: str, delta: str, text_transform: Callable[[str], str] | None) -> str:
-    if text_transform is None or not full_text or not delta:
-        return delta
-    return _remaining_fallback_text(full_text, delta)
+def _transform_complete_text(full_text: str, text_transform: Callable[[str], str] | None) -> str:
+    return text_transform(full_text) if text_transform is not None else full_text
 
 
 def _json_err(status: int, message: str, error_type: str = "error") -> JSONResponse:
@@ -44,13 +42,15 @@ async def _openai_stream(
         "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
     }
     yield f"data: {json.dumps(first_chunk)}\n\n"
+    raw_text = ""
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session):
-            if text_transform is not None:
-                delta = text_transform(delta)
-            delta = _dedupe_transformed_delta(full_text, delta, text_transform)
+            delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
             if not delta:
+                continue
+            raw_text += delta
+            if text_transform is not None:
                 continue
             full_text += delta
             chunk = {
@@ -65,6 +65,17 @@ async def _openai_stream(
         yield f"data: {json.dumps({'error': {'message': str(exc), 'type': 'upstream_error'}})}\n\n"
         yield "data: [DONE]\n\n"
         return
+    if text_transform is not None:
+        full_text = _transform_complete_text(raw_text, text_transform)
+        if full_text:
+            chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model_alias,
+                "choices": [{"index": 0, "delta": {"content": full_text}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
     if on_text_done is not None:
         on_text_done(full_text)
     final_chunk = {
@@ -85,6 +96,7 @@ async def _responses_stream(
     additional_context: list[str],
     session: PersistentSession | None = None,
     on_text_done: Callable[[str], None] | None = None,
+    text_transform: Callable[[str], str] | None = None,
 ) -> AsyncIterator[str]:
     resp_id = f"resp_{uuid.uuid4().hex}"
     item_id = f"msg_{uuid.uuid4().hex}"
@@ -94,13 +106,15 @@ async def _responses_stream(
     yield f"data: {json.dumps({'type': 'response.output_item.added', 'output_index': 0, 'item': {'id': item_id, 'type': 'message', 'role': 'assistant', 'content': []}})}\n\n"
     yield f"data: {json.dumps({'type': 'response.content_part.added', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'part': {'type': 'output_text', 'text': ''}})}\n\n"
 
+    raw_text = ""
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session):
-            if text_transform is not None:
-                delta = text_transform(delta)
-            delta = _dedupe_transformed_delta(full_text, delta, text_transform)
+            delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
             if not delta:
+                continue
+            raw_text += delta
+            if text_transform is not None:
                 continue
             full_text += delta
             yield f"data: {json.dumps({'type': 'response.output_text.delta', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'delta': delta})}\n\n"
@@ -108,6 +122,10 @@ async def _responses_stream(
         yield f"data: {json.dumps({'type': 'error', 'error': {'message': str(exc), 'type': 'upstream_error'}})}\n\n"
         return
 
+    if text_transform is not None:
+        full_text = _transform_complete_text(raw_text, text_transform)
+        if full_text:
+            yield f"data: {json.dumps({'type': 'response.output_text.delta', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'delta': full_text})}\n\n"
     if on_text_done is not None:
         on_text_done(full_text)
     yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'text': full_text})}\n\n"
@@ -132,13 +150,15 @@ async def _anthropic_stream(
     yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
     yield sse("ping", {"type": "ping"})
 
+    raw_text = ""
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session):
-            if text_transform is not None:
-                delta = text_transform(delta)
-            delta = _dedupe_transformed_delta(full_text, delta, text_transform)
+            delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
             if not delta:
+                continue
+            raw_text += delta
+            if text_transform is not None:
                 continue
             full_text += delta
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
@@ -146,6 +166,10 @@ async def _anthropic_stream(
         yield sse("error", {"type": "error", "error": {"type": "upstream_error", "message": str(exc)}})
         return
 
+    if text_transform is not None:
+        full_text = _transform_complete_text(raw_text, text_transform)
+        if full_text:
+            yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
     if on_text_done is not None:
         on_text_done(full_text)
     yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})

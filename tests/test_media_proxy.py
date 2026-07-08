@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
-from m365_copilot_openai_proxy.media_proxy import normalize_m365_media_text
+from m365_copilot_openai_proxy.media_proxy import make_signed_media_proxy_url, normalize_m365_media_text, rewrite_m365_media_urls
 from m365_copilot_openai_proxy.refresh_scheduler import UpstreamMediaNotFound
-from m365_copilot_openai_proxy.routes_media_proxy import make_signed_media_proxy_url, rewrite_m365_media_urls
 
 
 SOURCE_IMAGE_URL = "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fgenerated.png&fileToken=abc"
@@ -46,6 +46,16 @@ class FakeCopilotClient:
 
     async def chat(self, prompt, additional_context, session=None):
         return f"![image]({SOURCE_IMAGE_URL})"
+
+
+class SplitAudioCopilotClient:
+    async def chat_stream(self, prompt, additional_context, session=None):
+        yield "已生成文件：\n\n `https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/"
+        yield "0-ea-d4-101412848fe8be7ad7f1c4c110d1fa4f/views/original/"
+        yield "cat_meow.wav` \n\n（这是一个合成的“喵”声音频，可直接下载播放。）"
+
+    async def chat(self, prompt, additional_context, session=None):
+        return "已生成文件：\n\n `https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d4-101412848fe8be7ad7f1c4c110d1fa4f/views/original/cat_meow.wav` \n\n（这是一个合成的“喵”声音频，可直接下载播放。）"
 
 
 class SlowRefreshScheduler:
@@ -321,6 +331,51 @@ def test_media_proxy_route_rejects_non_designer_hosts(tmp_path):
     assert response.status_code == 400
 
 
+def test_media_proxy_route_fetches_global_token_media(monkeypatch, tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass", M365_ACCESS_TOKEN="global-token"))
+    app.state.media_proxy_secret = "secret"
+    client = TestClient(app)
+    source_url = _asyncgw_url("cat_meow.wav")
+    seen_headers = []
+
+    class FakeResponse:
+        status_code = 200
+        content = b"wav-bytes"
+        headers = {"content-type": "audio/wav"}
+        url = source_url
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers):
+            seen_headers.append(headers)
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    signed_url = make_signed_media_proxy_url(
+        "http://testserver",
+        "__global__",
+        source_url,
+        "secret",
+        expires_at=4_102_444_800,
+    )
+
+    response = client.get(_path_from_url(signed_url))
+
+    assert response.status_code == 200
+    assert response.content == b"wav-bytes"
+    assert response.headers["content-type"] == "audio/wav"
+    assert seen_headers[0]["Authorization"] == "Bearer global-token"
+    assert [event["phase"] for event in app.state.media_proxy_events] == ["request", "fetch_start", "global_direct_start", "global_direct_response", "ok"]
+
+
 def test_chat_stream_rewrites_m365_image_markdown_to_proxy_url(tmp_path):
     app = create_app(
         Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"),
@@ -341,4 +396,26 @@ def test_chat_stream_rewrites_m365_image_markdown_to_proxy_url(tmp_path):
     assert response.status_code == 200
     assert "/v1/m365-media?" in response.text
     assert "designerapp.officeapps.live.com" not in response.text
+
+
+def test_chat_stream_rewrites_split_asyncgw_audio_url_with_global_key(tmp_path):
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass", M365_ACCESS_TOKEN="global-token"),
+        copilot_client_factory=lambda **kwargs: SplitAudioCopilotClient(),
+    )
+    app.state.media_proxy_secret = "secret"
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer admin-key"},
+        json={"model": "m365-copilot", "stream": True, "messages": [{"role": "user", "content": "生成猫叫声"}]},
+    )
+
+    assert response.status_code == 200
+    assert "/v1/m365-media?" in response.text
+    assert "asyncgw.teams.microsoft.com" not in response.text
+    call_record = app.state.call_log[-1]
+    assert "/v1/m365-media?" in call_record["response_text"]
+    assert "asyncgw.teams.microsoft.com" not in call_record["response_text"]
 
