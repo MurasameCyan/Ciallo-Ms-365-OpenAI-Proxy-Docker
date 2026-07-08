@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import re
 import time
-from urllib.parse import quote, unquote, urlencode, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 from .runtime_settings import _DEFAULT_MEDIA_PROXY_SUFFIXES, normalize_media_proxy_suffixes
 
@@ -148,6 +148,27 @@ def asyncgw_object_fetch_url(source_url: str) -> str:
     if trimmed_path == parsed.path:
         return source_url
     return f"{parsed.scheme}://{parsed.netloc}{trimmed_path}"
+
+
+def designer_object_fetch_url(source_url: str) -> str:
+    """Return the real fetchable designer image URL.
+
+    The browser loads designer images WITHOUT the ``fileToken`` query param, using
+    a designer-scoped Authorization token instead. The model-supplied ``fileToken``
+    has the wrong audience and makes the server reject the request with HTTP 401,
+    so drop it before fetching while keeping every other query param intact. Only
+    officeapps.live.com hosts are touched; all other URLs are returned unchanged.
+    """
+    parsed = urlsplit(source_url)
+    host = (parsed.hostname or "").lower()
+    if host != _ALLOWED_IMAGE_HOST and not host.endswith(".officeapps.live.com"):
+        return source_url
+    kept = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key.lower() != "filetoken"]
+    new_query = urlencode(kept)
+    if new_query == parsed.query:
+        return source_url
+    base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    return f"{base}?{new_query}" if new_query else base
 
 
 def normalize_m365_media_text(text: str) -> str:

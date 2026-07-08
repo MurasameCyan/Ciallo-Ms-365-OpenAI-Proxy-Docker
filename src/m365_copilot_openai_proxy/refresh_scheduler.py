@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .account_store import AccountStore
-from .media_proxy import asyncgw_object_fetch_url
+from .media_proxy import asyncgw_object_fetch_url, designer_object_fetch_url
 
 
 # How many seconds before token expiry we proactively refresh. Matches the
@@ -97,10 +97,14 @@ def _auth_headers_for_account(account, url: str) -> tuple[dict[str, str], str]:
     media_token = str(getattr(account, "media_auth_token", "") or "").strip()
     if media_token and _is_teams_media_url(url):
         return _auth_headers_for_token(media_token), "media"
-    # designerapp authenticates via the fileToken query param + live.com login
-    # cookies; the substrate account token has the wrong audience and makes the
-    # server reject the request with HTTP 401, so send cookies only (no bearer).
     if _is_designer_media_url(url):
+        # designerapp uses a dedicated Authorization token (a raw JWE) that the
+        # browser sends WITHOUT a "Bearer " prefix; replay it verbatim. The
+        # substrate account token has the wrong audience (HTTP 401), so only fall
+        # back to cookies-only when we have not captured the designer token yet.
+        designer_token = str(getattr(account, "designer_auth_token", "") or "").strip()
+        if designer_token:
+            return {"Authorization": designer_token}, "designer"
         return {}, "designer_cookie"
     if account.token:
         return _auth_headers_for_token(account.token), "account"
@@ -334,6 +338,13 @@ class RefreshScheduler:
         if event_sink and fetch_url != url:
             event_sink("asyncgw_url_normalized", original_path=urlsplit(url).path, fetch_path=urlsplit(fetch_url).path)
         url = fetch_url
+        # designerapp rejects requests that still carry the model's fileToken query
+        # param when a dedicated Authorization token is used; the browser fetches
+        # the image without it, so strip it before any (direct or Chromium) request.
+        designer_url = designer_object_fetch_url(url)
+        if event_sink and designer_url != url:
+            event_sink("designer_url_normalized", original_query=urlsplit(url).query, fetch_query=urlsplit(designer_url).query)
+        url = designer_url
         cookie_header = _cookie_header_for_url(account.cookies, url)
         cookie_names = _cookie_names_for_url(account.cookies, url)
         auth_headers, auth_source = _auth_headers_for_account(account, url)

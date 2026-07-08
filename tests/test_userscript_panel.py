@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.60" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.60';" in SCRIPT
+    assert "// @version      1.0.62" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.62';" in SCRIPT
 
 
 def test_userscript_panel_title_displays_script_version_on_the_right():
@@ -71,6 +71,24 @@ def test_userscript_captures_media_response_details_for_asyncgw():
     assert "resp.text()" not in SCRIPT
 
 
+def test_userscript_media_probe_covers_designerapp_officeapps_host():
+    # Generated images are served by designerapp.officeapps.live.com. The
+    # read-only auth/response probe must cover that host too, so we can see the
+    # browser's REAL request headers (esp. Authorization) and status code for
+    # designer images, the same way we did for asyncgw audio.
+    assert "officeapps\\.live\\.com" in SCRIPT
+
+
+def test_userscript_captures_designer_auth_raw_and_pushes_to_account():
+    # designerapp sends the Authorization value WITHOUT a "Bearer " prefix (raw
+    # JWE). It must be captured separately from the teams media bearer (different
+    # audience) and stored verbatim, then pushed to /user/account/designer-auth.
+    assert "latestDesignerAuth" in SCRIPT
+    assert "'/user/account/designer-auth'" in SCRIPT
+    # designer host branch keeps the raw header value as-is (no Bearer requirement).
+    assert "officeapps.live.com" in SCRIPT
+
+
 def test_userscript_pushes_media_auth_token_to_user_account():
     assert "latestMediaAuth" in SCRIPT
     assert "pushUserMediaAuth" in SCRIPT
@@ -91,7 +109,7 @@ def test_userscript_panel_exposes_media_auth_status_and_manual_push():
 
 def test_userscript_refreshes_latest_media_auth_even_for_duplicate_probe_entries():
     duplicate_check = SCRIPT.index("seenMediaAuthProbes.has(key)")
-    latest_assignment = SCRIPT.index("latestMediaAuth = { host, authorization: String(headerValue).trim() }")
+    latest_assignment = SCRIPT.index("latestMediaAuth = { host, authorization: raw }")
     assert latest_assignment < duplicate_check
 
 

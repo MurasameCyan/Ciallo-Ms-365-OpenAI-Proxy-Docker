@@ -80,6 +80,41 @@ def test_media_auth_push_persists_bearer_for_bound_account(tmp_path):
     assert account.media_auth_updated_at > 0
 
 
+def test_designer_auth_push_persists_raw_token_for_bound_account(tmp_path):
+    # designerapp sends the Authorization value WITHOUT a "Bearer " prefix (raw
+    # JWE), so it must be stored verbatim for later verbatim replay.
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(name="Microsoft User", token="substrate-token", token_source="manual")
+    key = app.state.key_store.add(name="Proxy User", account_id=account.id, username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/designer-auth",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"authorization": "raw-designer-jwe-token", "host": "designerapp.officeapps.live.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "has_designer_auth": True}
+    account = app.state.account_store.get(account.id)
+    assert account.designer_auth_token == "raw-designer-jwe-token"
+    assert account.designer_auth_updated_at > 0
+
+
+def test_designer_auth_push_rejects_non_designer_host(tmp_path):
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(name="Microsoft User", token="substrate-token", token_source="manual")
+    key = app.state.key_store.add(name="Proxy User", account_id=account.id, username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/designer-auth",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"authorization": "raw-designer-jwe-token", "host": "evil.example.com"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["message"] == "Unsupported designer auth host"
+
+
 def test_media_auth_push_requires_existing_bound_account(tmp_path):
     app = make_test_app(tmp_path)
     key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")

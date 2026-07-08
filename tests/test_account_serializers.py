@@ -29,6 +29,7 @@ def test_user_account_public_matches_user_me_account_shape():
         token="token-value",
         token_source="manual",
         media_auth_token="media-token",
+        designer_auth_token="designer-token",
     )
 
     data = user_account_public(account)
@@ -40,9 +41,11 @@ def test_user_account_public_matches_user_me_account_shape():
     assert data["binding_state"] == "token_only"
     assert data["has_token"] is True
     assert data["has_media_auth"] is True
+    assert data["has_designer_auth"] is True
     assert data["cookie_valid"] is False
     assert "token_status" in data
     assert "media_auth_token" not in data
+    assert "designer_auth_token" not in data
 
 
 def test_account_public_matches_admin_account_shape_without_raw_token():
@@ -53,6 +56,7 @@ def test_account_public_matches_admin_account_shape_without_raw_token():
         token_source="cdp",
         cookie_valid=True,
         media_auth_token="media-secret-token",
+        designer_auth_token="designer-secret-token",
     )
     key = ApiKey(name="Proxy User", username="proxyuser")
 
@@ -65,8 +69,10 @@ def test_account_public_matches_admin_account_shape_without_raw_token():
     assert data["binding_state"] == "cookie"
     assert data["has_token"] is True
     assert data["has_media_auth"] is True
+    assert data["has_designer_auth"] is True
     assert data["cookie_valid"] is True
     assert data["key_count"] == 1
     assert data["bound_names"] == ["Proxy User"]
     assert "token" not in data
     assert "media_auth_token" not in data
+    assert "designer_auth_token" not in data

@@ -41,6 +41,7 @@ class FakeNotFoundMediaClient:
 
 class FakeAuthorizedImageClient:
     last_headers: dict | None = None
+    last_url: str | None = None
 
     def __init__(self, *args, **kwargs):
         pass
@@ -53,6 +54,7 @@ class FakeAuthorizedImageClient:
 
     async def get(self, url, headers=None):
         FakeAuthorizedImageClient.last_headers = dict(headers or {})
+        FakeAuthorizedImageClient.last_url = str(url)
         return httpx.Response(200, headers={"content-type": "image/png"}, content=b"png", request=httpx.Request("GET", url))
 
 
@@ -136,6 +138,39 @@ def test_fetch_image_with_cookies_omits_auth_header_for_designerapp(tmp_path, mo
     assert events[0]["token_header"] is False
     assert events[0]["auth_source"] == "designer_cookie"
     assert events[0]["cookie_names"] == ["MUID"]
+
+
+def test_fetch_image_uses_designer_auth_token_and_strips_file_token(tmp_path, monkeypatch):
+    # The browser loads designer images with a designer-scoped Authorization token
+    # (raw value, NO "Bearer " prefix) and WITHOUT the fileToken query param. Replay
+    # that exact shape: raw token header + fileToken stripped.
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAuthorizedImageClient)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Designer Account", token="account-token", token_source="manual")
+    store.set_designer_auth_token(account.id, "raw-designer-jwe-token")
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com"}])
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    body, content_type = asyncio.run(
+        scheduler.fetch_image(
+            account.id,
+            "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimg.png&fileToken=eyJraWQ",
+            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+        )
+    )
+
+    assert body == b"png"
+    assert content_type == "image/png"
+    # Raw token, replayed exactly as the browser sends it (no Bearer prefix).
+    assert FakeAuthorizedImageClient.last_headers["Authorization"] == "raw-designer-jwe-token"
+    # fileToken must be stripped from the fetched URL.
+    assert "fileToken=" not in FakeAuthorizedImageClient.last_url
+    assert "path=%2Fimg.png" in FakeAuthorizedImageClient.last_url
+    assert any(e["phase"] == "designer_url_normalized" for e in events)
+    direct_start = next(e for e in events if e["phase"] == "direct_start")
+    assert direct_start["token_header"] is True
+    assert direct_start["auth_source"] == "designer"
 
 
 def test_fetch_image_with_cookies_prefers_media_auth_for_asyncgw(tmp_path, monkeypatch):

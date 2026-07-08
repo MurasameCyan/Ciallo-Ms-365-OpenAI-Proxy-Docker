@@ -213,6 +213,25 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         app.state.account_store.set_media_auth_token(k.account_id, token)
         return {"status": "ok", "has_media_auth": True}
 
+    @app.post("/user/account/designer-auth")
+    async def user_set_account_designer_auth(request: Request) -> dict:
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        if not k.account_id or app.state.account_store.get(k.account_id) is None:
+            return _json_err(400, "No bound account")
+        body = await request.json()
+        host = str(body.get("host", "") or "").strip().lower()
+        if host != "designerapp.officeapps.live.com" and not host.endswith(".officeapps.live.com"):
+            return _json_err(400, "Unsupported designer auth host")
+        # designerapp sends the Authorization value WITHOUT a "Bearer " prefix (raw
+        # JWE); store it verbatim so it can be replayed exactly as the browser sends it.
+        token = str(body.get("authorization", "") or "").strip()
+        if not token:
+            return _json_err(400, "Designer auth token is empty")
+        app.state.account_store.set_designer_auth_token(k.account_id, token)
+        return {"status": "ok", "has_designer_auth": True}
+
     @app.post("/user/account/cookies")
     async def user_set_account_cookies(request: Request) -> dict:
         k = _resolve_user_key(request)

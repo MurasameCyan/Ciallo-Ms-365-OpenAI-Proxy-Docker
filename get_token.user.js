@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.60
+// @version      1.0.62
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.60';
+    const SCRIPT_VERSION = '1.0.62';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
@@ -53,6 +53,8 @@
     let latestToken = '';
     let latestMediaAuth = null;
     let mediaAuthPushInFlight = false;
+    let latestDesignerAuth = null;
+    let designerAuthPushInFlight = false;
 
     // Store the latest captured chat payloads (for mode-field comparison)
     // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
@@ -270,7 +272,7 @@
 
     // Intercept browser APIs on the real page (not in sandbox)
     const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-    const MEDIA_AUTH_HOST_RE = /(^|\.)(asyncgw\.teams\.microsoft\.com|teams\.microsoft\.com)$/i;
+    const MEDIA_AUTH_HOST_RE = /(^|\.)(asyncgw\.teams\.microsoft\.com|teams\.microsoft\.com|officeapps\.live\.com)$/i;
     const MEDIA_AUTH_HEADER_NAMES = ['authorization', 'x-skypetoken', 'skypetoken'];
     const seenMediaAuthProbes = new Set();
 
@@ -298,9 +300,19 @@
     function addMediaAuthProbe(host, headerName, valueSummary, source, headerValue) {
         const key = host + '|' + headerName + '|' + valueSummary + '|' + source;
         if (!host || !headerName || !valueSummary) return;
-        if (headerName === 'authorization' && /^Bearer\s+\S+/i.test(String(headerValue || ''))) {
-            latestMediaAuth = { host, authorization: String(headerValue).trim() };
-            pushLatestMediaAuthSilently();
+        if (headerName === 'authorization') {
+            const raw = String(headerValue || '').trim();
+            if (/officeapps\.live\.com$/i.test(host)) {
+                // designerapp sends a raw JWE token WITHOUT a "Bearer " prefix; keep it
+                // verbatim so it can be replayed exactly as the browser sends it.
+                if (raw) {
+                    latestDesignerAuth = { host, authorization: raw };
+                    pushLatestDesignerAuthSilently();
+                }
+            } else if (/^Bearer\s+\S+/i.test(raw)) {
+                latestMediaAuth = { host, authorization: raw };
+                pushLatestMediaAuthSilently();
+            }
         }
         if (seenMediaAuthProbes.has(key)) return;
         seenMediaAuthProbes.add(key);
@@ -735,6 +747,26 @@
         finally { mediaAuthPushInFlight = false; }
     }
 
+    async function pushUserDesignerAuth(base) {
+        const key = getUserApiKey();
+        if (!key || !latestDesignerAuth) return null;
+        const r = await gmFetch(base + '/user/account/designer-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({ authorization: latestDesignerAuth.authorization, host: latestDesignerAuth.host })
+        });
+        return { response: r, data: await r.json() };
+    }
+
+    async function pushLatestDesignerAuthSilently() {
+        if (designerAuthPushInFlight || !latestDesignerAuth) return;
+        const base = getProxyBase();
+        if (!base || !getUserApiKey()) return;
+        designerAuthPushInFlight = true;
+        try { await pushUserDesignerAuth(base); } catch (e) {}
+        finally { designerAuthPushInFlight = false; }
+    }
+
     // Push Token to proxy
     async function pushToken() {
         const base = getProxyBase();
@@ -743,6 +775,7 @@
         try {
             const ur = await pushUserToken(base, latestToken);
             if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
+            if (ur.response.ok && latestDesignerAuth) { try { await pushUserDesignerAuth(base); } catch (e) {} }
             alert(ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
         } catch (e) { alert(tr('network_error') + e); }
     }
@@ -763,6 +796,9 @@
             const cr = await pushUserCookies(base, cookies);
             if (cr.response.ok && latestMediaAuth) {
                 try { await pushUserMediaAuth(base); } catch (e) {}
+            }
+            if (cr.response.ok && latestDesignerAuth) {
+                try { await pushUserDesignerAuth(base); } catch (e) {}
             }
             const warning = cr.data.warning ? '\n' + cr.data.warning : '';
             alert(cr.response.ok ? tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' + warning : tr('failed') + (cr.data.error?.message || cr.data.error));
@@ -804,6 +840,9 @@
             const cr = await pushUserCookies(base, cookies);
             if (cr.response.ok && latestMediaAuth) {
                 try { await pushUserMediaAuth(base); } catch (e) {}
+            }
+            if (cr.response.ok && latestDesignerAuth) {
+                try { await pushUserDesignerAuth(base); } catch (e) {}
             }
             const warning = cr.data.warning ? '\n' + cr.data.warning : '';
             const cookieState = cr.response.ok ? (cr.data.warning ? tr('status_warning') : tr('status_success')) : tr('status_failed');

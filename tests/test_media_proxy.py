@@ -11,6 +11,7 @@ from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.media_proxy import (
     asyncgw_object_fetch_url,
     content_disposition_for_media,
+    designer_object_fetch_url,
     make_signed_media_proxy_url,
     normalize_m365_media_text,
     rewrite_m365_media_urls,
@@ -459,4 +460,36 @@ def test_content_disposition_for_media_encodes_non_ascii_filename():
     assert disposition.startswith('attachment; filename="')
     assert "filename*=UTF-8''" in disposition
     assert "%E9%9B%A8%E5%A3%B0.wav" in disposition
+
+
+def test_designer_object_fetch_url_strips_file_token():
+    # The browser loads designer images WITHOUT the fileToken query param, using a
+    # designer-scoped Authorization token instead. The model-supplied fileToken has
+    # the wrong audience and triggers HTTP 401, so drop it before fetching while
+    # keeping every other query param (path/dcHint/speCId/speType/speIdx) intact.
+    source = (
+        "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+        "?path=%2Fgenerated.png&dcHint=JapanEast&speCId=abc&speType=Image"
+        "&speIdx=0&fileToken=eyJraWQ"
+    )
+    result = designer_object_fetch_url(source)
+    assert "fileToken=" not in result
+    assert "path=%2Fgenerated.png" in result
+    assert "dcHint=JapanEast" in result
+    assert "speCId=abc" in result
+    assert "speType=Image" in result
+    assert "speIdx=0" in result
+
+
+def test_designer_object_fetch_url_keeps_url_without_file_token_unchanged():
+    source = (
+        "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+        "?path=%2Fgenerated.png&dcHint=JapanEast"
+    )
+    assert designer_object_fetch_url(source) == source
+
+
+def test_designer_object_fetch_url_leaves_non_designer_urls_unchanged():
+    # asyncgw audio URLs must not be touched by the designer normalizer.
+    assert designer_object_fetch_url(SOURCE_AUDIO_URL) == SOURCE_AUDIO_URL
 
