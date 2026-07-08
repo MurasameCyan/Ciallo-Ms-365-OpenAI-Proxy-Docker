@@ -12,6 +12,7 @@ from fastapi.responses import Response
 
 from .media_proxy import (
     asyncgw_object_fetch_url,
+    content_disposition_for_media,
     is_allowed_m365_media_url,
     rewrite_m365_media_urls,
     verify_signed_media_proxy_params,
@@ -149,5 +150,9 @@ def register_media_proxy_routes(app: FastAPI) -> None:
         return Response(
             content=content,
             media_type=content_type or "application/octet-stream",
-            headers={"Cache-Control": "private, max-age=600", "X-Media-Proxy-Trace": trace_id},
+            headers={
+                "Cache-Control": "private, max-age=600",
+                "X-Media-Proxy-Trace": trace_id,
+                "Content-Disposition": content_disposition_for_media(source_url),
+            },
         )

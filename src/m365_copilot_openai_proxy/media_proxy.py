@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import re
 import time
-from urllib.parse import unquote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 from .runtime_settings import _DEFAULT_MEDIA_PROXY_SUFFIXES, normalize_media_proxy_suffixes
 
@@ -107,6 +107,23 @@ def verify_signed_media_proxy_params(
 def _media_filename(source_url: str) -> str:
     name = unquote(urlsplit(source_url).path.rstrip("/").rsplit("/", 1)[-1])
     return name or "media"
+
+
+def content_disposition_for_media(source_url: str) -> str:
+    """Build a Content-Disposition header for the media download.
+
+    Uses the model-supplied display filename (e.g. ``rain_sound.wav``), which is
+    stripped before the upstream asyncgw fetch but still gives the browser a
+    sensible download name and extension. Non-ASCII names get an RFC 5987
+    ``filename*`` value plus an ASCII-safe ``filename`` fallback.
+    """
+    filename = _media_filename(source_url)
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii").replace('"', "")
+    fallback = ascii_name or "media"
+    disposition = f'attachment; filename="{fallback}"'
+    if ascii_name != filename:
+        disposition += f"; filename*=UTF-8''{quote(filename)}"
+    return disposition
 
 
 def asyncgw_object_fetch_url(source_url: str) -> str:

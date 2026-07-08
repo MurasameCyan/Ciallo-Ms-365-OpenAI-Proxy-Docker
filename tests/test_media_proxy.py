@@ -10,6 +10,7 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.media_proxy import (
     asyncgw_object_fetch_url,
+    content_disposition_for_media,
     make_signed_media_proxy_url,
     normalize_m365_media_text,
     rewrite_m365_media_urls,
@@ -377,6 +378,7 @@ def test_media_proxy_route_fetches_global_token_media(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.content == b"wav-bytes"
     assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["content-disposition"] == 'attachment; filename="cat_meow.wav"'
     assert seen_headers[0]["Authorization"] == "Bearer global-token"
     assert [event["phase"] for event in app.state.media_proxy_events] == ["request", "fetch_start", "asyncgw_url_normalized", "global_direct_start", "global_direct_response", "ok"]
 
@@ -442,4 +444,19 @@ def test_asyncgw_object_fetch_url_keeps_bare_object_url_unchanged():
 
 def test_asyncgw_object_fetch_url_leaves_non_asyncgw_urls_unchanged():
     assert asyncgw_object_fetch_url(SOURCE_IMAGE_URL) == SOURCE_IMAGE_URL
+
+
+def test_content_disposition_for_media_uses_source_filename():
+    # The model-supplied display filename (rain_sound.wav) is stripped before the
+    # upstream fetch, but should still drive the browser download name.
+    disposition = content_disposition_for_media(_asyncgw_url("rain_sound.wav"))
+    assert disposition == 'attachment; filename="rain_sound.wav"'
+
+
+def test_content_disposition_for_media_encodes_non_ascii_filename():
+    disposition = content_disposition_for_media(_asyncgw_url("%E9%9B%A8%E5%A3%B0.wav"))
+    # Falls back to an ASCII-safe filename and adds an RFC 5987 filename* value.
+    assert disposition.startswith('attachment; filename="')
+    assert "filename*=UTF-8''" in disposition
+    assert "%E9%9B%A8%E5%A3%B0.wav" in disposition
 
