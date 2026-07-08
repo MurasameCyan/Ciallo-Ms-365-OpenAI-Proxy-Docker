@@ -7,7 +7,13 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      5.9" in SCRIPT
+    assert "// @version      1.0.59" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.59';" in SCRIPT
+
+
+def test_userscript_panel_title_displays_script_version_on_the_right():
+    assert "id=\"m365-script-version\"" in SCRIPT
+    assert "v${SCRIPT_VERSION}" in SCRIPT
 
 
 
@@ -52,6 +58,22 @@ def test_userscript_pushes_media_auth_token_to_user_account():
     assert "'/user/account/media-auth'" in SCRIPT
     assert "authorization: latestMediaAuth.authorization" in SCRIPT
     assert "host: latestMediaAuth.host" in SCRIPT
+
+
+def test_userscript_panel_exposes_media_auth_status_and_manual_push():
+    assert "media_auth: '媒体鉴权'" in SCRIPT
+    assert "media_auth_captured: '✓ Media Bearer 可用'" in SCRIPT
+    assert "media_auth_not_captured: '⚠ 尚未捕获 Media Bearer'" in SCRIPT
+    assert "push_media_auth: '推送媒体鉴权'" in SCRIPT
+    assert "id=\"m365-push-media-auth\"" in SCRIPT
+    assert "pushMediaAuth" in SCRIPT
+    assert "document.getElementById('m365-push-media-auth').onclick = pushMediaAuth" in SCRIPT
+
+
+def test_userscript_refreshes_latest_media_auth_even_for_duplicate_probe_entries():
+    duplicate_check = SCRIPT.index("seenMediaAuthProbes.has(key)")
+    latest_assignment = SCRIPT.index("latestMediaAuth = { host, authorization: String(headerValue).trim() }")
+    assert latest_assignment < duplicate_check
 
 
 def test_userscript_registers_menu_command_as_panel_fallback():

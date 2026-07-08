@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      5.9
+// @version      1.0.59
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,6 +30,7 @@
 (function() {
     'use strict';
 
+    const SCRIPT_VERSION = '1.0.59';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
@@ -78,6 +79,12 @@
             gm_available: '✓ Cookie 可用',
             gm_unavailable: '⚠ GM_cookie 不可用，请使用 Tampermonkey Beta。',
             push_cookies: '推送 Cookie',
+            media_auth: '媒体鉴权',
+            media_auth_captured: '✓ Media Bearer 可用',
+            media_auth_not_captured: '⚠ 尚未捕获 Media Bearer',
+            push_media_auth: '推送媒体鉴权',
+            media_auth_pushed: '媒体鉴权已推送',
+            no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
             quick_setup: ' 一键推送',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
@@ -140,6 +147,12 @@
             gm_available: '✓ GM_cookie available',
             gm_unavailable: '⚠ GM_cookie unavailable. Use Tampermonkey Beta.',
             push_cookies: 'Push Cookies',
+            media_auth: 'Media Auth',
+            media_auth_captured: '✓ Media Bearer captured',
+            media_auth_not_captured: '⚠ Media Bearer not captured',
+            push_media_auth: 'Push Media Auth',
+            media_auth_pushed: 'Media auth pushed',
+            no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
             quick_setup: 'One-Click Push',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
@@ -284,12 +297,13 @@
 
     function addMediaAuthProbe(host, headerName, valueSummary, source, headerValue) {
         const key = host + '|' + headerName + '|' + valueSummary + '|' + source;
-        if (!host || !headerName || !valueSummary || seenMediaAuthProbes.has(key)) return;
-        seenMediaAuthProbes.add(key);
+        if (!host || !headerName || !valueSummary) return;
         if (headerName === 'authorization' && /^Bearer\s+\S+/i.test(String(headerValue || ''))) {
             latestMediaAuth = { host, authorization: String(headerValue).trim() };
             pushLatestMediaAuthSilently();
         }
+        if (seenMediaAuthProbes.has(key)) return;
+        seenMediaAuthProbes.add(key);
         capturedPayloads.unshift({
             time: new Date().toLocaleTimeString(),
             source: 'media_auth_probe',
@@ -624,6 +638,17 @@
         return { response: r, data: await r.json() };
     }
 
+    async function pushMediaAuth() {
+        const base = getProxyBase();
+        if (!base) { alert(tr('enter_proxy_first')); return; }
+        if (!getUserApiKey()) { alert(tr('no_user_key')); return; }
+        if (!latestMediaAuth) { alert(tr('no_media_auth')); return; }
+        try {
+            const mr = await pushUserMediaAuth(base);
+            alert(mr && mr.response.ok ? tr('media_auth_pushed') : tr('failed') + (mr?.data?.error?.message || mr?.data?.error || 'unknown'));
+        } catch (e) { alert(tr('network_error') + e); }
+    }
+
     async function pushLatestMediaAuthSilently() {
         if (mediaAuthPushInFlight || !latestMediaAuth) return;
         const base = getProxyBase();
@@ -784,6 +809,7 @@
                 <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:#60f2ff;
                             letter-spacing:0.5px; display:flex; align-items:center; gap:8px;">
                     ${ic('spark')} ${tr('title')}
+                    <span id="m365-script-version" style="font-size:10px; color:#94a3b8; font-weight:600;">v${SCRIPT_VERSION}</span>
                     <button id="m365-lang-toggle" style="margin-left:auto; padding:3px 12px; border:1px solid #334155;
                             border-radius:8px; background:transparent; color:#60f2ff; cursor:pointer;
                             font-weight:600; font-size:11px; transition:all 0.2s;">
@@ -858,6 +884,14 @@
                             transition:opacity 0.2s;">
                         &#127850; ${tr('push_cookies')}
                     </button>
+
+                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('media_auth')}</span><span style="margin-left:auto; color:${latestMediaAuth ? '#22c55e' : '#f59e0b'};">${latestMediaAuth ? tr('media_auth_captured') : tr('media_auth_not_captured')}</span></div>
+                    <button id="m365-push-media-auth" style="width:100%; padding:8px 0; border:none;
+                            border-radius:8px; background:linear-gradient(135deg,#0ea5e9,#2563eb); color:#fff;
+                            cursor:pointer; font-weight:600; font-size:12px;
+                            transition:opacity 0.2s;">
+                        &#128228; ${tr('push_media_auth')}
+                    </button>
                 </details>
 
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
@@ -892,6 +926,7 @@
         document.getElementById('m365-copy-token').onclick = () => copyToken();
         document.getElementById('m365-push-token').onclick = () => pushToken();
         document.getElementById('m365-push-cookies').onclick = () => pushCookies();
+        document.getElementById('m365-push-media-auth').onclick = pushMediaAuth;
         document.getElementById('m365-one-click').onclick = () => oneClickSetup();
         const resetProxyBtn = document.getElementById('m365-reset-proxy-url');
         if (resetProxyBtn) resetProxyBtn.onclick = () => resetSavedProxyBase();
