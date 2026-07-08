@@ -131,7 +131,33 @@ def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypat
     assert FakeAuthorizedImageClient.last_headers["Authorization"] == "Bearer account-token"
     assert events[0]["phase"] == "direct_start"
     assert events[0]["token_header"] is True
+    assert events[0]["auth_source"] == "account"
     assert events[0]["cookie_names"] == ["MUID"]
+
+
+def test_fetch_image_with_cookies_prefers_media_auth_for_asyncgw(tmp_path, monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAuthorizedImageClient)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Media Account", token="substrate-token", token_source="manual")
+    account.media_auth_token = "media-bearer-token"
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".asyncgw.teams.microsoft.com"}])
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    body, content_type = asyncio.run(
+        scheduler.fetch_image(
+            account.id,
+            "https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0/views/original/wave.wav",
+            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+        )
+    )
+
+    assert body == b"png"
+    assert content_type == "image/png"
+    assert FakeAuthorizedImageClient.last_headers["Authorization"] == "Bearer media-bearer-token"
+    assert events[0]["phase"] == "direct_start"
+    assert events[0]["token_header"] is True
+    assert events[0]["auth_source"] == "media"
 
 
 class FakeBrowserProcess:

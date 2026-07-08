@@ -194,6 +194,25 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                     app.state.key_store.update(k.id, displaced_at=0.0)
         return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}
 
+    @app.post("/user/account/media-auth")
+    async def user_set_account_media_auth(request: Request) -> dict:
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        if not k.account_id or app.state.account_store.get(k.account_id) is None:
+            return _json_err(400, "No bound account")
+        body = await request.json()
+        host = str(body.get("host", "") or "").strip().lower()
+        if host != "teams.microsoft.com" and not host.endswith(".teams.microsoft.com"):
+            return _json_err(400, "Unsupported media auth host")
+        auth = str(body.get("authorization", "") or "").strip()
+        match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
+        token = match.group(1).strip() if match else ""
+        if not token:
+            return _json_err(400, "Media auth token is empty")
+        app.state.account_store.set_media_auth_token(k.account_id, token)
+        return {"status": "ok", "has_media_auth": True}
+
     @app.post("/user/account/cookies")
     async def user_set_account_cookies(request: Request) -> dict:
         k = _resolve_user_key(request)

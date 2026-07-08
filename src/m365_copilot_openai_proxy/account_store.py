@@ -61,6 +61,8 @@ class Account:
     cookie_updated_at: float = 0.0
     cookie_expires_at: float = 0.0
     cookies: list[dict[str, Any]] = field(default_factory=list)
+    media_auth_token: str = ""
+    media_auth_updated_at: float = 0.0
     cdp_port: int = _CDP_PORT_BASE
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
@@ -132,6 +134,8 @@ class AccountStore:
                     cookie_updated_at=float(raw.get("cookie_updated_at", 0.0)),
                     cookie_expires_at=float(raw.get("cookie_expires_at", 0.0)),
                     cookies=list(raw.get("cookies", [])) if isinstance(raw.get("cookies", []), list) else [],
+                    media_auth_token=str(raw.get("media_auth_token", "") or ""),
+                    media_auth_updated_at=float(raw.get("media_auth_updated_at", 0.0) or 0.0),
                     cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
                     created_at=float(raw.get("created_at", time.time())),
@@ -274,12 +278,25 @@ class AccountStore:
             self._save()
             return acc
 
+    def set_media_auth_token(self, acc_id: str, token: str) -> Account | None:
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.media_auth_token = token.strip()
+            acc.media_auth_updated_at = time.time() if acc.media_auth_token else 0.0
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
     def clear_credentials(self, acc_id: str) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
             acc.token = ""
+            acc.media_auth_token = ""
+            acc.media_auth_updated_at = 0.0
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
             acc.cookie_expires_at = 0.0

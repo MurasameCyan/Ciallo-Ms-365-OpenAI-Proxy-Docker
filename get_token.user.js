@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      5.7
+// @version      5.9
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -12,6 +12,8 @@
 // @match        https://www.office.com/*
 // @match        https://*.office.com/*
 // @match        https://office.com/*
+// @match        https://teams.microsoft.com/*
+// @match        https://*.teams.microsoft.com/*
 // @match        https://microsoft.com/*
 // @match        https://*.microsoft.com/*
 // @grant        GM_cookie
@@ -42,10 +44,14 @@
         'https://office.com',
         'https://www.office.com',
         'https://designerapp.officeapps.live.com/',
+        'https://teams.microsoft.com/',
+        'https://jp-prod.asyncgw.teams.microsoft.com/',
     ];
 
     // Store the latest token
     let latestToken = '';
+    let latestMediaAuth = null;
+    let mediaAuthPushInFlight = false;
 
     // Store the latest captured chat payloads (for mode-field comparison)
     // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
@@ -249,8 +255,112 @@
         return '';
     }
 
-    // Intercept WebSocket construction on the real page (not in sandbox)
+    // Intercept browser APIs on the real page (not in sandbox)
     const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const MEDIA_AUTH_HOST_RE = /(^|\.)(asyncgw\.teams\.microsoft\.com|teams\.microsoft\.com)$/i;
+    const MEDIA_AUTH_HEADER_NAMES = ['authorization', 'x-skypetoken', 'skypetoken'];
+    const seenMediaAuthProbes = new Set();
+
+    function mediaAuthHostFromUrl(urlLike) {
+        try {
+            let url = urlLike;
+            if (urlLike && typeof urlLike === 'object' && typeof urlLike.url === 'string') url = urlLike.url;
+            const parsed = new URL(String(url), location.href);
+            return MEDIA_AUTH_HOST_RE.test(parsed.hostname) ? parsed.hostname : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function mediaAuthValueSummary(name, value) {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        if (name === 'authorization') {
+            const scheme = (text.split(/\s+/, 1)[0] || 'present').toLowerCase();
+            return scheme + ' token present';
+        }
+        return 'present';
+    }
+
+    function addMediaAuthProbe(host, headerName, valueSummary, source, headerValue) {
+        const key = host + '|' + headerName + '|' + valueSummary + '|' + source;
+        if (!host || !headerName || !valueSummary || seenMediaAuthProbes.has(key)) return;
+        seenMediaAuthProbes.add(key);
+        if (headerName === 'authorization' && /^Bearer\s+\S+/i.test(String(headerValue || ''))) {
+            latestMediaAuth = { host, authorization: String(headerValue).trim() };
+            pushLatestMediaAuthSilently();
+        }
+        capturedPayloads.unshift({
+            time: new Date().toLocaleTimeString(),
+            source: 'media_auth_probe',
+            frameType: 'media-auth',
+            target: host,
+            tone: source,
+            modelId: headerName,
+            rawText: JSON.stringify({ source: 'media_auth_probe', host, headerName, valueSummary, via: source }),
+        });
+        if (capturedPayloads.length > 20) capturedPayloads.pop();
+        renderCaptured();
+    }
+
+    function captureMediaAuthProbe(urlLike, headersLike, source) {
+        const host = mediaAuthHostFromUrl(urlLike);
+        if (!host || !headersLike) return;
+        const add = (name, value) => {
+            const headerName = String(name || '').toLowerCase();
+            if (!MEDIA_AUTH_HEADER_NAMES.includes(headerName)) return;
+            const valueSummary = mediaAuthValueSummary(headerName, value);
+            addMediaAuthProbe(host, headerName, valueSummary, source, value);
+        };
+        try {
+            if (typeof headersLike.forEach === 'function') {
+                headersLike.forEach((value, name) => add(name, value));
+                return;
+            }
+        } catch (e) {}
+        if (Array.isArray(headersLike)) {
+            headersLike.forEach((entry) => {
+                if (Array.isArray(entry) && entry.length >= 2) add(entry[0], entry[1]);
+            });
+            return;
+        }
+        if (typeof headersLike === 'object') {
+            Object.keys(headersLike).forEach((name) => add(name, headersLike[name]));
+        }
+    }
+
+    const OrigFetch = pageWindow.fetch;
+    if (typeof OrigFetch === 'function') {
+        pageWindow.fetch = function(input, init) {
+            try {
+                captureMediaAuthProbe(input, init && init.headers, 'fetch-init');
+                if (input && typeof input === 'object' && input.headers) captureMediaAuthProbe(input, input.headers, 'fetch-request');
+            } catch (e) {}
+            return OrigFetch.apply(this, arguments);
+        };
+    }
+
+    const OrigXMLHttpRequest = pageWindow.XMLHttpRequest;
+    if (typeof OrigXMLHttpRequest === 'function') {
+        pageWindow.XMLHttpRequest = function() {
+            const xhr = new OrigXMLHttpRequest();
+            let probeUrl = '';
+            const probeHeaders = {};
+            const origOpen = xhr.open;
+            const origSetRequestHeader = xhr.setRequestHeader;
+            xhr.open = function(method, url) {
+                probeUrl = url;
+                return origOpen.apply(xhr, arguments);
+            };
+            xhr.setRequestHeader = function(name, value) {
+                probeHeaders[name] = value;
+                captureMediaAuthProbe(probeUrl, probeHeaders, 'xhr');
+                return origSetRequestHeader.apply(xhr, arguments);
+            };
+            return xhr;
+        };
+        pageWindow.XMLHttpRequest.prototype = OrigXMLHttpRequest.prototype;
+    }
 
     const OrigWebSocket = pageWindow.WebSocket;
     pageWindow.WebSocket = function(url, protocols) {
@@ -451,11 +561,15 @@
             { url: 'https://office.com/' },
             { url: 'https://www.office.com/' },
             { url: 'https://designerapp.officeapps.live.com/' },
+            { url: 'https://teams.microsoft.com/' },
+            { url: 'https://jp-prod.asyncgw.teams.microsoft.com/' },
             { domain: '.login.microsoftonline.com' },
             { domain: '.login.live.com' },
             { domain: '.microsoft.com' },
             { domain: '.microsoftonline.com' },
             { domain: '.officeapps.live.com' },
+            { domain: '.teams.microsoft.com' },
+            { domain: '.asyncgw.teams.microsoft.com' },
         ];
 
         // Run all queries in parallel
@@ -499,6 +613,26 @@
         return { response: r, data: await r.json() };
     }
 
+    async function pushUserMediaAuth(base) {
+        const key = getUserApiKey();
+        if (!key || !latestMediaAuth) return null;
+        const r = await gmFetch(base + '/user/account/media-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({ authorization: latestMediaAuth.authorization, host: latestMediaAuth.host })
+        });
+        return { response: r, data: await r.json() };
+    }
+
+    async function pushLatestMediaAuthSilently() {
+        if (mediaAuthPushInFlight || !latestMediaAuth) return;
+        const base = getProxyBase();
+        if (!base || !getUserApiKey()) return;
+        mediaAuthPushInFlight = true;
+        try { await pushUserMediaAuth(base); } catch (e) {}
+        finally { mediaAuthPushInFlight = false; }
+    }
+
     // Push Token to proxy
     async function pushToken() {
         const base = getProxyBase();
@@ -506,6 +640,7 @@
         if (!latestToken) { alert(tr('no_token_ws')); return; }
         try {
             const ur = await pushUserToken(base, latestToken);
+            if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
             alert(ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
         } catch (e) { alert(tr('network_error') + e); }
     }
@@ -524,6 +659,9 @@
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
+            if (cr.response.ok && latestMediaAuth) {
+                try { await pushUserMediaAuth(base); } catch (e) {}
+            }
             const warning = cr.data.warning ? '\n' + cr.data.warning : '';
             alert(cr.response.ok ? tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' + warning : tr('failed') + (cr.data.error?.message || cr.data.error));
         } catch (e) {
@@ -562,6 +700,9 @@
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tokenLine + '\n' + tr('cookie_push_status') + tr('status_failed') + ' - ' + tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
+            if (cr.response.ok && latestMediaAuth) {
+                try { await pushUserMediaAuth(base); } catch (e) {}
+            }
             const warning = cr.data.warning ? '\n' + cr.data.warning : '';
             const cookieState = cr.response.ok ? (cr.data.warning ? tr('status_warning') : tr('status_success')) : tr('status_failed');
             const cookieDetail = cr.response.ok ? ' (' + cr.data.injected + '/' + cr.data.total + ')' + warning : ' - ' + (cr.data.error?.message || cr.data.error);

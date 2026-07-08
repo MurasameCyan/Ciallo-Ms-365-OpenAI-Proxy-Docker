@@ -82,6 +82,20 @@ def _auth_headers_for_token(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _is_teams_media_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host == "teams.microsoft.com" or host.endswith(".teams.microsoft.com")
+
+
+def _auth_headers_for_account(account, url: str) -> tuple[dict[str, str], str]:
+    media_token = str(getattr(account, "media_auth_token", "") or "").strip()
+    if media_token and _is_teams_media_url(url):
+        return _auth_headers_for_token(media_token), "media"
+    if account.token:
+        return _auth_headers_for_token(account.token), "account"
+    return {}, ""
+
+
 def _cookie_names_for_url(cookies: list[dict[str, Any]], url: str) -> list[str]:
     host = urlsplit(url).hostname or ""
     names: list[str] = []
@@ -304,10 +318,16 @@ class RefreshScheduler:
             raise RuntimeError(f"account {account_id} not found")
         cookie_header = _cookie_header_for_url(account.cookies, url)
         cookie_names = _cookie_names_for_url(account.cookies, url)
-        auth_headers = _auth_headers_for_token(account.token)
-        if cookie_header:
+        auth_headers, auth_source = _auth_headers_for_account(account, url)
+        if cookie_header or auth_headers:
             if event_sink:
-                event_sink("direct_start", cookie_count=cookie_header.count(";") + 1, cookie_names=cookie_names, token_header=bool(auth_headers))
+                event_sink(
+                    "direct_start",
+                    cookie_count=cookie_header.count(";") + 1 if cookie_header else 0,
+                    cookie_names=cookie_names,
+                    token_header=bool(auth_headers),
+                    auth_source=auth_source,
+                )
             try:
                 return await self._fetch_image_with_cookies(url, cookie_header, auth_headers=auth_headers, event_sink=event_sink)
             except UpstreamMediaNotFound as exc:
@@ -317,7 +337,7 @@ class RefreshScheduler:
                 if event_sink:
                     event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
         elif event_sink:
-            event_sink("direct_skip", reason="no_matching_cookies")
+            event_sink("direct_skip", reason="no_matching_cookies_or_auth")
         if event_sink:
             event_sink("chromium_fallback_start")
         async with self._account_lock(account_id):
@@ -328,12 +348,13 @@ class RefreshScheduler:
         import httpx
 
         headers = {
-            "Cookie": cookie_header,
             "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,audio/*,video/*,*/*;q=0.8",
             "Referer": "https://designerapp.officeapps.live.com/",
             **(auth_headers or {}),
         }
+        if cookie_header:
+            headers["Cookie"] = cookie_header
         started = time.perf_counter()
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
@@ -444,12 +465,12 @@ class RefreshScheduler:
                         injected_cookies += 1
                 if event_sink:
                     event_sink("chromium_cookies", cookie_count=injected_cookies)
-                auth_headers = _auth_headers_for_token(account.token)
+                auth_headers, auth_source = _auth_headers_for_account(account, url)
                 if auth_headers:
                     await cdp_call("Network.setExtraHTTPHeaders", {"headers": auth_headers})
                 await cdp_call("Page.enable")
                 if event_sink:
-                    event_sink("chromium_navigate", token_header=bool(auth_headers))
+                    event_sink("chromium_navigate", token_header=bool(auth_headers), auth_source=auth_source)
                 navigate_id = next_id
                 next_id += 1
                 await ws.send(json.dumps({"id": navigate_id, "method": "Page.navigate", "params": {"url": url}}))

@@ -62,6 +62,38 @@ def test_cookie_push_persists_cookies_for_media_proxy(tmp_path):
     assert account.cookies == cookies
 
 
+def test_media_auth_push_persists_bearer_for_bound_account(tmp_path):
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(name="Microsoft User", token="substrate-token", token_source="manual")
+    key = app.state.key_store.add(name="Proxy User", account_id=account.id, username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/media-auth",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"authorization": "Bearer media-bearer-token", "host": "jp-prod.asyncgw.teams.microsoft.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "has_media_auth": True}
+    account = app.state.account_store.get(account.id)
+    assert account.media_auth_token == "media-bearer-token"
+    assert account.media_auth_updated_at > 0
+
+
+def test_media_auth_push_requires_existing_bound_account(tmp_path):
+    app = make_test_app(tmp_path)
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/media-auth",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"authorization": "Bearer media-bearer-token", "host": "jp-prod.asyncgw.teams.microsoft.com"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["message"] == "No bound account"
+
+
 def test_cookie_push_stores_cookies_even_when_chromium_injection_is_incomplete(tmp_path):
     app = make_test_app(tmp_path)
     app.state.refresh_scheduler = FailingRefreshScheduler()

@@ -7,7 +7,7 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      5.7" in SCRIPT
+    assert "// @version      5.9" in SCRIPT
 
 
 
@@ -20,6 +20,38 @@ def test_userscript_matches_m365_account_variant_hosts():
 def test_userscript_collects_officeapps_live_cookies_for_generated_images():
     assert "https://designerapp.officeapps.live.com/" in SCRIPT
     assert "{ domain: '.officeapps.live.com' }" in SCRIPT
+
+
+def test_userscript_collects_teams_cookies_for_asyncgw_media():
+    assert "https://teams.microsoft.com/" in SCRIPT
+    assert "https://jp-prod.asyncgw.teams.microsoft.com/" in SCRIPT
+    assert "{ domain: '.teams.microsoft.com' }" in SCRIPT
+    assert "{ domain: '.asyncgw.teams.microsoft.com' }" in SCRIPT
+
+
+def test_userscript_probes_media_auth_headers_without_storing_secret_values():
+    assert "MEDIA_AUTH_HOST_RE" in SCRIPT
+    assert "captureMediaAuthProbe" in SCRIPT
+    assert "source: 'media_auth_probe'" in SCRIPT
+    assert "valueSummary" in SCRIPT
+    assert "x-skypetoken" in SCRIPT.lower()
+    assert "authorization" in SCRIPT.lower()
+    assert "rawValue" not in SCRIPT
+
+
+def test_userscript_wraps_fetch_and_xhr_for_media_auth_probe():
+    assert "const OrigFetch = pageWindow.fetch" in SCRIPT
+    assert "const OrigXMLHttpRequest = pageWindow.XMLHttpRequest" in SCRIPT
+    assert "captureMediaAuthProbe(input" in SCRIPT
+    assert "captureMediaAuthProbe(probeUrl" in SCRIPT
+
+
+def test_userscript_pushes_media_auth_token_to_user_account():
+    assert "latestMediaAuth" in SCRIPT
+    assert "pushUserMediaAuth" in SCRIPT
+    assert "'/user/account/media-auth'" in SCRIPT
+    assert "authorization: latestMediaAuth.authorization" in SCRIPT
+    assert "host: latestMediaAuth.host" in SCRIPT
 
 
 def test_userscript_registers_menu_command_as_panel_fallback():
