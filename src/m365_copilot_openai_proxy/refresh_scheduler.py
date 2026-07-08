@@ -88,10 +88,20 @@ def _is_teams_media_url(url: str) -> bool:
     return host == "teams.microsoft.com" or host.endswith(".teams.microsoft.com")
 
 
+def _is_designer_media_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host == "designerapp.officeapps.live.com" or host.endswith(".officeapps.live.com")
+
+
 def _auth_headers_for_account(account, url: str) -> tuple[dict[str, str], str]:
     media_token = str(getattr(account, "media_auth_token", "") or "").strip()
     if media_token and _is_teams_media_url(url):
         return _auth_headers_for_token(media_token), "media"
+    # designerapp authenticates via the fileToken query param + live.com login
+    # cookies; the substrate account token has the wrong audience and makes the
+    # server reject the request with HTTP 401, so send cookies only (no bearer).
+    if _is_designer_media_url(url):
+        return {}, "designer_cookie"
     if account.token:
         return _auth_headers_for_token(account.token), "account"
     return {}, ""

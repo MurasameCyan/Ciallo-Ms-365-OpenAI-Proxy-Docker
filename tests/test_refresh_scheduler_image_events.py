@@ -110,7 +110,7 @@ def test_fetch_image_falls_back_to_chromium_after_direct_404(tmp_path, monkeypat
 
 
 
-def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypatch):
+def test_fetch_image_with_cookies_omits_auth_header_for_designerapp(tmp_path, monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", FakeAuthorizedImageClient)
     store = AccountStore(Path(tmp_path) / "accounts.json")
     account = store.add(name="Image Account", token="account-token", token_source="manual")
@@ -128,10 +128,13 @@ def test_fetch_image_with_cookies_sends_account_token_header(tmp_path, monkeypat
 
     assert body == b"png"
     assert content_type == "image/png"
-    assert FakeAuthorizedImageClient.last_headers["Authorization"] == "Bearer account-token"
+    # designerapp authenticates via the fileToken query param + live.com login
+    # cookies; attaching the substrate account token (wrong audience) triggers a
+    # 401, so no Authorization header must be sent for designerapp images.
+    assert "Authorization" not in FakeAuthorizedImageClient.last_headers
     assert events[0]["phase"] == "direct_start"
-    assert events[0]["token_header"] is True
-    assert events[0]["auth_source"] == "account"
+    assert events[0]["token_header"] is False
+    assert events[0]["auth_source"] == "designer_cookie"
     assert events[0]["cookie_names"] == ["MUID"]
 
 
@@ -296,7 +299,9 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
     assert content_type == "image/png"
     user_data_arg = next(arg for arg in FakeBrowserProcess.last_args if arg.startswith("--user-data-dir="))
     assert user_data_arg != f"--user-data-dir={tmp_path / 'profiles' / account.id}"
-    assert fake_websockets.ws.extra_headers["Authorization"] == "Bearer token"
+    # designerapp authenticates via fileToken + cookies; no Authorization header
+    # (wrong-audience substrate token) is sent, so extra headers stay unset.
+    assert fake_websockets.ws.extra_headers is None
     assert any(cookie["name"] == "MUID" for cookie in fake_websockets.ws.set_cookies)
     assert any(event["phase"] == "chromium_cookies" and event["cookie_count"] == 1 for event in events)
     assert any(event["phase"] == "chromium_response" for event in events)
