@@ -78,7 +78,7 @@ def test_fetch_image_with_cookies_records_upstream_status_before_raising(tmp_pat
     assert events[0]["body_preview"] == "login"
 
 
-def test_fetch_image_does_not_fallback_to_chromium_after_direct_404(tmp_path, monkeypatch):
+def test_fetch_image_falls_back_to_chromium_after_direct_404(tmp_path, monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", FakeNotFoundMediaClient)
     store = AccountStore(Path(tmp_path) / "accounts.json")
     account = store.add(name="Media Account", token="account-token", token_source="manual")
@@ -86,22 +86,27 @@ def test_fetch_image_does_not_fallback_to_chromium_after_direct_404(tmp_path, mo
     scheduler = RefreshScheduler(store, tmp_path / "profiles")
     events: list[dict] = []
 
-    async def fail_if_called(account_id, url, event_sink=None):
-        raise AssertionError("chromium fallback should not run after upstream 404")
+    async def fallback_fetch(account_id, url, event_sink=None):
+        if event_sink:
+            event_sink("chromium_body", bytes=len(b"wav-bytes"), base64_encoded=True, body_preview="")
+        return b"wav-bytes", "audio/wav"
 
-    scheduler._fetch_image_one = fail_if_called
+    scheduler._fetch_image_one = fallback_fetch
 
-    with pytest.raises(RuntimeError, match="HTTP 404"):
-        asyncio.run(
-            scheduler.fetch_image(
-                account.id,
-                "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0/views/original/missing.wav",
-                event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
-            )
+    body, content_type = asyncio.run(
+        scheduler.fetch_image(
+            account.id,
+            "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0/views/original/thunder_sound.wav",
+            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
         )
+    )
 
+    assert body == b"wav-bytes"
+    assert content_type == "audio/wav"
     assert any(event["phase"] == "direct_response" and event["status_code"] == 404 for event in events)
-    assert not any(event["phase"] == "chromium_fallback_start" for event in events)
+    assert any(event["phase"] == "direct_error" and event["error_type"] == "UpstreamMediaNotFound" for event in events)
+    assert any(event["phase"] == "chromium_fallback_start" for event in events)
+    assert any(event["phase"] == "chromium_body" for event in events)
 
 
 

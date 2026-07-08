@@ -313,7 +313,6 @@ class RefreshScheduler:
             except UpstreamMediaNotFound as exc:
                 if event_sink:
                     event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
-                raise
             except Exception as exc:
                 if event_sink:
                     event_sink("direct_error", error_type=type(exc).__name__, error=str(exc))
