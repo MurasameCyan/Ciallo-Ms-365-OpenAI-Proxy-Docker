@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
-from m365_copilot_openai_proxy.media_proxy import make_signed_media_proxy_url, normalize_m365_media_text, rewrite_m365_media_urls
+from m365_copilot_openai_proxy.media_proxy import (
+    asyncgw_object_fetch_url,
+    make_signed_media_proxy_url,
+    normalize_m365_media_text,
+    rewrite_m365_media_urls,
+)
 from m365_copilot_openai_proxy.refresh_scheduler import UpstreamMediaNotFound
 
 
@@ -373,7 +378,7 @@ def test_media_proxy_route_fetches_global_token_media(monkeypatch, tmp_path):
     assert response.content == b"wav-bytes"
     assert response.headers["content-type"] == "audio/wav"
     assert seen_headers[0]["Authorization"] == "Bearer global-token"
-    assert [event["phase"] for event in app.state.media_proxy_events] == ["request", "fetch_start", "global_direct_start", "global_direct_response", "ok"]
+    assert [event["phase"] for event in app.state.media_proxy_events] == ["request", "fetch_start", "asyncgw_url_normalized", "global_direct_start", "global_direct_response", "ok"]
 
 
 def test_chat_stream_rewrites_m365_image_markdown_to_proxy_url(tmp_path):
@@ -418,4 +423,23 @@ def test_chat_stream_rewrites_split_asyncgw_audio_url_with_global_key(tmp_path):
     call_record = app.state.call_log[-1]
     assert "/v1/m365-media?" in call_record["response_text"]
     assert "asyncgw.teams.microsoft.com" not in call_record["response_text"]
+
+
+def test_asyncgw_object_fetch_url_strips_trailing_filename():
+    # The real asyncgw object lives at .../views/original; the trailing filename
+    # (e.g. bird_chirp.wav) is a model-supplied display name, not part of the
+    # object path, and asyncgw returns 404 when it is present.
+    assert (
+        asyncgw_object_fetch_url(SOURCE_AUDIO_URL)
+        == "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original"
+    )
+
+
+def test_asyncgw_object_fetch_url_keeps_bare_object_url_unchanged():
+    bare = "https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d9-c5a1299ea9a25ded992d45a176fd595e/views/original"
+    assert asyncgw_object_fetch_url(bare) == bare
+
+
+def test_asyncgw_object_fetch_url_leaves_non_asyncgw_urls_unchanged():
+    assert asyncgw_object_fetch_url(SOURCE_IMAGE_URL) == SOURCE_IMAGE_URL
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.59
+// @version      1.0.60
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.59';
+    const SCRIPT_VERSION = '1.0.60';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
@@ -343,14 +343,81 @@
         }
     }
 
+    // Response-level probe: records the browser's REAL asyncgw request outcome
+    // (status code, method, full URL with query params, key response headers).
+    // Read-only: never consumes/clones the body and never logs token values.
+    const MEDIA_RESPONSE_HEADER_NAMES = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'location', 'etag', 'www-authenticate'];
+    const seenMediaResponseProbes = new Set();
+
+    function summarizeMediaResponseHeaders(headersLike) {
+        const out = {};
+        if (!headersLike) return out;
+        const take = (name, value) => {
+            const n = String(name || '').toLowerCase();
+            if (MEDIA_RESPONSE_HEADER_NAMES.includes(n)) out[n] = String(value || '');
+        };
+        try {
+            if (typeof headersLike === 'string') {
+                headersLike.split(/\r?\n/).forEach((line) => {
+                    const idx = line.indexOf(':');
+                    if (idx > 0) take(line.slice(0, idx), line.slice(idx + 1).trim());
+                });
+                return out;
+            }
+            if (typeof headersLike.forEach === 'function') {
+                headersLike.forEach((value, name) => take(name, value));
+                return out;
+            }
+            if (typeof headersLike === 'object') {
+                Object.keys(headersLike).forEach((name) => take(name, headersLike[name]));
+            }
+        } catch (e) {}
+        return out;
+    }
+
+    function captureMediaResponse(method, url, status, headersLike, via) {
+        const host = mediaAuthHostFromUrl(url);
+        if (!host) return;
+        const fullUrl = String(url || '');
+        const key = via + '|' + (method || '') + '|' + fullUrl + '|' + status;
+        if (seenMediaResponseProbes.has(key)) return;
+        seenMediaResponseProbes.add(key);
+        const headerSummary = summarizeMediaResponseHeaders(headersLike);
+        capturedPayloads.unshift({
+            time: new Date().toLocaleTimeString(),
+            source: 'media_response_probe',
+            frameType: 'media-response',
+            target: host,
+            tone: via,
+            modelId: (method || 'GET') + ' ' + status,
+            rawText: JSON.stringify({ source: 'media_response_probe', via, method: method || 'GET', status, url: fullUrl, headers: headerSummary }),
+        });
+        if (capturedPayloads.length > 20) capturedPayloads.pop();
+        renderCaptured();
+    }
+
     const OrigFetch = pageWindow.fetch;
     if (typeof OrigFetch === 'function') {
         pageWindow.fetch = function(input, init) {
+            let reqUrl = '';
+            let reqMethod = 'GET';
             try {
                 captureMediaAuthProbe(input, init && init.headers, 'fetch-init');
                 if (input && typeof input === 'object' && input.headers) captureMediaAuthProbe(input, input.headers, 'fetch-request');
+                reqUrl = (input && typeof input === 'object' && typeof input.url === 'string') ? input.url : String(input || '');
+                reqMethod = (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET';
             } catch (e) {}
-            return OrigFetch.apply(this, arguments);
+            const p = OrigFetch.apply(this, arguments);
+            try {
+                if (p && typeof p.then === 'function' && mediaAuthHostFromUrl(reqUrl)) {
+                    p.then((resp) => {
+                        try {
+                            if (resp) captureMediaResponse(reqMethod, resp.url || reqUrl, resp.status, resp.headers, 'fetch-response');
+                        } catch (e) {}
+                    }, () => {});
+                }
+            } catch (e) {}
+            return p;
         };
     }
 
@@ -360,10 +427,12 @@
             const xhr = new OrigXMLHttpRequest();
             let probeUrl = '';
             const probeHeaders = {};
+            let probeMethod = 'GET';
             const origOpen = xhr.open;
             const origSetRequestHeader = xhr.setRequestHeader;
             xhr.open = function(method, url) {
                 probeUrl = url;
+                probeMethod = method || 'GET';
                 return origOpen.apply(xhr, arguments);
             };
             xhr.setRequestHeader = function(name, value) {
@@ -371,6 +440,14 @@
                 captureMediaAuthProbe(probeUrl, probeHeaders, 'xhr');
                 return origSetRequestHeader.apply(xhr, arguments);
             };
+            xhr.addEventListener('load', function() {
+                try {
+                    const finalUrl = xhr.responseURL || probeUrl;
+                    if (mediaAuthHostFromUrl(finalUrl)) {
+                        captureMediaResponse(probeMethod, finalUrl, xhr.status, xhr.getAllResponseHeaders(), 'xhr-response');
+                    }
+                } catch (e) {}
+            });
             return xhr;
         };
         pageWindow.XMLHttpRequest.prototype = OrigXMLHttpRequest.prototype;

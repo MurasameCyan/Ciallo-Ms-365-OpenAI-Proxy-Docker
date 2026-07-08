@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.59" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.59';" in SCRIPT
+    assert "// @version      1.0.60" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.60';" in SCRIPT
 
 
 def test_userscript_panel_title_displays_script_version_on_the_right():
@@ -50,6 +50,25 @@ def test_userscript_wraps_fetch_and_xhr_for_media_auth_probe():
     assert "const OrigXMLHttpRequest = pageWindow.XMLHttpRequest" in SCRIPT
     assert "captureMediaAuthProbe(input" in SCRIPT
     assert "captureMediaAuthProbe(probeUrl" in SCRIPT
+
+
+def test_userscript_captures_media_response_details_for_asyncgw():
+    # Response-level probe: records the browser's REAL asyncgw request outcome
+    # (status code, method, full URL with query params, key response headers)
+    # so we can reproduce the request that actually succeeds in the native page.
+    assert "captureMediaResponse" in SCRIPT
+    assert "source: 'media_response_probe'" in SCRIPT
+    # captures the final resolved URL (may differ from the requested URL)
+    assert "resp.url" in SCRIPT
+    assert "xhr.responseURL" in SCRIPT
+    # records HTTP status code from both fetch and xhr
+    assert "resp.status" in SCRIPT
+    # reads response headers without consuming the body
+    assert "getAllResponseHeaders" in SCRIPT
+    assert "content-range" in SCRIPT
+    # must not consume/clone the response body
+    assert "resp.clone" not in SCRIPT
+    assert "resp.text()" not in SCRIPT
 
 
 def test_userscript_pushes_media_auth_token_to_user_account():

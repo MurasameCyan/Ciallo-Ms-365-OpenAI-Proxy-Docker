@@ -155,9 +155,11 @@ def test_fetch_image_with_cookies_prefers_media_auth_for_asyncgw(tmp_path, monke
     assert body == b"png"
     assert content_type == "image/png"
     assert FakeAuthorizedImageClient.last_headers["Authorization"] == "Bearer media-bearer-token"
-    assert events[0]["phase"] == "direct_start"
-    assert events[0]["token_header"] is True
-    assert events[0]["auth_source"] == "media"
+    assert events[0]["phase"] == "asyncgw_url_normalized"
+    assert events[0]["fetch_path"] == "/v1/objects/0/views/original"
+    assert events[1]["phase"] == "direct_start"
+    assert events[1]["token_header"] is True
+    assert events[1]["auth_source"] == "media"
 
 
 class FakeBrowserProcess:

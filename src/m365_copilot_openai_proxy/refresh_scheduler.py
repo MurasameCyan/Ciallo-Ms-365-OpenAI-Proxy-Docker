@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .account_store import AccountStore
+from .media_proxy import asyncgw_object_fetch_url
 
 
 # How many seconds before token expiry we proactively refresh. Matches the
@@ -316,6 +317,13 @@ class RefreshScheduler:
         account = self._accounts.get(account_id)
         if account is None:
             raise RuntimeError(f"account {account_id} not found")
+        # asyncgw serves the object at the bare /views/original path; the model's
+        # trailing display filename triggers an upstream 404, so strip it before
+        # any (direct or Chromium) request. Cookie/auth matching only uses host.
+        fetch_url = asyncgw_object_fetch_url(url)
+        if event_sink and fetch_url != url:
+            event_sink("asyncgw_url_normalized", original_path=urlsplit(url).path, fetch_path=urlsplit(fetch_url).path)
+        url = fetch_url
         cookie_header = _cookie_header_for_url(account.cookies, url)
         cookie_names = _cookie_names_for_url(account.cookies, url)
         auth_headers, auth_source = _auth_headers_for_account(account, url)

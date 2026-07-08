@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 
 from .media_proxy import (
+    asyncgw_object_fetch_url,
     is_allowed_m365_media_url,
     rewrite_m365_media_urls,
     verify_signed_media_proxy_params,
@@ -52,10 +53,15 @@ async def _fetch_global_media(app: FastAPI, source_url: str, emit) -> tuple[byte
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,audio/*,video/*,*/*;q=0.8",
         "Referer": "https://designerapp.officeapps.live.com/",
     }
+    # Strip the model-supplied display filename; asyncgw serves the object at the
+    # bare /views/original path and 404s when the trailing filename is present.
+    fetch_url = asyncgw_object_fetch_url(source_url)
+    if fetch_url != source_url:
+        emit("asyncgw_url_normalized", original_path=urlsplit(source_url).path, fetch_path=urlsplit(fetch_url).path)
     emit("global_direct_start", token_header=True)
     started = time.perf_counter()
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        response = await client.get(source_url, headers=headers)
+        response = await client.get(fetch_url, headers=headers)
     response_url = urlsplit(str(response.url))
     fields = {
         "status_code": response.status_code,

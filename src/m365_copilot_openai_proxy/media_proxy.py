@@ -109,6 +109,30 @@ def _media_filename(source_url: str) -> str:
     return name or "media"
 
 
+def asyncgw_object_fetch_url(source_url: str) -> str:
+    """Return the real fetchable asyncgw object URL.
+
+    The model appends a display filename after ``/views/original/`` (e.g.
+    ``bird_chirp.wav``) that is NOT part of the real object path; asyncgw serves
+    the object at the bare ``/v1/objects/<id>/views/original`` and returns 404
+    when the extra filename segment is present. Strip that trailing segment for
+    asyncgw hosts only; all other URLs (designer images, already-bare objects)
+    are returned unchanged.
+    """
+    parsed = urlsplit(source_url)
+    host = parsed.hostname or ""
+    if not _ALLOWED_ASYNCGW_HOST_RE.search(host):
+        return source_url
+    marker = "/views/original"
+    idx = parsed.path.find(marker)
+    if idx < 0:
+        return source_url
+    trimmed_path = parsed.path[: idx + len(marker)]
+    if trimmed_path == parsed.path:
+        return source_url
+    return f"{parsed.scheme}://{parsed.netloc}{trimmed_path}"
+
+
 def normalize_m365_media_text(text: str) -> str:
     def raw_repl(match: re.Match[str]) -> str:
         return f"![image]({match.group(1).strip()})"
