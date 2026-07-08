@@ -65,10 +65,10 @@ async function clearCapturePayloads(){
   await fetch('/admin/capture-payload/clear',{method:'POST',credentials:'include'}).catch(()=>{});
   loadCapture();
 }
-async function clearImageProxyEvents(){
+async function clearMediaProxyEvents(){
   if(!await adminConfirm(t('confirm_clear_stats')))return;
-  await fetch('/admin/image-proxy/events/clear',{method:'POST',credentials:'include'}).catch(()=>{});
-  loadImageProxyEvents();
+  await fetch('/admin/media-proxy/events/clear',{method:'POST',credentials:'include'}).catch(()=>{});
+  loadMediaProxyEvents();
 }
 let __expiryWarnTimer=null;
 async function loadStats(){

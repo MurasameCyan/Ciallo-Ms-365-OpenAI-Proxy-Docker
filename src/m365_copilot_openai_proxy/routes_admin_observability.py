@@ -5,7 +5,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, Request
 
 from .call_log_store import clear_call_log as clear_call_log_store
-from .image_proxy_events import clear_image_proxy_events, get_image_proxy_events
+from .media_proxy_events import clear_media_proxy_events, get_media_proxy_events
 from .metrics_store import (
     clear_metrics_history_store,
     get_metrics_history_store,
@@ -31,17 +31,17 @@ def register_admin_observability_routes(app: FastAPI, require_admin: Callable[[R
         clear_call_log_store(app.state)
         return {"status": "ok", "version": int(getattr(app.state, 'call_log_version', 0))}
 
-    @app.get("/admin/image-proxy/events")
-    async def get_admin_image_proxy_events(request: Request, version: int | None = None) -> dict:
+    @app.get("/admin/media-proxy/events")
+    async def get_admin_media_proxy_events(request: Request, version: int | None = None) -> dict:
         err = require_admin(request)
         if err: return err
-        return get_image_proxy_events(app.state, version)
+        return get_media_proxy_events(app.state, version)
 
-    @app.post("/admin/image-proxy/events/clear")
-    async def clear_admin_image_proxy_events(request: Request) -> dict:
+    @app.post("/admin/media-proxy/events/clear")
+    async def clear_admin_media_proxy_events(request: Request) -> dict:
         err = require_admin(request)
         if err: return err
-        return clear_image_proxy_events(app.state)
+        return clear_media_proxy_events(app.state)
 
     @app.get("/admin/metrics-history")
     async def get_metrics_history(request: Request) -> dict:

@@ -524,14 +524,14 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
 </details>
-<details id="image-proxy-details" style="cursor:pointer;margin-bottom:20px">
+<details id="media-proxy-details" style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
 <span>媒体代理日志</span>
-<span id="image-proxy-event-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
+<span id="media-proxy-event-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-media，后续可扩展到视频、音频和文件。</div><div class="debug-actions"><button id="copy-image-proxy-all" onclick="copyAllImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearImageProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div></div>
-<div id="image-proxy-event-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-media，后续可扩展到视频、音频和文件。</div><div class="debug-actions"><button id="copy-media-proxy-all" onclick="copyAllMediaProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearMediaProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div></div>
+<div id="media-proxy-event-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
 <span style="color:var(--faint)">暂无媒体代理日志</span>
 </div>
 </details>
@@ -870,7 +870,7 @@ function loadViewData(view){
   if(view==='accounts'){loadAccounts();loadStats();return}
   if(view==='users'){loadKeys();return}
   if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
-  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadImageProxyEvents();loadCapture()}
+  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadMediaProxyEvents();loadCapture()}
 }
 switchView(localStorage.getItem('admin_view')||'home');
 
@@ -1157,7 +1157,7 @@ loadStatus();
 initGlassSelect(document);
 setInterval(loadStatus,60000);
 setInterval(()=>{if(document.body.dataset.view==='debug')loadCallLog()},5000);
-setInterval(()=>{if(document.body.dataset.view==='debug')loadImageProxyEvents()},5000);
+setInterval(()=>{if(document.body.dataset.view==='debug')loadMediaProxyEvents()},5000);
 setInterval(()=>{if(document.body.dataset.view==='debug')loadCapture()},5000);
 setInterval(()=>{if(document.body.dataset.view==='home'){loadSummary();loadTrend()}},60000);
 setInterval(()=>{if(document.body.dataset.view==='home')loadStats()},30000);
@@ -1207,19 +1207,19 @@ function copyJsonToButton(value,buttonId){
   }).catch(()=>{});
 }
 function copyAllCallLog(){copyJsonToButton(window.__callLogItems||[],'copy-call-log-all')}
-function copyAllImageProxyEvents(){copyJsonToButton(window.__imageProxyEvents||[],'copy-image-proxy-all')}
+function copyAllMediaProxyEvents(){copyJsonToButton(window.__mediaProxyEvents||[],'copy-media-proxy-all')}
 function copyAllCapturePayloads(){copyJsonToButton(window.__capItems||[],'copy-capture-all')}
-function copyImageProxyTrace(traceId){
-  const items=(window.__imageProxyEvents||[]).filter(e=>e.trace_id===traceId);
+function copyMediaProxyTrace(traceId){
+  const items=(window.__mediaProxyEvents||[]).filter(e=>e.trace_id===traceId);
   if(!items.length)return;
   navigator.clipboard.writeText(JSON.stringify(items,null,2)).then(()=>{
-    document.querySelectorAll('[data-image-trace="'+CSS.escape(traceId)+'"]').forEach(b=>{const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)});
+    document.querySelectorAll('[data-media-trace="'+CSS.escape(traceId)+'"]').forEach(b=>{const o=b.textContent;b.textContent=t('copied');setTimeout(()=>{b.textContent=o},1200)});
   }).catch(()=>{});
 }
 document.addEventListener('click',e=>{
-  const btn=e.target.closest('[data-image-trace]');
+  const btn=e.target.closest('[data-media-trace]');
   if(!btn)return;
-  copyImageProxyTrace(btn.getAttribute('data-image-trace')||'');
+  copyMediaProxyTrace(btn.getAttribute('data-media-trace')||'');
 });
 function updateCallLogFilterButtons(){
   const cur=window.__callLogFilter||'';
@@ -1334,33 +1334,33 @@ async function loadCapture(){
     renderCapture(window.__capItems);
   }catch(e){}
 }
-function renderImageProxyEvents(items){
-  const count=document.getElementById('image-proxy-event-count');if(count)count.textContent=items.length;
-  const el=document.getElementById('image-proxy-event-content');if(!el)return;
+function renderMediaProxyEvents(items){
+  const count=document.getElementById('media-proxy-event-count');if(count)count.textContent=items.length;
+  const el=document.getElementById('media-proxy-event-content');if(!el)return;
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   if(!items.length){el.innerHTML='<span style="color:var(--faint)">暂无媒体代理日志</span>';return}
   el.innerHTML=items.slice().reverse().map(e=>{
     const ts=e.ts?new Date(e.ts*1000).toLocaleTimeString():'';
     const meta={...e};delete meta.ts;delete meta.trace_id;delete meta.phase;
     const trace=String(e.trace_id||'');
-    const copyBtn='<button data-image-trace="'+esc(trace)+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
+    const copyBtn='<button data-media-trace="'+esc(trace)+'" style="padding:2px 8px;font-size:.65rem">'+t('copy_record')+'</button>';
     return '<div style="border-bottom:1px solid #1e293b;padding:6px 0;line-height:1.5">'+
       '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><span style="color:#38bdf8">'+esc(ts)+'</span><b style="color:var(--strong)">'+esc(e.phase)+'</b><span style="color:var(--faint)">'+esc(trace)+'</span>'+copyBtn+'</div>'+
       '<pre style="white-space:pre-wrap;word-break:break-all;color:var(--muted);margin:4px 0 0">'+esc(JSON.stringify(meta,null,2))+'</pre></div>';
   }).join('');
 }
-async function loadImageProxyEvents(){
+async function loadMediaProxyEvents(){
   try{
-    const v=window.__imageProxyEventsVersion;
-    const url=v==null?'/admin/image-proxy/events':'/admin/image-proxy/events?version='+encodeURIComponent(v);
+    const v=window.__mediaProxyEventsVersion;
+    const url=v==null?'/admin/media-proxy/events':'/admin/media-proxy/events?version='+encodeURIComponent(v);
     const r=await fetch(url,{credentials:'include'});
     if(r.status===401){return}
     const d=await r.json();
-    const count=document.getElementById('image-proxy-event-count');if(count)count.textContent=d.count||0;
+    const count=document.getElementById('media-proxy-event-count');if(count)count.textContent=d.count||0;
     if(d.unchanged)return;
-    window.__imageProxyEventsVersion=d.version;
-    window.__imageProxyEvents=d.events||[];
-    renderImageProxyEvents(window.__imageProxyEvents);
+    window.__mediaProxyEventsVersion=d.version;
+    window.__mediaProxyEvents=d.events||[];
+    renderMediaProxyEvents(window.__mediaProxyEvents);
   }catch(e){}
 }
 """ + _ADMIN_SETTINGS_JS + """

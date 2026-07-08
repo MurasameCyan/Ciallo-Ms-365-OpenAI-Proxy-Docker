@@ -45,7 +45,7 @@ def test_cookie_push_uses_microsoft_username_when_creating_account(tmp_path):
     assert account.name == "Microsoft User"
 
 
-def test_cookie_push_persists_cookies_for_image_proxy(tmp_path):
+def test_cookie_push_persists_cookies_for_media_proxy(tmp_path):
     app = make_test_app(tmp_path)
     key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
     cookies = [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com", "path": "/"}]
@@ -99,3 +99,4 @@ def test_cookie_push_renames_existing_account_to_microsoft_username(tmp_path):
     assert response.status_code == 200
     account = app.state.account_store.get(account.id)
     assert account.name == "Microsoft User"
+

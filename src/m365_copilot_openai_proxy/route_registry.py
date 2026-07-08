@@ -12,7 +12,7 @@ from .routes_admin_observability import register_admin_observability_routes
 from .routes_admin_settings import register_admin_settings_routes
 from .routes_admin_token import register_admin_token_routes
 from .routes_api import register_api_routes
-from .routes_image_proxy import register_image_proxy_routes
+from .routes_media_proxy import register_media_proxy_routes
 from .routes_user import register_user_routes
 from .routes_web import register_web_routes
 from .substrate_client import SubstrateCopilotClient
@@ -48,6 +48,6 @@ def register_app_routes(
 
     register_user_routes(app, resolved_settings, TONE_OPTIONS)
 
-    register_image_proxy_routes(app)
+    register_media_proxy_routes(app)
 
     register_api_routes(app, get_settings, get_copilot_client)

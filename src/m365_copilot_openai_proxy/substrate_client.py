@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import websockets
 
-from .image_proxy import normalize_m365_image_text
+from .media_proxy import normalize_m365_media_text
 from .session_store import PersistentSession
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
@@ -350,7 +350,7 @@ def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
 
 
 def _message_content(entry: dict) -> str:
-    text = normalize_m365_image_text(str(entry.get("text") or ""))
+    text = normalize_m365_media_text(str(entry.get("text") or ""))
     image_urls = _extract_image_urls(entry)
     if image_urls and _is_image_loading_placeholder(text):
         text = ""

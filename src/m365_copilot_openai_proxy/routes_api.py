@@ -14,7 +14,7 @@ from .config import Settings
 from .key_store import ApiKey
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
 from .response_helpers import _anthropic_stream, _openai_stream, _responses_stream
-from .routes_image_proxy import request_image_rewriter
+from .routes_media_proxy import request_media_rewriter
 from .runtime_settings import _RUN_PERMISSIONS
 from .session_helpers import (
     _PERSIST_MODEL_SUFFIX,
@@ -125,7 +125,7 @@ def register_api_routes(
             call_record["run_permission"] = run_permission
             call_record["read_only_guard"] = read_only_guard
             translated = translate_openai_request(request, incremental=incremental, system_override=_system_override)
-            image_rewriter = request_image_rewriter(app, raw_request)
+            media_rewriter = request_media_rewriter(app, raw_request)
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
                 call_record["streaming"] = True
@@ -143,7 +143,7 @@ def register_api_routes(
                             call_record=call_record,
                             tool_names={t.function.name for t in request.tools if t.function},
                             read_only_guard=read_only_guard,
-                            text_transform=image_rewriter,
+                            text_transform=media_rewriter,
                         ),
                         media_type="text/event-stream",
                     )
@@ -155,11 +155,11 @@ def register_api_routes(
                         translated.additional_context,
                         session,
                         on_text_done=lambda text: record_response_text(app.state, call_record, text),
-                        text_transform=image_rewriter,
+                        text_transform=media_rewriter,
                     ),
                     media_type="text/event-stream",
                 )
-            text = image_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
+            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
@@ -184,7 +184,7 @@ def register_api_routes(
         if not tool_calls and request.tools and not read_only_guard and _looks_like_fake_file_claim(text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
-                retry_text = image_rewriter(await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session))
+                retry_text = media_rewriter(await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session))
                 retry_calls = _extract_tool_calls(retry_text)
                 if not retry_calls:
                     tool_names = {t.function.name for t in request.tools if t.function}
@@ -249,7 +249,7 @@ def register_api_routes(
             request = OpenAIResponsesRequest.model_validate(body)
             translated = translate_responses_request(request)
             session = _persistent_session(app, raw, request.model, _responses_session_key(request))
-            image_rewriter = request_image_rewriter(app, raw)
+            media_rewriter = request_media_rewriter(app, raw)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -278,13 +278,13 @@ def register_api_routes(
                     translated.additional_context,
                     session,
                     on_text_done=lambda text: record_response_text(app.state, call_record, text),
-                    text_transform=image_rewriter,
+                    text_transform=media_rewriter,
                 ),
                 media_type="text/event-stream",
             )
 
         try:
-            text = image_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
+            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -316,7 +316,7 @@ def register_api_routes(
         try:
             translated = translate_anthropic_request(request)
             session = _persistent_session(app, raw_request, request.model, _messages_session_key(request), request)
-            image_rewriter = request_image_rewriter(app, raw_request)
+            media_rewriter = request_media_rewriter(app, raw_request)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -345,13 +345,13 @@ def register_api_routes(
                     translated.additional_context,
                     session,
                     on_text_done=lambda text: record_response_text(app.state, call_record, text),
-                    text_transform=image_rewriter,
+                    text_transform=media_rewriter,
                 ),
                 media_type="text/event-stream",
             )
 
         try:
-            text = image_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
+            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 

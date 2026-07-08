@@ -24,8 +24,8 @@ def test_admin_observability_routes_are_registered_by_observability_routes_modul
     assert callable(register_admin_observability_routes)
     assert "/admin/call-log" in paths
     assert "/admin/call-log/clear" in paths
-    assert "/admin/image-proxy/events" in paths
-    assert "/admin/image-proxy/events/clear" in paths
+    assert "/admin/media-proxy/events" in paths
+    assert "/admin/media-proxy/events/clear" in paths
     assert "/admin/metrics-history" in paths
     assert "/admin/metrics-history/clear" in paths
     assert "/admin/summary" in paths
@@ -111,12 +111,12 @@ def test_admin_debug_page_includes_media_proxy_records_panel_with_trace_copy():
     assert "抓包调试日志" in _ADMIN_HTML
     assert "抓包调试记录" not in _ADMIN_HTML
     assert "模式抓包对比" not in _ADMIN_HTML
-    assert "image-proxy-event-content" in _ADMIN_HTML
-    assert "loadImageProxyEvents()" in _ADMIN_HTML
-    assert "copyImageProxyTrace" in _ADMIN_HTML
-    assert "onclick=\"copyImageProxyTrace" not in _ADMIN_HTML
-    assert "data-image-trace" in _ADMIN_HTML
-    assert "/admin/image-proxy/events" in _ADMIN_HTML
+    assert "media-proxy-event-content" in _ADMIN_HTML
+    assert "loadMediaProxyEvents()" in _ADMIN_HTML
+    assert "copyMediaProxyTrace" in _ADMIN_HTML
+    assert "onclick=\"copyMediaProxyTrace" not in _ADMIN_HTML
+    assert "data-media-trace" in _ADMIN_HTML
+    assert "/admin/media-proxy/events" in _ADMIN_HTML
 
 
 def test_admin_ports_logs_swaps_idle_timeout_before_account_cdp_port():
@@ -160,13 +160,13 @@ def test_admin_generated_javascript_passes_node_check(tmp_path):
 
 def test_admin_debug_logs_include_copy_all_buttons():
     assert "copyAllCallLog" in _ADMIN_HTML
-    assert "copyAllImageProxyEvents" in _ADMIN_HTML
+    assert "copyAllMediaProxyEvents" in _ADMIN_HTML
     assert "copyAllCapturePayloads" in _ADMIN_HTML
     assert _ADMIN_HTML.count('data-i18n="copy_all"') == 3
     assert "copy_all:'复制全部'" in _ADMIN_HTML
     assert "copy_all:'Copy all'" in _ADMIN_HTML
     assert '<div class="debug-actions"><button id="copy-call-log-all"' in _ADMIN_HTML
-    assert '<div class="debug-actions"><button id="copy-image-proxy-all"' in _ADMIN_HTML
+    assert '<div class="debug-actions"><button id="copy-media-proxy-all"' in _ADMIN_HTML
     assert '<div class="debug-actions"><button id="copy-capture-all"' in _ADMIN_HTML
 
 
@@ -233,3 +233,4 @@ def test_admin_settings_javascript_is_split_into_settings_module():
     assert "async function resetSystemPrompt()" in _ADMIN_SETTINGS_JS
     assert _ADMIN_SETTINGS_JS in _ADMIN_HTML
     assert _ADMIN_HTML.index("let __runtimeSettings={};") < _ADMIN_HTML.index(_ADMIN_SETTINGS_JS)
+

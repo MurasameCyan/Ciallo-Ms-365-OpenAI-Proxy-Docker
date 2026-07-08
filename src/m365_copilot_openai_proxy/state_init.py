@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from .account_store import AccountStore
 from .call_log_store import load_call_log
 from .config import Settings
-from .image_proxy_events import init_image_proxy_events
+from .media_proxy_events import init_media_proxy_events
 from .key_store import KeyStore
 from .metrics_store import init_metrics_store
 from .refresh_scheduler import RefreshScheduler
@@ -54,14 +54,14 @@ def init_app_state(
     app.state.call_log_version = len(app.state.call_log)
     app.state.captured_payloads: list[dict] = []
     app.state.capture_payload_version = 0
-    init_image_proxy_events(app.state)
+    init_media_proxy_events(app.state)
     init_metrics_store(app.state, Path(settings.token_dir) / "metrics_history.json")
     app.state.runtime_settings = runtime_settings
     app.state.model_alias = runtime_settings["model_alias"]
     app.state.time_zone = runtime_settings["time_zone"]
     app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
-    app.state.image_proxy_secret = settings.api_key or settings.admin_password or "m365-image-proxy"
-    app.state.image_proxy_timeout = 60.0
+    app.state.media_proxy_secret = settings.api_key or settings.admin_password or "m365-media-proxy"
+    app.state.media_proxy_timeout = 60.0
     app.state.refresh_before_seconds = runtime_settings["refresh_before_seconds"]
     app.state.cdp_port = runtime_settings["cdp_port"]
     app.state.account_cdp_port_base = runtime_settings["account_cdp_port_base"]
