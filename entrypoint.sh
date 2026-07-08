@@ -49,9 +49,7 @@ fi
 
 STARTUP_CDP="false"
 if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
-    if [ -z "$M365_ACCESS_TOKEN" ]; then
-        echo "M365_ACCESS_TOKEN is not set; skipping startup Chromium CDP."
-    else
+    if [ -n "$M365_ACCESS_TOKEN" ]; then
         STARTUP_CDP="true"
     fi
 fi
@@ -107,8 +105,6 @@ if [ "$STARTUP_CDP" = "true" ]; then
         fi
         sleep 1
     done
-else
-    echo "Chromium headless not started. Token auto-refresh disabled."
 fi
 
 # Build serve command arguments
@@ -119,12 +115,6 @@ if [ "$STARTUP_CDP" = "true" ]; then
     SERVE_ARGS="$SERVE_ARGS --cdp-port $CDP_PORT --refresh-before-seconds ${REFRESH_BEFORE_SECONDS:-300}"
 else
     SERVE_ARGS="$SERVE_ARGS --no-auto-refresh --no-capture-on-start"
-fi
-
-# If no token is set, log a hint
-if [ -z "$M365_ACCESS_TOKEN" ]; then
-    echo "WARNING: M365_ACCESS_TOKEN is not set."
-    echo "Please get a token via the Tampermonkey script (get_token.js) and set it in .env"
 fi
 
 echo "Starting copilot-openai-proxy serve $SERVE_ARGS"

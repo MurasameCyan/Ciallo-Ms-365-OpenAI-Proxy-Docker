@@ -33,8 +33,15 @@ def test_entrypoint_prefers_configured_or_headless_shell_browser_binary():
 
 def test_entrypoint_skips_startup_cdp_when_no_initial_token():
     assert 'STARTUP_CDP="false"' in ENTRYPOINT
-    assert 'if [ -z "$M365_ACCESS_TOKEN" ]; then' in ENTRYPOINT
+    assert 'if [ -n "$M365_ACCESS_TOKEN" ]; then' in ENTRYPOINT
     assert '[ "$STARTUP_CDP" = "true" ]' in ENTRYPOINT
+
+
+def test_entrypoint_does_not_log_missing_global_token_hints():
+    assert "M365_ACCESS_TOKEN is not set; skipping startup Chromium CDP." not in ENTRYPOINT
+    assert "Chromium headless not started. Token auto-refresh disabled." not in ENTRYPOINT
+    assert "WARNING: M365_ACCESS_TOKEN is not set." not in ENTRYPOINT
+    assert "Please get a token via the Tampermonkey script" not in ENTRYPOINT
 
 
 def test_entrypoint_uses_container_safe_headless_mode():
