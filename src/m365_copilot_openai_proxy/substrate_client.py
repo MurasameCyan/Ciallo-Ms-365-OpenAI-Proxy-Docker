@@ -321,7 +321,23 @@ def _capture_suspicious_response_event(sink, msg: dict) -> None:
         probe = json.dumps(msg, ensure_ascii=False).lower()
     except (TypeError, ValueError):
         return
-    if any(key in probe for key in ("image", "card", "render", "attachment", "contenturl", "thumbnail", "generatedgraphic")):
+    if any(
+        key in probe
+        for key in (
+            "image",
+            "card",
+            "render",
+            "attachment",
+            "contenturl",
+            "downloadurl",
+            "filetoken",
+            "thumbnail",
+            "generatedgraphic",
+            "generatedaudio",
+            "asyncgw",
+            "citation",
+        )
+    ):
         sink(msg)
 
 

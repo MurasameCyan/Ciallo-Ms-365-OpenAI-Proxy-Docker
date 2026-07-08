@@ -495,14 +495,18 @@ class RefreshScheduler:
                     decoded = base64.b64decode(body)
                     if event_sink:
                         event_sink("chromium_body", bytes=len(decoded), base64_encoded=True, body_preview=_body_preview(decoded) if status >= 400 else "")
+                    if status == 404:
+                        raise UpstreamMediaNotFound("upstream media returned HTTP 404")
                     if status >= 400:
-                        raise RuntimeError(f"upstream image returned HTTP {status}")
+                        raise RuntimeError(f"upstream media returned HTTP {status}")
                     return decoded, content_type
                 encoded = body.encode("utf-8")
                 if event_sink:
                     event_sink("chromium_body", bytes=len(encoded), base64_encoded=False, body_preview=_body_preview(encoded) if status >= 400 else "")
+                if status == 404:
+                    raise UpstreamMediaNotFound("upstream media returned HTTP 404")
                 if status >= 400:
-                    raise RuntimeError(f"upstream image returned HTTP {status}")
+                    raise RuntimeError(f"upstream media returned HTTP {status}")
                 return encoded, content_type
         finally:
             await _close_chromium_gracefully(account.cdp_port, proc)

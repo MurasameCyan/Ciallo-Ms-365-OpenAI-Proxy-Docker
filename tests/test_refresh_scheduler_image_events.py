@@ -165,6 +165,11 @@ class FakeTabListClient:
 
 
 class FakeImageWebSocket:
+    response_status = 200
+    response_content_type = "image/png"
+    response_body = "cG5n"
+    response_base64 = True
+
     def __init__(self):
         self.messages: list[str] = []
         self.extra_headers: dict | None = None
@@ -198,8 +203,8 @@ class FakeImageWebSocket:
                                 "requestId": "img-req",
                                 "response": {
                                     "url": "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimage.png",
-                                    "status": 200,
-                                    "mimeType": "image/png",
+                                    "status": self.response_status,
+                                    "mimeType": self.response_content_type,
                                 },
                             },
                         }
@@ -209,7 +214,7 @@ class FakeImageWebSocket:
                 ]
             )
         elif method == "Network.getResponseBody":
-            self.messages.append(json.dumps({"id": msg_id, "result": {"body": "cG5n", "base64Encoded": True}}))
+            self.messages.append(json.dumps({"id": msg_id, "result": {"body": self.response_body, "base64Encoded": self.response_base64}}))
 
     async def recv(self):
         if not self.messages:
@@ -229,6 +234,10 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
     import subprocess
     import websockets
 
+    FakeImageWebSocket.response_status = 200
+    FakeImageWebSocket.response_content_type = "image/png"
+    FakeImageWebSocket.response_body = "cG5n"
+    FakeImageWebSocket.response_base64 = True
     monkeypatch.setattr(httpx, "AsyncClient", FakeTabListClient)
     fake_websockets = FakeWebsocketsModule()
     monkeypatch.setattr(websockets, "connect", fake_websockets.connect)
@@ -264,3 +273,43 @@ def test_chromium_image_fetch_keeps_network_events_during_navigation(tmp_path, m
     assert any(event["phase"] == "chromium_cookies" and event["cookie_count"] == 1 for event in events)
     assert any(event["phase"] == "chromium_response" for event in events)
     assert any(event["phase"] == "chromium_body" for event in events)
+
+
+def test_chromium_image_fetch_raises_not_found_for_upstream_404(tmp_path, monkeypatch):
+    import subprocess
+    import websockets
+
+    FakeImageWebSocket.response_status = 404
+    FakeImageWebSocket.response_content_type = "text/plain"
+    FakeImageWebSocket.response_body = ""
+    FakeImageWebSocket.response_base64 = False
+    monkeypatch.setattr(httpx, "AsyncClient", FakeTabListClient)
+    fake_websockets = FakeWebsocketsModule()
+    monkeypatch.setattr(websockets, "connect", fake_websockets.connect)
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: FakeBrowserProcess(args))
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._chromium_path", lambda: "chrome")
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._cleanup_profile_locks", lambda profile_dir: None)
+
+    async def close_noop(cdp_port, proc):
+        return None
+
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._close_chromium_gracefully", close_noop)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Media Account", token="token", token_source="manual")
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com", "path": "/"}])
+    (tmp_path / "profiles" / account.id).mkdir(parents=True)
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(
+            scheduler._fetch_image_one(
+                account.id,
+                "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fmissing.wav",
+                event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+            )
+        )
+
+    assert type(exc_info.value).__name__ == "UpstreamMediaNotFound"
+    assert any(event["phase"] == "chromium_response" and event["status_code"] == 404 for event in events)
+    assert any(event["phase"] == "chromium_body" and event["bytes"] == 0 for event in events)
