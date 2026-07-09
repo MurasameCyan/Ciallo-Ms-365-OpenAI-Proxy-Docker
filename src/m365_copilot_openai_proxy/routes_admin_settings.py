@@ -74,6 +74,7 @@ def register_admin_settings_routes(
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
             "media_proxy_suffixes": normalize_media_proxy_suffixes(body.get("media_proxy_suffixes", current.get("media_proxy_suffixes"))) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
+            "media_proxy_ttl_seconds": int_setting("media_proxy_ttl_seconds", 60),
         }
         if data["log_level"] not in _LOG_LEVELS:
             return _json_err(400, "Invalid log level")

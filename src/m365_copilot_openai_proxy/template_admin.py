@@ -442,6 +442,12 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <button id="media-suffix-reset" onclick="resetMediaSuffixes()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
 <span id="media-suffix-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
 </div>
+<div style="font-size:.8rem;color:var(--faint);margin-top:1rem;margin-bottom:.5rem" data-i18n="media_ttl_hint">签名媒体链接的有效期（秒）。上游鉴权随 Cookie 自动刷新，此项仅决定已存入会话历史的图片链接能存活多久。默认 2592000（30 天）。</div>
+<div style="display:flex;align-items:center;gap:.5rem">
+<input id="media-proxy-ttl-input" type="number" min="60" style="flex:1;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-weight:700;outline:none">
+<button id="media-ttl-save" onclick="saveMediaTtl()" data-i18n="media_suffix_save">保存</button>
+<span id="media-ttl-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
+</div>
 </div>
 </details>
 </div>
@@ -503,12 +509,13 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </summary>
 <div class="ports-logs-grid" style="display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:1rem 1.1rem;align-items:start;margin-top:20px">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="cdp_port_label">CDP 主端口</span><input id="runtime-cdp-port" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
-<div style="display:flex;flex-direction:column;gap:.75rem"><label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label><div style="display:flex;align-items:center;gap:.5rem"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div></div>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label class="ports-log-level" style="display:flex;flex-direction:column;gap:.6rem;font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="log_level_label">日志等级</span><select id="runtime-log-level" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)" title="为多用户分配的设定起始点"><span data-i18n="account_cdp_port_base_label">CDP 从端口</span><input id="runtime-account-cdp-port-base" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="refresh_before_label">提前刷新秒数</span><input id="runtime-refresh-before" type="number" min="0" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong)"><span data-i18n="call_log_limit_label">调用记录上限</span><input id="runtime-call-log-limit" type="number" min="1" style="margin-top:.6rem;width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></label>
 </div>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:20px"><button id="debug-runtime-save" onclick="saveRuntimeSettings('debug-runtime-save')" data-i18n="save">保存</button><span id="debug-runtime-saved" style="display:none"></span></div>
 </details>
 </div>
 
@@ -677,7 +684,7 @@ const i18n={
     tone_saved:'已保存',
     media_suffix_title:'媒体后缀名（全局）',
     media_suffix_hint:'控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。',
-    media_suffix_save:'保存后缀',
+    media_suffix_save:'保存',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
     tool_prompt_save:'保存',
@@ -766,7 +773,8 @@ const i18n={
     tone_saved:'Saved',
     media_suffix_title:'Media suffixes (Global)',
     media_suffix_hint:'Controls file suffixes allowed by /v1/m365-media. Separate with commas, spaces, or new lines. Applies immediately after saving.',
-    media_suffix_save:'Save suffixes',
+    media_ttl_hint:'Signed media link lifetime (seconds). Upstream auth refreshes with cookies automatically; this only governs how long a link already stored in chat history stays resolvable. Default 2592000 (30 days).',
+    media_suffix_save:'Save',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
     tool_prompt_save:'Save',

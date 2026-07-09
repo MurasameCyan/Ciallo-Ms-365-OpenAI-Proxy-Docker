@@ -231,11 +231,13 @@ def rewrite_m365_media_urls(
     secret: str,
     now: float | None = None,
     allowed_suffixes: list[str] | None = None,
+    ttl_seconds: int | None = None,
 ) -> str:
     if not account_id or not secret:
         return normalize_m365_media_text(text)
     normalized = normalize_m365_media_text(text)
-    expires_at = int((now if now is not None else time.time()) + _MEDIA_PROXY_TTL_SECONDS)
+    ttl = _MEDIA_PROXY_TTL_SECONDS if ttl_seconds is None else max(60, int(ttl_seconds))
+    expires_at = int((now if now is not None else time.time()) + ttl)
 
     def md_repl(match: re.Match[str]) -> str:
         alt = match.group(1) or "image"

@@ -37,8 +37,10 @@ def request_media_rewriter(app: FastAPI, request: Request):
     secret = str(getattr(app.state, "media_proxy_secret", "") or "")
 
     def rewrite(text: str) -> str:
-        suffixes = dict(getattr(app.state, "runtime_settings", {}) or {}).get("media_proxy_suffixes")
-        return rewrite_m365_media_urls(text, base_url=base_url, account_id=account_id, secret=secret, allowed_suffixes=suffixes)
+        runtime = dict(getattr(app.state, "runtime_settings", {}) or {})
+        suffixes = runtime.get("media_proxy_suffixes")
+        ttl_seconds = runtime.get("media_proxy_ttl_seconds")
+        return rewrite_m365_media_urls(text, base_url=base_url, account_id=account_id, secret=secret, allowed_suffixes=suffixes, ttl_seconds=ttl_seconds)
 
     return rewrite
 

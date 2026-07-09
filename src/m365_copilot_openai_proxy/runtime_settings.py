@@ -30,6 +30,12 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "call_log_limit": 100,
     "run_permission": "full",
     "media_proxy_suffixes": list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
+    # Signed media proxy URL lifetime. The upstream designer/media auth token is
+    # refreshed alongside cookies, so the fetch itself always uses the freshest
+    # token; this TTL only governs how long a signed URL already stored in a
+    # client's chat history stays resolvable. Default 30 days keeps historical
+    # images alive far beyond the old 10-minute window.
+    "media_proxy_ttl_seconds": 30 * 24 * 60 * 60,
 }
 
 
@@ -78,6 +84,10 @@ def _read_runtime_settings(token_dir: str) -> dict:
     if data["run_permission"] not in _RUN_PERMISSIONS:
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
+    try:
+        data["media_proxy_ttl_seconds"] = max(60, int(data.get("media_proxy_ttl_seconds") or 0))
+    except (TypeError, ValueError):
+        data["media_proxy_ttl_seconds"] = _RUNTIME_SETTINGS_DEFAULTS["media_proxy_ttl_seconds"]
     return data
 
 
