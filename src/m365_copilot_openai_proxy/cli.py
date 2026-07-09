@@ -348,6 +348,93 @@ def _is_substrate_token(token: str) -> bool:
     return is_substrate_token_claims(claims) and time.time() < int(claims.get("exp", 0)) - 30
 
 
+# Harvest every MSAL AccessToken entry (target + secret) from the page's storage.
+# MSAL caches one entry per resource the SPA has requested; media (teams) and
+# designer tokens live here alongside the substrate token IF the app already
+# acquired them. We classify the entries in Python (see _classify_resource_token).
+_CDP_RESOURCE_JS = """
+(() => {
+    const out = [];
+    for (const store of [sessionStorage, localStorage]) {
+        for (const k of Object.keys(store)) {
+            if (!k.toLowerCase().includes('accesstoken')) continue;
+            try {
+                const v = JSON.parse(store.getItem(k));
+                if (v && typeof v.secret === 'string' && v.secret.startsWith('eyJ')) {
+                    out.push({key: k, target: String(v.target || ''), secret: v.secret});
+                }
+            } catch {}
+        }
+    }
+    return out;
+})()
+"""
+
+
+def _classify_resource_token(key: str, target: str) -> str | None:
+    """Map an MSAL cache entry to 'media' / 'designer' / None.
+
+    Media auth is the Bearer token the browser sends to *.teams.microsoft.com
+    (incl. asyncgw); designer auth is the JWE sent to designerapp on
+    officeapps.live.com. Substrate tokens are handled elsewhere, so exclude them.
+    """
+    hint = f"{key} {target}".lower()
+    if "substrate" in hint:
+        return None
+    if any(m in hint for m in ("designerapp", "officeapps.live.com", "designer")):
+        return "designer"
+    if any(m in hint for m in ("asyncgw", "teams.microsoft.com", "skype", "teams")):
+        return "media"
+    return None
+
+
+async def _cdp_extract_resource_tokens(port: int) -> dict[str, str]:
+    """Best-effort harvest of media/designer auth tokens from the M365 page.
+
+    Returns {'media': token?, 'designer': token?} for whatever is present in the
+    MSAL cache. Absent resources are simply omitted -- the caller must NOT treat
+    a missing key as a reason to wipe an existing (manually pushed) token.
+    """
+    result: dict[str, str] = {}
+    try:
+        async with httpx.AsyncClient(timeout=1) as client:
+            tabs = (await client.get(f"http://localhost:{port}/json")).json()
+    except Exception:
+        return result
+
+    tab = _find_m365_page(tabs)
+    if not tab:
+        return result
+
+    try:
+        async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
+            await ws.send(json.dumps({
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {"expression": _CDP_RESOURCE_JS, "returnByValue": True},
+            }))
+            raw = json.loads(await ws.recv())
+            entries = raw.get("result", {}).get("result", {}).get("value") or []
+    except Exception:
+        return result
+
+    seen_targets: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        target = str(entry.get("target") or "")
+        key = str(entry.get("key") or "")
+        secret = str(entry.get("secret") or "")
+        if target:
+            seen_targets.append(target[:80])
+        kind = _classify_resource_token(key, target)
+        if kind and kind not in result and secret:
+            result[kind] = secret
+    if seen_targets:
+        print(f"CDP resource-token targets seen: {seen_targets[:8]}", flush=True)
+    return result
+
+
 def _try_auto_refresh(cdp_port: int, *, allow_nudge: bool = True) -> bool:
     token = asyncio.run(_cdp_extract_token(cdp_port, allow_nudge=allow_nudge))
     if not token:

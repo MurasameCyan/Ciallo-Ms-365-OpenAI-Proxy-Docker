@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .account_store import AccountStore
+from .account_store import AccountStore, extract_identity
 from .media_proxy import asyncgw_object_fetch_url, designer_file_token, designer_object_fetch_url
 
 
@@ -31,7 +31,20 @@ _SESSION_COOKIE_PERSIST_SECONDS = 12 * 60 * 60
 _CDP_MEDIA_MAX_MESSAGE_BYTES = None  # None = no size limit
 
 
+_LOGGED_CHROMIUM_PATH: str | None = None
+
+
 def _chromium_path() -> str:
+    """Locate a Chromium/Edge binary and log the resolved path once per change."""
+    resolved = _resolve_chromium_path()
+    global _LOGGED_CHROMIUM_PATH
+    if resolved != _LOGGED_CHROMIUM_PATH:
+        _LOGGED_CHROMIUM_PATH = resolved
+        print(f"Chromium binary resolved to: {resolved}", flush=True)
+    return resolved
+
+
+def _resolve_chromium_path() -> str:
     """Locate a Chromium/Edge binary for the current platform."""
     if platform.system() == "Windows":
         candidates = [
@@ -62,6 +75,40 @@ def _chromium_path() -> str:
 
 def _is_login_url(url: str) -> bool:
     return url.startswith(("https://login.microsoftonline.com/", "https://login.live.com/"))
+
+
+def _is_logged_out_shell(url: str) -> bool:
+    """True when M365 loaded the chat shell but WITHOUT a signed-in account.
+
+    m365.cloud.microsoft redirects to `...chat?from=NoAccountOnStart` (and
+    similar markers) when the injected cookies did not actually establish a
+    session. The URL is not a login page, so `_is_login_url` misses it, yet the
+    page has no usable identity -- treating it as "logged in" produces a false
+    "cookie valid" state that later fails on refresh. Detect those markers so
+    the caller can treat the shell as logged-out.
+    """
+    lowered = url.lower()
+    return any(marker in lowered for marker in ("noaccountonstart", "from=noaccount"))
+
+
+def _identity_conflict(existing_email: str, new_token: str) -> bool:
+    """True when a freshly captured token belongs to a DIFFERENT identity.
+
+    The persistent Chromium profile can retain another Microsoft account's
+    session (e.g. a previously injected account), so an on-demand refresh may
+    capture a token for the wrong identity and silently overwrite the record.
+    Reject the swap when both the stored account and the new token carry an
+    email and they differ. When either side has no email we cannot compare, so
+    we do not block (first-time capture / opaque token stays permissive).
+    """
+    existing = (existing_email or "").strip().lower()
+    if not existing:
+        return False
+    _, new_email = extract_identity(new_token)
+    new_email = (new_email or "").strip().lower()
+    if not new_email:
+        return False
+    return existing != new_email
 
 
 def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
@@ -680,6 +727,14 @@ class RefreshScheduler:
         if account is None:
             return 0, len(cookies or [])
         profile_dir = self._profile_root / account_id
+        # Wipe the persistent profile before injecting the freshly pushed cookies.
+        # The profile is isolated per account_id, so this only clears THIS account's
+        # residual session -- other users' profiles (profile_root/<their id>) are
+        # untouched. Without this, a previous identity's session cookies linger in
+        # the profile and the refresh browser can pick the wrong account, causing
+        # cross-account pollution. This makes the last pushed cookie the sole
+        # session for this account.
+        shutil.rmtree(profile_dir, ignore_errors=True)
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)
         proc = None
@@ -787,7 +842,7 @@ class RefreshScheduler:
                         final_url = cur.get("url", final_url)
                 except Exception:
                     pass
-            if attempted > 0 and injected == attempted and not _is_login_url(final_url):
+            if attempted > 0 and injected == attempted and not _is_login_url(final_url) and not _is_logged_out_shell(final_url):
                 self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
                 print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
             else:
@@ -796,6 +851,8 @@ class RefreshScheduler:
                     print(f"Cookie injection CDP failures for {account_id}: {' | '.join(failures)}", flush=True)
                 if attempted > 0 and injected == attempted and _is_login_url(final_url):
                     print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
+                elif attempted > 0 and injected == attempted and _is_logged_out_shell(final_url):
+                    print(f"Cookie injection did not establish login for {account_id}: no account on start, final_url={final_url}", flush=True)
             return injected, attempted
         finally:
             await _close_chromium_gracefully(account.cdp_port, proc)
@@ -836,7 +893,7 @@ class RefreshScheduler:
 
         try:
             # Lazy import to avoid a cli <-> app <-> scheduler import cycle.
-            from .cli import _cdp_extract_token, _cdp_tab_summary, _wait_for_m365_page
+            from .cli import _cdp_extract_resource_tokens, _cdp_extract_token, _cdp_tab_summary, _wait_for_m365_page
 
             loop = asyncio.get_running_loop()
             ready = await loop.run_in_executor(
@@ -855,9 +912,30 @@ class RefreshScheduler:
                     self._accounts.set_cookie_status(account_id, False)
                 print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
                 return False
+            # Identity guard: the persistent profile can retain another account's
+            # session, so a captured token may belong to the wrong identity. Never
+            # overwrite an established account with a mismatched identity.
+            if _identity_conflict(account.email, token):
+                _, captured_email = extract_identity(token)
+                self._accounts.set_cookie_status(account_id, False)
+                print(f"Refresh rejected for {account_id}: identity mismatch (account={account.email!r}, captured={captured_email!r})", flush=True)
+                return False
             self._accounts.update_token(account_id, token, token_source="cdp")
             cookie_expires_at = account.cookie_expires_at if account.cookie_expires_at > time.time() else time.time() + _SESSION_COOKIE_PERSIST_SECONDS
             self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=cookie_expires_at)
+            # Best-effort: harvest media/designer auth tokens from the MSAL cache so
+            # they refresh alongside the cookie without a manual re-push. Only stores
+            # what is actually present; a missing resource leaves the old value intact.
+            try:
+                resources = await _cdp_extract_resource_tokens(account.cdp_port)
+                if resources.get("media"):
+                    self._accounts.set_media_auth_token(account_id, resources["media"])
+                if resources.get("designer"):
+                    self._accounts.set_designer_auth_token(account_id, resources["designer"])
+                if resources:
+                    print(f"Refresh harvested resource tokens for {account_id}: {sorted(resources.keys())}", flush=True)
+            except Exception as exc:
+                print(f"Refresh resource-token harvest skipped for {account_id}: {exc}", flush=True)
             print(f"Refresh succeeded for {account_id}: token updated from CDP", flush=True)
             return True
         except Exception as exc:
