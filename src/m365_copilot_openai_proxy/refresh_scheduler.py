@@ -111,6 +111,27 @@ def _identity_conflict(existing_email: str, new_token: str) -> bool:
     return existing != new_email
 
 
+def _refresh_launch_url(login_hint: str = "") -> str:
+    """M365 chat launch URL for on-demand refresh, biased to login_hint.
+
+    Delegates to cli._m365_chat_url (lazy import to avoid the cli <-> app <->
+    scheduler import cycle). Falls back to the plain chat URL if the import
+    fails, so a helper regression can never break Chromium launch.
+    """
+    try:
+        from .cli import _m365_chat_url
+
+        return _m365_chat_url(login_hint)
+    except Exception:
+        return "https://m365.cloud.microsoft/chat"
+
+
+# Verbose cookie-injection diagnostics (critical-cookie report + MSAL
+# localStorage dump). Off by default to keep logs clean; set
+# COOKIE_INJECT_DEBUG=1 to re-enable when troubleshooting NoAccountOnStart /
+# session-establishment problems.
+_COOKIE_INJECT_DEBUG = bool(int(os.environ.get("COOKIE_INJECT_DEBUG", "0")))
+
 # Names of the Microsoft auth cookies that actually carry the signed-in session.
 # Used only for diagnostic logging so we can see, after a failed injection,
 # whether the critical cookies even reached the refresh browser.
@@ -844,8 +865,9 @@ class RefreshScheduler:
                 session_persisted = 0
                 attempted = 0
                 failures: list[str] = []
-                crit = _critical_cookie_report(cookies)
-                print(f"Cookie inject diag [{account_id}] pushed={len(cookies)} critical={crit or 'NONE'}", flush=True)
+                if _COOKIE_INJECT_DEBUG:
+                    crit = _critical_cookie_report(cookies)
+                    print(f"Cookie inject diag [{account_id}] pushed={len(cookies)} critical={crit or 'NONE'}", flush=True)
                 for i, cookie in enumerate(cookies):
                     domain = str(cookie.get("domain", "") or ".microsoft.com")
                     domain_l = domain.lower()
@@ -897,24 +919,27 @@ class RefreshScheduler:
                 # Read-only login diagnostic: dump MSAL localStorage account keys
                 # and visible cookie names so we can tell whether NoAccountOnStart
                 # is caused by MSAL having no cached account vs a missing cookie.
-                try:
-                    await ws.send(json.dumps({
-                        "id": 8888,
-                        "method": "Runtime.evaluate",
-                        "params": {"expression": _CDP_LOGIN_DIAG_JS, "returnByValue": True},
-                    }))
-                    diag = None
-                    diag_deadline = time.time() + 3
-                    while time.time() < diag_deadline:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
-                        msg = json.loads(raw)
-                        if msg.get("id") == 8888:
-                            diag = msg.get("result", {}).get("result", {}).get("value")
-                            break
-                    if diag:
-                        print(f"Cookie inject diag [{account_id}] page={diag}", flush=True)
-                except Exception:
-                    pass
+                # Gated behind COOKIE_INJECT_DEBUG to avoid running the probe and
+                # spamming logs during normal operation.
+                if _COOKIE_INJECT_DEBUG:
+                    try:
+                        await ws.send(json.dumps({
+                            "id": 8888,
+                            "method": "Runtime.evaluate",
+                            "params": {"expression": _CDP_LOGIN_DIAG_JS, "returnByValue": True},
+                        }))
+                        diag = None
+                        diag_deadline = time.time() + 3
+                        while time.time() < diag_deadline:
+                            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+                            msg = json.loads(raw)
+                            if msg.get("id") == 8888:
+                                diag = msg.get("result", {}).get("result", {}).get("value")
+                                break
+                        if diag:
+                            print(f"Cookie inject diag [{account_id}] page={diag}", flush=True)
+                    except Exception:
+                        pass
             if attempted > 0 and injected == attempted and not _is_login_url(final_url):
                 # Legacy (v7 / single-tenant) behaviour: a completed cookie
                 # injection that is NOT redirected to a login page arms CDP
@@ -967,7 +992,10 @@ class RefreshScheduler:
                 "--log-level=3",
                 "--disable-software-rasterizer",
                 "--headless=new",
-                "https://m365.cloud.microsoft/chat",
+                # login_hint biases silent SSO to this account so refresh
+                # resolves the intended identity even when the profile/cookies
+                # carry more than one Microsoft session (see cli._m365_chat_url).
+                _refresh_launch_url(account.email),
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:
             print(f"Refresh failed for {account_id}: Chromium launch error: {exc}", flush=True)
@@ -987,7 +1015,7 @@ class RefreshScheduler:
                     self._accounts.set_cookie_status(account_id, False)
                 print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
                 return False
-            token = await _cdp_extract_token(account.cdp_port, allow_nudge=True)
+            token = await _cdp_extract_token(account.cdp_port, allow_nudge=True, expected_email=account.email)
             if not token:
                 tabs = _cdp_tab_summary(account.cdp_port)
                 if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:

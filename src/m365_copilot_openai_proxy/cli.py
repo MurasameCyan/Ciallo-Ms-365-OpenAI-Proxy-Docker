@@ -113,7 +113,45 @@ _CDP_NUDGE_JS = """
 """
 
 
-async def _cdp_extract_token(port: int, *, allow_nudge: bool = True) -> str | None:
+def _token_identity_email(token: str) -> str:
+    """Best-effort lowercase email/UPN from a JWT, used only for identity pinning.
+
+    Mirrors the claim precedence in account_store.extract_identity so the
+    capture side and the account record agree on what "identity" means.
+    """
+    try:
+        claims = decode_jwt_payload(token)
+    except Exception:
+        return ""
+    for key in ("email", "upn", "unique_name", "preferred_username"):
+        val = claims.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip().lower()
+    return ""
+
+
+def _select_substrate_token(candidates: list[str], expected_email: str = "") -> str | None:
+    """Pick a valid substrate token, preferring the expected identity.
+
+    The persistent Chromium profile / pushed login cookies can carry sessions
+    for more than one Microsoft account, so the MSAL cache may hold valid
+    substrate tokens for several identities at once. Returning the first valid
+    token therefore risks handing back the WRONG account. When expected_email is
+    set we only accept a matching token; if none matches we return None so the
+    caller can drive a fresh SSO (nudge) for the correct identity rather than
+    silently capturing a stranger. With no expected_email (first-time capture or
+    an opaque token) we fall back to the first valid token (legacy behaviour).
+    """
+    want = (expected_email or "").strip().lower()
+    for token in candidates:
+        if not _is_substrate_token(token):
+            continue
+        if not want or _token_identity_email(token) == want:
+            return token
+    return None
+
+
+async def _cdp_extract_token(port: int, *, allow_nudge: bool = True, expected_email: str = "") -> str | None:
     try:
         async with httpx.AsyncClient(timeout=1) as client:
             tabs = (await client.get(f"http://localhost:{port}/json")).json()
@@ -129,12 +167,12 @@ async def _cdp_extract_token(port: int, *, allow_nudge: bool = True) -> str | No
             await ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": _CDP_JS}}))
             result = json.loads(await ws.recv())
             candidates = result.get("result", {}).get("result", {}).get("value") or []
-            for token in candidates:
-                if _is_substrate_token(token):
-                    return token
+            token = _select_substrate_token(candidates, expected_email)
+            if token:
+                return token
             if not allow_nudge:
                 return None
-            return await _cdp_nudge_and_wait_for_token(ws)
+            return await _cdp_nudge_and_wait_for_token(ws, expected_email=expected_email)
     except Exception:
         return None
 
@@ -291,7 +329,26 @@ def _startup_capture_loop(cdp_port: int, timeout_seconds: int) -> None:
     else:
         print("Startup token capture timed out. Manual set-token is still available.")
 
-async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
+def _m365_chat_url(login_hint: str = "") -> str:
+    """M365 chat URL, optionally biased to an identity via login_hint.
+
+    login_hint is a standard AAD/MSAL hint that pre-selects the account during
+    silent SSO. It is only a query param, so if the SPA ignores it nothing
+    breaks; this is a safe, reversible way to steer capture toward the intended
+    account when the profile/cookies carry more than one Microsoft session.
+    """
+    base = "https://m365.cloud.microsoft/chat"
+    hint = (login_hint or "").strip()
+    if not hint:
+        return base
+    from urllib.parse import quote
+
+    return f"{base}?login_hint={quote(hint, safe='')}"
+
+
+async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str | None:
+    want = (expected_email or "").strip().lower()
+
     async def trigger_input() -> None:
         await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
         await asyncio.sleep(0.5)
@@ -307,7 +364,7 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
 
     await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
     await ws.send(json.dumps({"id": 2, "method": "Network.enable", "params": {"maxTotalBufferSize": 10000000, "maxResourceBufferSize": 5000000}}))
-    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": _m365_chat_url(expected_email)}}))
     await asyncio.sleep(2)
     await ws.send(json.dumps({"id": 4, "method": "Page.reload", "params": {"ignoreCache": True}}))
 
@@ -334,9 +391,16 @@ async def _cdp_nudge_and_wait_for_token(ws) -> str | None:
         if not match:
             continue
         token = match.group(1)
-        if _is_substrate_token(token):
-            await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
-            return token
+        if not _is_substrate_token(token):
+            continue
+        # Identity pinning: a profile/cookie set carrying multiple Microsoft
+        # sessions can surface a substrate token for the wrong account. When an
+        # expected identity is known, ignore mismatches and keep waiting for the
+        # correct one instead of returning a stranger's token.
+        if want and _token_identity_email(token) != want:
+            continue
+        await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
+        return token
     return None
 
 
