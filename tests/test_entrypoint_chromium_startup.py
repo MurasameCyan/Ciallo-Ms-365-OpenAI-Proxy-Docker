@@ -25,10 +25,13 @@ def test_entrypoint_checks_cdp_version_endpoint_for_readiness():
     assert 'http://localhost:$CDP_PORT/json/version' in ENTRYPOINT
 
 
-def test_entrypoint_prefers_configured_or_headless_shell_browser_binary():
+def test_entrypoint_prefers_configured_or_full_chromium_browser_binary():
+    # chromium-headless-shell fails the M365 SSO / CDP-bind refresh flow, so the
+    # startup probe must honour an explicit CHROME_BIN and otherwise fall back to
+    # full Chromium (matching the known-good v8 entrypoint).
     assert 'if [ -n "${CHROME_BIN:-}" ] && command -v "$CHROME_BIN"' in ENTRYPOINT
-    assert 'command -v chromium-headless-shell' in ENTRYPOINT
-    assert ENTRYPOINT.index('chromium-headless-shell') < ENTRYPOINT.index('command -v chromium &> /dev/null')
+    assert 'chromium-headless-shell' not in ENTRYPOINT
+    assert 'command -v chromium &> /dev/null' in ENTRYPOINT
 
 
 def test_entrypoint_skips_startup_cdp_when_no_initial_token():

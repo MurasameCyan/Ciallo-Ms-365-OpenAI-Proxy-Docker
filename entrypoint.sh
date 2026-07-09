@@ -32,8 +32,6 @@ fi
 # Detect Chromium binary (name varies by distro)
 if [ -n "${CHROME_BIN:-}" ] && command -v "$CHROME_BIN" &> /dev/null; then
     CHROME_BIN="$CHROME_BIN"
-elif command -v chromium-headless-shell &> /dev/null; then
-    CHROME_BIN="chromium-headless-shell"
 elif command -v chromium &> /dev/null; then
     CHROME_BIN="chromium"
 elif command -v chromium-browser &> /dev/null; then
