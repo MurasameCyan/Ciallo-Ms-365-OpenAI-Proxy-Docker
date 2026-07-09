@@ -30,10 +30,12 @@ class _SuppressCtrlC(logging.Filter):
 logging.getLogger("uvicorn.error").addFilter(_SuppressCtrlC())
 
 
-# High-frequency polling endpoints from the web admin page (+ container health
-# check) flood the access log with one INFO line each. Filter them out so the
-# log stays readable; /v1/ API traffic and non-200 responses are kept.
-_NOISY_ACCESS_PATHS = ("/admin/", "/healthz")
+# High-frequency polling endpoints from the web admin/user pages (+ container
+# health check) and the media image proxy flood the access log with one INFO
+# line each. Filter successful ones out so the log stays readable; /v1/ chat
+# API traffic and non-2xx/3xx responses (e.g. auth failures, expired media
+# signatures) are kept.
+_NOISY_ACCESS_PATHS = ("/admin/", "/healthz", "/user/", "/v1/m365-media")
 _ACCESS_STATUS_RE = re.compile(r'"\s+(\d{3})\b')
 
 
