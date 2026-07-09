@@ -420,6 +420,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <label class="runtime-field-label"><span data-i18n="run_permission_label">运行权限</span><select id="runtime-run-permission" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 </div>
 <div style="display:grid;gap:.8rem">
+<label class="runtime-field-label"><span data-i18n="media_ttl_label">媒体超时时间（天）</span><input id="media-proxy-ttl-input" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 </div>
@@ -441,12 +442,6 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <button id="media-suffix-save" onclick="saveMediaSuffixes()" data-i18n="media_suffix_save">保存</button>
 <button id="media-suffix-reset" onclick="resetMediaSuffixes()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
 <span id="media-suffix-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
-</div>
-<div style="font-size:.8rem;color:var(--faint);margin-top:1rem;margin-bottom:.5rem" data-i18n="media_ttl_hint">签名媒体链接的有效期（秒）。上游鉴权随 Cookie 自动刷新，此项仅决定已存入会话历史的图片链接能存活多久。默认 2592000（30 天）。</div>
-<div style="display:flex;align-items:center;gap:.5rem">
-<input id="media-proxy-ttl-input" type="number" min="60" style="flex:1;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-weight:700;outline:none">
-<button id="media-ttl-save" onclick="saveMediaTtl()" data-i18n="media_suffix_save">保存</button>
-<span id="media-ttl-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
 </div>
 </div>
 </details>
@@ -685,6 +680,7 @@ const i18n={
     media_suffix_title:'媒体后缀名（全局）',
     media_suffix_hint:'控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。',
     media_suffix_save:'保存',
+    media_ttl_label:'媒体超时时间（天）',
     title_tool_prompt:'提示词增强（全局）',
     tool_prompt_hint:'全局提示词增强：作为所有用户的公共基底，会自动拼接在每个用户自己的提示词增强「之前」（最终 = 全局基底 + 用户追加）。适合给所有人设置统一的 tool_call 行为基线。立即生效并持久保存，留空则不追加任何全局内容。',
     tool_prompt_save:'保存',
@@ -773,7 +769,7 @@ const i18n={
     tone_saved:'Saved',
     media_suffix_title:'Media suffixes (Global)',
     media_suffix_hint:'Controls file suffixes allowed by /v1/m365-media. Separate with commas, spaces, or new lines. Applies immediately after saving.',
-    media_ttl_hint:'Signed media link lifetime (seconds). Upstream auth refreshes with cookies automatically; this only governs how long a link already stored in chat history stays resolvable. Default 2592000 (30 days).',
+    media_ttl_label:'Media timeout (days)',
     media_suffix_save:'Save',
     title_tool_prompt:'Prompt Enhancement (Global)',
     tool_prompt_hint:'Global prompt enhancement: a shared base for all users, automatically prepended before each user\\u0027s own enhancement (final = global base + user addition). Ideal for setting a common tool_call baseline for everyone. Applies immediately and persists; leave empty to add nothing global.',
@@ -876,7 +872,7 @@ function switchView(view){
 function loadViewData(view){
   if(view==='home'){loadSummary();loadTrend();loadStats();return}
   if(view==='accounts'){loadAccounts();loadStats();return}
-  if(view==='users'){loadKeys();return}
+  if(view==='users'){loadKeys();loadAccounts();return}
   if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
   if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadMediaProxyEvents();loadCapture()}
 }
