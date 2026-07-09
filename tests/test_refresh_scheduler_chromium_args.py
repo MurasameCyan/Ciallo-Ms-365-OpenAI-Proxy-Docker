@@ -7,9 +7,13 @@ REFRESH_SCHEDULER = (Path(__file__).resolve().parents[1] / "src" / "m365_copilot
 
 
 def test_refresh_scheduler_uses_container_safe_headless_mode():
-    assert '"--headless",' in REFRESH_SCHEDULER
-    assert '"--headless=new",' not in REFRESH_SCHEDULER
-    assert '"--disable-software-rasterizer",' not in REFRESH_SCHEDULER
+    # Full Chromium in the container fails to bind the CDP port under the legacy
+    # "--headless" flag ("Cannot assign requested address"). The known-good v8
+    # behaviour uses the new headless implementation plus a software-rasterizer
+    # opt-out, so both must be present and the legacy flag must be gone.
+    assert '"--headless=new",' in REFRESH_SCHEDULER
+    assert '"--headless",' not in REFRESH_SCHEDULER
+    assert '"--disable-software-rasterizer",' in REFRESH_SCHEDULER
 
 
 def test_refresh_scheduler_prefers_full_chromium_browser_binary():

@@ -490,7 +490,8 @@ class RefreshScheduler:
                 "--disable-sync",
                 "--disable-breakpad",
                 "--disable-extensions",
-                "--headless",
+                "--disable-software-rasterizer",
+                "--headless=new",
                 "about:blank",
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             import httpx
@@ -697,7 +698,8 @@ class RefreshScheduler:
                 "--disable-breakpad",
                 "--disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI",
                 "--log-level=3",
-                "--headless",
+                "--disable-software-rasterizer",
+                "--headless=new",
                 "https://m365.cloud.microsoft/chat",
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
@@ -824,7 +826,8 @@ class RefreshScheduler:
                 "--disable-breakpad",
                 "--disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI",
                 "--log-level=3",
-                "--headless",
+                "--disable-software-rasterizer",
+                "--headless=new",
                 "https://m365.cloud.microsoft/chat",
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:
