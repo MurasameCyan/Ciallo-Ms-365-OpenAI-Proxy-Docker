@@ -915,17 +915,26 @@ class RefreshScheduler:
                         print(f"Cookie inject diag [{account_id}] page={diag}", flush=True)
                 except Exception:
                     pass
-            if attempted > 0 and injected == attempted and not _is_login_url(final_url) and not _is_logged_out_shell(final_url):
+            if attempted > 0 and injected == attempted and not _is_login_url(final_url):
+                # Legacy (v7 / single-tenant) behaviour: a completed cookie
+                # injection that is NOT redirected to a login page arms CDP
+                # auto-refresh (token_source="cdp"), even when the SPA first
+                # paint shows NoAccountOnStart. The persisted cookies still
+                # drive silent SSO token capture inside _refresh_one, so this
+                # is what enables on-demand /v1 wake-up refresh. Treating
+                # NoAccountOnStart as a failure here (previous behaviour) left
+                # token_source="manual" and permanently disabled auto-refresh.
                 self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
-                print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
+                if _is_logged_out_shell(final_url):
+                    print(f"Cookie injection armed CDP refresh for {account_id} (NoAccountOnStart shell, SSO capture deferred to refresh): {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
+                else:
+                    print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
             else:
                 self._accounts.set_cookie_status(account_id, False)
                 if failures:
                     print(f"Cookie injection CDP failures for {account_id}: {' | '.join(failures)}", flush=True)
                 if attempted > 0 and injected == attempted and _is_login_url(final_url):
                     print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
-                elif attempted > 0 and injected == attempted and _is_logged_out_shell(final_url):
-                    print(f"Cookie injection did not establish login for {account_id}: no account on start, final_url={final_url}", flush=True)
             return injected, attempted
         finally:
             await _close_chromium_gracefully(account.cdp_port, proc)

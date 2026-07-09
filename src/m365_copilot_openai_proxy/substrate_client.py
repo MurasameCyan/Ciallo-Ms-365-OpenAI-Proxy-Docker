@@ -104,9 +104,10 @@ class SubstrateCopilotClient:
             raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
         if time.time() > claims.get("exp", 0):
             raise SubstrateCopilotError(
-                "Access token expired. To refresh: open M365 Copilot in your browser, "
-                "DevTools → Network → filter 'substrate' → click the WebSocket → Headers → "
-                "copy the access_token= query param → update M365_ACCESS_TOKEN in .env"
+                "Access token expired and could not be auto-refreshed. "
+                "Re-push this account's token/cookies from the browser userscript "
+                "(one-click push on the M365 Copilot page), or trigger a cookie "
+                "refresh from the admin page for this account."
             )
         self._oid: str = claims["oid"]
         self._tid: str = claims["tid"]
