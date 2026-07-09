@@ -198,6 +198,10 @@ def test_chromium_designer_fetch_replays_browser_request(tmp_path, monkeypatch):
     assert fetch_start["token_header"] is True
     assert fetch_start["auth_source"] == "designer"
     assert any(e["phase"] == "chromium_response" and e["status_code"] == 200 for e in events)
+    # The media body is returned base64-encoded over the CDP WebSocket and can far
+    # exceed the websockets 1 MB default frame limit (images/video), so the frame
+    # cap must be disabled (max_size=None) for the media-fetch socket.
+    assert fake_websockets.connect_kwargs == {"max_size": None}
 
 
 def test_fetch_image_with_cookies_prefers_media_auth_for_asyncgw(tmp_path, monkeypatch):
@@ -339,8 +343,10 @@ class FakeImageWebSocket:
 class FakeWebsocketsModule:
     def __init__(self):
         self.ws = FakeImageWebSocket()
+        self.connect_kwargs: dict | None = None
 
-    def connect(self, url):
+    def connect(self, url, **kwargs):
+        self.connect_kwargs = dict(kwargs)
         return self.ws
 
 

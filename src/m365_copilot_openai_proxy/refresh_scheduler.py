@@ -23,6 +23,12 @@ _REFRESH_BEFORE_SECONDS = 300
 # Max seconds to wait for the on-demand Chromium to expose the M365 tab + token.
 _LAUNCH_TIMEOUT_SECONDS = 30
 _SESSION_COOKIE_PERSIST_SECONDS = 12 * 60 * 60
+# Media (and future video) bodies are returned base64-encoded over the CDP
+# WebSocket and can far exceed the websockets 1 MB default frame limit (a 2 MB
+# image already triggers HTTP 1009 "message too big"). Media sizes are
+# unpredictable, so disable the frame cap for the media-fetch socket only; the
+# upstream is the trusted M365 endpoint.
+_CDP_MEDIA_MAX_MESSAGE_BYTES = None  # None = no size limit
 
 
 def _chromium_path() -> str:
@@ -507,7 +513,7 @@ class RefreshScheduler:
             if event_sink:
                 event_sink("chromium_cdp_ready", cdp_port=cdp_port)
 
-            async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
+            async with websockets.connect(tab["webSocketDebuggerUrl"], max_size=_CDP_MEDIA_MAX_MESSAGE_BYTES) as ws:
                 next_id = 1
 
                 async def cdp_call(method: str, params: dict | None = None) -> dict:
