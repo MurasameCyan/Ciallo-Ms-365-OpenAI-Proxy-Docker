@@ -97,6 +97,24 @@ def test_rewrite_m365_media_urls_replaces_designer_url_with_signed_proxy_url():
     assert "acct_1" in rewritten
 
 
+def test_rewrite_m365_media_urls_converts_backtick_designer_image_to_markdown():
+    # The real model output wraps the designer image URL as an inline-code
+    # citation (``! `URL` ``), NOT markdown. It must become ![image](proxyURL)
+    # so Cherry renders an <img>; leaving the backticks makes it inline code
+    # and the image never loads.
+    rewritten = rewrite_m365_media_urls(
+        f"! `{SOURCE_IMAGE_URL}` ",
+        base_url="http://proxy.example",
+        account_id="acct_1",
+        secret="secret",
+        now=1000,
+    )
+
+    assert rewritten.startswith("![image](http://proxy.example/v1/m365-media?")
+    assert "`" not in rewritten
+    assert "designerapp.officeapps.live.com" not in rewritten
+
+
 def test_rewrite_m365_media_urls_replaces_asyncgw_audio_url_with_signed_proxy_url():
     rewritten = rewrite_m365_media_urls(
         f"已生成音频：\n\n `{SOURCE_AUDIO_URL}` ",
@@ -461,6 +479,37 @@ def test_content_disposition_for_media_encodes_non_ascii_filename():
     assert disposition.startswith('attachment; filename="')
     assert "filename*=UTF-8''" in disposition
     assert "%E9%9B%A8%E5%A3%B0.wav" in disposition
+
+
+def test_content_disposition_for_designer_image_uses_path_query_filename():
+    # designer images are served from /designerapp/document.ashx; the real display
+    # filename lives in the `path` query param, not the URL path (which would give
+    # the useless "document.ashx"). Extract it so the download name has a .png ext.
+    url = (
+        "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+        "?path=%2F71b25fdb%2FDallEGeneratedImages%2Fdalle-abc123.png"
+        "&dcHint=JapanEast&speType=Image&fileToken=eyJraWQ"
+    )
+    disposition = content_disposition_for_media(url, content_type="image/png")
+    assert 'filename="dalle-abc123.png"' in disposition
+
+
+def test_content_disposition_for_image_is_inline():
+    # Images must be inline so Cherry (and browsers) render them in <img> tags
+    # instead of forcing a download of an opaque "document.ashx" file.
+    url = (
+        "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+        "?path=%2Fx%2Fdalle-abc123.png&fileToken=eyJraWQ"
+    )
+    disposition = content_disposition_for_media(url, content_type="image/png")
+    assert disposition.startswith("inline;")
+
+
+def test_content_disposition_for_audio_stays_attachment():
+    # Audio keeps the download (attachment) behaviour so the proxy link downloads
+    # the .wav rather than trying to play it inline.
+    disposition = content_disposition_for_media(_asyncgw_url("rain_sound.wav"), content_type="audio/wav")
+    assert disposition == 'attachment; filename="rain_sound.wav"'
 
 
 def test_designer_object_fetch_url_strips_file_token():

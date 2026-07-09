@@ -105,22 +105,38 @@ def verify_signed_media_proxy_params(
 
 
 def _media_filename(source_url: str) -> str:
-    name = unquote(urlsplit(source_url).path.rstrip("/").rsplit("/", 1)[-1])
+    parsed = urlsplit(source_url)
+    host = (parsed.hostname or "").lower()
+    # designer images are served from /designerapp/document.ashx, so the URL path
+    # yields the useless "document.ashx". The real display filename lives in the
+    # `path` query param (e.g. /<id>/DallEGeneratedImages/dalle-abc123.png).
+    if host == _ALLOWED_IMAGE_HOST or host.endswith(".officeapps.live.com"):
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+            if key.lower() == "path" and value:
+                candidate = unquote(value).rstrip("/").rsplit("/", 1)[-1]
+                if candidate:
+                    return candidate
+    name = unquote(parsed.path.rstrip("/").rsplit("/", 1)[-1])
     return name or "media"
 
 
-def content_disposition_for_media(source_url: str) -> str:
+def content_disposition_for_media(source_url: str, content_type: str = "") -> str:
     """Build a Content-Disposition header for the media download.
 
-    Uses the model-supplied display filename (e.g. ``rain_sound.wav``), which is
-    stripped before the upstream asyncgw fetch but still gives the browser a
-    sensible download name and extension. Non-ASCII names get an RFC 5987
+    Uses the model-supplied display filename (e.g. ``rain_sound.wav`` for audio,
+    or the ``path`` query filename for designer images), which gives the browser
+    a sensible download name and extension. Non-ASCII names get an RFC 5987
     ``filename*`` value plus an ASCII-safe ``filename`` fallback.
+
+    Images use ``inline`` so clients (Cherry, browsers) render them in ``<img>``
+    tags instead of forcing a download of an opaque ``document.ashx`` file; all
+    other media (audio, etc.) keep ``attachment`` download behaviour.
     """
     filename = _media_filename(source_url)
     ascii_name = filename.encode("ascii", "ignore").decode("ascii").replace('"', "")
     fallback = ascii_name or "media"
-    disposition = f'attachment; filename="{fallback}"'
+    kind = "inline" if content_type.lower().startswith("image/") else "attachment"
+    disposition = f'{kind}; filename="{fallback}"'
     if ascii_name != filename:
         disposition += f"; filename*=UTF-8''{quote(filename)}"
     return disposition

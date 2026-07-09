@@ -153,6 +153,6 @@ def register_media_proxy_routes(app: FastAPI) -> None:
             headers={
                 "Cache-Control": "private, max-age=600",
                 "X-Media-Proxy-Trace": trace_id,
-                "Content-Disposition": content_disposition_for_media(source_url),
+                "Content-Disposition": content_disposition_for_media(source_url, content_type),
             },
         )
