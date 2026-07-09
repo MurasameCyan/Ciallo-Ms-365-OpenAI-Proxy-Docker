@@ -47,14 +47,16 @@ def _chromium_path() -> str:
     configured = os.environ.get("CHROME_BIN")
     if configured and shutil.which(configured):
         return configured
-    # Linux (container default): prefer chromium-headless-shell, keep full Chromium as fallback.
+    # Linux (container default): prefer full Chromium. The headless-shell build
+    # cannot complete the Microsoft SSO redirect chain (it lands on
+    # login.microsoftonline.com and fails to capture a fresh substrate token),
+    # so it must never be preferred for the refresh flow.
     return (
-        shutil.which("chromium-headless-shell")
-        or shutil.which("chromium")
+        shutil.which("chromium")
         or shutil.which("chromium-browser")
         or shutil.which("microsoft-edge")
         or shutil.which("microsoft-edge-stable")
-        or "chromium-headless-shell"
+        or "chromium"
     )
 
 
@@ -806,10 +808,6 @@ class RefreshScheduler:
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)
-        if account.cookies and not any(profile_dir.iterdir()):
-            injected, attempted = await self._inject_cookies_one(account_id, account.cookies)
-            if attempted and injected != attempted:
-                print(f"Refresh cookie rehydrate incomplete for {account_id}: {injected}/{attempted}", flush=True)
         proc = None
         try:
             proc = subprocess.Popen([
