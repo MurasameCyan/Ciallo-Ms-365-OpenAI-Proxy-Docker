@@ -806,6 +806,10 @@ class RefreshScheduler:
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)
+        if account.cookies and not any(profile_dir.iterdir()):
+            injected, attempted = await self._inject_cookies_one(account_id, account.cookies)
+            if attempted and injected != attempted:
+                print(f"Refresh cookie rehydrate incomplete for {account_id}: {injected}/{attempted}", flush=True)
         proc = None
         try:
             proc = subprocess.Popen([
