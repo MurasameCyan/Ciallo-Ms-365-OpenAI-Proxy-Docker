@@ -112,45 +112,24 @@ def test_fetch_image_falls_back_to_chromium_after_direct_404(tmp_path, monkeypat
 
 
 
-def test_fetch_image_with_cookies_omits_auth_header_for_designerapp(tmp_path, monkeypatch):
+def test_fetch_image_skips_direct_for_designerapp_and_uses_chromium(tmp_path, monkeypatch):
+    # A plain httpx GET to designerapp returns HTTP 400 (no browser context), so the
+    # direct path must be skipped entirely and the request replayed via Chromium's
+    # in-page fetch. The fileToken-carrying URL is handed to _fetch_image_one so the
+    # token can be lifted into the FileToken header there.
     monkeypatch.setattr(httpx, "AsyncClient", FakeAuthorizedImageClient)
     store = AccountStore(Path(tmp_path) / "accounts.json")
     account = store.add(name="Image Account", token="account-token", token_source="manual")
     store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com"}])
     scheduler = RefreshScheduler(store, tmp_path / "profiles")
     events: list[dict] = []
+    seen: dict = {}
 
-    body, content_type = asyncio.run(
-        scheduler.fetch_image(
-            account.id,
-            "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimage.png",
-            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
-        )
-    )
+    async def fallback_fetch(account_id, url, event_sink=None):
+        seen["url"] = url
+        return b"png", "image/png"
 
-    assert body == b"png"
-    assert content_type == "image/png"
-    # designerapp authenticates via the fileToken query param + live.com login
-    # cookies; attaching the substrate account token (wrong audience) triggers a
-    # 401, so no Authorization header must be sent for designerapp images.
-    assert "Authorization" not in FakeAuthorizedImageClient.last_headers
-    assert events[0]["phase"] == "direct_start"
-    assert events[0]["token_header"] is False
-    assert events[0]["auth_source"] == "designer_cookie"
-    assert events[0]["cookie_names"] == ["MUID"]
-
-
-def test_fetch_image_uses_designer_auth_token_and_strips_file_token(tmp_path, monkeypatch):
-    # The browser loads designer images with a designer-scoped Authorization token
-    # (raw value, NO "Bearer " prefix) and WITHOUT the fileToken query param. Replay
-    # that exact shape: raw token header + fileToken stripped.
-    monkeypatch.setattr(httpx, "AsyncClient", FakeAuthorizedImageClient)
-    store = AccountStore(Path(tmp_path) / "accounts.json")
-    account = store.add(name="Designer Account", token="account-token", token_source="manual")
-    store.set_designer_auth_token(account.id, "raw-designer-jwe-token")
-    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com"}])
-    scheduler = RefreshScheduler(store, tmp_path / "profiles")
-    events: list[dict] = []
+    scheduler._fetch_image_one = fallback_fetch
 
     body, content_type = asyncio.run(
         scheduler.fetch_image(
@@ -162,17 +141,63 @@ def test_fetch_image_uses_designer_auth_token_and_strips_file_token(tmp_path, mo
 
     assert body == b"png"
     assert content_type == "image/png"
-    # Raw token, replayed exactly as the browser sends it (no Bearer prefix).
-    assert FakeAuthorizedImageClient.last_headers["Authorization"] == "raw-designer-jwe-token"
-    # fileToken must be stripped from the URL and replayed as the FileToken header,
-    # exactly as the browser sends it (query-clean + header-carried).
-    assert "fileToken=" not in FakeAuthorizedImageClient.last_url
-    assert "path=%2Fimg.png" in FakeAuthorizedImageClient.last_url
-    assert FakeAuthorizedImageClient.last_headers["FileToken"] == "eyJraWQ"
+    # Direct httpx was never invoked for designerapp.
+    assert FakeAuthorizedImageClient.last_url is None or "document.ashx" not in FakeAuthorizedImageClient.last_url
+    assert any(e["phase"] == "direct_skip" and e["reason"] == "designer_requires_browser_fetch" for e in events)
+    assert any(e["phase"] == "chromium_fallback_start" for e in events)
+    # _fetch_image_one receives the URL that STILL carries the fileToken so it can
+    # lift it into the FileToken header.
+    assert "fileToken=eyJraWQ" in seen["url"]
+
+
+def test_chromium_designer_fetch_replays_browser_request(tmp_path, monkeypatch):
+    # The browser loads designer images with a designer-scoped Authorization token
+    # (raw value, NO "Bearer " prefix), the fileToken moved into a FileToken header,
+    # and the fileToken stripped from the query. Chromium replays that exact fetch.
+    import subprocess
+    import websockets
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeTabListClient)
+    fake_websockets = FakeWebsocketsModule()
+    monkeypatch.setattr(websockets, "connect", fake_websockets.connect)
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: FakeBrowserProcess(args))
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._chromium_path", lambda: "chrome")
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._cleanup_profile_locks", lambda profile_dir: None)
+
+    async def close_noop(cdp_port, proc):
+        return None
+
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._close_chromium_gracefully", close_noop)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Designer Account", token="account-token", token_source="manual")
+    store.set_designer_auth_token(account.id, "raw-designer-jwe-token")
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".officeapps.live.com", "path": "/"}])
+    (tmp_path / "profiles" / account.id).mkdir(parents=True)
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    body, content_type = asyncio.run(
+        scheduler._fetch_image_one(
+            account.id,
+            "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimg.png&fileToken=eyJraWQ",
+            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+        )
+    )
+
+    assert body == b"png"
+    assert content_type == "image/png"
+    expr = fake_websockets.ws.eval_expression or ""
+    # The in-page fetch replays the browser's request shape verbatim.
+    assert "raw-designer-jwe-token" in expr
+    assert '"FileToken": "eyJraWQ"' in expr
+    # fileToken is stripped from the fetched URL (moved into the header).
+    assert "fileToken=eyJraWQ" not in expr
+    assert "path=%2Fimg.png" in expr
     assert any(e["phase"] == "designer_url_normalized" for e in events)
-    direct_start = next(e for e in events if e["phase"] == "direct_start")
-    assert direct_start["token_header"] is True
-    assert direct_start["auth_source"] == "designer"
+    fetch_start = next(e for e in events if e["phase"] == "chromium_fetch_start")
+    assert fetch_start["token_header"] is True
+    assert fetch_start["auth_source"] == "designer"
+    assert any(e["phase"] == "chromium_response" and e["status_code"] == 200 for e in events)
 
 
 def test_fetch_image_with_cookies_prefers_media_auth_for_asyncgw(tmp_path, monkeypatch):
@@ -237,11 +262,13 @@ class FakeImageWebSocket:
     response_content_type = "image/png"
     response_body = "cG5n"
     response_base64 = True
+    nav_response_url = "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimage.png"
 
     def __init__(self):
         self.messages: list[str] = []
         self.extra_headers: dict | None = None
         self.set_cookies: list[dict] = []
+        self.eval_expression: str | None = None
 
     async def __aenter__(self):
         return self
@@ -253,7 +280,7 @@ class FakeImageWebSocket:
         payload = json.loads(raw)
         msg_id = payload["id"]
         method = payload["method"]
-        if method in {"Network.enable", "Page.enable"}:
+        if method in {"Network.enable", "Page.enable", "Runtime.enable"}:
             self.messages.append(json.dumps({"id": msg_id, "result": {}}))
         elif method == "Network.setCookie":
             self.set_cookies.append(dict(payload.get("params") or {}))
@@ -261,6 +288,25 @@ class FakeImageWebSocket:
         elif method == "Network.setExtraHTTPHeaders":
             self.extra_headers = dict((payload.get("params") or {}).get("headers") or {})
             self.messages.append(json.dumps({"id": msg_id, "result": {}}))
+        elif method == "Runtime.evaluate":
+            self.eval_expression = str((payload.get("params") or {}).get("expression") or "")
+            self.messages.append(
+                json.dumps(
+                    {
+                        "id": msg_id,
+                        "result": {
+                            "result": {
+                                "value": {
+                                    "ok": True,
+                                    "status": self.response_status,
+                                    "contentType": self.response_content_type,
+                                    "body": self.response_body,
+                                }
+                            }
+                        },
+                    }
+                )
+            )
         elif method == "Page.navigate":
             self.messages.extend(
                 [
@@ -270,7 +316,7 @@ class FakeImageWebSocket:
                             "params": {
                                 "requestId": "img-req",
                                 "response": {
-                                    "url": "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fimage.png",
+                                    "url": self.nav_response_url,
                                     "status": self.response_status,
                                     "mimeType": self.response_content_type,
                                 },
@@ -383,3 +429,51 @@ def test_chromium_image_fetch_raises_not_found_for_upstream_404(tmp_path, monkey
     assert type(exc_info.value).__name__ == "UpstreamMediaNotFound"
     assert any(event["phase"] == "chromium_response" and event["status_code"] == 404 for event in events)
     assert any(event["phase"] == "chromium_body" and event["bytes"] == 0 for event in events)
+
+
+def test_chromium_asyncgw_fetch_uses_navigate_path(tmp_path, monkeypatch):
+    # asyncgw objects are served as top-level resources; the Chromium fallback must
+    # still navigate to them and read the response body (NOT the designer in-page
+    # fetch path, which only applies to officeapps document.ashx).
+    import subprocess
+    import websockets
+
+    FakeImageWebSocket.response_status = 200
+    FakeImageWebSocket.response_content_type = "audio/wav"
+    FakeImageWebSocket.response_body = "d2F2"
+    FakeImageWebSocket.response_base64 = True
+    FakeImageWebSocket.nav_response_url = "https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0/views/original"
+    monkeypatch.setattr(httpx, "AsyncClient", FakeTabListClient)
+    fake_websockets = FakeWebsocketsModule()
+    monkeypatch.setattr(websockets, "connect", fake_websockets.connect)
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: FakeBrowserProcess(args))
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._chromium_path", lambda: "chrome")
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._cleanup_profile_locks", lambda profile_dir: None)
+
+    async def close_noop(cdp_port, proc):
+        return None
+
+    monkeypatch.setattr("m365_copilot_openai_proxy.refresh_scheduler._close_chromium_gracefully", close_noop)
+    store = AccountStore(Path(tmp_path) / "accounts.json")
+    account = store.add(name="Media Account", token="token", token_source="manual")
+    account.media_auth_token = "media-bearer-token"
+    store.set_cookies(account.id, [{"name": "MUID", "value": "cookie-value", "domain": ".asyncgw.teams.microsoft.com", "path": "/"}])
+    (tmp_path / "profiles" / account.id).mkdir(parents=True)
+    scheduler = RefreshScheduler(store, tmp_path / "profiles")
+    events: list[dict] = []
+
+    body, content_type = asyncio.run(
+        scheduler._fetch_image_one(
+            account.id,
+            "https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0/views/original",
+            event_sink=lambda phase, **fields: events.append({"phase": phase, **fields}),
+        )
+    )
+
+    assert body == b"wav"
+    assert content_type == "audio/wav"
+    # The navigate path sets the media bearer as an extra header (no in-page fetch).
+    assert fake_websockets.ws.eval_expression is None
+    assert fake_websockets.ws.extra_headers == {"Authorization": "Bearer media-bearer-token"}
+    assert any(event["phase"] == "chromium_navigate" for event in events)
+    assert any(event["phase"] == "chromium_response" and event["status_code"] == 200 for event in events)

@@ -93,6 +93,35 @@ def _is_designer_media_url(url: str) -> bool:
     return host == "designerapp.officeapps.live.com" or host.endswith(".officeapps.live.com")
 
 
+def _designer_fetch_expression(url: str, headers: dict[str, str]) -> str:
+    """Build a JS expression that replays the browser's designer image fetch.
+
+    designerapp rejects both plain httpx GETs and top-level document navigations
+    (HTTP 400); the M365 page loads the image with an in-page ``fetch`` whose
+    ``Sec-Fetch-Dest`` is ``empty``. Running the same fetch inside Chromium (from
+    the designerapp origin) reproduces that exact request shape, including the
+    Authorization + FileToken headers and same-origin cookies. The body is
+    returned base64-encoded so binary image bytes survive the CDP round trip.
+    """
+    url_literal = json.dumps(url)
+    headers_literal = json.dumps(headers or {})
+    return (
+        "(async () => {"
+        "  try {"
+        f"    const r = await fetch({url_literal}, {{headers: {headers_literal}, credentials: 'include'}});"
+        "    const buf = await r.arrayBuffer();"
+        "    const bytes = new Uint8Array(buf);"
+        "    let bin = '';"
+        "    const chunk = 0x8000;"
+        "    for (let i = 0; i < bytes.length; i += chunk) {"
+        "      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));"
+        "    }"
+        "    return {ok: true, status: r.status, contentType: r.headers.get('content-type') || '', body: btoa(bin)};"
+        "  } catch (e) { return {ok: false, error: String(e)}; }"
+        "})()"
+    )
+
+
 def _auth_headers_for_account(account, url: str) -> tuple[dict[str, str], str]:
     media_token = str(getattr(account, "media_auth_token", "") or "").strip()
     if media_token and _is_teams_media_url(url):
@@ -350,6 +379,16 @@ class RefreshScheduler:
         # header), then request the stripped URL. The Chromium fallback receives the
         # unstripped URL and strips it internally for the same reason.
         auth_headers, auth_source = _auth_headers_for_account(account, fetch_url)
+        # designerapp rejects plain httpx GETs (no browser context, HTTP 400), so
+        # skip the direct path entirely and let Chromium replay the browser's
+        # in-page fetch. asyncgw audio still tries the fast direct path first.
+        if _is_designer_media_url(fetch_url):
+            if event_sink:
+                event_sink("direct_skip", reason="designer_requires_browser_fetch")
+                event_sink("chromium_fallback_start")
+            async with self._account_lock(account_id):
+                async with self._lock:
+                    return await self._fetch_image_one(account_id, fetch_url, event_sink=event_sink)
         designer_url = designer_object_fetch_url(fetch_url)
         if event_sink and designer_url != fetch_url:
             event_sink("designer_url_normalized", original_query=urlsplit(fetch_url).query, fetch_query=urlsplit(designer_url).query)
@@ -502,10 +541,59 @@ class RefreshScheduler:
                 if event_sink:
                     event_sink("chromium_cookies", cookie_count=injected_cookies)
                 # Auth is derived from the URL that still carries the fileToken so it
-                # can be lifted into the FileToken header; navigation itself must use
-                # the stripped URL, or designerapp rejects the request.
+                # can be lifted into the FileToken header; the request itself must use
+                # the stripped URL, or designerapp rejects it.
                 auth_headers, auth_source = _auth_headers_for_account(account, url)
-                nav_url = designer_object_fetch_url(url)
+                if _is_designer_media_url(url):
+                    # A top-level document navigation to document.ashx is rejected
+                    # with HTTP 400 (Sec-Fetch-Dest: document); the M365 page loads
+                    # the image with an in-page fetch (Sec-Fetch-Dest: empty). Load
+                    # the designerapp origin first so the fetch is same-origin, then
+                    # replay the browser's request verbatim (Authorization + FileToken
+                    # headers, fileToken stripped from the query, cookies included).
+                    fetch_target = designer_object_fetch_url(url)
+                    if event_sink and fetch_target != url:
+                        event_sink("designer_url_normalized", original_query=urlsplit(url).query, fetch_query=urlsplit(fetch_target).query)
+                    parsed_target = urlsplit(fetch_target)
+                    origin = f"{parsed_target.scheme}://{parsed_target.netloc}/"
+                    await cdp_call("Page.enable")
+                    await cdp_call("Runtime.enable")
+                    await cdp_call("Page.navigate", {"url": origin})
+                    if event_sink:
+                        event_sink("chromium_fetch_start", token_header=bool(auth_headers), auth_source=auth_source)
+                    eval_result = await cdp_call(
+                        "Runtime.evaluate",
+                        {
+                            "expression": _designer_fetch_expression(fetch_target, auth_headers),
+                            "awaitPromise": True,
+                            "returnByValue": True,
+                        },
+                    )
+                    result_obj = eval_result.get("result") or {}
+                    if result_obj.get("exceptionDetails"):
+                        raise RuntimeError(str(result_obj.get("exceptionDetails")))
+                    value = (result_obj.get("result") or {}).get("value") or {}
+                    if not value.get("ok"):
+                        raise RuntimeError(str(value.get("error") or "designer fetch failed in Chromium"))
+                    status = int(value.get("status") or 0)
+                    content_type = str(value.get("contentType") or "application/octet-stream")
+                    decoded = base64.b64decode(str(value.get("body") or ""))
+                    if event_sink:
+                        event_sink(
+                            "chromium_response",
+                            status_code=status,
+                            content_type=content_type,
+                            response_host=parsed_target.hostname or "",
+                            response_path=parsed_target.path,
+                            www_authenticate="",
+                        )
+                        event_sink("chromium_body", bytes=len(decoded), base64_encoded=True, body_preview=_body_preview(decoded) if status >= 400 else "")
+                    if status == 404:
+                        raise UpstreamMediaNotFound("upstream media returned HTTP 404")
+                    if status >= 400:
+                        raise RuntimeError(f"upstream media returned HTTP {status}")
+                    return decoded, content_type
+                nav_url = url
                 if auth_headers:
                     await cdp_call("Network.setExtraHTTPHeaders", {"headers": auth_headers})
                 await cdp_call("Page.enable")
