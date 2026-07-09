@@ -115,7 +115,8 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .mode-profile-card .user-default-grid .glass-select-menu{left:0;right:auto;width:100%;min-width:100%;max-width:100%}
 .user-media-suffix{margin-top:1.1rem}
 .user-media-suffix .user-config-label{font-size:.86rem;font-weight:800;color:var(--strong)}
-.user-media-suffix textarea{width:100%;box-sizing:border-box;min-height:60px;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.85rem;font-family:monospace;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16);resize:vertical}
+.user-media-suffix textarea{width:100%;box-sizing:border-box;min-height:60px;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.85rem;font-family:monospace;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16);resize:vertical;scrollbar-width:none;-ms-overflow-style:none}
+.user-media-suffix textarea::-webkit-scrollbar{display:none}
 .account-side{position:sticky;top:10px;background:linear-gradient(180deg,rgba(96,242,255,.09),rgba(140,107,255,.08));border:1px solid rgba(96,242,255,.22);border-radius:18px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.22);overflow:hidden}
 .account-side:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 180deg,transparent,rgba(96,242,255,.22),transparent,rgba(255,94,219,.16),transparent);animation:spin 8s linear infinite;opacity:.55;pointer-events:none}
 .account-side>*{position:relative;z-index:1}
@@ -215,7 +216,7 @@ code{color:#a5b4fc}
         <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
       </div>
       <div class="user-media-suffix">
-        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem"><span class="user-config-label" data-i18n="user_media_suffix_label">媒体后缀名（强制覆盖）</span></div>
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem"><span class="user-config-label" data-i18n="user_media_suffix_label">媒体后缀名</span></div>
         <div class="hint" data-i18n="user_media_suffix_hint">填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。</div>
         <textarea id="user-media-suffix" rows="3" onchange="saveTone()" placeholder=""></textarea>
       </div>
@@ -267,7 +268,7 @@ const i18n={
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
     mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户',status_login:'登录',status_refresh:'刷新',status_valid:'有效',status_expire:'过期',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',account_none:'无',account_none_token:'无 (Token)',
-    tone_title:'对话模式',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',user_time_zone_label:'更改时区',user_media_suffix_label:'媒体后缀名（强制覆盖）',user_media_suffix_hint:'填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。',user_media_suffix_inherit:'全局默认：',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
+    tone_title:'对话模式',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',user_time_zone_label:'更改时区',user_media_suffix_label:'媒体后缀名',user_media_suffix_hint:'填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。',user_media_suffix_inherit:'全局默认：',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
     sys_prompt_title:'系统提示词（高级）',
@@ -290,7 +291,7 @@ const i18n={
     push_token_hint:'Paste the access_token value or the full wss:// URL. Token-only mode is temporary; push cookies to bind a Microsoft account.',push_token_ph:'Paste the access_token value or the full wss:// URL. Token-only mode is temporary; push cookies to bind a Microsoft account.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
     mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_expire:'Expires',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',account_none:'None',account_none_token:'None (Token)',
-    tone_title:'Conversation Mode',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',user_time_zone_label:'Change Time Zone',user_media_suffix_label:'Media suffixes (Override)',user_media_suffix_hint:'When filled, this forcibly overrides the global media suffixes and applies only to your own key. Separate with commas, spaces or new lines. Leave empty to inherit the global list.',user_media_suffix_inherit:'Global default: ',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
+    tone_title:'Conversation Mode',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',user_time_zone_label:'Change Time Zone',user_media_suffix_label:'Media suffixes',user_media_suffix_hint:'When filled, this forcibly overrides the global media suffixes and applies only to your own key. Separate with commas, spaces or new lines. Leave empty to inherit the global list.',user_media_suffix_inherit:'Global default: ',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
     sys_prompt_title:'System Prompt (Advanced)',

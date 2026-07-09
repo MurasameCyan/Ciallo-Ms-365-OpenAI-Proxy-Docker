@@ -50,6 +50,7 @@ details[open] summary:after{display:none}
 .status-value{font-weight:600;font-size:.9rem}
 .valid{color:#3fb970}.invalid{color:#e08a8a}.warn{color:#c99a3a}
 textarea{width:100%;height:120px;background:var(--surface);border:1px solid var(--surface-border);border-radius:10px;color:var(--text);padding:.75rem;font-family:monospace;font-size:.8rem;resize:vertical;margin-bottom:.75rem}
+#media-suffix-input::-webkit-scrollbar{display:none}
 input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:999px;border:1px solid rgba(96,242,255,.34);background:linear-gradient(135deg,rgba(255,255,255,.18),rgba(96,242,255,.08));box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 12px rgba(96,242,255,.08);cursor:pointer;position:relative;vertical-align:middle;transition:box-shadow .18s,background .18s,border-color .18s}
 input[type="checkbox"]:checked{background:linear-gradient(135deg,rgba(96,242,255,.85),rgba(140,107,255,.62));border-color:rgba(96,242,255,.78);box-shadow:0 0 16px rgba(96,242,255,.34),inset 0 1px 0 rgba(255,255,255,.5)}
 input[type="checkbox"]:checked:after{content:"";position:absolute;inset:5px;border-radius:inherit;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.8)}
@@ -437,7 +438,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </summary>
 <div style="margin-top:.75rem">
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="media_suffix_hint">控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。</div>
-<textarea id="media-suffix-input" rows="6" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical" placeholder="png jpg wav mp4 py tsx"></textarea>
+<textarea id="media-suffix-input" rows="6" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical;scrollbar-width:none;-ms-overflow-style:none" placeholder="png jpg wav mp4 py tsx"></textarea>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
 <button id="media-suffix-save" onclick="saveMediaSuffixes()" data-i18n="media_suffix_save">保存</button>
 <button id="media-suffix-reset" onclick="resetMediaSuffixes()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
