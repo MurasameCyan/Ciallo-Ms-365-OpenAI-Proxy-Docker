@@ -135,14 +135,28 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
     async def refresh_account_cookie(acc_id: str, request: Request) -> dict:
         err = require_admin(request)
         if err: return err
-        if app.state.account_store.get(acc_id) is None:
+        acc = app.state.account_store.get(acc_id)
+        if acc is None:
             return _json_err(404, "Account not found")
+        # Re-inject the LAST pushed cookies. ensure_fresh() no-ops for manual
+        # accounts (it only drives the CDP token-refresh path), so the cookie
+        # button must replay the stored cookie set through inject_cookies to
+        # actually launch Chromium and re-establish the session.
+        cookies = list(getattr(acc, "cookies", []) or [])
+        if not cookies:
+            return _json_err(400, "No stored cookies to refresh; push cookies from the browser first")
         try:
-            ok = await app.state.refresh_scheduler.ensure_fresh(acc_id, force=True)
+            injected, total = await app.state.refresh_scheduler.inject_cookies(acc_id, cookies)
         except Exception as exc:
             return _json_err(502, f"Cookie refresh failed: {exc}")
         acc = app.state.account_store.get(acc_id)
-        return {"status": "ok", "refreshed": ok, "account": _account_public(acc) if acc else None}
+        return {
+            "status": "ok",
+            "injected": injected,
+            "total": total,
+            "cookie_valid": bool(acc.cookie_valid) if acc else False,
+            "account": _account_public(acc) if acc else None,
+        }
 
     @app.delete("/admin/accounts/{acc_id}")
     async def remove_account(acc_id: str, request: Request) -> dict:

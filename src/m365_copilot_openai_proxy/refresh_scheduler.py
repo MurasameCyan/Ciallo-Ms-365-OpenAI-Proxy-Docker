@@ -111,6 +111,56 @@ def _identity_conflict(existing_email: str, new_token: str) -> bool:
     return existing != new_email
 
 
+# Names of the Microsoft auth cookies that actually carry the signed-in session.
+# Used only for diagnostic logging so we can see, after a failed injection,
+# whether the critical cookies even reached the refresh browser.
+_CRITICAL_AUTH_COOKIE_PREFIXES = (
+    "ESTSAUTH", "SignInStateCookie", "ESTSSC", "buid", "esctx",
+    "x-ms-gateway-slice", "stsservicecookie", "CCState", "wlidperf",
+)
+
+# Read-only page probe: m365 is an MSAL SPA that keeps the signed-in account in
+# localStorage, NOT just cookies. "NoAccountOnStart" means MSAL found no account
+# in its local cache. This dumps the final URL, any MSAL/account localStorage
+# keys, and the client-visible cookie names so we can tell whether the session
+# failed because (a) MSAL has no cached account, or (b) an auth cookie is missing.
+_CDP_LOGIN_DIAG_JS = """
+(() => {
+    const out = {url: location.href, msalKeys: [], cookieNames: []};
+    try {
+        for (const k of Object.keys(localStorage)) {
+            const lk = k.toLowerCase();
+            if (lk.includes('login.windows') || lk.includes('msal') ||
+                lk.includes('authority') || lk.includes('account') ||
+                lk.includes('.microsoft') || lk.includes('clientinfo')) {
+                out.msalKeys.push(k.slice(0, 100));
+            }
+        }
+    } catch (e) {}
+    try {
+        out.cookieNames = document.cookie.split(';')
+            .map(s => s.trim().split('=')[0]).filter(Boolean);
+    } catch (e) {}
+    return JSON.stringify(out).slice(0, 1500);
+})()
+"""
+
+
+def _critical_cookie_report(cookies: list[dict]) -> list[str]:
+    """Summarise which critical MS auth cookies are present in the pushed set."""
+    report: list[str] = []
+    for c in cookies:
+        name = str(c.get("name", "") or "")
+        if not any(name.upper().startswith(p.upper()) for p in _CRITICAL_AUTH_COOKIE_PREFIXES):
+            continue
+        exp_raw = c.get("expires") or c.get("expirationDate")
+        report.append(
+            f"{name}@{c.get('domain', '')}"
+            f"(httpOnly={bool(c.get('httpOnly'))},session={not bool(exp_raw)})"
+        )
+    return report
+
+
 def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
     host = urlsplit(url).hostname or ""
     now = time.time()
@@ -794,6 +844,8 @@ class RefreshScheduler:
                 session_persisted = 0
                 attempted = 0
                 failures: list[str] = []
+                crit = _critical_cookie_report(cookies)
+                print(f"Cookie inject diag [{account_id}] pushed={len(cookies)} critical={crit or 'NONE'}", flush=True)
                 for i, cookie in enumerate(cookies):
                     domain = str(cookie.get("domain", "") or ".microsoft.com")
                     domain_l = domain.lower()
@@ -840,6 +892,27 @@ class RefreshScheduler:
                     cur = next((t for t in tabs if t.get("type") == "page"), None)
                     if cur:
                         final_url = cur.get("url", final_url)
+                except Exception:
+                    pass
+                # Read-only login diagnostic: dump MSAL localStorage account keys
+                # and visible cookie names so we can tell whether NoAccountOnStart
+                # is caused by MSAL having no cached account vs a missing cookie.
+                try:
+                    await ws.send(json.dumps({
+                        "id": 8888,
+                        "method": "Runtime.evaluate",
+                        "params": {"expression": _CDP_LOGIN_DIAG_JS, "returnByValue": True},
+                    }))
+                    diag = None
+                    diag_deadline = time.time() + 3
+                    while time.time() < diag_deadline:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+                        msg = json.loads(raw)
+                        if msg.get("id") == 8888:
+                            diag = msg.get("result", {}).get("result", {}).get("value")
+                            break
+                    if diag:
+                        print(f"Cookie inject diag [{account_id}] page={diag}", flush=True)
                 except Exception:
                     pass
             if attempted > 0 and injected == attempted and not _is_login_url(final_url) and not _is_logged_out_shell(final_url):
