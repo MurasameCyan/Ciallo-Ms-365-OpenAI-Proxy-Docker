@@ -11,7 +11,7 @@ from .account_store import extract_identity
 from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
-from .runtime_settings import _RUN_PERMISSIONS
+from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 from .translator import default_tool_system_prompt
 
@@ -91,6 +91,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             "run_permission": getattr(k, "run_permission", ""),
             "effective_run_permission": _effective_run_permission(k),
             "default_run_permission": getattr(app.state, "run_permission", "full"),
+            "media_proxy_suffixes": list(getattr(k, "media_proxy_suffixes", []) or []),
+            "default_media_proxy_suffixes": list(dict(getattr(app.state, "runtime_settings", {}) or {}).get("media_proxy_suffixes", []) or []),
             "default_system_prompt": default_tool_system_prompt(),
             "displaced": bool(getattr(k, "displaced_at", 0.0)),
             "displaced_at": getattr(k, "displaced_at", 0.0),
@@ -113,8 +115,14 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         run_permission = str(body.get("run_permission", getattr(k, "run_permission", ""))).strip()
         if run_permission and run_permission not in _RUN_PERMISSIONS:
             return _json_err(400, "Invalid run permission")
-        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission)
-        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
+        # Per-user media suffix override: empty => inherit global; non-empty =>
+        # fully replace the global suffixes for this user's signed media URLs.
+        if "media_proxy_suffixes" in body:
+            media_proxy_suffixes = normalize_media_proxy_suffixes(body.get("media_proxy_suffixes"))
+        else:
+            media_proxy_suffixes = list(getattr(k, "media_proxy_suffixes", []) or [])
+        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission, media_proxy_suffixes=media_proxy_suffixes)
+        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
 
     @app.post("/user/tool-prompt")
     async def user_set_tool_prompt(request: Request) -> dict:

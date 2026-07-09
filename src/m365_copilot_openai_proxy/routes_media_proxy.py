@@ -28,6 +28,31 @@ def _body_preview(content: bytes, limit: int = 300) -> str:
     return content[:limit].decode("utf-8", errors="replace")
 
 
+def _allowed_media_suffixes(app: FastAPI) -> list[str]:
+    """Union of the global runtime suffixes and every per-user override.
+
+    Signed URLs are minted with either the global list or a user's override, so
+    the fetch-side allow-check (defence-in-depth on top of the HMAC signature)
+    must accept any suffix that any user is permitted to sign, otherwise a
+    user's custom suffix would sign successfully yet be rejected here.
+    """
+    suffixes: list[str] = []
+    seen: set[str] = set()
+    runtime = dict(getattr(app.state, "runtime_settings", {}) or {})
+    for suffix in (runtime.get("media_proxy_suffixes") or []):
+        if suffix not in seen:
+            seen.add(suffix)
+            suffixes.append(suffix)
+    key_store = getattr(app.state, "key_store", None)
+    if key_store is not None:
+        for k in key_store.list():
+            for suffix in (getattr(k, "media_proxy_suffixes", []) or []):
+                if suffix not in seen:
+                    seen.add(suffix)
+                    suffixes.append(suffix)
+    return suffixes
+
+
 def request_media_rewriter(app: FastAPI, request: Request):
     account = getattr(request.state, "account", None)
     account_id = getattr(account, "id", None)
@@ -35,10 +60,14 @@ def request_media_rewriter(app: FastAPI, request: Request):
         account_id = _GLOBAL_MEDIA_ACCOUNT_ID
     base_url = str(request.base_url).rstrip("/")
     secret = str(getattr(app.state, "media_proxy_secret", "") or "")
+    key_obj = getattr(request.state, "api_key_obj", None)
+    user_suffixes = list(getattr(key_obj, "media_proxy_suffixes", []) or [])
 
     def rewrite(text: str) -> str:
         runtime = dict(getattr(app.state, "runtime_settings", {}) or {})
-        suffixes = runtime.get("media_proxy_suffixes")
+        # A non-empty per-user override fully replaces the global suffixes for
+        # this user's signed URLs; empty falls back to the global runtime list.
+        suffixes = user_suffixes if user_suffixes else runtime.get("media_proxy_suffixes")
         ttl_seconds = runtime.get("media_proxy_ttl_seconds")
         return rewrite_m365_media_urls(text, base_url=base_url, account_id=account_id, secret=secret, allowed_suffixes=suffixes, ttl_seconds=ttl_seconds)
 
@@ -106,7 +135,7 @@ def register_media_proxy_routes(app: FastAPI) -> None:
             emit("invalid_signature", exp=exp, now=now, expired=bool(expires_at and expires_at < now))
             raise HTTPException(status_code=403, detail="Invalid media proxy signature")
         parsed = urlsplit(source_url)
-        suffixes = dict(getattr(app.state, "runtime_settings", {}) or {}).get("media_proxy_suffixes")
+        suffixes = _allowed_media_suffixes(app)
         if not is_allowed_m365_media_url(source_url, suffixes):
             emit("blocked_source", source_host=parsed.netloc, source_path=parsed.path)
             raise HTTPException(status_code=400, detail="Unsupported media host")

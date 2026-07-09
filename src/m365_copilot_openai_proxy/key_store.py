@@ -39,6 +39,10 @@ class ApiKey:
     model_alias: str = ""
     time_zone: str = ""
     run_permission: str = ""  # "" = inherit global, "read_only" or "full"
+    # Per-user media proxy suffix override. Empty list => inherit the global
+    # runtime setting; a non-empty list fully replaces the global suffixes for
+    # this user's signed media URLs.
+    media_proxy_suffixes: list[str] = field(default_factory=list)
     username: str = ""
     password: str = ""  # Stored in plaintext so the admin UI can display it (per admin request).
     password_hash: str = ""
@@ -106,6 +110,7 @@ class KeyStore:
                     model_alias=raw.get("model_alias", ""),
                     time_zone=raw.get("time_zone", ""),
                     run_permission=raw.get("run_permission", ""),
+                    media_proxy_suffixes=list(raw.get("media_proxy_suffixes", []) or []),
                     username=raw.get("username", ""),
                     password=raw.get("password", ""),
                     password_hash=raw.get("password_hash", ""),
@@ -180,7 +185,7 @@ class KeyStore:
 
     def update(self, key_id: str, **fields: Any) -> ApiKey | None:
         """Update mutable fields. Pass password=<str> to (re)set the login password."""
-        allowed = {"name", "account_id", "enabled", "tone", "tool_prompt", "system_prompt", "model_alias", "time_zone", "run_permission", "username", "role", "displaced_at"}
+        allowed = {"name", "account_id", "enabled", "tone", "tool_prompt", "system_prompt", "model_alias", "time_zone", "run_permission", "media_proxy_suffixes", "username", "role", "displaced_at"}
         with self._lock:
             k = self._keys.get(key_id)
             if k is None:
