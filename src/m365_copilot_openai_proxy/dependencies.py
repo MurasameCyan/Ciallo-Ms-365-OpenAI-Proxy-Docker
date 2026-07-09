@@ -42,7 +42,13 @@ def create_api_dependencies(
             key_tp = ((key_obj.tool_prompt if key_obj is not None else "") or "").strip()
             tool_prompt = "\n\n".join(p for p in (global_tp, key_tp) if p) or None
             time_zone = getattr(key_obj, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai")
-            client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone)
+            # Idle timeout resolution: per-key override (minutes, 0 => inherit) wins,
+            # else the global runtime setting, else the client default. Passed in seconds.
+            key_idle_min = int(getattr(key_obj, "ws_idle_timeout_minutes", 0) or 0) if key_obj is not None else 0
+            global_idle_min = int(getattr(app.state, "ws_idle_timeout_minutes", 0) or 0)
+            idle_min = key_idle_min or global_idle_min
+            idle_timeout = idle_min * 60 if idle_min > 0 else None
+            client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
             _attach_response_debug_sink(app, client)
             return client
         except TypeError:

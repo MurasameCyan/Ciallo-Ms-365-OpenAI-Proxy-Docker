@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -15,6 +16,21 @@ from .token_store import decode_jwt_payload, is_substrate_token_claims
 
 SIGNALR_SEP = "\x1e"
 _WS_BASE = "wss://substrate.office.com/m365Copilot/Chathub"
+
+# Chat-only WebSocket timeouts (do NOT affect cookie/CDP refresh in refresh_scheduler).
+# _WS_OPEN_TIMEOUT: cap the TCP+TLS+HTTP-upgrade handshake.
+# _WS_IDLE_TIMEOUT: max seconds to wait for the NEXT frame. SignalR type=6 keepalives
+#   and every streamed delta reset this window, so a slow-but-alive long answer never
+#   trips it; only a genuinely stalled upstream (no frames at all) does.
+# _SESSION_LOCK_TIMEOUT: max wait to acquire a per-session lock. Cross-user requests use
+#   different sessions/locks (see session_helpers), so this only bounds same-session,
+#   same-conversation serialization; a stuck holder self-aborts via _WS_IDLE_TIMEOUT.
+_WS_OPEN_TIMEOUT = 15.0
+# Default max seconds to wait for the NEXT frame (heartbeats/deltas reset it). Raised
+# to 300s so a long "thinking" gap with no interim frames is tolerated; overridable
+# per-client via the idle_timeout constructor arg (admin global / per-user setting).
+_WS_IDLE_TIMEOUT = 300.0
+_SESSION_LOCK_TIMEOUT = 300.0
 
 _VARIANTS = (
     "EnableMcpServerWidgets,feature.EnableMcpServerWidgets,feature.EnableLuForChatCIQ,"
@@ -85,7 +101,7 @@ class SubstrateCopilotError(RuntimeError):
 
 
 class SubstrateCopilotClient:
-    def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic", extra_tool_prompt: str = ""):
+    def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic", extra_tool_prompt: str = "", idle_timeout: float | None = None):
         if not access_token:
             raise SubstrateCopilotError(
                 "M365_ACCESS_TOKEN is missing. Start the debug Edge window and let startup token capture complete, "
@@ -93,6 +109,8 @@ class SubstrateCopilotClient:
             )
         self._token = access_token
         self._time_zone = time_zone
+        # Per-client idle timeout override (seconds). Falsy => module default.
+        self._idle_timeout = float(idle_timeout) if idle_timeout else _WS_IDLE_TIMEOUT
         self._tone = tone or "Magic"
         self._extra_tool_prompt = extra_tool_prompt or ""
         self._response_debug_sink = None
@@ -217,7 +235,17 @@ class SubstrateCopilotClient:
                 yield chunk
             return
 
-        async with session.lock:
+        # Acquire the per-session lock with a timeout so a stuck stream on the SAME
+        # session/conversation cannot block follow-up requests forever. Cross-user
+        # requests use different sessions (different locks) and never wait here.
+        try:
+            await asyncio.wait_for(session.lock.acquire(), timeout=_SESSION_LOCK_TIMEOUT)
+        except asyncio.TimeoutError as exc:
+            raise SubstrateCopilotError(
+                "Session is busy: a previous request on this conversation is still "
+                "streaming. Retry shortly."
+            ) from exc
+        try:
             turn = session.reserve_turn()
             async for chunk in self._chat_stream_for_turn(
                 text=text,
@@ -226,6 +254,8 @@ class SubstrateCopilotClient:
                 is_start_of_session=turn.is_start_of_session,
             ):
                 yield chunk
+        finally:
+            session.lock.release()
 
     async def _chat_stream_for_turn(
         self,
@@ -242,15 +272,28 @@ class SubstrateCopilotClient:
                 additional_headers={
                     "Origin": "https://m365.cloud.microsoft",
                 },
+                open_timeout=_WS_OPEN_TIMEOUT,
+                close_timeout=_WS_OPEN_TIMEOUT,
             ) as ws:
+                idle_timeout = getattr(self, "_idle_timeout", None) or _WS_IDLE_TIMEOUT
                 await ws.send(json.dumps({"protocol": "json", "version": 1}) + SIGNALR_SEP)
-                await ws.recv()
+                await asyncio.wait_for(ws.recv(), timeout=idle_timeout)
                 await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session))
                 fallback_text = ""
                 streamed_text = ""
                 yielded_images: set[str] = set()
                 yielded_any = False
-                async for raw in ws:
+                ws_iter = ws.__aiter__()
+                while True:
+                    try:
+                        raw = await asyncio.wait_for(ws_iter.__anext__(), timeout=idle_timeout)
+                    except asyncio.TimeoutError as exc:
+                        raise SubstrateCopilotError(
+                            "Upstream stopped sending data (idle timeout). The chat "
+                            "connection was closed to avoid hanging."
+                        ) from exc
+                    except (StopAsyncIteration, websockets.ConnectionClosed):
+                        break
                     for part in raw.split(SIGNALR_SEP):
                         part = part.strip()
                         if not part:

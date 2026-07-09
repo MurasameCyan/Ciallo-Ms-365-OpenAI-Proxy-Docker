@@ -214,6 +214,7 @@ code{color:#a5b4fc}
         <label class="user-config-field"><span data-i18n="run_permission_label">运行权限</span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>
         <label class="user-config-field"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
         <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
+        <label class="user-config-field"><span data-i18n="ws_idle_timeout_label">对话响应超时分钟</span><input id="user-ws-idle-timeout" type="number" min="0" onchange="saveTone()"></label>
       </div>
       <div class="user-media-suffix">
         <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem"><span class="user-config-label" data-i18n="user_media_suffix_label">媒体后缀名</span></div>
@@ -268,7 +269,7 @@ const i18n={
     push_token_hint:'粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。',push_token_ph:'粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'更新 Token',updating_token:'更新中...',saved:'已保存',push_ok:'已更新',token_update_failed:'更新失败',
     mode_profile_title:'默认配置',user_tone_hint:'保存后仅影响当前用户，不再跟随全局模板变化。',call_params_title:'调用参数',manual_update_title:'手动更新',status_panel_title:'账户状态',status_account:'账户',status_login:'登录',status_refresh:'刷新',status_valid:'有效',status_expire:'过期',status_remaining:'剩余',status_yes:'是',status_no:'否',status_unknown:'未知',account_none:'无',account_none_token:'无 (Token)',
-    tone_title:'对话模式',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',user_time_zone_label:'更改时区',user_media_suffix_label:'媒体后缀名',user_media_suffix_hint:'填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。',user_media_suffix_inherit:'全局默认：',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
+    tone_title:'对话模式',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',user_time_zone_label:'更改时区',user_media_suffix_label:'媒体后缀名',user_media_suffix_hint:'填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。',user_media_suffix_inherit:'全局默认：',ws_idle_timeout_label:'对话响应超时分钟',user_ws_idle_timeout_inherit:'全局默认：',tool_prompt_title:'提示词增强',system_prompt_title:'系统提示词',prompt_card_title:'提示词',click_expand:'点击展开',
     tool_prompt_hint:'追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。',
     save:'保存',reset:'恢复默认',
     sys_prompt_title:'系统提示词（高级）',
@@ -291,7 +292,7 @@ const i18n={
     push_token_hint:'Paste the access_token value or the full wss:// URL. Token-only mode is temporary; push cookies to bind a Microsoft account.',push_token_ph:'Paste the access_token value or the full wss:// URL. Token-only mode is temporary; push cookies to bind a Microsoft account.\\naccess_token / wss://substrate.office.com/...',
     push_token_btn:'Update Token',updating_token:'Updating...',saved:'Saved',push_ok:'Updated',token_update_failed:'Update failed',
     mode_profile_title:'Default Config',user_tone_hint:'After saving, this only affects the current user and will no longer follow the global template.',call_params_title:'Call Parameters',manual_update_title:'Manual Update',status_panel_title:'Account Status',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_expire:'Expires',status_remaining:'Remaining',status_yes:'Yes',status_no:'No',status_unknown:'Unknown',account_none:'None',account_none_token:'None (Token)',
-    tone_title:'Conversation Mode',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',user_time_zone_label:'Change Time Zone',user_media_suffix_label:'Media suffixes',user_media_suffix_hint:'When filled, this forcibly overrides the global media suffixes and applies only to your own key. Separate with commas, spaces or new lines. Leave empty to inherit the global list.',user_media_suffix_inherit:'Global default: ',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
+    tone_title:'Conversation Mode',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',user_time_zone_label:'Change Time Zone',user_media_suffix_label:'Media suffixes',user_media_suffix_hint:'When filled, this forcibly overrides the global media suffixes and applies only to your own key. Separate with commas, spaces or new lines. Leave empty to inherit the global list.',user_media_suffix_inherit:'Global default: ',ws_idle_timeout_label:'Chat response timeout minutes',user_ws_idle_timeout_inherit:'Global default: ',tool_prompt_title:'Prompt Enhancement',system_prompt_title:'System Prompt',prompt_card_title:'Prompts',click_expand:'Click to expand',
     tool_prompt_hint:'Custom instruction appended after the tool-call prompt, applies only to your own key. Leave empty to append nothing.',
     save:'Save',reset:'Restore default',
     sys_prompt_title:'System Prompt (Advanced)',
@@ -489,6 +490,8 @@ async function loadMe(){
     document.getElementById('user-model-alias').value=d.model_alias||'';
     userTimeZone=d.time_zone||'';
     document.getElementById('user-time-zone').value=userTimeZone;
+    const uwit=document.getElementById('user-ws-idle-timeout');
+    if(uwit){uwit.value=(d.ws_idle_timeout_minutes>0)?d.ws_idle_timeout_minutes:'';const dw=d.default_ws_idle_timeout_minutes||0;uwit.placeholder=dw?(t('user_ws_idle_timeout_inherit')+dw):''}
     const ums=document.getElementById('user-media-suffix');
     if(ums){ums.value=(d.media_proxy_suffixes||[]).join('\\n');const dg=(d.default_media_proxy_suffixes||[]).join(' ');ums.placeholder=dg?(t('user_media_suffix_inherit')+dg):''}
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
@@ -558,10 +561,11 @@ async function saveTone(){
   const time_zone=document.getElementById('user-time-zone')?.value||'';
   const run_permission=document.getElementById('user-run-permission')?.value||'full';
   const media_proxy_suffixes=document.getElementById('user-media-suffix')?.value||'';
+  const ws_idle_timeout_minutes=Number(document.getElementById('user-ws-idle-timeout')?.value||0);
   userTimeZone=time_zone;
   try{
-    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone,run_permission:run_permission,media_proxy_suffixes:media_proxy_suffixes})});
-    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const rp=document.getElementById('user-run-permission');if(rp){rp.value=d.run_permission||d.effective_run_permission||'full';refreshGlassSelect(rp)}const ums=document.getElementById('user-media-suffix');if(ums&&document.activeElement!==ums)ums.value=(d.media_proxy_suffixes||[]).join('\\n');flash('tone-msg')}
+    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone,run_permission:run_permission,ws_idle_timeout_minutes:ws_idle_timeout_minutes,media_proxy_suffixes:media_proxy_suffixes})});
+    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const uwit=document.getElementById('user-ws-idle-timeout');if(uwit&&document.activeElement!==uwit)uwit.value=(d.ws_idle_timeout_minutes>0)?d.ws_idle_timeout_minutes:'';const rp=document.getElementById('user-run-permission');if(rp){rp.value=d.run_permission||d.effective_run_permission||'full';refreshGlassSelect(rp)}const ums=document.getElementById('user-media-suffix');if(ums&&document.activeElement!==ums)ums.value=(d.media_proxy_suffixes||[]).join('\\n');flash('tone-msg')}
   }catch(e){}
 }
 async function saveToolPrompt(){

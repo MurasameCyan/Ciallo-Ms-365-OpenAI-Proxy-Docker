@@ -27,16 +27,47 @@ def _filter_read_only_tool_calls(tool_calls: list[dict]) -> list[dict]:
     return [tc for tc in tool_calls if _tool_call_name(tc).lower() in _READ_ONLY_TOOL_NAMES]
 
 # Primary: fenced ```tool_call blocks. Fallback: ```json blocks that look like a tool call.
-# Note: closing/opening newlines are optional — the model often emits the closing ``` right
-# after the JSON (e.g. `}}``` ) with no preceding newline, which would otherwise fail to match.
-_TOOL_CALL_RE = _re.compile(
-    r"```tool_call\s*(\{.*?\})\s*```",
-    _re.DOTALL,
-)
-_JSON_BLOCK_RE = _re.compile(
-    r"```(?:json)?\s*(\{.*?\})\s*```",
-    _re.DOTALL,
-)
+# We only match the OPENING fence + optional language tag with a regex; the JSON
+# body is parsed with json.JSONDecoder.raw_decode (balanced-brace) rather than a
+# `\{.*?\}```  regex. The old regex terminated at the first ``` it saw, so any ```
+# sequence or nested braces INSIDE the JSON — common when Write's `content` is
+# Markdown/code — truncated the payload into invalid JSON and dropped the whole
+# tool_call. Balanced-brace decoding tolerates backticks/braces inside the JSON.
+_TOOL_CALL_FENCE_RE = _re.compile(r"```tool_call[ \t]*\r?\n?", _re.IGNORECASE)
+_JSON_FENCE_RE = _re.compile(r"```(?:json)?[ \t]*\r?\n?", _re.IGNORECASE)
+_CLOSING_FENCE_RE = _re.compile(r"\s*```")
+_DECODER = json.JSONDecoder()
+
+
+def _parse_fenced_json_blocks(text: str, fence_re) -> list[tuple[dict, int, int]]:
+    """Find fenced blocks whose body is a JSON object.
+
+    Returns a list of (obj, block_start, block_end) where block_start/block_end
+    delimit the full span to strip (from the fence opener through the closing
+    ``` if one is present). The JSON is located by finding the first `{` after
+    the fence opener and decoded with raw_decode, so ``` inside the JSON string
+    values does not prematurely end the block.
+    """
+    results: list[tuple[dict, int, int]] = []
+    for m in fence_re.finditer(text):
+        body_start = m.end()
+        brace = text.find("{", body_start)
+        if brace == -1:
+            continue
+        # If another fence appears before the opening brace, this opener has no
+        # JSON body of its own — skip it.
+        if "```" in text[body_start:brace]:
+            continue
+        try:
+            obj, end = _DECODER.raw_decode(text, brace)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        tail = _CLOSING_FENCE_RE.match(text, end)
+        block_end = tail.end() if tail else end
+        results.append((obj, m.start(), block_end))
+    return results
 
 
 def _coerce_tool_call(obj: dict) -> dict | None:
@@ -76,24 +107,16 @@ def _extract_tool_calls(text: str) -> list[dict]:
     matched_spans: list[tuple[int, int]] = []
 
     # 1. Preferred tool_call blocks
-    for m in _TOOL_CALL_RE.finditer(text):
-        try:
-            obj = json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            continue
+    for obj, start, end in _parse_fenced_json_blocks(text, _TOOL_CALL_FENCE_RE):
         tc = _coerce_tool_call(obj)
         if tc:
             calls.append(tc)
-            matched_spans.append(m.span())
+            matched_spans.append((start, end))
 
     # 2. Fallback: json/plain fenced blocks that look like tool calls
-    for m in _JSON_BLOCK_RE.finditer(text):
+    for obj, start, end in _parse_fenced_json_blocks(text, _JSON_FENCE_RE):
         # Skip if this span overlaps an already-matched tool_call block
-        if any(s <= m.start() < e for s, e in matched_spans):
-            continue
-        try:
-            obj = json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
+        if any(s <= start < e for s, e in matched_spans):
             continue
         tc = _coerce_tool_call(obj)
         if tc:
@@ -235,17 +258,33 @@ def _extract_prose_write(text: str, tool_names: set[str]) -> list[dict]:
 
 
 def _strip_tool_call_blocks(text: str) -> str:
-    """Remove tool_call code blocks from text, keeping surrounding content."""
-    cleaned = _TOOL_CALL_RE.sub("", text)
-    # Also strip json/plain blocks that were parsed as tool calls
-    def _maybe_strip(m):
-        try:
-            obj = json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            return m.group(0)
-        return "" if _coerce_tool_call(obj) else m.group(0)
-    cleaned = _JSON_BLOCK_RE.sub(_maybe_strip, cleaned)
-    return cleaned.strip()
+    """Remove tool_call code blocks from text, keeping surrounding content.
+
+    Uses the same balanced-brace scanner as extraction so the removed span
+    matches exactly what was parsed as a tool_call (including ``` inside the
+    JSON body). Only blocks that decode into a tool_call are stripped.
+    """
+    spans: list[tuple[int, int]] = []
+    for obj, start, end in _parse_fenced_json_blocks(text, _TOOL_CALL_FENCE_RE):
+        if _coerce_tool_call(obj):
+            spans.append((start, end))
+    for obj, start, end in _parse_fenced_json_blocks(text, _JSON_FENCE_RE):
+        if any(s <= start < e for s, e in spans):
+            continue
+        if _coerce_tool_call(obj):
+            spans.append((start, end))
+    if not spans:
+        return text.strip()
+    spans.sort()
+    out = []
+    cursor = 0
+    for start, end in spans:
+        if start < cursor:
+            continue
+        out.append(text[cursor:start])
+        cursor = end
+    out.append(text[cursor:])
+    return "".join(out).strip()
 
 
 # M365 Copilot has a native "generate a file" feature that hosts the file on its

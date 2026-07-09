@@ -91,6 +91,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             "run_permission": getattr(k, "run_permission", ""),
             "effective_run_permission": _effective_run_permission(k),
             "default_run_permission": getattr(app.state, "run_permission", "full"),
+            "ws_idle_timeout_minutes": int(getattr(k, "ws_idle_timeout_minutes", 0) or 0),
+            "default_ws_idle_timeout_minutes": int(getattr(app.state, "ws_idle_timeout_minutes", 0) or 0),
             "media_proxy_suffixes": list(getattr(k, "media_proxy_suffixes", []) or []),
             "default_media_proxy_suffixes": list(dict(getattr(app.state, "runtime_settings", {}) or {}).get("media_proxy_suffixes", []) or []),
             "default_system_prompt": default_tool_system_prompt(),
@@ -121,8 +123,20 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             media_proxy_suffixes = normalize_media_proxy_suffixes(body.get("media_proxy_suffixes"))
         else:
             media_proxy_suffixes = list(getattr(k, "media_proxy_suffixes", []) or [])
-        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission, media_proxy_suffixes=media_proxy_suffixes)
-        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
+        # Per-user chat idle timeout (minutes): 0 => inherit global; otherwise >=1.
+        if "ws_idle_timeout_minutes" in body:
+            try:
+                ws_idle_timeout_minutes = int(body.get("ws_idle_timeout_minutes") or 0)
+            except (TypeError, ValueError):
+                return _json_err(400, "ws_idle_timeout_minutes must be an integer")
+            if ws_idle_timeout_minutes < 0:
+                ws_idle_timeout_minutes = 0
+            if ws_idle_timeout_minutes > 0:
+                ws_idle_timeout_minutes = max(1, ws_idle_timeout_minutes)
+        else:
+            ws_idle_timeout_minutes = int(getattr(k, "ws_idle_timeout_minutes", 0) or 0)
+        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission, ws_idle_timeout_minutes=ws_idle_timeout_minutes, media_proxy_suffixes=media_proxy_suffixes)
+        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "ws_idle_timeout_minutes": ws_idle_timeout_minutes, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
 
     @app.post("/user/tool-prompt")
     async def user_set_tool_prompt(request: Request) -> dict:

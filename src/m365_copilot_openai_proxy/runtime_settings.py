@@ -24,6 +24,10 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "auto_refresh": True,
     "refresh_before_seconds": 300,
     "idle_timeout_minutes": 30,
+    # Chat WebSocket idle timeout (minutes): max gap between upstream frames before
+    # a stalled connection is aborted. Heartbeats/deltas reset it, so this only trips
+    # on a genuinely silent upstream. Per-user keys may override (0 => inherit this).
+    "ws_idle_timeout_minutes": 5,
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
     "log_level": "INFO",
@@ -74,6 +78,7 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["auto_refresh"] = bool(data.get("auto_refresh"))
     data["refresh_before_seconds"] = max(0, int(data.get("refresh_before_seconds") or 0))
     data["idle_timeout_minutes"] = max(1, int(data.get("idle_timeout_minutes") or 1))
+    data["ws_idle_timeout_minutes"] = max(1, int(data.get("ws_idle_timeout_minutes") or _RUNTIME_SETTINGS_DEFAULTS["ws_idle_timeout_minutes"]))
     data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
     data["account_cdp_port_base"] = max(1, int(data.get("account_cdp_port_base") or _RUNTIME_SETTINGS_DEFAULTS["account_cdp_port_base"]))
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()

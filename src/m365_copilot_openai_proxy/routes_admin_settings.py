@@ -68,6 +68,7 @@ def register_admin_settings_routes(
             "auto_refresh": bool(body.get("auto_refresh", current["auto_refresh"])),
             "refresh_before_seconds": int_setting("refresh_before_seconds", 0),
             "idle_timeout_minutes": int_setting("idle_timeout_minutes", 1),
+            "ws_idle_timeout_minutes": int_setting("ws_idle_timeout_minutes", 1),
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
@@ -86,6 +87,7 @@ def register_admin_settings_routes(
         app.state.auto_refresh_enabled = data["auto_refresh"]
         app.state.refresh_before_seconds = data["refresh_before_seconds"]
         app.state.idle_timeout_minutes = data["idle_timeout_minutes"]
+        app.state.ws_idle_timeout_minutes = data["ws_idle_timeout_minutes"]
         app.state.cdp_port = data["cdp_port"]
         app.state.account_cdp_port_base = data["account_cdp_port_base"]
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)

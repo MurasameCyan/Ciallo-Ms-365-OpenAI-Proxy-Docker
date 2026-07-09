@@ -71,15 +71,17 @@ def init_app_state(
     logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]
+    app.state.ws_idle_timeout_minutes = runtime_settings["ws_idle_timeout_minutes"]
     app.state.username = read_username()
     app.state.current_tone = read_tone() or "Magic"
     app.state.tool_prompt = read_tool_prompt()
     app.state.system_prompt = read_system_prompt()
     app.state.copilot_client_factory = copilot_client_factory or (
-        lambda token=None, tone=None, tool_prompt=None, time_zone=None: SubstrateCopilotClient(
+        lambda token=None, tone=None, tool_prompt=None, time_zone=None, idle_timeout=None: SubstrateCopilotClient(
             token if token is not None else app.state.token_store.get(),
             time_zone if time_zone is not None else getattr(app.state, "time_zone", "Asia/Shanghai"),
             tone if tone is not None else getattr(app.state, "current_tone", "Magic"),
             tool_prompt if tool_prompt is not None else getattr(app.state, "tool_prompt", ""),
+            idle_timeout=idle_timeout,
         )
     )
