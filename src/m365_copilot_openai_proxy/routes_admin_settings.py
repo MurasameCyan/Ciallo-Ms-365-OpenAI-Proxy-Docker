@@ -69,6 +69,8 @@ def register_admin_settings_routes(
             "refresh_before_seconds": int_setting("refresh_before_seconds", 0),
             "idle_timeout_minutes": int_setting("idle_timeout_minutes", 1),
             "ws_idle_timeout_minutes": int_setting("ws_idle_timeout_minutes", 1),
+            "keepalive_check_minutes": int_setting("keepalive_check_minutes", 1),
+            "cookie_keepalive_before_hours": int_setting("cookie_keepalive_before_hours", 1),
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
@@ -88,6 +90,14 @@ def register_admin_settings_routes(
         app.state.refresh_before_seconds = data["refresh_before_seconds"]
         app.state.idle_timeout_minutes = data["idle_timeout_minutes"]
         app.state.ws_idle_timeout_minutes = data["ws_idle_timeout_minutes"]
+        app.state.keepalive_check_minutes = data["keepalive_check_minutes"]
+        app.state.cookie_keepalive_before_hours = data["cookie_keepalive_before_hours"]
+        scheduler = getattr(app.state, "refresh_scheduler", None)
+        if scheduler is not None:
+            scheduler.set_keepalive_params(
+                check_interval_seconds=data["keepalive_check_minutes"] * 60,
+                cookie_before_seconds=data["cookie_keepalive_before_hours"] * 3600,
+            )
         app.state.cdp_port = data["cdp_port"]
         app.state.account_cdp_port_base = data["account_cdp_port_base"]
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)

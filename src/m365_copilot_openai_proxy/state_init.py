@@ -72,6 +72,12 @@ def init_app_state(
     app.state.last_request_time = 0
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]
     app.state.ws_idle_timeout_minutes = runtime_settings["ws_idle_timeout_minutes"]
+    app.state.keepalive_check_minutes = runtime_settings["keepalive_check_minutes"]
+    app.state.cookie_keepalive_before_hours = runtime_settings["cookie_keepalive_before_hours"]
+    app.state.refresh_scheduler.set_keepalive_params(
+        check_interval_seconds=runtime_settings["keepalive_check_minutes"] * 60,
+        cookie_before_seconds=runtime_settings["cookie_keepalive_before_hours"] * 3600,
+    )
     app.state.username = read_username()
     app.state.current_tone = read_tone() or "Magic"
     app.state.tool_prompt = read_tool_prompt()

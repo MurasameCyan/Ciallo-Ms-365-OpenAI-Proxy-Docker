@@ -28,6 +28,11 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # a stalled connection is aborted. Heartbeats/deltas reset it, so this only trips
     # on a genuinely silent upstream. Per-user keys may override (0 => inherit this).
     "ws_idle_timeout_minutes": 5,
+    # Cookie keepalive: how often the background loop scans the account pool
+    # (minutes), and how long before a cookie's expiry it proactively refreshes
+    # (hours). Refreshes are serialised (one Chromium at a time). See RefreshScheduler.
+    "keepalive_check_minutes": 5,
+    "cookie_keepalive_before_hours": 2,
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
     "log_level": "INFO",
@@ -79,6 +84,8 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["refresh_before_seconds"] = max(0, int(data.get("refresh_before_seconds") or 0))
     data["idle_timeout_minutes"] = max(1, int(data.get("idle_timeout_minutes") or 1))
     data["ws_idle_timeout_minutes"] = max(1, int(data.get("ws_idle_timeout_minutes") or _RUNTIME_SETTINGS_DEFAULTS["ws_idle_timeout_minutes"]))
+    data["keepalive_check_minutes"] = max(1, int(data.get("keepalive_check_minutes") or _RUNTIME_SETTINGS_DEFAULTS["keepalive_check_minutes"]))
+    data["cookie_keepalive_before_hours"] = max(1, int(data.get("cookie_keepalive_before_hours") or _RUNTIME_SETTINGS_DEFAULTS["cookie_keepalive_before_hours"]))
     data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
     data["account_cdp_port_base"] = max(1, int(data.get("account_cdp_port_base") or _RUNTIME_SETTINGS_DEFAULTS["account_cdp_port_base"]))
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()

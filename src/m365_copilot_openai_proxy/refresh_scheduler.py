@@ -447,6 +447,17 @@ class RefreshScheduler:
         # Background keepalive task handle + stop flag (set on app shutdown).
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_stop: asyncio.Event | None = None
+        # Tunable keepalive params (seconds); default to the module constants and
+        # are overridden from admin runtime settings via set_keepalive_params().
+        self._keepalive_interval_seconds: float = _KEEPALIVE_CHECK_INTERVAL_SECONDS
+        self._cookie_keepalive_before_seconds: float = _COOKIE_KEEPALIVE_BEFORE_SECONDS
+
+    def set_keepalive_params(self, check_interval_seconds: float | None = None, cookie_before_seconds: float | None = None) -> None:
+        """Update keepalive tunables from admin runtime settings (seconds)."""
+        if check_interval_seconds and check_interval_seconds > 0:
+            self._keepalive_interval_seconds = float(check_interval_seconds)
+        if cookie_before_seconds and cookie_before_seconds > 0:
+            self._cookie_keepalive_before_seconds = float(cookie_before_seconds)
 
     def start_keepalive(self) -> None:
         """Launch the background cookie-keepalive loop (idempotent).
@@ -484,7 +495,7 @@ class RefreshScheduler:
         # alive; leave those to on-demand refresh rather than spinning Chromium.
         if account.cookie_expires_at <= 0:
             return False
-        return account.cookie_expires_at - time.time() < _COOKIE_KEEPALIVE_BEFORE_SECONDS
+        return account.cookie_expires_at - time.time() < self._cookie_keepalive_before_seconds
 
     async def _keepalive_loop(self) -> None:
         stop = self._keepalive_stop
@@ -506,7 +517,7 @@ class RefreshScheduler:
             except Exception as exc:
                 print(f"Keepalive loop iteration error: {exc}", flush=True)
             try:
-                await asyncio.wait_for(stop.wait(), timeout=_KEEPALIVE_CHECK_INTERVAL_SECONDS)
+                await asyncio.wait_for(stop.wait(), timeout=self._keepalive_interval_seconds)
             except asyncio.TimeoutError:
                 pass
 
