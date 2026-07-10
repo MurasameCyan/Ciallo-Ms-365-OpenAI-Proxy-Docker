@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 
@@ -24,6 +25,40 @@ from .token_store import (
     read_tool_prompt,
     read_username,
 )
+
+
+def _resolve_media_proxy_secret(settings: Settings, token_dir: str) -> str:
+    """Return the HMAC secret used to sign media-proxy URLs.
+
+    Prefer the configured API_KEY / ADMIN_PASSWORD so behaviour is unchanged for
+    configured deployments. When neither is set, generate a random secret once
+    and persist it under the token dir (0600) instead of falling back to a
+    public, guessable constant. Persisting keeps signatures valid across
+    restarts; media URLs also carry a short TTL so stale signatures expire fast.
+    """
+    configured = settings.api_key or settings.admin_password
+    if configured:
+        return configured
+    secret_path = Path(token_dir) / "media_proxy_secret"
+    try:
+        existing = secret_path.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except (FileNotFoundError, OSError):
+        pass
+    generated = secrets.token_urlsafe(32)
+    try:
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text(generated, encoding="utf-8")
+        try:
+            secret_path.chmod(0o600)
+        except OSError:
+            pass
+    except OSError:
+        # Persistence is best-effort; a per-process random secret still beats a
+        # public constant even if it cannot be written to disk.
+        pass
+    return generated
 
 
 def init_app_state(
@@ -60,7 +95,7 @@ def init_app_state(
     app.state.model_alias = runtime_settings["model_alias"]
     app.state.time_zone = runtime_settings["time_zone"]
     app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
-    app.state.media_proxy_secret = settings.api_key or settings.admin_password or "m365-media-proxy"
+    app.state.media_proxy_secret = _resolve_media_proxy_secret(settings, settings.token_dir)
     app.state.media_proxy_timeout = 60.0
     app.state.refresh_before_seconds = runtime_settings["refresh_before_seconds"]
     app.state.cdp_port = runtime_settings["cdp_port"]

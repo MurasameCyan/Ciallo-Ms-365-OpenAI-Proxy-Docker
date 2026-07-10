@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .env
 .chrome-profile/
+
+# Debug scratch dirs and runtime credential/state files (never commit)
+tmp-debug*/
+accounts.json
+keys.json
+sessions.json
+media_proxy_secret

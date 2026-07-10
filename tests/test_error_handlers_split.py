@@ -32,5 +32,5 @@ def test_register_error_handlers_returns_json_for_unhandled_exceptions():
     response = TestClient(app, raise_server_exceptions=False).get("/boom")
 
     assert response.status_code == 500
-    assert response.json() == {"error": {"message": "boom", "type": "internal_error"}}
+    assert response.json() == {"error": {"message": "Internal server error", "type": "internal_error"}}
     assert response.headers["Access-Control-Allow-Origin"] == "*"
