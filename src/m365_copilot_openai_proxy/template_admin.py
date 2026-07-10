@@ -222,8 +222,7 @@ a:hover{text-decoration:underline}
 body{padding:.85rem 0 .85rem .85rem}
 .layout{display:flex;min-height:calc(100vh - 1.7rem);gap:.85rem}
 .sidebar{width:210px;flex-shrink:0;background:linear-gradient(180deg,rgba(8,13,32,.46),rgba(8,12,28,.3));border:1px solid rgba(96,242,255,.2);border-radius:26px;display:flex;flex-direction:column;padding:1.2rem .85rem;position:sticky;top:.85rem;height:calc(100vh - 1.7rem);backdrop-filter:blur(26px) saturate(1.32);-webkit-backdrop-filter:blur(26px) saturate(1.32);transition:width .22s ease,padding .22s ease;will-change:width;contain:layout paint;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),18px 0 60px rgba(0,0,0,.12),0 0 28px rgba(96,242,255,.08)}
-.brand{display:flex;flex-direction:column;align-items:flex-start;gap:.38rem;font-size:1.02rem;font-weight:800;padding:.4rem .4rem 1.05rem;white-space:normal;overflow:hidden;text-align:left}
-.brand-title{display:inline-flex;align-items:center;min-width:0;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.brand{font-size:1.02rem;font-weight:800;padding:.4rem .4rem 1.2rem;white-space:nowrap;overflow:hidden;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;text-align:left}
 .brand .brand-short,.brand .brand-rest{display:inline-block;min-width:0}
 .brand .tenant-pill{position:relative;display:inline-flex;align-items:center;justify-content:center;margin-left:0;padding:.16rem .52rem;border-radius:999px;font-size:.62rem;line-height:1;color:var(--strong);-webkit-text-fill-color:currentColor;background:linear-gradient(135deg,rgba(255,255,255,.18),rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.36),0 0 16px rgba(96,242,255,.16),0 0 26px rgba(140,107,255,.1);backdrop-filter:blur(12px);overflow:hidden;vertical-align:middle;letter-spacing:.04em}
 .brand .tenant-pill:before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan));background-size:300% 100%;animation:tenantFlow 2.2s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
@@ -293,8 +292,6 @@ body[data-theme="light"] .debug-gate-card .debug-gate{background:transparent;box
 /* ---- collapsed sidebar ---- */
 body[data-collapsed="1"] .sidebar{width:60px;padding:1.2rem .5rem}
 body[data-collapsed="1"] .brand .brand-rest,body[data-collapsed="1"] .brand .tenant-pill,body[data-collapsed="1"] .nav-item span:not(.nav-ico){opacity:0;pointer-events:none;width:0;margin:0;display:none}
-body[data-collapsed="1"] .brand{align-items:center;padding:.4rem 0 1.05rem;gap:0}
-body[data-collapsed="1"] .brand-title{width:100%;justify-content:center}
 body[data-collapsed="1"] .brand{font-size:.76rem;width:100%;padding:.4rem 0 1.2rem;text-align:center;letter-spacing:.01em;display:flex;justify-content:center;align-items:center;background:none;-webkit-text-fill-color:initial;color:var(--strong)}
 body[data-collapsed="1"] .brand .brand-short{opacity:1;display:block;width:100%;margin:0;text-align:center;background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;transform:scale(.92);transform-origin:center}
 body[data-collapsed="1"] .nav-item{display:flex;justify-content:center;align-items:center;padding:.6rem 0;gap:0}
@@ -316,8 +313,7 @@ body[data-lang="en"] .admin-tbl{font-size:.76rem}
 body[data-lang="en"] .admin-tbl th,body[data-lang="en"] .admin-tbl td{line-height:1.2}
 body[data-lang="en"] .role-toggle,body[data-lang="en"] .auto-toggle{font-size:.72rem}
 body[data-lang="en"] .api-badge,body[data-lang="en"] .tone-badge{font-size:.68rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body[data-lang="en"] .brand{font-size:.92rem}
-body[data-lang="en"] .brand .tenant-pill{font-size:.58rem;padding:.14rem .48rem;letter-spacing:0}
+body[data-lang="en"] .brand .tenant-pill{font-size:.62rem;padding:.16rem .48rem;letter-spacing:0;line-height:1}
 body[data-lang="en"] .btn-ghost{font-size:.72rem!important}
 body[data-lang="en"] .acct-token-actions{width:auto!important;min-width:148px}
 body[data-lang="en"] .acct-token-actions button{width:auto!important;min-width:46px;padding:3px 6px!important;font-size:.68rem!important}
@@ -345,7 +341,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <div class="orb" aria-hidden="true"></div>
 <div class="layout">
 <aside class="sidebar">
-<div class="brand"><div class="brand-title"><span class="brand-short">Ciallo</span><span class="brand-rest"> Ms-365</span></div><span class="tenant-pill" data-i18n="multi_badge">多租户</span></div>
+<div class="brand"><span class="brand-short">Ciallo</span><span class="brand-rest"> Ms-365</span> <span class="tenant-pill" data-i18n="multi_badge">多租户</span></div>
 <nav class="nav">
 <a class="nav-item active" data-nav="home" onclick="switchView('home')"><span class="nav-ico">&#128202;</span><span data-i18n="nav_home">首页总览</span></a>
 <a class="nav-item" data-nav="users" onclick="switchView('users')"><span class="nav-ico">&#128100;</span><span data-i18n="nav_users">用户管理</span></a>

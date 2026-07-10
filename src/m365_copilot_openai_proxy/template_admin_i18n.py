@@ -97,7 +97,7 @@ _ADMIN_I18N_JS = """const i18n={
     media_proxy_hint:'记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-media，后续可扩展到视频、音频和文件。',
   },
   en:{
-    multi_badge:'Multi-tenant',
+    multi_badge:'Multi',
     nav_home:'Home',nav_users:'Users',nav_accounts:'Accounts',nav_settings:'Settings',nav_debug:'Debug',
     dash_title:'Overview',dash_refresh:'Sync',btn_clear:'Clear',dash_acct_valid:'Account valid / expired',dash_key_status:'Users enabled / disabled',dash_bind_status:'Users bound / unbound',
     dash_kpi_users:'Users',dash_kpi_accounts:'Accounts',dash_kpi_active_users:'Enabled users',dash_kpi_valid_accts:'Valid accounts',dash_kpi_expired_accts:'Expired accounts',dash_kpi_unbound:'Unbound users',

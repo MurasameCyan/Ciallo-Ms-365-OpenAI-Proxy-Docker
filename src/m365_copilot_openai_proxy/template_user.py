@@ -61,6 +61,13 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .call-param-row:last-child{margin-bottom:0}
 .call-param-row code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#a5b4fc}
 .account-main>.row button,.account-main .action-row button,.account-action{width:180px;justify-content:center}
+.account-icon-btn{width:34px!important;height:34px!important;min-width:34px!important;padding:0!important;display:inline-flex!important;align-items:center;justify-content:center;border-radius:12px;border:1px solid transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.16);cursor:pointer}
+.account-icon-btn svg{width:17px;height:17px;display:block;flex:0 0 auto;stroke-width:2.4}
+.account-icon-btn-pass{color:#fde047!important;background:rgba(250,204,21,.22)!important;border-color:rgba(250,204,21,.55)!important}
+.account-icon-btn-out{color:#7dd3fc!important;background:rgba(56,189,248,.22)!important;border-color:rgba(56,189,248,.55)!important}
+.account-icon-btn:hover{filter:brightness(1.12)}
+body[data-theme="light"] .account-icon-btn-pass{color:#a16207!important;background:rgba(250,204,21,.28)!important;border-color:rgba(202,138,4,.55)!important}
+body[data-theme="light"] .account-icon-btn-out{color:#0369a1!important;background:rgba(14,165,233,.2)!important;border-color:rgba(2,132,199,.5)!important}
 .account-main select{width:180px!important;min-height:38px;background-color:var(--inner);border:1px solid var(--inner-border);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);transition:border-color .2s,box-shadow .2s}
 .account-main select:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(96,242,255,.12),inset 0 1px 0 rgba(255,255,255,.1)!important;animation:none!important;transition:none!important}
 select option{transition:none!important}
@@ -119,6 +126,7 @@ body[data-lang="en"] button{font-size:.72rem!important;letter-spacing:0}
 body[data-lang="en"] .compact-action{font-size:.7rem!important}
 body[data-lang="en"] .section-title{font-size:.9rem}
 body[data-lang="en"] .account-action{font-size:.72rem!important;min-width:0}
+body[data-lang="en"] .account-icon-btn{width:34px!important;height:34px!important;min-width:34px!important;padding:0!important;font-size:0!important}
 body[data-lang="en"] .account-main .account-action{font-size:.78rem!important;padding:.45rem .8rem!important;white-space:nowrap}
 body[data-lang="en"] .pill{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 body[data-lang="en"] .status-line{font-size:.72rem}
