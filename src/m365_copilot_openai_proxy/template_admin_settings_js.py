@@ -41,6 +41,7 @@ async function loadRuntimeSettings(){
     set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-cdp-port',s.cdp_port);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
     const ms=document.getElementById('media-suffix-input');if(ms&&document.activeElement!==ms)ms.value=(s.media_proxy_suffixes||[]).join('\\n');
+    const to=document.getElementById('tone-options-input');if(to&&document.activeElement!==to)to.value=_toneOptionsToText(s.tone_options||[]);
     const mt=document.getElementById('media-proxy-ttl-input');if(mt&&document.activeElement!==mt)mt.value=s.media_proxy_ttl_seconds?Math.max(1,Math.round(s.media_proxy_ttl_seconds/86400)):'';
     const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
     const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
@@ -83,6 +84,44 @@ async function resetMediaSuffixes(){
     const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
     const ta=document.getElementById('media-suffix-input');if(ta)ta.value=(__runtimeSettings.media_proxy_suffixes||[]).join('\\n');
     const s=document.getElementById('media-suffix-saved');if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+  }catch(e){}
+}
+function _toneOptionsToText(opts){
+  return (opts||[]).map(o=>{
+    const v=o.value||'';const zh=o.label_zh||o.label||v;const en=o.label_en||zh;
+    return en&&en!==zh?(v+' | '+zh+' | '+en):(v+' | '+zh);
+  }).join('\\n');
+}
+function _toneOptionsFromInput(){
+  const ta=document.getElementById('tone-options-input');
+  const out=[];
+  (ta?.value||'').split(/\\r?\\n/).forEach(line=>{
+    line=line.trim();if(!line)return;
+    const p=line.split('|').map(s=>s.trim());
+    const v=p[0];if(!v)return;
+    const zh=p[1]||v;const en=p[2]||zh;
+    out.push({value:v,label_zh:zh,label_en:en});
+  });
+  return out;
+}
+async function saveToneOptions(){
+  const body={...__runtimeSettings,tone_options:_toneOptionsFromInput()};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
+    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    const ta=document.getElementById('tone-options-input');if(ta)ta.value=_toneOptionsToText(__runtimeSettings.tone_options||[]);
+    window.__toneSig='';loadTone();
+    const s=document.getElementById('tone-options-saved');if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
+  }catch(e){}
+}
+async function resetToneOptions(){
+  const body={...__runtimeSettings,tone_options:[]};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)return;
+    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    const ta=document.getElementById('tone-options-input');if(ta)ta.value=_toneOptionsToText(__runtimeSettings.tone_options||[]);
+    window.__toneSig='';loadTone();
+    const s=document.getElementById('tone-options-saved');if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
   }catch(e){}
 }
 async function loadToolPrompt(){

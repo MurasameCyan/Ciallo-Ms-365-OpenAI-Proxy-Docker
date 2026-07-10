@@ -30,4 +30,10 @@ def test_create_app_exposes_shared_tone_options(tmp_path):
     response = client.get("/admin/tone")
 
     assert response.status_code == 200
-    assert response.json()["options"] == TONE_OPTIONS
+    options = response.json()["options"]
+    # Tone options are now admin-editable (persisted in runtime settings); with no
+    # override the picker defaults to the built-in modes. Compare on the meaningful
+    # fields (value + display labels); `label` is normalized to label_zh.
+    assert [(o["value"], o["label_zh"], o["label_en"]) for o in options] == [
+        (o["value"], o["label_zh"], o["label_en"]) for o in TONE_OPTIONS
+    ]

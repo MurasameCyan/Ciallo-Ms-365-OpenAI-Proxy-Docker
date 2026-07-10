@@ -127,6 +127,11 @@ body[data-view="debug"] .view-debug.ports-logs-card.details-open{height:auto;min
 .call-filter-btn.active.chat{color:var(--cyan)!important;background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.12))!important;border-color:rgba(96,242,255,.42)!important;box-shadow:0 0 14px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.12)!important}
 .call-filter-btn.active.responses{color:#fde68a!important;background:linear-gradient(135deg,rgba(245,158,11,.22),rgba(255,215,111,.12))!important;border-color:rgba(245,158,11,.4)!important;box-shadow:0 0 14px rgba(245,158,11,.16),inset 0 1px 0 rgba(255,255,255,.12)!important}
 .call-filter-btn.active.anthropic{color:#f0abfc!important;background:linear-gradient(135deg,rgba(217,70,239,.2),rgba(140,107,255,.12))!important;border-color:rgba(217,70,239,.4)!important;box-shadow:0 0 14px rgba(217,70,239,.16),inset 0 1px 0 rgba(255,255,255,.12)!important}
+.tone-badge{display:inline-flex;align-items:center;justify-content:center;padding:.12rem .5rem;border-radius:999px;font-size:.64rem;font-weight:900;letter-spacing:.02em;color:#a7f3d0;background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(45,212,191,.12));border:1px solid rgba(16,185,129,.36);box-shadow:0 0 12px rgba(16,185,129,.14),inset 0 1px 0 rgba(255,255,255,.12)}
+.call-filter-btn.tone{min-width:0;text-transform:none;letter-spacing:0}
+.call-filter-btn.active.tone{color:#a7f3d0!important;background:linear-gradient(135deg,rgba(16,185,129,.2),rgba(45,212,191,.12))!important;border-color:rgba(16,185,129,.42)!important;box-shadow:0 0 14px rgba(16,185,129,.16),inset 0 1px 0 rgba(255,255,255,.12)!important}
+body[data-theme="light"] .tone-badge{color:#047857;background:linear-gradient(135deg,rgba(16,185,129,.14),rgba(45,212,191,.1));border-color:rgba(4,120,87,.3);box-shadow:0 0 10px rgba(4,120,87,.1),inset 0 1px 0 rgba(255,255,255,.82)}
+body[data-theme="light"] .call-filter-btn.active.tone{color:#047857!important;background:linear-gradient(135deg,rgba(16,185,129,.16),rgba(45,212,191,.1))!important;border-color:rgba(4,120,87,.3)!important}
 .tbl-foot{position:absolute;left:1.5rem;right:1.5rem;bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);z-index:6;background:linear-gradient(180deg,rgba(8,13,32,.78),rgba(8,13,32,.9));border:1px solid rgba(96,242,255,.12);border-radius:14px;padding:.45rem .6rem;backdrop-filter:blur(14px)}
 .page-size{display:flex;align-items:center;gap:.4rem}
 .page-nav{display:flex;align-items:center;gap:.5rem}
@@ -154,7 +159,7 @@ body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,25
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 """ + _GLASS_SELECT_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
-.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(2,minmax(220px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.75rem!important;align-items:end!important;max-width:760px!important}
+.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(180px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.75rem!important;align-items:start!important;max-width:1080px!important}
 .runtime-settings-grid>div{display:grid!important;gap:1rem!important}
 .runtime-settings-grid .runtime-field-label{display:flex!important;flex-direction:column!important;gap:.55rem!important;min-width:0!important;font-size:.95rem!important;font-weight:800!important;color:var(--strong)!important}
 .runtime-settings-grid input{min-height:44px!important;margin-top:0!important;padding:11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important;background:var(--inner)!important;border:1px solid var(--inner-border)!important;color:var(--strong)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12)!important}
@@ -436,6 +441,23 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </div>
 
 <div class="card view-settings">
+<details id="tone-options-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="tone_options_title">对话模式列表（全局）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:.75rem">
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="tone_options_hint">每行一个模式，格式：底层tone值 | 显示名 | 英文名（英文名可省略）。底层值即发送给 M365 的 tone，可填任意字符串。保存后立即生效。</div>
+<textarea id="tone-options-input" rows="7" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical;scrollbar-width:none;-ms-overflow-style:none" placeholder="Gpt_5_2_Reasoning | GPT 5.5 快速响应 | GPT 5.5 Fast"></textarea>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
+<button id="tone-options-save" onclick="saveToneOptions()" data-i18n="media_suffix_save">保存</button>
+<button id="tone-options-reset" onclick="resetToneOptions()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
+<span id="tone-options-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
+</div>
+</div>
+</details>
+</div>
+
+<div class="card view-settings">
 <details id="media-suffix-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
 <span data-i18n="media_suffix_title">媒体后缀名（全局）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
@@ -526,7 +548,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span id="call-log-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div class="call-filter-bar"><div class="call-filter-group"><button class="call-filter-btn chat" data-api-filter="chat" onclick="setCallLogFilter('chat')">chat</button><button class="call-filter-btn responses" data-api-filter="responses" onclick="setCallLogFilter('responses')">responses</button><button class="call-filter-btn anthropic" data-api-filter="anthropic" onclick="setCallLogFilter('anthropic')">anthropic</button></div><div class="debug-actions"><button id="copy-call-log-all" onclick="copyAllCallLog()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div></div>
+<div class="call-filter-bar"><div class="call-filter-group"><button class="call-filter-btn chat" data-api-filter="chat" onclick="setCallLogFilter('chat')">chat</button><button class="call-filter-btn responses" data-api-filter="responses" onclick="setCallLogFilter('responses')">responses</button><button class="call-filter-btn anthropic" data-api-filter="anthropic" onclick="setCallLogFilter('anthropic')">anthropic</button></div><div class="call-filter-group" id="tone-filter-group"></div><div class="debug-actions"><button id="copy-call-log-all" onclick="copyAllCallLog()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearCallStats()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div></div>
 <div id="call-log-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="no_calls_yet">暂无调用记录</span>
 </div>
@@ -682,6 +704,8 @@ const i18n={
     tone_hint:'仅作为新建用户的默认对话模式模板。已存在用户不会跟随全局变化，用户可在自己的用户页覆盖并持久保存。',
     runtime_title:'运行设置（全局模板）',time_zone_label:'时区',model_alias_label:'模型别名',auto_refresh_label:'自动刷新',run_permission_label:'运行权限',run_permission_inherit:'继承全局',run_permission_read_only:'只读',run_permission_full:'完全',refresh_before_label:'提前刷新秒数',idle_timeout_label:'空闲超时分钟',ws_idle_timeout_label:'对话响应超时分钟',keepalive_check_label:'保活检查间隔（分钟）',cookie_keepalive_before_label:'Cookie 提前保活（小时）',ports_logs_title:'端口与日志',cdp_port_label:'CDP 主端口',account_cdp_port_base_label:'CDP 从端口',log_level_label:'日志等级',call_log_limit_label:'调用记录上限',
     tone_saved:'已保存',
+    tone_options_title:'对话模式列表（全局）',
+    tone_options_hint:'每行一个模式，格式：底层tone值 | 显示名 | 英文名（英文名可省略）。底层值即发送给 M365 的 tone，可填任意字符串。保存后立即生效。',
     media_suffix_title:'媒体后缀名（全局）',
     media_suffix_hint:'控制 /v1/m365-media 允许代理的文件后缀名。用逗号、空格或换行分隔，保存后立即生效。',
     media_suffix_save:'保存',
@@ -772,6 +796,8 @@ const i18n={
     tone_hint:'Only used as the default conversation mode template for newly created users. Existing users will not follow global changes; users can override and persist their own mode on the user page.',
     runtime_title:'Runtime Settings (Global Template)',time_zone_label:'Time zone',model_alias_label:'Model alias',auto_refresh_label:'Auto refresh',run_permission_label:'Run permission',run_permission_inherit:'Inherit global',run_permission_read_only:'Read-only',run_permission_full:'Full',refresh_before_label:'Refresh before seconds',idle_timeout_label:'Idle timeout minutes',ws_idle_timeout_label:'Chat response timeout minutes',keepalive_check_label:'Keepalive check interval (min)',cookie_keepalive_before_label:'Cookie keepalive lead (hours)',ports_logs_title:'Ports and Logs',cdp_port_label:'CDP primary port',account_cdp_port_base_label:'CDP secondary port',log_level_label:'Log level',call_log_limit_label:'Call log limit',
     tone_saved:'Saved',
+    tone_options_title:'Conversation Modes (Global)',
+    tone_options_hint:'One mode per line as: tone_value | display name | English name (English optional). The tone value is sent to M365 as-is and may be any string. Applies immediately after saving.',
     media_suffix_title:'Media suffixes (Global)',
     media_suffix_hint:'Controls file suffixes allowed by /v1/m365-media. Separate with commas, spaces, or new lines. Applies immediately after saving.',
     media_ttl_label:'Media timeout (days)',
@@ -1230,19 +1256,50 @@ document.addEventListener('click',e=>{
   if(!btn)return;
   copyMediaProxyTrace(btn.getAttribute('data-media-trace')||'');
 });
+function _toneOptsSource(){
+  // Debug view loads runtime-settings (not /admin/tone), so prefer its tone_options;
+  // fall back to the picker's __toneOpts, then empty.
+  return (window.__runtimeSettings&&window.__runtimeSettings.tone_options)||window.__toneOpts||[];
+}
+function _toneLabel(v){
+  const o=_toneOptsSource().find(x=>x.value===v);
+  if(!o)return v;
+  return (lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label||v;
+}
 function updateCallLogFilterButtons(){
   const cur=window.__callLogFilter||'';
   document.querySelectorAll('[data-api-filter]').forEach(b=>b.classList.toggle('active',b.getAttribute('data-api-filter')===cur));
+  const curTone=window.__callLogToneFilter||'';
+  document.querySelectorAll('[data-tone-filter]').forEach(b=>b.classList.toggle('active',b.getAttribute('data-tone-filter')===curTone));
+}
+function renderToneFilterButtons(logs){
+  const box=document.getElementById('tone-filter-group');
+  if(!box)return;
+  // Distinct tones present in the current (unfiltered) log, ordered by tone_options.
+  const present=new Set((logs||[]).map(l=>l.tone).filter(Boolean));
+  const ordered=[];
+  _toneOptsSource().forEach(o=>{if(present.has(o.value)){ordered.push(o.value);present.delete(o.value)}});
+  present.forEach(v=>ordered.push(v));
+  const curTone=window.__callLogToneFilter||'';
+  box.innerHTML=ordered.map(v=>'<button class="call-filter-btn tone'+(v===curTone?' active':'')+'" data-tone-filter="'+encodeURIComponent(v)+'" onclick="setCallLogToneFilter(\\''+encodeURIComponent(v)+'\\')">'+_toneLabel(v).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</button>').join('');
 }
 function setCallLogFilter(api){
   window.__callLogFilter=window.__callLogFilter===api?'':api;
   updateCallLogFilterButtons();
   renderCallLog(window.__callLogItems||[]);
 }
+function setCallLogToneFilter(v){
+  const tone=decodeURIComponent(v);
+  window.__callLogToneFilter=window.__callLogToneFilter===tone?'':tone;
+  updateCallLogFilterButtons();
+  renderCallLog(window.__callLogItems||[]);
+}
 function renderCallLog(logs){
     const filter=window.__callLogFilter||'';
-    const filtered=filter?logs.filter(l=>((l.api||'chat').toLowerCase()===filter)):logs;
-    document.getElementById('call-log-count').textContent=filter?(filtered.length+'/'+logs.length):logs.length;
+    const toneFilter=window.__callLogToneFilter||'';
+    renderToneFilterButtons(logs);
+    const filtered=logs.filter(l=>(!filter||(l.api||'chat').toLowerCase()===filter)&&(!toneFilter||l.tone===toneFilter));
+    document.getElementById('call-log-count').textContent=(filter||toneFilter)?(filtered.length+'/'+logs.length):logs.length;
     const el=document.getElementById('call-log-content');
     if(!logs.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';updateCallLogFilterButtons();return}
     updateCallLogFilterButtons();
@@ -1257,6 +1314,7 @@ function renderCallLog(logs){
       const apiClass=api==='responses'?'responses':(api==='anthropic'?'anthropic':'chat');
       const apiLabel=apiClass==='responses'?'responses':(apiClass==='anthropic'?'anthropic':'chat');
       const apiBadge='<span class="api-badge '+apiClass+'">'+apiLabel+'</span>';
+      const toneBadge=l.tone?'<span class="tone-badge" title="'+esc(l.tone)+'">'+esc(_toneLabel(l.tone))+'</span>':'';
       const tr=l.tool_calls_result&&l.tool_calls_result.length?
         '<span style="color:#22c55e">'+t('tool_calls_parsed')+': '+l.tool_calls_result.join(', ')+'</span>':'';
       const fullKey='f'+i;
@@ -1264,6 +1322,7 @@ function renderCallLog(logs){
       const fullParts=[];
       fullParts.push('time: '+l.time);
       fullParts.push('api: '+apiLabel);
+      if(l.tone)fullParts.push('tone: '+l.tone+' ('+_toneLabel(l.tone)+')');
       fullParts.push('mode: '+(l.stream?'stream':'sync'));
       fullParts.push('tools: '+tc);
       if(l.tool_calls_result&&l.tool_calls_result.length)fullParts.push('tool_calls_result: '+l.tool_calls_result.join(', '));
@@ -1275,7 +1334,7 @@ function renderCallLog(logs){
       const rawView='<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--faint);font-size:.75rem;list-style:none">'+t('view_raw')+'</summary><pre style="white-space:pre-wrap;word-break:break-all;background:var(--inner);padding:6px;border-radius:6px;color:var(--muted);margin-top:2px;font-size:.7rem;max-height:260px;overflow:auto">'+esc(formatRawText(window.__callTexts[fullKey]))+'</pre></details>';
       html+='<div style="border-bottom:1px solid #1e293b;padding:6px 0">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;color:var(--muted)">'+
-        '<span style="display:flex;align-items:center;gap:6px">'+apiBadge+'<span>'+l.time+'</span></span><span style="display:flex;align-items:center;gap:6px"><span style="color:var(--faint)">'+(l.stream?'stream':'sync')+'</span>'+copyFullBtn+'</span></div>'+
+        '<span style="display:flex;align-items:center;gap:6px">'+apiBadge+toneBadge+'<span>'+l.time+'</span></span><span style="display:flex;align-items:center;gap:6px"><span style="color:var(--faint)">'+(l.stream?'stream':'sync')+'</span>'+copyFullBtn+'</span></div>'+
         '<div style="color:var(--strong);margin-top:2px">tools: <span style="color:#38bdf8">'+tc+'</span></div>'+
         (l.incremental!=null?'<div style="color:var(--faint);margin-top:2px">incremental: <span style="color:'+(l.incremental?'#22c55e':'#f59e0b')+'">'+(l.incremental?'yes':'no')+'</span> &nbsp; turn: '+(l.turn_count==null?'-':l.turn_count)+'</div>':'')+
         (tr?'<div style="margin-top:2px">'+tr+'</div>':'')+

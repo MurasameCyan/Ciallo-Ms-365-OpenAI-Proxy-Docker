@@ -100,7 +100,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             "displaced_at": getattr(k, "displaced_at", 0.0),
             "binding_state": binding_state,
             "account": user_account_public(acc),
-            "tone_options": tone_options,
+            "tone_options": list(getattr(app.state, "tone_options", None) or tone_options),
         }
 
     @app.post("/user/tone")
@@ -110,8 +110,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             return _json_err(401, "Invalid API key", "auth_error")
         body = await request.json()
         tone = str(body.get("tone", "")).strip()
-        if tone not in tone_values:
-            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(tone_values))}")
+        allowed = {o["value"] for o in (getattr(app.state, "tone_options", None) or tone_options)}
+        if tone not in allowed:
+            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(allowed))}")
         model_alias = str(body.get("model_alias", getattr(k, "model_alias", "") or getattr(app.state, "model_alias", resolved_settings.model_alias))).strip() or getattr(app.state, "model_alias", resolved_settings.model_alias)
         time_zone = str(body.get("time_zone", getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"))).strip() or getattr(app.state, "time_zone", "Asia/Shanghai")
         run_permission = str(body.get("run_permission", getattr(k, "run_permission", ""))).strip()

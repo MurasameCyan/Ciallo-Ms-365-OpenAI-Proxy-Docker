@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
+
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _RUN_PERMISSIONS = {"read_only", "full"}
 _MEDIA_SUFFIX_RE = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,39}$")
@@ -45,7 +47,57 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # client's chat history stays resolvable. Default 30 days keeps historical
     # images alive far beyond the old 10-minute window.
     "media_proxy_ttl_seconds": 30 * 24 * 60 * 60,
+    # Conversation modes shown in the picker. Each entry is
+    # {value, label_zh, label_en}; `value` is the raw tone sent to M365 (any
+    # string, so future upstream modes work without a code change) and the labels
+    # are the editable display names. Defaults to the built-in list.
+    "tone_options": [dict(o) for o in _BUILTIN_TONE_OPTIONS],
 }
+
+# Max entries / field lengths to keep the picker and persisted file bounded.
+_MAX_TONE_OPTIONS = 40
+_MAX_TONE_FIELD_LEN = 80
+
+
+def normalize_tone_options(value) -> list[dict]:
+    """Coerce admin input into a clean list of {value,label,label_zh,label_en}.
+
+    Accepts either a list of dicts (from JSON) or a newline/‖-delimited string
+    (from the textarea editor) where each line is `value | label_zh | label_en`
+    (label_en optional). Blank/duplicate values are dropped. Falls back to the
+    built-in list when nothing valid remains so the picker is never empty.
+    """
+    raw_items: list = []
+    if isinstance(value, str):
+        for line in value.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            val = parts[0]
+            zh = parts[1] if len(parts) > 1 and parts[1] else val
+            en = parts[2] if len(parts) > 2 and parts[2] else zh
+            raw_items.append({"value": val, "label_zh": zh, "label_en": en})
+    elif isinstance(value, list):
+        raw_items = value
+
+    options: list[dict] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        val = str(item.get("value") or "").strip()[:_MAX_TONE_FIELD_LEN]
+        if not val or val in seen:
+            continue
+        zh = str(item.get("label_zh") or item.get("label") or val).strip()[:_MAX_TONE_FIELD_LEN]
+        en = str(item.get("label_en") or zh).strip()[:_MAX_TONE_FIELD_LEN]
+        seen.add(val)
+        options.append({"value": val, "label": zh, "label_zh": zh, "label_en": en})
+        if len(options) >= _MAX_TONE_OPTIONS:
+            break
+    if not options:
+        options = [dict(o) for o in _BUILTIN_TONE_OPTIONS]
+    return options
 
 
 def normalize_media_proxy_suffixes(value) -> list[str]:
@@ -96,6 +148,7 @@ def _read_runtime_settings(token_dir: str) -> dict:
     if data["run_permission"] not in _RUN_PERMISSIONS:
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
+    data["tone_options"] = normalize_tone_options(data.get("tone_options"))
     try:
         data["media_proxy_ttl_seconds"] = max(60, int(data.get("media_proxy_ttl_seconds") or 0))
     except (TypeError, ValueError):

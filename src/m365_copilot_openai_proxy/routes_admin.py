@@ -185,8 +185,9 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
         tone = str(body.get("tone", "")).strip() or getattr(app.state, 'current_tone', 'Magic')
         username = str(body.get("username", "")).strip()
         password = str(body.get("password", ""))
-        if tone not in tone_values:
-            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(tone_values))}")
+        allowed_tones = {o["value"] for o in (getattr(app.state, "tone_options", None) or [])} or tone_values
+        if tone not in allowed_tones:
+            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(allowed_tones))}")
         if account_id and app.state.account_store.get(account_id) is None:
             return _json_err(404, "Bound account not found")
         if username:
@@ -230,8 +231,9 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             fields["enabled"] = bool(body["enabled"])
         if "tone" in body:
             tone = str(body["tone"]).strip() or "Magic"
-            if tone not in tone_values:
-                return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(tone_values))}")
+            allowed_tones = {o["value"] for o in (getattr(app.state, "tone_options", None) or [])} or tone_values
+            if tone not in allowed_tones:
+                return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(allowed_tones))}")
             fields["tone"] = tone
         if "tool_prompt" in body:
             if not isinstance(body["tool_prompt"], str):

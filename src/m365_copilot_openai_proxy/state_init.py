@@ -68,6 +68,7 @@ def init_app_state(
     app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
     app.state.log_level = runtime_settings["log_level"]
     app.state.run_permission = runtime_settings["run_permission"]
+    app.state.tone_options = runtime_settings["tone_options"]
     logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]

@@ -15,6 +15,7 @@ from .runtime_settings import (
     _RUN_PERMISSIONS,
     _write_runtime_settings,
     normalize_media_proxy_suffixes,
+    normalize_tone_options,
 )
 from .token_store import write_system_prompt, write_tone, write_tool_prompt
 from .translator import default_tool_system_prompt
@@ -27,11 +28,15 @@ def register_admin_settings_routes(
     tone_options: list[dict],
     tone_values: set[str],
 ) -> None:
+    def _current_tone_options() -> list[dict]:
+        # Read the live, admin-editable list; fall back to the built-in defaults.
+        return list(getattr(app.state, "tone_options", None) or tone_options)
+
     @app.get("/admin/tone")
     async def get_tone(request: Request) -> dict:
         err = require_admin(request)
         if err: return err
-        return {"tone": getattr(app.state, 'current_tone', 'Magic'), "options": tone_options}
+        return {"tone": getattr(app.state, 'current_tone', 'Magic'), "options": _current_tone_options()}
 
     @app.post("/admin/tone")
     async def set_tone(request: Request) -> dict:
@@ -39,8 +44,9 @@ def register_admin_settings_routes(
         if err: return err
         body = await request.json()
         tone = (body.get("tone") or "").strip()
-        if tone not in tone_values:
-            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(tone_values))}")
+        allowed = {o["value"] for o in _current_tone_options()}
+        if tone not in allowed:
+            return _json_err(400, f"Invalid tone. Allowed: {', '.join(sorted(allowed))}")
         app.state.current_tone = tone
         write_tone(tone)
         return {"status": "ok", "tone": tone}
@@ -78,6 +84,7 @@ def register_admin_settings_routes(
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
             "media_proxy_suffixes": normalize_media_proxy_suffixes(body.get("media_proxy_suffixes", current.get("media_proxy_suffixes"))) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
             "media_proxy_ttl_seconds": int_setting("media_proxy_ttl_seconds", 60),
+            "tone_options": normalize_tone_options(body.get("tone_options", current.get("tone_options"))),
         }
         if data["log_level"] not in _LOG_LEVELS:
             return _json_err(400, "Invalid log level")
@@ -102,6 +109,7 @@ def register_admin_settings_routes(
         app.state.account_cdp_port_base = data["account_cdp_port_base"]
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
+        app.state.tone_options = data["tone_options"]
         app.state.call_log_limit = data["call_log_limit"]
         trim_call_log(app.state)
         logging.getLogger().setLevel(app.state.log_level)
