@@ -295,7 +295,10 @@ function applyLang(){
   document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(i18n[lang][k]!=null)el.placeholder=i18n[lang][k]});
   document.querySelectorAll('[data-i18n-html]').forEach(el=>{const k=el.getAttribute('data-i18n-html');if(i18n[lang][k]!=null)el.innerHTML=i18n[lang][k]});
   renderToneOptions();
-  if(getKey()){try{loadMe()}catch(e){}}
+  try{
+    if(typeof applyUserLangDynamic==='function' && _userMeCache){applyUserLangDynamic()}
+    else if(getKey()){loadMe()}
+  }catch(e){}
 }
 function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
 """ + _GLASS_SELECT_JS + """

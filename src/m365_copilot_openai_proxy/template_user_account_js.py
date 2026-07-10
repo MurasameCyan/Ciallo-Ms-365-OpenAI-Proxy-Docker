@@ -116,6 +116,46 @@ function renderAccountStatus(d){
     +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
     +'</div>';
 }
+
+let _userMeCache=null;
+function renderAccountInfo(d){
+  if(!d)return;
+  let acc='';
+  if(d.displaced){
+    acc+='<div class="msg err" style="display:block;margin-bottom:.6rem">'+t('displaced_notice')+'</div>';
+  }
+  const keyIcon='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="14.5" r="3.5"></circle><path d="M10.2 12L21 1.2M15.5 6.7l2.8 2.8M18.2 4l2.6 2.6"></path></svg>';
+  const doorIcon='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5.5A1.5 1.5 0 0 1 4 19.5v-15A1.5 1.5 0 0 1 5.5 3H9"></path><path d="M14 8l4 4-4 4"></path><path d="M18 12H8"></path><path d="M10 3h7a1.5 1.5 0 0 1 1.5 1.5v4"></path></svg>';
+  const consoleActions='<span style="height:32px;display:inline-flex;align-items:center;gap:.35rem"><button class="btn-ghost account-action" title="'+t('change_password')+'" onclick="changeLoginPassword(this)" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#facc15;background:rgba(250,204,21,.14);border-color:rgba(250,204,21,.38)">'+keyIcon+'</button><button class="btn-ghost account-action" title="'+t('console_logout')+'" onclick="logoutConsole()" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#38bdf8;background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.38)">'+doorIcon+'</button></span>';
+  const actionBox=document.getElementById('account-console-actions');if(actionBox)actionBox.innerHTML=consoleActions;
+  if(d.account){
+    const st=d.account.token_status||{};
+    const valid=st.valid;
+    const rem=valid?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(_userRemainSec>0?_userRemainSec:st.seconds_remaining)+'</span>'):'';
+    acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+boundAccountName(d.account)+'</span>'
+      +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
+  }else{
+    acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';
+  }
+  acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
+  const info=document.getElementById('account-info');if(info)info.innerHTML=acc;
+  renderAccountStatus(d);
+}
+function applyUserLangDynamic(){
+  if(!_userMeCache)return;
+  renderAccountInfo(_userMeCache);
+  // refresh placeholders that depend on language
+  try{
+    const uwit=document.getElementById('user-ws-idle-timeout');
+    if(uwit){const dw=_userMeCache.default_ws_idle_timeout_minutes||0;uwit.placeholder=dw?(t('user_ws_idle_timeout_inherit')+dw):''}
+    const ums=document.getElementById('user-media-suffix');
+    if(ums){const dg=(_userMeCache.default_media_proxy_suffixes||[]).join(' ');ums.placeholder=dg?(t('user_media_suffix_inherit')+dg):''}
+    renderToneOptions();
+    const tone=document.getElementById('tone');if(tone){tone.value=_userMeCache.tone||tone.value||'Magic';refreshGlassSelect(tone)}
+    renderRunPermissionOptions();
+    const rp=document.getElementById('user-run-permission');if(rp){rp.value=_userMeCache.run_permission||_userMeCache.effective_run_permission||rp.value||'full';refreshGlassSelect(rp)}
+  }catch(e){}
+}
 async function loadMe(){
   if(!getKey())return false;
   try{
@@ -143,27 +183,9 @@ async function loadMe(){
     if(ums){ums.value=(d.media_proxy_suffixes||[]).join('\\n');const dg=(d.default_media_proxy_suffixes||[]).join(' ');ums.placeholder=dg?(t('user_media_suffix_inherit')+dg):''}
     document.getElementById('tool-prompt').value=d.tool_prompt||'';
     document.getElementById('sys-prompt').value=d.system_prompt||'';
-    let acc='';
-    if(d.displaced){
-      acc+='<div class="msg err" style="display:block;margin-bottom:.6rem">'+t('displaced_notice')+'</div>';
-    }
-    const keyIcon='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="14.5" r="3.5"></circle><path d="M10.2 12L21 1.2M15.5 6.7l2.8 2.8M18.2 4l2.6 2.6"></path></svg>';
-    const doorIcon='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5.5A1.5 1.5 0 0 1 4 19.5v-15A1.5 1.5 0 0 1 5.5 3H9"></path><path d="M14 8l4 4-4 4"></path><path d="M18 12H8"></path><path d="M10 3h7a1.5 1.5 0 0 1 1.5 1.5v4"></path></svg>';
-    const consoleActions='<span style="height:32px;display:inline-flex;align-items:center;gap:.35rem"><button class="btn-ghost account-action" title="'+t('change_password')+'" onclick="changeLoginPassword(this)" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#facc15;background:rgba(250,204,21,.14);border-color:rgba(250,204,21,.38)">'+keyIcon+'</button><button class="btn-ghost account-action" title="'+t('console_logout')+'" onclick="logoutConsole()" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#38bdf8;background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.38)">'+doorIcon+'</button></span>';
-    const actionBox=document.getElementById('account-console-actions');if(actionBox)actionBox.innerHTML=consoleActions;
-    if(d.account){
-      const st=d.account.token_status||{};
-      const valid=st.valid;
-      const rem=valid?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</span>'):'';
-      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+boundAccountName(d.account)+'</span>'
-        +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
-    }else{
-      acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';
-    }
-    acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
-    document.getElementById('account-info').innerHTML=acc;
-    renderAccountStatus(d);
+    _userMeCache=d;
     startUserCountdown(d.account?.token_status?.seconds_remaining||0);
+    renderAccountInfo(d);
     return true;
   }catch(e){return false}
 }
