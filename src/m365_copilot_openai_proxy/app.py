@@ -34,5 +34,20 @@ def create_app(
 
     register_app_routes(app, admin_auth, resolved_settings, get_settings, get_copilot_client)
 
+    async def _start_keepalive() -> None:
+        scheduler = getattr(app.state, "refresh_scheduler", None)
+        if scheduler is not None:
+            scheduler.start_keepalive()
+
+    async def _stop_keepalive() -> None:
+        scheduler = getattr(app.state, "refresh_scheduler", None)
+        if scheduler is not None:
+            await scheduler.stop_keepalive()
+
+    # Starlette 1.x dropped app.add_event_handler; append to the router's
+    # startup/shutdown hook lists directly (the on_event decorator delegates here too).
+    app.router.on_startup.append(_start_keepalive)
+    app.router.on_shutdown.append(_stop_keepalive)
+
     return app
 

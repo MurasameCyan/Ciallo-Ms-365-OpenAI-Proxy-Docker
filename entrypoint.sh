@@ -46,10 +46,12 @@ else
 fi
 
 STARTUP_CDP="false"
+# Multi-tenant tokens live in accounts.json (per-account), not in the
+# M365_ACCESS_TOKEN env var, so requiring that env var here kept CDP (and thus
+# auto-refresh) permanently off for pool deployments. Start CDP whenever a
+# browser exists and AUTO_REFRESH is enabled, matching the single-tenant image.
 if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
-    if [ -n "$M365_ACCESS_TOKEN" ]; then
-        STARTUP_CDP="true"
-    fi
+    STARTUP_CDP="true"
 fi
 
 # Start Chrome headless + CDP (only if binary found, AUTO_REFRESH is true, and a startup token exists)

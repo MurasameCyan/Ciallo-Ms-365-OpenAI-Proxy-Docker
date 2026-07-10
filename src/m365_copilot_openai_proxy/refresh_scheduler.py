@@ -23,6 +23,13 @@ _REFRESH_BEFORE_SECONDS = 300
 # Max seconds to wait for the on-demand Chromium to expose the M365 tab + token.
 _LAUNCH_TIMEOUT_SECONDS = 30
 _SESSION_COOKIE_PERSIST_SECONDS = 12 * 60 * 60
+# Background keepalive: how often the loop scans the account pool, and how long
+# before a cookie's expiry we proactively refresh it. The scan is cheap (a list
+# walk); actual refreshes are serialised through the same global lock so at most
+# one Chromium is ever alive. Refreshing well before the 12h cookie window keeps
+# cdp accounts warm so a cold /v1 request never lands on an expired session.
+_KEEPALIVE_CHECK_INTERVAL_SECONDS = 300
+_COOKIE_KEEPALIVE_BEFORE_SECONDS = 2 * 60 * 60
 # Media (and future video) bodies are returned base64-encoded over the CDP
 # WebSocket and can far exceed the websockets 1 MB default frame limit (a 2 MB
 # image already triggers HTTP 1009 "message too big"). Media sizes are
@@ -437,6 +444,71 @@ class RefreshScheduler:
         # Per-account locks avoid piling up duplicate refreshes for one account
         # while still letting the global lock serialise across accounts.
         self._account_locks: dict[str, asyncio.Lock] = {}
+        # Background keepalive task handle + stop flag (set on app shutdown).
+        self._keepalive_task: asyncio.Task | None = None
+        self._keepalive_stop: asyncio.Event | None = None
+
+    def start_keepalive(self) -> None:
+        """Launch the background cookie-keepalive loop (idempotent).
+
+        Called once at app startup. The loop always runs while the app is alive
+        (it does NOT pause on idle), so cdp accounts stay warm even with no /v1
+        traffic and a cold request never hits an expired cookie.
+        """
+        if self._keepalive_task is not None and not self._keepalive_task.done():
+            return
+        self._keepalive_stop = asyncio.Event()
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+    async def stop_keepalive(self) -> None:
+        """Signal the keepalive loop to stop and await its exit (best-effort)."""
+        if self._keepalive_stop is not None:
+            self._keepalive_stop.set()
+        task = self._keepalive_task
+        if task is not None:
+            try:
+                await asyncio.wait_for(task, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                task.cancel()
+            except Exception:
+                pass
+        self._keepalive_task = None
+
+    def _keepalive_due(self, account) -> bool:
+        """True if a cdp account's cookie is close enough to expiry to refresh."""
+        if account.token_source != "cdp":
+            return False
+        if not account.cookie_valid:
+            return False
+        # A never-set expiry (0.0) means we have no positive signal the cookie is
+        # alive; leave those to on-demand refresh rather than spinning Chromium.
+        if account.cookie_expires_at <= 0:
+            return False
+        return account.cookie_expires_at - time.time() < _COOKIE_KEEPALIVE_BEFORE_SECONDS
+
+    async def _keepalive_loop(self) -> None:
+        stop = self._keepalive_stop
+        assert stop is not None
+        while not stop.is_set():
+            try:
+                for account in self._accounts.list():
+                    if stop.is_set():
+                        break
+                    if not self._keepalive_due(account):
+                        continue
+                    print(f"Keepalive: refreshing {account.id} (cookie near expiry)", flush=True)
+                    try:
+                        # force=True so a still-valid-but-soon-to-expire token is
+                        # refreshed now. ensure_fresh serialises via the global lock.
+                        await self.ensure_fresh(account.id, force=True)
+                    except Exception as exc:
+                        print(f"Keepalive refresh error for {account.id}: {exc}", flush=True)
+            except Exception as exc:
+                print(f"Keepalive loop iteration error: {exc}", flush=True)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=_KEEPALIVE_CHECK_INTERVAL_SECONDS)
+            except asyncio.TimeoutError:
+                pass
 
     def _account_lock(self, account_id: str) -> asyncio.Lock:
         lock = self._account_locks.get(account_id)
@@ -1031,7 +1103,11 @@ class RefreshScheduler:
                 print(f"Refresh rejected for {account_id}: identity mismatch (account={account.email!r}, captured={captured_email!r})", flush=True)
                 return False
             self._accounts.update_token(account_id, token, token_source="cdp")
-            cookie_expires_at = account.cookie_expires_at if account.cookie_expires_at > time.time() else time.time() + _SESSION_COOKIE_PERSIST_SECONDS
+            # A successful CDP refresh means Microsoft just re-established the
+            # session, so slide the cookie expiry forward every time. (Previously
+            # the expiry was only advanced when already past, which left the
+            # keepalive trigger stuck near an old expiry and re-firing forever.)
+            cookie_expires_at = time.time() + _SESSION_COOKIE_PERSIST_SECONDS
             self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=cookie_expires_at)
             # Best-effort: harvest media/designer auth tokens from the MSAL cache so
             # they refresh alongside the cookie without a manual re-push. Only stores
