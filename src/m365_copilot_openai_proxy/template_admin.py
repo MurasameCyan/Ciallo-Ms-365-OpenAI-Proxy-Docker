@@ -414,16 +414,22 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 <span data-i18n="runtime_title">运行设置（全局模板）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="font-size:.82rem;color:var(--faint);line-height:1.65;margin-top:1rem;margin-bottom:1rem;max-width:760px" data-i18n="tone_hint"></div>
-<div class="runtime-settings-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem .8rem;margin-top:.2rem">
+<div class="runtime-settings-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem .8rem;margin-top:.2rem;align-items:start">
+<div style="display:grid;gap:.7rem">
 <label class="runtime-field-label"><span data-i18n="title_tone">对话模式</span><select id="tone-select" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 <label class="runtime-field-label"><span data-i18n="auto_refresh_label">自动刷新</span><select id="runtime-auto-refresh" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
 <label class="runtime-field-label"><span data-i18n="run_permission_label">运行权限</span><select id="runtime-run-permission" class="tone-select" style="margin-top:.4rem;width:100%"></select></label>
+</div>
+<div style="display:grid;gap:.7rem">
 <label class="runtime-field-label"><span data-i18n="idle_timeout_label">空闲超时分钟</span><input id="runtime-idle-timeout" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="keepalive_check_label">保活检查间隔（分钟）</span><input id="runtime-keepalive-check" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="cookie_keepalive_before_label">Cookie 提前保活（小时）</span><input id="runtime-cookie-keepalive-before" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+</div>
+<div style="display:grid;gap:.7rem">
 <label class="runtime-field-label"><span data-i18n="model_alias_label">模型别名</span><input id="runtime-model-alias" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="time_zone_label">时区</span><input id="runtime-time-zone" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
 <label class="runtime-field-label"><span data-i18n="media_ttl_label">媒体超时时间（天）</span><input id="media-proxy-ttl-input" type="number" min="1" style="margin-top:.4rem;width:100%;box-sizing:border-box;padding:8px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong)"></label>
+</div>
 </div>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.85rem"><button id="runtime-settings-save" onclick="saveTone(document.getElementById('tone-select')?.value);saveRuntimeSettings('runtime-settings-save')" data-i18n="save">保存</button><span id="tone-saved" style="display:none"></span><span id="runtime-settings-saved" style="display:none"></span></div>
 </details>
