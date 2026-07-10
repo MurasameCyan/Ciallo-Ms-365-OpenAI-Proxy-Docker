@@ -1,0 +1,402 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from pathlib import Path
+from urllib.parse import quote
+
+import httpx
+import websockets
+
+from .token_store import decode_jwt_payload, is_substrate_token_claims
+
+logger = logging.getLogger(__name__)
+
+def _token_identity_email(token: str) -> str:
+    """Best-effort lowercase email/UPN from a JWT, used only for identity pinning.
+
+    Mirrors the claim precedence in account_store.extract_identity so the
+    capture side and the account record agree on what "identity" means.
+    """
+    try:
+        claims = decode_jwt_payload(token)
+    except Exception:
+        return ""
+    for key in ("email", "upn", "unique_name", "preferred_username"):
+        val = claims.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip().lower()
+    return ""
+
+
+def _select_substrate_token(candidates: list[str], expected_email: str = "") -> str | None:
+    """Pick a valid substrate token, preferring the expected identity.
+
+    The persistent Chromium profile / pushed login cookies can carry sessions
+    for more than one Microsoft account, so the MSAL cache may hold valid
+    substrate tokens for several identities at once. Returning the first valid
+    token therefore risks handing back the WRONG account. When expected_email is
+    set we only accept a matching token; if none matches we return None so the
+    caller can drive a fresh SSO (nudge) for the correct identity rather than
+    silently capturing a stranger. With no expected_email (first-time capture or
+    an opaque token) we fall back to the first valid token (legacy behaviour).
+    """
+    want = (expected_email or "").strip().lower()
+    for token in candidates:
+        if not _is_substrate_token(token):
+            continue
+        if not want or _token_identity_email(token) == want:
+            return token
+    return None
+
+
+async def _cdp_extract_token(port: int, *, allow_nudge: bool = True, expected_email: str = "") -> str | None:
+    try:
+        async with httpx.AsyncClient(timeout=1) as client:
+            tabs = (await client.get(f"http://localhost:{port}/json")).json()
+    except Exception:
+        return None
+
+    tab = _find_m365_page(tabs)
+    if not tab:
+        return None
+
+    try:
+        async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
+            await ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": _CDP_JS}}))
+            result = json.loads(await ws.recv())
+            candidates = result.get("result", {}).get("result", {}).get("value") or []
+            token = _select_substrate_token(candidates, expected_email)
+            if token:
+                return token
+            if not allow_nudge:
+                return None
+            return await _cdp_nudge_and_wait_for_token(ws, expected_email=expected_email)
+    except Exception:
+        return None
+
+
+async def _cdp_capture_websocket_token(port: int, timeout_seconds: int) -> str | None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                tabs = (await client.get(f"http://localhost:{port}/json")).json()
+        except Exception:
+            await asyncio.sleep(1)
+            continue
+
+        tab = _find_m365_page(tabs)
+        if not tab:
+            await asyncio.sleep(1)
+            continue
+
+        try:
+            async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
+                await ws.send(json.dumps({"id": 1, "method": "Network.enable"}))
+                token = await _wait_for_substrate_websocket_token(ws, deadline)
+                if token:
+                    return token
+        except Exception:
+            await asyncio.sleep(1)
+            continue
+    return None
+
+
+async def _wait_for_substrate_websocket_token(ws, deadline: float) -> str | None:
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=1)
+        except asyncio.TimeoutError:
+            continue
+        msg = json.loads(raw)
+        if msg.get("method") != "Network.webSocketCreated":
+            continue
+        url = msg.get("params", {}).get("url", "")
+        if "substrate.office.com" not in url:
+            continue
+        match = re.search(r"[?&]access_token=([^&]+)", url)
+        if not match:
+            continue
+        token = match.group(1)
+        if _is_substrate_token(token):
+            # Try to delete the "hi" message via JS
+            await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": _CDP_DELETE_MSG_JS}}))
+            return token
+    return None
+
+
+def _is_m365_page_url(url: str) -> bool:
+    return url.startswith((
+        "https://m365.cloud.microsoft/",
+        "https://www.microsoft365.com/",
+        "https://office.com/",
+        "https://www.office.com/",
+        "https://login.microsoftonline.com/",
+        "https://login.live.com/",
+    ))
+
+
+def _find_m365_page(tabs: list[dict]) -> dict | None:
+    return next(
+        (
+            tab for tab in tabs
+            if tab.get("type") == "page" and _is_m365_page_url(tab.get("url", ""))
+        ),
+        None,
+    )
+
+
+def _summarize_cdp_tabs(tabs: list[dict]) -> str:
+    urls = [tab.get("url", "") for tab in tabs if tab.get("type") == "page"]
+    return " | ".join(urls[:5]) or "no page tabs"
+
+
+def _cdp_tab_summary(cdp_port: int) -> str:
+    try:
+        with httpx.Client(timeout=1) as client:
+            return _summarize_cdp_tabs(client.get(f"http://localhost:{cdp_port}/json").json())
+    except Exception as exc:
+        return f"failed to list tabs: {exc}"
+
+
+async def _navigate_tab_to_m365(tab: dict) -> None:
+    ws_url = tab.get("webSocketDebuggerUrl")
+    if not ws_url:
+        return
+    async with websockets.connect(ws_url) as ws:
+        await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
+        await ws.send(json.dumps({"id": 2, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
+
+
+def _ensure_first_page_navigates_to_m365(tabs: list[dict]) -> None:
+    tab = next((t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")), None)
+    if not tab:
+        return
+    try:
+        asyncio.run(_navigate_tab_to_m365(tab))
+    except Exception:
+        pass
+
+
+def _wait_for_m365_page(cdp_port: int, timeout_seconds: int) -> bool:
+    deadline = time.time() + timeout_seconds
+    navigated = False
+    while time.time() < deadline:
+        try:
+            with httpx.Client(timeout=1) as client:
+                tabs = client.get(f"http://localhost:{cdp_port}/json").json()
+        except Exception:
+            time.sleep(0.5)
+            continue
+        if _find_m365_page(tabs):
+            return True
+        if not navigated:
+            navigated = True
+            _ensure_first_page_navigates_to_m365(tabs)
+        time.sleep(0.5)
+    return False
+
+
+def _capture_token_to_env(cdp_port: int, timeout_seconds: int) -> bool:
+    token = asyncio.run(_cdp_capture_websocket_token(cdp_port, timeout_seconds))
+    if not token:
+        return False
+    _write_token(token)
+    return True
+
+
+def _needs_substrate_token(token: str | None) -> bool:
+    if not token or not _is_substrate_token(token):
+        return True
+    try:
+        return _seconds_remaining(token) <= 0
+    except Exception:
+        return True
+
+
+def _startup_capture_loop(cdp_port: int, timeout_seconds: int) -> None:
+    print("Waiting for the debug Edge M365 tab...")
+    _wait_for_m365_page(cdp_port, min(timeout_seconds, 30))
+    print("Trying to refresh Substrate token from the debug Edge tab...")
+    if _try_auto_refresh(cdp_port):
+        return
+    print("Waiting for a Substrate token from the debug Edge M365 Copilot tab...")
+    print("If needed: press F5 in Copilot, click the message box, and type one character.")
+    if _capture_token_to_env(cdp_port, timeout_seconds):
+        print("Token file updated with Substrate token.")
+    else:
+        print("Startup token capture timed out. Manual set-token is still available.")
+
+def _m365_chat_url(login_hint: str = "") -> str:
+    """M365 chat URL, optionally biased to an identity via login_hint.
+
+    login_hint is a standard AAD/MSAL hint that pre-selects the account during
+    silent SSO. It is only a query param, so if the SPA ignores it nothing
+    breaks; this is a safe, reversible way to steer capture toward the intended
+    account when the profile/cookies carry more than one Microsoft session.
+    """
+    base = "https://m365.cloud.microsoft/chat"
+    hint = (login_hint or "").strip()
+    if not hint:
+        return base
+    from urllib.parse import quote
+
+    return f"{base}?login_hint={quote(hint, safe='')}"
+
+
+async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str | None:
+    want = (expected_email or "").strip().lower()
+
+    async def trigger_input() -> None:
+        await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS}}))
+        await asyncio.sleep(0.5)
+        for payload in (
+            {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"},
+            {"type": "char", "text": "a", "key": "a"},
+            {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"},
+        ):
+            await ws.send(json.dumps({"id": 11, "method": "Input.dispatchKeyEvent", "params": payload}))
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.5)
+        await ws.send(json.dumps({"id": 12, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
+
+    await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
+    await ws.send(json.dumps({"id": 2, "method": "Network.enable", "params": {"maxTotalBufferSize": 10000000, "maxResourceBufferSize": 5000000}}))
+    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": _m365_chat_url(expected_email)}}))
+    await asyncio.sleep(2)
+    await ws.send(json.dumps({"id": 4, "method": "Page.reload", "params": {"ignoreCache": True}}))
+
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    deadline = start + 45
+    trigger_times = [start + 4, start + 10, start + 18, start + 30]
+    triggered = 0
+    while loop.time() < deadline:
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+        except asyncio.TimeoutError:
+            if triggered < len(trigger_times) and loop.time() >= trigger_times[triggered]:
+                triggered += 1
+                await trigger_input()
+            continue
+        msg = json.loads(raw)
+        if msg.get("method") != "Network.webSocketCreated":
+            continue
+        url = msg.get("params", {}).get("url", "")
+        if "substrate.office.com" not in url:
+            continue
+        match = re.search(r"[?&]access_token=([^&]+)", url)
+        if not match:
+            continue
+        token = match.group(1)
+        if not _is_substrate_token(token):
+            continue
+        # Identity pinning: a profile/cookie set carrying multiple Microsoft
+        # sessions can surface a substrate token for the wrong account. When an
+        # expected identity is known, ignore mismatches and keep waiting for the
+        # correct one instead of returning a stranger's token.
+        if want and _token_identity_email(token) != want:
+            continue
+        await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
+        return token
+    return None
+
+
+def _is_substrate_token(token: str) -> bool:
+    try:
+        claims = decode_jwt_payload(token)
+    except Exception:
+        return False
+    return is_substrate_token_claims(claims) and time.time() < int(claims.get("exp", 0)) - 30
+
+
+# Harvest every MSAL AccessToken entry (target + secret) from the page's storage.
+# MSAL caches one entry per resource the SPA has requested; media (teams) and
+# designer tokens live here alongside the substrate token IF the app already
+# acquired them. We classify the entries in Python (see _classify_resource_token).
+_CDP_RESOURCE_JS = """
+(() => {
+    const out = [];
+    for (const store of [sessionStorage, localStorage]) {
+        for (const k of Object.keys(store)) {
+            if (!k.toLowerCase().includes('accesstoken')) continue;
+            try {
+                const v = JSON.parse(store.getItem(k));
+                if (v && typeof v.secret === 'string' && v.secret.startsWith('eyJ')) {
+                    out.push({key: k, target: String(v.target || ''), secret: v.secret});
+                }
+            } catch {}
+        }
+    }
+    return out;
+})()
+"""
+
+
+def _classify_resource_token(key: str, target: str) -> str | None:
+    """Map an MSAL cache entry to 'media' / 'designer' / None.
+
+    Media auth is the Bearer token the browser sends to *.teams.microsoft.com
+    (incl. asyncgw); designer auth is the JWE sent to designerapp on
+    officeapps.live.com. Substrate tokens are handled elsewhere, so exclude them.
+    """
+    hint = f"{key} {target}".lower()
+    if "substrate" in hint:
+        return None
+    if any(m in hint for m in ("designerapp", "officeapps.live.com", "designer")):
+        return "designer"
+    if any(m in hint for m in ("asyncgw", "teams.microsoft.com", "skype", "teams")):
+        return "media"
+    return None
+
+
+async def _cdp_extract_resource_tokens(port: int) -> dict[str, str]:
+    """Best-effort harvest of media/designer auth tokens from the M365 page.
+
+    Returns {'media': token?, 'designer': token?} for whatever is present in the
+    MSAL cache. Absent resources are simply omitted -- the caller must NOT treat
+    a missing key as a reason to wipe an existing (manually pushed) token.
+    """
+    result: dict[str, str] = {}
+    try:
+        async with httpx.AsyncClient(timeout=1) as client:
+            tabs = (await client.get(f"http://localhost:{port}/json")).json()
+    except Exception:
+        return result
+
+    tab = _find_m365_page(tabs)
+    if not tab:
+        return result
+
+    try:
+        async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
+            await ws.send(json.dumps({
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {"expression": _CDP_RESOURCE_JS, "returnByValue": True},
+            }))
+            raw = json.loads(await ws.recv())
+            entries = raw.get("result", {}).get("result", {}).get("value") or []
+    except Exception:
+        return result
+
+    seen_targets: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        target = str(entry.get("target") or "")
+        key = str(entry.get("key") or "")
+        secret = str(entry.get("secret") or "")
+        if target:
+            seen_targets.append(target[:80])
+        kind = _classify_resource_token(key, target)
+        if kind and kind not in result and secret:
+            result[kind] = secret
+    if seen_targets:
+        print(f"CDP resource-token targets seen: {seen_targets[:8]}", flush=True)
+    return result
+
+

@@ -15,6 +15,25 @@ from urllib.parse import urlsplit
 
 from .account_store import AccountStore, extract_identity
 from .media_proxy import asyncgw_object_fetch_url, designer_file_token, designer_object_fetch_url
+from .refresh_cookies import (
+    _SESSION_COOKIE_PERSIST_SECONDS,
+    _cdp_cookie_params,
+    _cookie_header_for_url,
+    _cookie_names_for_url,
+    _critical_cookie_report,
+    _normalize_cookie_expires,
+    _normalize_cookie_same_site,
+)
+from .refresh_media import (
+    UpstreamMediaNotFound,
+    _auth_headers_for_account,
+    _auth_headers_for_token,
+    _body_preview,
+    _designer_fetch_expression,
+    _is_designer_media_url,
+    _is_teams_media_url,
+)
+
 
 
 # How many seconds before token expiry we proactively refresh. Matches the
@@ -22,7 +41,6 @@ from .media_proxy import asyncgw_object_fetch_url, designer_file_token, designer
 _REFRESH_BEFORE_SECONDS = 300
 # Max seconds to wait for the on-demand Chromium to expose the M365 tab + token.
 _LAUNCH_TIMEOUT_SECONDS = 30
-_SESSION_COOKIE_PERSIST_SECONDS = 12 * 60 * 60
 # Background keepalive: how often the loop scans the account pool, and how long
 # before a cookie's expiry we proactively refresh it. The scan is cheap (a list
 # walk); actual refreshes are serialised through the same global lock so at most
@@ -142,11 +160,6 @@ _COOKIE_INJECT_DEBUG = bool(int(os.environ.get("COOKIE_INJECT_DEBUG", "0")))
 # Names of the Microsoft auth cookies that actually carry the signed-in session.
 # Used only for diagnostic logging so we can see, after a failed injection,
 # whether the critical cookies even reached the refresh browser.
-_CRITICAL_AUTH_COOKIE_PREFIXES = (
-    "ESTSAUTH", "SignInStateCookie", "ESTSSC", "buid", "esctx",
-    "x-ms-gateway-slice", "stsservicecookie", "CCState", "wlidperf",
-)
-
 # Read-only page probe: m365 is an MSAL SPA that keeps the signed-in account in
 # localStorage, NOT just cookies. "NoAccountOnStart" means MSAL found no account
 # in its local cache. This dumps the final URL, any MSAL/account localStorage
@@ -172,191 +185,6 @@ _CDP_LOGIN_DIAG_JS = """
     return JSON.stringify(out).slice(0, 1500);
 })()
 """
-
-
-def _critical_cookie_report(cookies: list[dict]) -> list[str]:
-    """Summarise which critical MS auth cookies are present in the pushed set."""
-    report: list[str] = []
-    for c in cookies:
-        name = str(c.get("name", "") or "")
-        if not any(name.upper().startswith(p.upper()) for p in _CRITICAL_AUTH_COOKIE_PREFIXES):
-            continue
-        exp_raw = c.get("expires") or c.get("expirationDate")
-        report.append(
-            f"{name}@{c.get('domain', '')}"
-            f"(httpOnly={bool(c.get('httpOnly'))},session={not bool(exp_raw)})"
-        )
-    return report
-
-
-def _cookie_header_for_url(cookies: list[dict], url: str) -> str:
-    host = urlsplit(url).hostname or ""
-    now = time.time()
-    pairs: list[str] = []
-    for cookie in cookies:
-        name = str(cookie.get("name") or "")
-        value = str(cookie.get("value") or "")
-        domain = str(cookie.get("domain") or "").lstrip(".").lower()
-        expires = cookie.get("expirationDate") or cookie.get("expires") or 0
-        try:
-            if expires and _normalize_cookie_expires(expires) < now:
-                continue
-        except (TypeError, ValueError):
-            pass
-        if not name or not value:
-            continue
-        if domain and host != domain and not host.endswith("." + domain):
-            continue
-        pairs.append(f"{name}={value}")
-    return "; ".join(pairs)
-
-
-def _auth_headers_for_token(token: str) -> dict[str, str]:
-    token = token.strip()
-    return {"Authorization": f"Bearer {token}"} if token else {}
-
-
-def _is_teams_media_url(url: str) -> bool:
-    host = (urlsplit(url).hostname or "").lower()
-    return host == "teams.microsoft.com" or host.endswith(".teams.microsoft.com")
-
-
-def _is_designer_media_url(url: str) -> bool:
-    host = (urlsplit(url).hostname or "").lower()
-    return host == "designerapp.officeapps.live.com" or host.endswith(".officeapps.live.com")
-
-
-def _designer_fetch_expression(url: str, headers: dict[str, str]) -> str:
-    """Build a JS expression that replays the browser's designer image fetch.
-
-    designerapp rejects both plain httpx GETs and top-level document navigations
-    (HTTP 400); the M365 page loads the image with an in-page ``fetch`` whose
-    ``Sec-Fetch-Dest`` is ``empty``. Running the same fetch inside Chromium (from
-    the designerapp origin) reproduces that exact request shape, including the
-    Authorization + FileToken headers and same-origin cookies. The body is
-    returned base64-encoded so binary image bytes survive the CDP round trip.
-    """
-    url_literal = json.dumps(url)
-    headers_literal = json.dumps(headers or {})
-    return (
-        "(async () => {"
-        "  try {"
-        f"    const r = await fetch({url_literal}, {{headers: {headers_literal}, credentials: 'include'}});"
-        "    const buf = await r.arrayBuffer();"
-        "    const bytes = new Uint8Array(buf);"
-        "    let bin = '';"
-        "    const chunk = 0x8000;"
-        "    for (let i = 0; i < bytes.length; i += chunk) {"
-        "      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));"
-        "    }"
-        "    return {ok: true, status: r.status, contentType: r.headers.get('content-type') || '', body: btoa(bin)};"
-        "  } catch (e) { return {ok: false, error: String(e)}; }"
-        "})()"
-    )
-
-
-def _auth_headers_for_account(account, url: str) -> tuple[dict[str, str], str]:
-    media_token = str(getattr(account, "media_auth_token", "") or "").strip()
-    if media_token and _is_teams_media_url(url):
-        return _auth_headers_for_token(media_token), "media"
-    if _is_designer_media_url(url):
-        # designerapp uses a dedicated Authorization token (a raw JWE) that the
-        # browser sends WITHOUT a "Bearer " prefix; replay it verbatim. It also
-        # moves the fileToken out of the query string into a FileToken request
-        # header, so extract and replay that too. The substrate account token has
-        # the wrong audience (HTTP 401), so only fall back to cookies-only when we
-        # have not captured the designer token yet.
-        headers: dict[str, str] = {}
-        file_token = designer_file_token(url)
-        if file_token:
-            headers["FileToken"] = file_token
-        designer_token = str(getattr(account, "designer_auth_token", "") or "").strip()
-        if designer_token:
-            headers["Authorization"] = designer_token
-            return headers, "designer"
-        return headers, "designer_cookie"
-    if account.token:
-        return _auth_headers_for_token(account.token), "account"
-    return {}, ""
-
-
-def _cookie_names_for_url(cookies: list[dict[str, Any]], url: str) -> list[str]:
-    host = urlsplit(url).hostname or ""
-    names: list[str] = []
-    for cookie in cookies:
-        name = str(cookie.get("name") or "").strip()
-        domain = str(cookie.get("domain") or "").lstrip(".").lower()
-        if name and domain and (host == domain or host.endswith("." + domain)):
-            names.append(name)
-    return names
-
-
-class UpstreamMediaNotFound(RuntimeError):
-    pass
-
-
-def _body_preview(content: bytes, limit: int = 300) -> str:
-    return content[:limit].decode("utf-8", errors="replace")
-
-
-def _normalize_cookie_expires(value: object) -> float:
-    expires = float(value)
-    if expires > 10_000_000_000:
-        expires = expires / 1000
-    return expires
-
-
-def _normalize_cookie_same_site(value: object) -> str | None:
-    same_site = str(value or "").strip().lower().replace("-", "_")
-    if same_site in ("", "unspecified", "no_restriction_unspecified"):
-        return None
-    if same_site in ("none", "no_restriction"):
-        return "None"
-    if same_site == "lax":
-        return "Lax"
-    if same_site == "strict":
-        return "Strict"
-    return None
-
-
-def _cdp_cookie_params(cookie: dict, now: float) -> tuple[dict, float, bool]:
-    name = str(cookie.get("name") or "")
-    raw_value = cookie.get("value")
-    if not name or raw_value is None:
-        raise ValueError("cookie name and value are required")
-    value = str(raw_value)
-    domain = str(cookie.get("domain") or ".microsoft.com").strip()
-    host = domain.lstrip(".")
-    if not host:
-        host = "microsoft.com"
-    params = {
-        "name": name,
-        "value": value,
-        "url": f"https://{host}/",
-        "path": cookie.get("path", "/") or "/",
-        "secure": bool(cookie.get("secure", True)),
-        "httpOnly": bool(cookie.get("httpOnly", False)),
-    }
-    if name.startswith("__Host-"):
-        params["path"] = "/"
-        params["secure"] = True
-    else:
-        params["domain"] = domain
-        if name.startswith("__Secure-"):
-            params["secure"] = True
-    same_site = _normalize_cookie_same_site(cookie.get("sameSite"))
-    if same_site:
-        params["sameSite"] = same_site
-    if params.get("sameSite") == "None":
-        params["secure"] = True
-    raw_expires = cookie.get("expirationDate") or cookie.get("expires")
-    if raw_expires:
-        expires = _normalize_cookie_expires(raw_expires)
-        params["expires"] = expires
-        return params, expires, False
-    expires = now + _SESSION_COOKIE_PERSIST_SECONDS
-    params["expires"] = expires
-    return params, expires, True
 
 
 async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | None) -> None:
