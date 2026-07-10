@@ -119,6 +119,8 @@ body[data-lang="en"] button{font-size:.72rem!important;letter-spacing:0}
 body[data-lang="en"] .compact-action{font-size:.7rem!important}
 body[data-lang="en"] .section-title{font-size:.9rem}
 body[data-lang="en"] .account-action{font-size:.72rem!important;min-width:0}
+body[data-lang="en"] .account-main .account-action{font-size:.78rem!important;padding:.45rem .8rem!important;white-space:nowrap}
+body[data-lang="en"] .pill{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 body[data-lang="en"] .status-line{font-size:.72rem}
 body[data-lang="en"] .pill{font-size:.7rem}
 body[data-lang="en"] h1{font-size:1.15rem}
@@ -279,7 +281,7 @@ code{color:#a5b4fc}
 let toneOptions=[];
 let sysDefault='';
 let userTimeZone='';
-function t(k){return i18n[lang][k]||k}
+function t(k){const v=i18n[lang][k];return v==null?k:v}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function getKey(){return sessionStorage.getItem('user_api_key')||''}
 function authHeaders(){return {'Content-Type':'application/json','Authorization':'Bearer '+getKey()}}
@@ -289,10 +291,11 @@ function applyLang(){
   document.title=t('title');
   const btn=document.getElementById('lang-toggle');
   btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
-  document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(i18n[lang][k])el.textContent=i18n[lang][k]});
-  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(i18n[lang][k])el.placeholder=i18n[lang][k]});
-  document.querySelectorAll('[data-i18n-html]').forEach(el=>{const k=el.getAttribute('data-i18n-html');if(i18n[lang][k])el.innerHTML=i18n[lang][k]});
+  document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(i18n[lang][k]!=null)el.textContent=i18n[lang][k]});
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(i18n[lang][k]!=null)el.placeholder=i18n[lang][k]});
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>{const k=el.getAttribute('data-i18n-html');if(i18n[lang][k]!=null)el.innerHTML=i18n[lang][k]});
   renderToneOptions();
+  if(getKey()){try{loadMe()}catch(e){}}
 }
 function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
 """ + _GLASS_SELECT_JS + """

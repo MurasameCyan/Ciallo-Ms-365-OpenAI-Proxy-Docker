@@ -315,6 +315,13 @@ body[data-lang="en"] .role-toggle,body[data-lang="en"] .auto-toggle{font-size:.7
 body[data-lang="en"] .api-badge,body[data-lang="en"] .tone-badge{font-size:.68rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body[data-lang="en"] .brand{font-size:.92rem}
 body[data-lang="en"] .btn-ghost{font-size:.72rem!important}
+body[data-lang="en"] .acct-token-actions{width:auto!important;min-width:148px}
+body[data-lang="en"] .acct-token-actions button{width:auto!important;min-width:46px;padding:3px 6px!important;font-size:.68rem!important}
+body[data-lang="en"] .cookie-refresh-btn{width:auto!important;min-width:46px;font-size:.68rem!important}
+body[data-lang="en"] .admin-tbl button{font-size:.68rem!important;padding:3px 7px!important;white-space:nowrap}
+.page-size-unit:empty{display:none}
+body[data-lang="en"] .page-size-unit{font-size:.72rem}
+body[data-lang="en"] .tbl-foot .page-size{gap:.35rem}
 
 /* view switching: hide all view cards, show active group with fade-in */
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{display:none}
@@ -640,7 +647,7 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 
 <script>
 """ + _ADMIN_I18N_JS + """let lang=localStorage.getItem('lang')||'zh';
-function t(key){return i18n[lang][key]||key}
+function t(key){const v=i18n[lang][key];return v==null?key:v}
 function toggleLang(){
   lang=lang==='zh'?'en':'zh';
   localStorage.setItem('lang',lang);
@@ -653,12 +660,19 @@ function applyLang(){
   if(btn)btn.title=lang==='zh'?'切换到英文':'Switch to Chinese';
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const key=el.getAttribute('data-i18n');
-    if(i18n[lang][key])el.textContent=i18n[lang][key];
+    if(i18n[lang][key]!=null)el.textContent=i18n[lang][key];
   });
   const vt=document.getElementById('view-title');
-  if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk])vt.textContent=i18n[lang][vk]}
+  if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk]!=null)vt.textContent=i18n[lang][vk]}
   const out=document.getElementById('admin-logout');if(out)out.title=lang==='zh'?'退出管理后台':'Sign out admin';
   applyTheme();applyCollapse();
+  try{if(typeof loadAccounts==='function')loadAccounts()}catch(e){}
+  try{if(typeof loadKeys==='function')loadKeys()}catch(e){}
+  try{if(typeof renderDashboard==='function')renderDashboard()}catch(e){}
+  try{if(typeof loadCallLog==='function')loadCallLog()}catch(e){}
+  try{if(typeof loadCapture==='function')loadCapture()}catch(e){}
+  try{if(typeof loadMediaProxyEvents==='function')loadMediaProxyEvents()}catch(e){}
+  try{if(typeof loadStatus==='function')loadStatus()}catch(e){}
 }
 applyLang();
 

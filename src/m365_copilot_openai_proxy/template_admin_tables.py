@@ -16,7 +16,7 @@ function _pageFoot(which,pg){
   const sizes=[10,20,50,100];
   let opts='';sizes.forEach(s=>{opts+='<option value="'+s+'"'+(s===__pageSize[which]?' selected':'')+'>'+s+'</option>'});
   const info=t('page_info').replace('{cur}',pg.page).replace('{total}',pg.total).replace('{count}',pg.count);
-  return '<div class="tbl-foot"><div class="page-size"><span>'+t('page_size_label')+'</span><select class="page-select" onchange="_setPageSize(\\''+which+'\\',this.value)">'+opts+'</select><span>'+t('page_size_unit')+'</span></div>'
+  return '<div class="tbl-foot"><div class="page-size"><span>'+t('page_size_label')+'</span><select class="page-select" onchange="_setPageSize(\\''+which+'\\',this.value)">'+opts+'</select><span class="page-size-unit">'+t('page_size_unit')+'</span></div>'
     +'<div class="page-nav"><button class="page-btn" '+(pg.page<=1?'disabled':'')+' onclick="_setPage(\\''+which+'\\','+(pg.page-1)+')">'+t('page_prev')+'</button>'
     +'<span class="page-info">'+info+'</span>'
     +'<button class="page-btn" '+(pg.page>=pg.total?'disabled':'')+' onclick="_setPage(\\''+which+'\\','+(pg.page+1)+')">'+t('page_next')+'</button></div></div>';
