@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS
+from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS
 
 _USER_HTML = """<!DOCTYPE html>
 <html lang="zh">
@@ -65,7 +65,7 @@ select option:checked{background:#1e40af;color:#fff}
 @keyframes userSelectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.22),0 0 30px rgba(255,94,219,.2),inset 0 1px 0 rgba(255,255,255,.14)}}
 .account-main select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
-""" + _GLASS_SELECT_CSS + """
+""" + _GLASS_SELECT_CSS + _NO_SPIN_CSS + """
 .account-main .glass-select.open{z-index:2000}
 .account-main .tone-select+.glass-select .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 .account-main textarea{margin-top:.65rem}
@@ -109,8 +109,6 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .user-default-grid{display:grid;grid-template-columns:repeat(4,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
 .user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
 .user-config-field input{width:100%;height:38px;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.86rem;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
-.user-config-field input[type=number]{-moz-appearance:textfield;appearance:textfield}
-.user-config-field input[type=number]::-webkit-outer-spin-button,.user-config-field input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .user-default-grid .glass-select{width:100%!important;min-width:0!important;height:38px!important;margin-left:0!important}
 .user-default-grid .glass-select-trigger{height:38px!important;width:100%!important;box-sizing:border-box!important;padding:9px 34px 9px 14px!important;border-radius:14px!important;font-size:.86rem!important;font-weight:700!important}
 .mode-profile-card:has(.glass-select.open){overflow:visible;z-index:2000}

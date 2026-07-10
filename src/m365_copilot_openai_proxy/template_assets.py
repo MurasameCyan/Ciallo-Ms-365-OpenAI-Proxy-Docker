@@ -21,6 +21,13 @@ body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rg
 body[data-theme="light"] .glass-select-option{color:#5b6785!important}
 body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#243049!important}"""
 
+# Hide the browser-native up/down spinner on number inputs so they match the
+# other text inputs / custom glass-selects. Shared by both the admin and user
+# templates (concatenated after _GLASS_SELECT_CSS).
+_NO_SPIN_CSS = """
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}"""
+
 _GLASS_SELECT_JS = """function initGlassSelect(root){
   const scope=root||document;
   scope.querySelectorAll('select').forEach(sel=>{

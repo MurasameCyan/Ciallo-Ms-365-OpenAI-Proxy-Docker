@@ -7,7 +7,7 @@ from .template_admin_dialogs import _ADMIN_DIALOGS_JS
 from .template_admin_keys import _ADMIN_KEYS_JS
 from .template_admin_settings_js import _ADMIN_SETTINGS_JS
 from .template_admin_tables import _ADMIN_TABLES_JS
-from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS
+from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS
 
 _ADMIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -157,7 +157,7 @@ select option:checked{background:#1e40af;color:#fff}
 .tone-select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .tone-select{color:#243049;background-color:rgba(255,255,255,.72);border-color:rgba(99,102,180,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 8px 20px rgba(47,61,116,.08)}
 body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
-""" + _GLASS_SELECT_CSS + """
+""" + _GLASS_SELECT_CSS + _NO_SPIN_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
 .runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(180px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.75rem!important;align-items:start!important;max-width:1080px!important}
 .runtime-settings-grid>div{display:grid!important;gap:1rem!important}
@@ -165,8 +165,6 @@ body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 .runtime-settings-grid input{min-height:44px!important;margin-top:0!important;padding:11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important;background:var(--inner)!important;border:1px solid var(--inner-border)!important;color:var(--strong)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12)!important}
 .runtime-settings-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
 .runtime-settings-grid .glass-select-trigger{min-height:44px!important;padding:11px 36px 11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important}
-.runtime-settings-grid input[type=number]::-webkit-outer-spin-button,.runtime-settings-grid input[type=number]::-webkit-inner-spin-button,.ports-logs-card input[type=number]::-webkit-outer-spin-button,.ports-logs-card input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.runtime-settings-grid input[type=number],.ports-logs-card input[type=number]{appearance:textfield;-moz-appearance:textfield}
 .ports-logs-card{overflow:visible!important;z-index:10}
 .ports-logs-card:has(.glass-select.open){z-index:3000!important}
 .ports-logs-card label{font-size:.875rem!important;font-weight:800!important;color:var(--strong)!important}
