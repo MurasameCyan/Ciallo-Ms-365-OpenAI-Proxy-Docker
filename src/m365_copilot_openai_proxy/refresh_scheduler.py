@@ -4,9 +4,7 @@ import asyncio
 import base64
 import json
 import os
-import platform
 import shutil
-import signal
 import subprocess
 import tempfile
 import time
@@ -15,6 +13,18 @@ from urllib.parse import urlsplit
 
 from .account_store import AccountStore, extract_identity
 from .media_proxy import asyncgw_object_fetch_url, designer_file_token, designer_object_fetch_url
+from .refresh_browser_helpers import (
+    _identity_conflict,
+    _is_login_url,
+    _is_logged_out_shell,
+    _refresh_launch_url,
+)
+from .refresh_chromium import (
+    _chromium_path,
+    _cleanup_profile_locks,
+    _close_chromium_gracefully,
+    _resolve_chromium_path,
+)
 from .refresh_cookies import (
     _SESSION_COOKIE_PERSIST_SECONDS,
     _cdp_cookie_params,
@@ -56,101 +66,6 @@ _COOKIE_KEEPALIVE_BEFORE_SECONDS = 2 * 60 * 60
 _CDP_MEDIA_MAX_MESSAGE_BYTES = None  # None = no size limit
 
 
-_LOGGED_CHROMIUM_PATH: str | None = None
-
-
-def _chromium_path() -> str:
-    """Locate a Chromium/Edge binary and log the resolved path once per change."""
-    resolved = _resolve_chromium_path()
-    global _LOGGED_CHROMIUM_PATH
-    if resolved != _LOGGED_CHROMIUM_PATH:
-        _LOGGED_CHROMIUM_PATH = resolved
-        print(f"Chromium binary resolved to: {resolved}", flush=True)
-    return resolved
-
-
-def _resolve_chromium_path() -> str:
-    """Locate a Chromium/Edge binary for the current platform."""
-    if platform.system() == "Windows":
-        candidates = [
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        ]
-        for c in candidates:
-            if Path(c).exists():
-                return c
-        return shutil.which("chromium") or shutil.which("chrome") or "chromium"
-    if platform.system() == "Darwin":
-        return "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
-    configured = os.environ.get("CHROME_BIN")
-    if configured and shutil.which(configured):
-        return configured
-    # Linux (container default): prefer full Chromium. The headless-shell build
-    # cannot complete the Microsoft SSO redirect chain (it lands on
-    # login.microsoftonline.com and fails to capture a fresh substrate token),
-    # so it must never be preferred for the refresh flow.
-    return (
-        shutil.which("chromium")
-        or shutil.which("chromium-browser")
-        or shutil.which("microsoft-edge")
-        or shutil.which("microsoft-edge-stable")
-        or "chromium"
-    )
-
-
-def _is_login_url(url: str) -> bool:
-    return url.startswith(("https://login.microsoftonline.com/", "https://login.live.com/"))
-
-
-def _is_logged_out_shell(url: str) -> bool:
-    """True when M365 loaded the chat shell but WITHOUT a signed-in account.
-
-    m365.cloud.microsoft redirects to `...chat?from=NoAccountOnStart` (and
-    similar markers) when the injected cookies did not actually establish a
-    session. The URL is not a login page, so `_is_login_url` misses it, yet the
-    page has no usable identity -- treating it as "logged in" produces a false
-    "cookie valid" state that later fails on refresh. Detect those markers so
-    the caller can treat the shell as logged-out.
-    """
-    lowered = url.lower()
-    return any(marker in lowered for marker in ("noaccountonstart", "from=noaccount"))
-
-
-def _identity_conflict(existing_email: str, new_token: str) -> bool:
-    """True when a freshly captured token belongs to a DIFFERENT identity.
-
-    The persistent Chromium profile can retain another Microsoft account's
-    session (e.g. a previously injected account), so an on-demand refresh may
-    capture a token for the wrong identity and silently overwrite the record.
-    Reject the swap when both the stored account and the new token carry an
-    email and they differ. When either side has no email we cannot compare, so
-    we do not block (first-time capture / opaque token stays permissive).
-    """
-    existing = (existing_email or "").strip().lower()
-    if not existing:
-        return False
-    _, new_email = extract_identity(new_token)
-    new_email = (new_email or "").strip().lower()
-    if not new_email:
-        return False
-    return existing != new_email
-
-
-def _refresh_launch_url(login_hint: str = "") -> str:
-    """M365 chat launch URL for on-demand refresh, biased to login_hint.
-
-    Delegates to cli._m365_chat_url (lazy import to avoid the cli <-> app <->
-    scheduler import cycle). Falls back to the plain chat URL if the import
-    fails, so a helper regression can never break Chromium launch.
-    """
-    try:
-        from .cli import _m365_chat_url
-
-        return _m365_chat_url(login_hint)
-    except Exception:
-        return "https://m365.cloud.microsoft/chat"
-
-
 # Verbose cookie-injection diagnostics (critical-cookie report + MSAL
 # localStorage dump). Off by default to keep logs clean; set
 # COOKIE_INJECT_DEBUG=1 to re-enable when troubleshooting NoAccountOnStart /
@@ -185,70 +100,6 @@ _CDP_LOGIN_DIAG_JS = """
     return JSON.stringify(out).slice(0, 1500);
 })()
 """
-
-
-async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    try:
-        import httpx
-        import websockets
-        async with httpx.AsyncClient(timeout=2) as client:
-            info = (await client.get(f"http://localhost:{cdp_port}/json/version")).json()
-        ws_url = info.get("webSocketDebuggerUrl")
-        if ws_url:
-            async with websockets.connect(ws_url) as ws:
-                await ws.send(json.dumps({"id": 1, "method": "Browser.close"}))
-        await asyncio.to_thread(proc.wait, timeout=10)
-    except Exception:
-        try:
-            proc.terminate()
-            await asyncio.to_thread(proc.wait, timeout=8)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-
-
-def _cleanup_profile_locks(profile_dir: Path) -> None:
-    """Stop stale Chromium processes for this profile and remove Singleton locks."""
-    profile = str(profile_dir.resolve())
-    profile_arg = str(profile_dir)
-    if platform.system() != "Windows":
-        proc_root = Path("/proc")
-        if proc_root.exists():
-            for entry in proc_root.iterdir():
-                if not entry.name.isdigit() or int(entry.name) == os.getpid():
-                    continue
-                try:
-                    raw = (entry / "cmdline").read_bytes().decode("utf-8", "ignore")
-                except Exception:
-                    continue
-                if "--user-data-dir=" in raw and (profile in raw or profile_arg in raw):
-                    pid = int(entry.name)
-                    try:
-                        os.kill(pid, signal.SIGTERM)
-                    except Exception:
-                        pass
-            time.sleep(0.3)
-            for entry in proc_root.iterdir():
-                if not entry.name.isdigit() or int(entry.name) == os.getpid():
-                    continue
-                try:
-                    raw = (entry / "cmdline").read_bytes().decode("utf-8", "ignore")
-                except Exception:
-                    continue
-                if "--user-data-dir=" in raw and (profile in raw or profile_arg in raw):
-                    try:
-                        os.kill(int(entry.name), signal.SIGKILL)
-                    except Exception:
-                        pass
-    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
-        try:
-            (profile_dir / name).unlink(missing_ok=True)
-        except Exception:
-            pass
 
 
 class RefreshScheduler:
