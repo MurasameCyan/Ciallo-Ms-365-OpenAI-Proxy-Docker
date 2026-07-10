@@ -305,6 +305,17 @@ body[data-collapsed="1"] .side-tools .icon-btn:nth-child(4){transform:translate(
 .main{flex:1;padding:2rem;overflow-x:hidden}
 .main .container{max-width:1000px}
 .main h1{font-size:1.4rem}
+body[data-lang="en"] .nav-item{font-size:.78rem;letter-spacing:0}
+body[data-lang="en"] .nav-item span:not(.nav-ico){font-size:.78rem;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+body[data-lang="en"] .runtime-field-label,body[data-lang="en"] .ports-logs-card label{font-size:.72rem!important;line-height:1.2;font-weight:700!important}
+body[data-lang="en"] button,body[data-lang="en"] .page-btn,body[data-lang="en"] .call-filter-btn{font-size:.72rem!important;letter-spacing:0}
+body[data-lang="en"] .admin-tbl{font-size:.76rem}
+body[data-lang="en"] .admin-tbl th,body[data-lang="en"] .admin-tbl td{line-height:1.2}
+body[data-lang="en"] .role-toggle,body[data-lang="en"] .auto-toggle{font-size:.72rem}
+body[data-lang="en"] .api-badge,body[data-lang="en"] .tone-badge{font-size:.68rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body[data-lang="en"] .brand{font-size:.92rem}
+body[data-lang="en"] .btn-ghost{font-size:.72rem!important}
+
 /* view switching: hide all view cards, show active group with fade-in */
 .view-home,.view-users,.view-accounts,.view-settings,.view-debug{display:none}
 body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{display:block;animation:fadeUp .35s ease}
@@ -554,13 +565,13 @@ body[data-view="home"] .view-home,body[data-view="users"] .view-users,body[data-
 </details>
 <details id="media-proxy-details" style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
-<span>媒体代理日志</span>
+<span data-i18n="title_media_proxy">媒体代理日志</span>
 <span id="media-proxy-event-count" style="font-size:.75rem;color:var(--faint);background:rgba(255,255,255,.06);padding:2px 8px;border-radius:8px">0</span>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
-<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-media，后续可扩展到视频、音频和文件。</div><div class="debug-actions"><button id="copy-media-proxy-all" onclick="copyAllMediaProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearMediaProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-top:20px"><div style="font-size:.75rem;color:var(--faint);line-height:1.5;flex:1" data-i18n="media_proxy_hint">记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-media，后续可扩展到视频、音频和文件。</div><div class="debug-actions"><button id="copy-media-proxy-all" onclick="copyAllMediaProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="copy_all">复制全部</button><button onclick="clearMediaProxyEvents()" style="font-size:.8rem;padding:5px 12px" data-i18n="btn_clear">清空</button></div></div>
 <div id="media-proxy-event-content" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-family:monospace;font-size:.78rem">
-<span style="color:var(--faint)">暂无媒体代理日志</span>
+<span style="color:var(--faint)" data-i18n="no_media_proxy_yet">暂无媒体代理日志</span>
 </div>
 </details>
 <details id="capture-details" style="cursor:pointer">
@@ -636,6 +647,8 @@ function toggleLang(){
   applyLang();
 }
 function applyLang(){
+  document.body.setAttribute('data-lang',lang);
+  document.documentElement.lang=lang==='zh'?'zh':'en';
   const btn=document.getElementById('lang-toggle');
   if(btn)btn.title=lang==='zh'?'切换到英文':'Switch to Chinese';
   document.querySelectorAll('[data-i18n]').forEach(el=>{
@@ -1219,7 +1232,7 @@ function renderMediaProxyEvents(items){
   const count=document.getElementById('media-proxy-event-count');if(count)count.textContent=items.length;
   const el=document.getElementById('media-proxy-event-content');if(!el)return;
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  if(!items.length){el.innerHTML='<span style="color:var(--faint)">暂无媒体代理日志</span>';return}
+  if(!items.length){el.innerHTML='<span style="color:var(--faint)">'+t('no_media_proxy_yet')+'</span>';return}
   el.innerHTML=items.slice().reverse().map(e=>{
     const ts=e.ts?new Date(e.ts*1000).toLocaleTimeString():'';
     const meta={...e};delete meta.ts;delete meta.trace_id;delete meta.phase;

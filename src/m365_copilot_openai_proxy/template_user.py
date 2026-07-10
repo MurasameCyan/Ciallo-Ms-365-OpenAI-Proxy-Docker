@@ -111,6 +111,19 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .account-card:has(.glass-select.open){z-index:2000}
 .user-default-grid{display:grid;grid-template-columns:repeat(4,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
 .user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
+body[data-lang="en"] .user-config-field,body[data-lang="en"] .user-media-suffix .user-config-label{font-size:.72rem;line-height:1.2;font-weight:700}
+body[data-lang="en"] .user-config-field>span,body[data-lang="en"] .user-config-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body[data-lang="en"] .user-default-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}
+body[data-lang="en"] .user-config-field input,body[data-lang="en"] .user-default-grid .glass-select-trigger{font-size:.78rem!important}
+body[data-lang="en"] button{font-size:.72rem!important;letter-spacing:0}
+body[data-lang="en"] .compact-action{font-size:.7rem!important}
+body[data-lang="en"] .section-title{font-size:.9rem}
+body[data-lang="en"] .account-action{font-size:.72rem!important;min-width:0}
+body[data-lang="en"] .status-line{font-size:.72rem}
+body[data-lang="en"] .pill{font-size:.7rem}
+body[data-lang="en"] h1{font-size:1.15rem}
+body[data-lang="en"] .card h2{font-size:.95rem}
+
 .user-config-field input{width:100%;height:38px;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.86rem;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16)}
 .user-default-grid .glass-select{width:100%!important;min-width:0!important;height:38px!important;margin-left:0!important}
 .user-default-grid .glass-select-trigger{height:38px!important;width:100%!important;box-sizing:border-box!important;padding:9px 34px 9px 14px!important;border-radius:14px!important;font-size:.86rem!important;font-weight:700!important}
@@ -271,6 +284,9 @@ function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'
 function getKey(){return sessionStorage.getItem('user_api_key')||''}
 function authHeaders(){return {'Content-Type':'application/json','Authorization':'Bearer '+getKey()}}
 function applyLang(){
+  document.body.setAttribute('data-lang',lang);
+  document.documentElement.lang=lang==='zh'?'zh':'en';
+  document.title=t('title');
   const btn=document.getElementById('lang-toggle');
   btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
   document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(i18n[lang][k])el.textContent=i18n[lang][k]});
