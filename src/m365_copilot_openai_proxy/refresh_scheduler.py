@@ -173,15 +173,17 @@ class RefreshScheduler:
                         except Exception as exc:
                             print(f"Keepalive refresh error for {account.id}: {exc}", flush=True)
                     elif self._recovery_due(account):
-                        # Self-heal a stuck (cookie_valid=False) account by replaying
-                        # its stored cookies -- the same path as the manual cookie
-                        # refresh button that the user confirmed recovers the session.
+                        # Self-heal a stuck (cookie_valid=False) account. force=True
+                        # routes into _refresh_one, which now re-injects the stored
+                        # cookies AND captures a token in that same live session --
+                        # the same proven path as the manual cookie-refresh button
+                        # the user confirmed recovers the session (not just a bare
+                        # cookie re-inject: this also gets a usable token back).
                         self._recovery_attempted_at[account.id] = time.time()
-                        stored = list(getattr(account, "cookies", []) or [])
-                        print(f"Keepalive: self-heal re-injecting cookies for {account.id} (cookie invalid, {len(stored)} stored)", flush=True)
+                        print(f"Keepalive: self-heal refreshing {account.id} (cookie invalid)", flush=True)
                         try:
-                            injected, total = await self.inject_cookies(account.id, stored)
-                            print(f"Keepalive self-heal for {account.id}: injected {injected}/{total}", flush=True)
+                            ok = await self.ensure_fresh(account.id, force=True)
+                            print(f"Keepalive self-heal for {account.id}: {'recovered' if ok else 'still failing'}", flush=True)
                         except Exception as exc:
                             print(f"Keepalive self-heal error for {account.id}: {exc}", flush=True)
             except Exception as exc:
@@ -383,9 +385,12 @@ class RefreshScheduler:
             launch_timeout_seconds=_LAUNCH_TIMEOUT_SECONDS,
         )
 
-    async def _inject_cookies_one(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
+    async def _inject_cookies_one(self, account_id: str, cookies: list[dict], *, allow_nudge: bool = False) -> tuple[int, int]:
         # Thin delegator to refresh_cookie_inject.inject_cookies_one. Same
         # module-global resolution of the chromium helpers as _fetch_image_one.
+        # allow_nudge=True drives a full token capture in the same session (used
+        # by the CDP refresh path so it reuses this proven cookie re-injection
+        # instead of reopening a bare profile that dead-ends on a login popup).
         return await _inject_cookies_one_impl(
             self._accounts,
             self._profile_root,
@@ -395,6 +400,7 @@ class RefreshScheduler:
             cleanup_profile_locks=_cleanup_profile_locks,
             close_chromium_gracefully=_close_chromium_gracefully,
             launch_timeout_seconds=_LAUNCH_TIMEOUT_SECONDS,
+            allow_nudge=allow_nudge,
         )
 
     async def _refresh_one(self, account_id: str) -> bool:
@@ -402,6 +408,25 @@ class RefreshScheduler:
         if account is None:
             print(f"Refresh failed: account {account_id} not found", flush=True)
             return False
+        # Preferred path: re-inject the account's stored cookies and capture the
+        # token in that SAME live session. This is exactly what the manual
+        # cookie-refresh button does (which the user confirmed works). Reopening
+        # the persisted profile bare (fallback below) is unreliable: a Chromium
+        # restart loses the freshly established MSAL session, so silent SSO falls
+        # back to an INTERACTIVE popup that dead-ends on spalanding#code and never
+        # yields a token (observed as repeated /v1 503s). Capturing while the
+        # injected cookies are live in this very session is the only reliable path.
+        stored_cookies = list(getattr(account, "cookies", []) or [])
+        if stored_cookies:
+            try:
+                await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
+            except Exception as exc:
+                print(f"Refresh via cookie re-injection errored for {account_id}: {exc}", flush=True)
+            refreshed = self._accounts.get(account_id) or account
+            if refreshed.token and not self._needs_refresh(refreshed.token):
+                print(f"Refresh succeeded for {account_id}: token captured during cookie re-injection", flush=True)
+                return True
+            print(f"Refresh via cookie re-injection did not yield a fresh token for {account_id}; falling back to bare profile reopen", flush=True)
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)

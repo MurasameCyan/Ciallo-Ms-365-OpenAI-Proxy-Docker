@@ -74,6 +74,7 @@ async def inject_cookies_one(
     cleanup_profile_locks,
     close_chromium_gracefully,
     launch_timeout_seconds,
+    allow_nudge: bool = False,
 ) -> tuple[int, int]:
     account = accounts.get(account_id)
     if account is None:
@@ -231,25 +232,27 @@ async def inject_cookies_one(
             # NoAccountOnStart as a failure here (previous behaviour) left
             # token_source="manual" and permanently disabled auto-refresh.
             accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
-            if _is_logged_out_shell(final_url):
+            # Token capture in the SAME session that just re-established login.
+            # allow_nudge distinguishes the two callers:
+            #   * push (allow_nudge=False): only try the cheap no-nudge read when
+            #     login is fully established; never nudge (would stall the awaited
+            #     push response up to 45s). NoAccountOnStart shell defers to refresh.
+            #   * refresh (allow_nudge=True): this IS the on-demand /v1 / keepalive
+            #     refresh path, so drive a full nudge capture even on the
+            #     NoAccountOnStart shell. Reopening a bare profile later loses the
+            #     freshly injected session and degrades to an interactive popup that
+            #     dead-ends on spalanding, so capturing HERE (cookies live in this
+            #     very session) is the only reliable path. The write/identity
+            #     decision lives in _apply_opportunistic_token (unit-testable).
+            shell = _is_logged_out_shell(final_url)
+            if shell and not allow_nudge:
                 print(f"Cookie injection armed CDP refresh for {account_id} (NoAccountOnStart shell, SSO capture deferred to refresh): {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
             else:
-                print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
-                # Opportunistic token grab: the login is established and Chromium
-                # is still alive (closes in finally), so try to read a substrate
-                # token from the same session WITHOUT nudging (nudge can block up
-                # to 45s and would stall the awaited push response). On success
-                # this gives the account a real token + 12h expiry immediately,
-                # so the background ensure_fresh(force=False) becomes a no-op and
-                # no second Chromium launch is needed. Any failure is silently
-                # left to that background refresh, so this never regresses the
-                # existing behaviour. The write/identity decision lives in
-                # _apply_opportunistic_token so it is unit-testable without a
-                # Chromium session.
+                print(f"Cookie injection {'capturing token' if allow_nudge else 'established login'} for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, shell={shell}, final_url={final_url}", flush=True)
                 try:
                     from .cli import _cdp_extract_token
 
-                    grabbed = await _cdp_extract_token(account.cdp_port, allow_nudge=False, expected_email=account.email)
+                    grabbed = await _cdp_extract_token(account.cdp_port, allow_nudge=allow_nudge, expected_email=account.email)
                     _apply_opportunistic_token(accounts, account_id, account.email, grabbed)
                 except Exception as exc:
                     print(f"Cookie injection opportunistic token skipped for {account_id}: {exc}", flush=True)
