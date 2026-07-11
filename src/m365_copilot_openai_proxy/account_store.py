@@ -247,6 +247,23 @@ class AccountStore:
             self._save()
             return acc
 
+    def push_token(self, acc_id: str, token: str) -> Account | None:
+        """Apply a user/admin-pushed token WITHOUT disabling on-demand refresh.
+
+        A plain update_token(token_source="manual") permanently downgrades an
+        account that already has a live signed-in Chromium session (cookies +
+        token_source="cdp") back to "manual", which silently kills auto-refresh
+        and makes the account's token-refresh button a no-op. So preserve "cdp"
+        whenever the account still has a valid cookie session (token_source is
+        left untouched); only genuinely profile-less accounts stay "manual".
+        """
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            keep_cdp = acc.token_source == "cdp" and acc.cookie_valid
+        return self.update_token(acc_id, token, token_source=None if keep_cdp else "manual")
+
     def clear_token(self, acc_id: str) -> Account | None:
         """Wipe a bound account's token while keeping the account record."""
         with self._lock:

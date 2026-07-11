@@ -93,7 +93,7 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
                 return _json_err(400, "Token is not a substrate.office.com token")
         except Exception:
             return _json_err(400, "Not a valid JWT token")
-        acc = app.state.account_store.update_token(acc_id, token, token_source="manual")
+        acc = app.state.account_store.push_token(acc_id, token)
         if acc is None:
             return _json_err(404, "Account not found")
         return {"status": "ok", "account": _account_public(acc)}

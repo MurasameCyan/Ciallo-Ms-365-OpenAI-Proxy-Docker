@@ -173,6 +173,26 @@ class RefreshScheduler:
         except Exception:
             return True
 
+    def _is_expired(self, token: str) -> bool:
+        """True once the token is actually past its exp (no proactive window).
+
+        Distinct from _needs_refresh (which fires _REFRESH_BEFORE_SECONDS early):
+        a profile-less manual account cannot auto-refresh, so we only reject it
+        on the /v1 passive path once the token is genuinely dead. An empty token
+        counts as expired, but an undecodable one does NOT: pushed tokens are
+        validated as substrate JWTs at the routes, so a decode failure here means
+        an opaque/test token we should keep trusting rather than 503 spuriously.
+        """
+        if not token:
+            return True
+        try:
+            from .token_store import decode_jwt_payload
+
+            claims = decode_jwt_payload(token)
+            return time.time() >= int(claims.get("exp", 0))
+        except Exception:
+            return False
+
     async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
         """Ensure the account's token is valid, refreshing on demand if needed.
 
@@ -184,8 +204,23 @@ class RefreshScheduler:
             print(f"Refresh skipped: account {account_id} not found", flush=True)
             return False
         if account.token_source != "cdp":
-            # Manual accounts: trust whatever token the user pushed.
-            return bool(account.token)
+            # Manual accounts have no auto-refresh profile of their own. On the
+            # passive /v1 path (force=False) we trust a still-valid token and
+            # reject only once it is genuinely expired, so the middleware can
+            # surface a 503 instead of forwarding a dead token silently. A
+            # forced refresh (the account "Refresh" button / keepalive) still
+            # falls through to _refresh_one: if the account actually carries a
+            # signed-in cookie session the capture succeeds and promotes it to
+            # "cdp"; otherwise it logs a real failure instead of a silent no-op.
+            if not force:
+                if self._is_expired(account.token):
+                    print(f"Refresh skipped: account {account_id} is manual and its token is expired (no auto-refresh profile)", flush=True)
+                    return False
+                return bool(account.token)
+            print(f"Forced refresh on manual account {account_id}: attempting CDP capture from its profile", flush=True)
+            async with self._account_lock(account_id):
+                async with self._lock:
+                    return await self._refresh_one(account_id)
         if not force and not self._needs_refresh(account.token):
             return True
 

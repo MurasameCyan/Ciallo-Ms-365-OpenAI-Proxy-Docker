@@ -229,7 +229,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             # Take over the shared identity: refresh its token, bind this key,
             # and displace every OTHER key currently pointing at it so those
             # users get a "your account was taken over" notice on their page.
-            acc = app.state.account_store.update_token(reused.id, token, token_source="manual")
+            acc = app.state.account_store.push_token(reused.id, token)
             now = time.time()
             for other in app.state.key_store.list_for_account(reused.id):
                 if other.id == k.id:
@@ -247,7 +247,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                 acc = app.state.account_store.add(name=k.name or "user", token=token, token_source="manual")
                 app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             else:
-                acc = app.state.account_store.update_token(acc_id, token, token_source="manual")
+                acc = app.state.account_store.push_token(acc_id, token)
                 if k.displaced_at:
                     app.state.key_store.update(k.id, displaced_at=0.0)
         return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}

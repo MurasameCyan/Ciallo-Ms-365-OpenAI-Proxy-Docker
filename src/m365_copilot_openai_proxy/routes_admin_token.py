@@ -58,7 +58,7 @@ def register_admin_token_routes(app: FastAPI, require_admin: Callable[[Request],
         if email:
             acc = app.state.account_store.find_by_email(email)
             if acc is not None:
-                app.state.account_store.update_token(acc.id, token, token_source="manual")
+                app.state.account_store.push_token(acc.id, token)
         return {"status": "ok", "message": "Token updated", "token_status": app.state.token_store.status()}
 
     @app.post("/admin/token/auto-capture")
