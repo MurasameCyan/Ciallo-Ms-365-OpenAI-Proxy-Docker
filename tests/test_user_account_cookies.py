@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
@@ -18,6 +20,26 @@ class FakeRefreshScheduler:
 class FailingRefreshScheduler:
     async def inject_cookies(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
         return 0, len(cookies)
+
+
+class RecordingRefreshScheduler:
+    """Records ensure_fresh calls so we can assert the post-push background
+    refresh is (or is not) triggered after a cookie injection."""
+
+    def __init__(self, account_store, inject_valid: bool = True):
+        self.account_store = account_store
+        self.inject_valid = inject_valid
+        self.ensure_fresh_calls: list[tuple[str, bool]] = []
+
+    async def inject_cookies(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
+        if self.inject_valid:
+            self.account_store.set_cookie_status(account_id, True)
+            return len(cookies), len(cookies)
+        return 0, len(cookies)
+
+    async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
+        self.ensure_fresh_calls.append((account_id, force))
+        return True
 
 
 def make_test_app(tmp_path):
@@ -166,4 +188,48 @@ def test_cookie_push_renames_existing_account_to_microsoft_username(tmp_path):
     assert response.status_code == 200
     account = app.state.account_store.get(account.id)
     assert account.name == "Microsoft User"
+
+
+def test_post_push_refresh_triggers_forced_refresh_on_successful_injection(tmp_path):
+    """A successful cookie injection must spawn a background ensure_fresh(force=True)
+    so the account gets a real token + positive cookie_expires_at (which is what
+    arms keepalive). Asserted on the helper directly because the endpoint fires it
+    detached; the HTTP-layer timing is not deterministic under TestClient."""
+    from m365_copilot_openai_proxy import routes_user
+
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(name="Microsoft User", token="", token_source="cdp")
+    scheduler = RecordingRefreshScheduler(app.state.account_store)
+
+    async def _drive() -> None:
+        routes_user._spawn_post_push_refresh(scheduler, account.id)
+        # Let the detached task run to completion within this loop.
+        await asyncio.sleep(0)
+        pending = [t for t in routes_user._BACKGROUND_TASKS]
+        if pending:
+            await asyncio.gather(*pending)
+
+    asyncio.run(_drive())
+
+    assert scheduler.ensure_fresh_calls == [(account.id, True)]
+
+
+def test_post_push_refresh_not_triggered_when_injection_fails(tmp_path):
+    """A failed injection (login redirect / incomplete) must NOT trigger the
+    background refresh; the endpoint returns a warning and leaves the account
+    for the user to re-push."""
+    app = make_test_app(tmp_path)
+    scheduler = RecordingRefreshScheduler(app.state.account_store, inject_valid=False)
+    app.state.refresh_scheduler = scheduler
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/cookies",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"username": "Microsoft User", "cookies": [{"name": "x", "value": "y", "domain": ".microsoft.com"}]},
+    )
+
+    assert response.status_code == 200
+    assert "warning" in response.json()
+    assert scheduler.ensure_fresh_calls == []
 

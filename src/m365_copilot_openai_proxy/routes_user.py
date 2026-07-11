@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 
@@ -14,6 +15,35 @@ from .response_helpers import _json_err
 from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 from .translator import default_tool_system_prompt
+
+# Keep strong references to fire-and-forget background tasks so the event loop
+# does not garbage-collect them mid-flight (see asyncio.create_task docs).
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
+    """After a successful cookie injection, capture a substrate token in the
+    background so the account gets a real token + a positive cookie_expires_at.
+
+    Without this the account can sit at cookie_expires_at=0, which _keepalive_due
+    treats as "no signal" and never auto-refreshes, so the session silently dies
+    once the cookie expires. Runs detached: the push response returns immediately
+    and the token/expiry appear on the next admin refresh (~10-20s later).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def _run() -> None:
+        try:
+            await scheduler.ensure_fresh(account_id, force=True)
+        except Exception as exc:  # noqa: BLE001 - detached task must not raise
+            print(f"Post-push refresh failed for {account_id}: {exc}", flush=True)
+
+    task = loop.create_task(_run())
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
 def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options: list[dict]) -> None:
@@ -279,6 +309,12 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             warning = f"Cookie saved, but Chromium injection incomplete: {injected}/{total}"
         elif not acc or not acc.cookie_valid:
             warning = "Cookie saved, but Microsoft redirected to login. Please sign in to M365 in the browser and push cookies again."
+        else:
+            # Injection established the session but only sets cookie_expires_at
+            # from the cookies' own expiry (often 0 for session cookies). Capture
+            # a token in the background so a real token + 12h expiry land now,
+            # which is what arms keepalive auto-refresh (see _spawn helper).
+            _spawn_post_push_refresh(app.state.refresh_scheduler, k.account_id)
         if account_name and acc and acc.name != account_name:
             app.state.account_store.rename(k.account_id, account_name)
         result = {"status": "ok", "injected": injected, "total": total}
