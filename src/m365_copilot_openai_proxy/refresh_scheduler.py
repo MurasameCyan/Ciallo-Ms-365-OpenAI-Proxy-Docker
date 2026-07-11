@@ -408,25 +408,6 @@ class RefreshScheduler:
         if account is None:
             print(f"Refresh failed: account {account_id} not found", flush=True)
             return False
-        # Preferred path: re-inject the account's stored cookies and capture the
-        # token in that SAME live session. This is exactly what the manual
-        # cookie-refresh button does (which the user confirmed works). Reopening
-        # the persisted profile bare (fallback below) is unreliable: a Chromium
-        # restart loses the freshly established MSAL session, so silent SSO falls
-        # back to an INTERACTIVE popup that dead-ends on spalanding#code and never
-        # yields a token (observed as repeated /v1 503s). Capturing while the
-        # injected cookies are live in this very session is the only reliable path.
-        stored_cookies = list(getattr(account, "cookies", []) or [])
-        if stored_cookies:
-            try:
-                await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
-            except Exception as exc:
-                print(f"Refresh via cookie re-injection errored for {account_id}: {exc}", flush=True)
-            refreshed = self._accounts.get(account_id) or account
-            if refreshed.token and not self._needs_refresh(refreshed.token):
-                print(f"Refresh succeeded for {account_id}: token captured during cookie re-injection", flush=True)
-                return True
-            print(f"Refresh via cookie re-injection did not yield a fresh token for {account_id}; falling back to bare profile reopen", flush=True)
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)
@@ -448,15 +429,10 @@ class RefreshScheduler:
                 "--log-level=3",
                 "--disable-software-rasterizer",
                 "--headless=new",
-                # Plain chat URL (NO login_hint). Each account owns an isolated
-                # profile that is wiped + re-injected per account_id, so it only
-                # ever carries one Microsoft session and needs no identity bias.
-                # A login_hint here makes MSAL open an INTERACTIVE authorize
-                # popup (interactionType:popup) that can never complete headless,
-                # so refresh got stuck on login.microsoftonline.com and captured
-                # no token. Identity is still enforced after capture by
-                # _identity_conflict + _select_substrate_token(expected_email).
-                _refresh_launch_url(),
+                # login_hint biases silent SSO to this account so refresh
+                # resolves the intended identity even when the profile/cookies
+                # carry more than one Microsoft session (see cli._m365_chat_url).
+                _refresh_launch_url(account.email),
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:
             print(f"Refresh failed for {account_id}: Chromium launch error: {exc}", flush=True)
