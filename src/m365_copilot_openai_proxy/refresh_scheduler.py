@@ -55,6 +55,9 @@ _LAUNCH_TIMEOUT_SECONDS = 30
 # cdp accounts warm so a cold /v1 request never lands on an expired session.
 _KEEPALIVE_CHECK_INTERVAL_SECONDS = 300
 _COOKIE_KEEPALIVE_BEFORE_SECONDS = 2 * 60 * 60
+# Min gap between self-heal cookie re-injections for one stuck account, so a
+# genuinely dead session does not relaunch Chromium every keepalive tick.
+_RECOVERY_RETRY_SECONDS = 30 * 60
 
 
 class RefreshScheduler:
@@ -85,6 +88,8 @@ class RefreshScheduler:
         # are overridden from admin runtime settings via set_keepalive_params().
         self._keepalive_interval_seconds: float = _KEEPALIVE_CHECK_INTERVAL_SECONDS
         self._cookie_keepalive_before_seconds: float = _COOKIE_KEEPALIVE_BEFORE_SECONDS
+        # Last self-heal (cookie re-inject) attempt per account, for backoff.
+        self._recovery_attempted_at: dict[str, float] = {}
 
     def set_keepalive_params(self, check_interval_seconds: float | None = None, cookie_before_seconds: float | None = None) -> None:
         """Update keepalive tunables from admin runtime settings (seconds)."""
@@ -131,6 +136,26 @@ class RefreshScheduler:
             return False
         return account.cookie_expires_at - time.time() < self._cookie_keepalive_before_seconds
 
+    def _recovery_due(self, account) -> bool:
+        """True for a cdp account stuck at cookie_valid=False that still holds
+        stored cookies we can replay to self-heal.
+
+        A failed refresh marks the cookie invalid, which then makes _keepalive_due
+        skip the account forever -- it can only recover via a manual cookie push.
+        When the stored cookies are still present we can replay them (exactly what
+        the admin "cookie refresh" button does) to re-establish the session, so
+        keepalive heals the account on its own. Backoff via _RECOVERY_RETRY_SECONDS
+        keeps a genuinely dead session from relaunching Chromium every tick.
+        """
+        if account.token_source != "cdp":
+            return False
+        if account.cookie_valid:
+            return False
+        if not getattr(account, "cookies", None):
+            return False
+        last = self._recovery_attempted_at.get(account.id, 0.0)
+        return time.time() - last >= _RECOVERY_RETRY_SECONDS
+
     async def _keepalive_loop(self) -> None:
         stop = self._keepalive_stop
         assert stop is not None
@@ -139,15 +164,26 @@ class RefreshScheduler:
                 for account in self._accounts.list():
                     if stop.is_set():
                         break
-                    if not self._keepalive_due(account):
-                        continue
-                    print(f"Keepalive: refreshing {account.id} (cookie near expiry)", flush=True)
-                    try:
-                        # force=True so a still-valid-but-soon-to-expire token is
-                        # refreshed now. ensure_fresh serialises via the global lock.
-                        await self.ensure_fresh(account.id, force=True)
-                    except Exception as exc:
-                        print(f"Keepalive refresh error for {account.id}: {exc}", flush=True)
+                    if self._keepalive_due(account):
+                        print(f"Keepalive: refreshing {account.id} (cookie near expiry)", flush=True)
+                        try:
+                            # force=True so a still-valid-but-soon-to-expire token is
+                            # refreshed now. ensure_fresh serialises via the global lock.
+                            await self.ensure_fresh(account.id, force=True)
+                        except Exception as exc:
+                            print(f"Keepalive refresh error for {account.id}: {exc}", flush=True)
+                    elif self._recovery_due(account):
+                        # Self-heal a stuck (cookie_valid=False) account by replaying
+                        # its stored cookies -- the same path as the manual cookie
+                        # refresh button that the user confirmed recovers the session.
+                        self._recovery_attempted_at[account.id] = time.time()
+                        stored = list(getattr(account, "cookies", []) or [])
+                        print(f"Keepalive: self-heal re-injecting cookies for {account.id} (cookie invalid, {len(stored)} stored)", flush=True)
+                        try:
+                            injected, total = await self.inject_cookies(account.id, stored)
+                            print(f"Keepalive self-heal for {account.id}: injected {injected}/{total}", flush=True)
+                        except Exception as exc:
+                            print(f"Keepalive self-heal error for {account.id}: {exc}", flush=True)
             except Exception as exc:
                 print(f"Keepalive loop iteration error: {exc}", flush=True)
             try:
@@ -387,10 +423,15 @@ class RefreshScheduler:
                 "--log-level=3",
                 "--disable-software-rasterizer",
                 "--headless=new",
-                # login_hint biases silent SSO to this account so refresh
-                # resolves the intended identity even when the profile/cookies
-                # carry more than one Microsoft session (see cli._m365_chat_url).
-                _refresh_launch_url(account.email),
+                # Plain chat URL (NO login_hint). Each account owns an isolated
+                # profile that is wiped + re-injected per account_id, so it only
+                # ever carries one Microsoft session and needs no identity bias.
+                # A login_hint here makes MSAL open an INTERACTIVE authorize
+                # popup (interactionType:popup) that can never complete headless,
+                # so refresh got stuck on login.microsoftonline.com and captured
+                # no token. Identity is still enforced after capture by
+                # _identity_conflict + _select_substrate_token(expected_email).
+                _refresh_launch_url(),
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:
             print(f"Refresh failed for {account_id}: Chromium launch error: {exc}", flush=True)

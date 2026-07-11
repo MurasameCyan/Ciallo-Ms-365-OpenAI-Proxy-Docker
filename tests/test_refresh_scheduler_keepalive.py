@@ -48,3 +48,38 @@ def test_not_due_when_expiry_unset(tmp_path):
     sched = _make_scheduler(tmp_path)
     acct = _acct(cookie_expires_at=0.0)
     assert sched._keepalive_due(acct) is False
+
+
+# --------------------------------------------------------- _recovery_due (self-heal)
+
+def test_recovery_due_for_stuck_cdp_account_with_stored_cookies(tmp_path):
+    """A cdp account marked cookie_valid=False but still holding cookies should
+    be eligible for self-heal re-injection (the death-spiral fix)."""
+    sched = _make_scheduler(tmp_path)
+    acct = _acct(cookie_valid=False, cookies=[{"name": "ESTSAUTH", "value": "x"}])
+    assert sched._recovery_due(acct) is True
+
+
+def test_recovery_not_due_when_cookie_still_valid(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _acct(cookie_valid=True, cookies=[{"name": "ESTSAUTH", "value": "x"}])
+    assert sched._recovery_due(acct) is False
+
+
+def test_recovery_not_due_without_stored_cookies(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _acct(cookie_valid=False, cookies=[])
+    assert sched._recovery_due(acct) is False
+
+
+def test_recovery_not_due_for_manual_account(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _acct(token_source="manual", cookie_valid=False, cookies=[{"name": "ESTSAUTH", "value": "x"}])
+    assert sched._recovery_due(acct) is False
+
+
+def test_recovery_backoff_blocks_immediate_retry(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _acct(cookie_valid=False, cookies=[{"name": "ESTSAUTH", "value": "x"}])
+    sched._recovery_attempted_at[acct.id] = time.time()
+    assert sched._recovery_due(acct) is False

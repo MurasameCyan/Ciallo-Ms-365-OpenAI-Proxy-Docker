@@ -333,7 +333,11 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
 
     await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
     await ws.send(json.dumps({"id": 2, "method": "Network.enable", "params": {"maxTotalBufferSize": 10000000, "maxResourceBufferSize": 5000000}}))
-    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": _m365_chat_url(expected_email)}}))
+    # Plain chat URL (NO login_hint): a login_hint makes MSAL open an interactive
+    # authorize popup that never completes headless, so the nudge would navigate
+    # into login.microsoftonline.com instead of reconnecting the substrate WS.
+    # expected_email still pins identity below when matching the captured token.
+    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": _m365_chat_url()}}))
     await asyncio.sleep(2)
     await ws.send(json.dumps({"id": 4, "method": "Page.reload", "params": {"ignoreCache": True}}))
 
