@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
-from pathlib import Path
-from urllib.parse import quote
 
 import httpx
 import websockets
@@ -13,6 +12,66 @@ import websockets
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
 logger = logging.getLogger(__name__)
+
+_CDP_JS = """
+(() => {
+    const candidates = [];
+    for (const store of [sessionStorage, localStorage]) {
+        for (const key of ['LokiAuthToken', ...Object.keys(store).filter(k => k.startsWith('LokiAuthToken'))]) {
+            const token = store.getItem(key);
+            if (token && token.startsWith('eyJ')) candidates.push(token);
+        }
+    }
+    for (const entry of performance.getEntriesByType('resource')) {
+        if (!entry.name.includes('substrate.office.com') ||
+            !entry.name.includes('access_token=')) continue;
+        const match = entry.name.match(/[?&]access_token=([^&]+)/);
+        if (match) candidates.push(decodeURIComponent(match[1]));
+    }
+    const stores = [sessionStorage, localStorage];
+    for (const store of stores) {
+        for (const k of Object.keys(store)) {
+            if (!k.includes('accesstoken')) continue;
+            try {
+                const v = JSON.parse(store.getItem(k));
+                if (v && v.secret && v.secret.startsWith('eyJ') &&
+                    ((v.target && v.target.includes('substrate')) || k.includes('substrate'))) {
+                    candidates.push(v.secret);
+                }
+            } catch {}
+        }
+    }
+    return candidates;
+})()
+"""
+
+_CDP_DELETE_MSG_JS = """
+(() => {
+    // Find and click the "more options" / delete button on the latest user message
+    const msgs = document.querySelectorAll('[data-content-length], [aria-label*="Delete"], button[title*="Delete"], button[title*="删除"]');
+    // Try clicking "more options" on the last user message, then delete
+    const moreBtns = document.querySelectorAll('button[aria-label*="More"], button[aria-label*="更多"], button[title*="More options"]');
+    if (moreBtns.length > 0) {
+        const last = moreBtns[moreBtns.length - 1];
+        last.click();
+        setTimeout(() => {
+            const delBtn = document.querySelector('button[aria-label*="Delete"], button[aria-label*="删除"], [data-testid*="delete"]');
+            if (delBtn) delBtn.click();
+        }, 500);
+    }
+    return true;
+})()
+"""
+
+_CDP_NUDGE_JS = """
+(() => {
+    const input = document.querySelector('[aria-label="Message Copilot"], textarea, [contenteditable="true"], [role="textbox"]');
+    if (!input) return false;
+    input.focus();
+    input.click();
+    return true;
+})()
+"""
 
 def _token_identity_email(token: str) -> str:
     """Best-effort lowercase email/UPN from a JWT, used only for identity pinning.
@@ -201,6 +260,9 @@ def _wait_for_m365_page(cdp_port: int, timeout_seconds: int) -> bool:
 
 
 def _capture_token_to_env(cdp_port: int, timeout_seconds: int) -> bool:
+    # Lazy import to avoid a cli <-> cli_cdp import cycle (cli imports cli_cdp).
+    from .cli import _write_token
+
     token = asyncio.run(_cdp_capture_websocket_token(cdp_port, timeout_seconds))
     if not token:
         return False
@@ -209,6 +271,9 @@ def _capture_token_to_env(cdp_port: int, timeout_seconds: int) -> bool:
 
 
 def _needs_substrate_token(token: str | None) -> bool:
+    # Lazy import to avoid a cli <-> cli_cdp import cycle (cli imports cli_cdp).
+    from .cli import _seconds_remaining
+
     if not token or not _is_substrate_token(token):
         return True
     try:
@@ -218,6 +283,9 @@ def _needs_substrate_token(token: str | None) -> bool:
 
 
 def _startup_capture_loop(cdp_port: int, timeout_seconds: int) -> None:
+    # Lazy import to avoid a cli <-> cli_cdp import cycle (cli imports cli_cdp).
+    from .cli import _try_auto_refresh
+
     print("Waiting for the debug Edge M365 tab...")
     _wait_for_m365_page(cdp_port, min(timeout_seconds, 30))
     print("Trying to refresh Substrate token from the debug Edge tab...")

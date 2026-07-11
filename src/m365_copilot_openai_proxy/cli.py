@@ -77,66 +77,6 @@ class _SuppressPollingAccess(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccess())
 
-_CDP_JS = """
-(() => {
-    const candidates = [];
-    for (const store of [sessionStorage, localStorage]) {
-        for (const key of ['LokiAuthToken', ...Object.keys(store).filter(k => k.startsWith('LokiAuthToken'))]) {
-            const token = store.getItem(key);
-            if (token && token.startsWith('eyJ')) candidates.push(token);
-        }
-    }
-    for (const entry of performance.getEntriesByType('resource')) {
-        if (!entry.name.includes('substrate.office.com') ||
-            !entry.name.includes('access_token=')) continue;
-        const match = entry.name.match(/[?&]access_token=([^&]+)/);
-        if (match) candidates.push(decodeURIComponent(match[1]));
-    }
-    const stores = [sessionStorage, localStorage];
-    for (const store of stores) {
-        for (const k of Object.keys(store)) {
-            if (!k.includes('accesstoken')) continue;
-            try {
-                const v = JSON.parse(store.getItem(k));
-                if (v && v.secret && v.secret.startsWith('eyJ') &&
-                    ((v.target && v.target.includes('substrate')) || k.includes('substrate'))) {
-                    candidates.push(v.secret);
-                }
-            } catch {}
-        }
-    }
-    return candidates;
-})()
-"""
-
-_CDP_DELETE_MSG_JS = """
-(() => {
-    // Find and click the "more options" / delete button on the latest user message
-    const msgs = document.querySelectorAll('[data-content-length], [aria-label*="Delete"], button[title*="Delete"], button[title*="删除"]');
-    // Try clicking "more options" on the last user message, then delete
-    const moreBtns = document.querySelectorAll('button[aria-label*="More"], button[aria-label*="更多"], button[title*="More options"]');
-    if (moreBtns.length > 0) {
-        const last = moreBtns[moreBtns.length - 1];
-        last.click();
-        setTimeout(() => {
-            const delBtn = document.querySelector('button[aria-label*="Delete"], button[aria-label*="删除"], [data-testid*="delete"]');
-            if (delBtn) delBtn.click();
-        }, 500);
-    }
-    return true;
-})()
-"""
-
-_CDP_NUDGE_JS = """
-(() => {
-    const input = document.querySelector('[aria-label="Message Copilot"], textarea, [contenteditable="true"], [role="textbox"]');
-    if (!input) return false;
-    input.focus();
-    input.click();
-    return true;
-})()
-"""
-
 
 def _try_auto_refresh(cdp_port: int, *, allow_nudge: bool = True) -> bool:
     token = asyncio.run(_cdp_extract_token(cdp_port, allow_nudge=allow_nudge))
