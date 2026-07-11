@@ -457,6 +457,20 @@ class RefreshScheduler:
                 tabs = _cdp_tab_summary(account.cdp_port)
                 if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:
                     self._accounts.set_cookie_status(account_id, False)
+                # Read-only diagnostic: dump the stuck page's MSAL localStorage
+                # account keys. Empty msalAccountKeys means the injected-cookie
+                # profile has no cached MSAL account, so silent SSO cannot run and
+                # the SPA dead-ends on an interactive popup (spalanding#code) --
+                # which is the actual reason no substrate token appears. This
+                # distinguishes that from a missing-cookie problem. Never mutates.
+                try:
+                    from .cli_cdp import _cdp_login_diagnostic
+
+                    diag = await _cdp_login_diagnostic(account.cdp_port)
+                    if diag:
+                        print(f"Refresh login diagnostic for {account_id}: {diag}", flush=True)
+                except Exception as exc:
+                    print(f"Refresh login diagnostic skipped for {account_id}: {exc}", flush=True)
                 print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
                 return False
             # Identity guard: the persistent profile can retain another account's

@@ -235,6 +235,70 @@ def _cdp_tab_summary(cdp_port: int) -> str:
         return f"failed to list tabs: {exc}"
 
 
+# Read-only login diagnostic. m365 is an MSAL SPA that stores the signed-in
+# account in localStorage (NOT just cookies). A profile that only had cookies
+# injected has NO cached MSAL account, so MSAL cannot do silent SSO and the SPA
+# dead-ends on an interactive popup (spalanding#code). This probe dumps the
+# stuck page's URL, any MSAL/account localStorage keys, and client-visible
+# cookie names so we can tell empty-MSAL-account (needs interactive login /
+# localStorage restore) apart from a missing-cookie problem. Pure read; it
+# changes nothing on the page.
+_CDP_LOGIN_DIAG_JS = """
+(() => {
+    const out = {url: location.href, msalAccountKeys: [], cookieNames: []};
+    try {
+        for (const k of Object.keys(localStorage)) {
+            const lk = k.toLowerCase();
+            if (lk.includes('login.windows') || lk.includes('msal') ||
+                lk.includes('login.microsoftonline.com') || lk.includes('authority') ||
+                lk.includes('account') || lk.includes('clientinfo')) {
+                out.msalAccountKeys.push(k.slice(0, 120));
+            }
+        }
+    } catch (e) { out.lsError = String(e); }
+    try {
+        out.cookieNames = document.cookie.split(';')
+            .map(s => s.trim().split('=')[0]).filter(Boolean);
+    } catch (e) {}
+    return JSON.stringify(out).slice(0, 1600);
+})()
+"""
+
+
+async def _cdp_login_diagnostic(cdp_port: int) -> str | None:
+    """Read-only: dump the current m365 tab's MSAL localStorage account keys.
+
+    Returns a short JSON string or None. Never mutates the page; safe to call on
+    a failed-refresh page to diagnose why silent SSO did not yield a token.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            tabs = (await client.get(f"http://localhost:{cdp_port}/json")).json()
+    except Exception:
+        return None
+    tab = _find_m365_page(tabs) or next(
+        (t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")), None
+    )
+    if not tab or not tab.get("webSocketDebuggerUrl"):
+        return None
+    try:
+        async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
+            await ws.send(json.dumps({
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {"expression": _CDP_LOGIN_DIAG_JS, "returnByValue": True},
+            }))
+            deadline = asyncio.get_running_loop().time() + 3
+            while asyncio.get_running_loop().time() < deadline:
+                raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+                msg = json.loads(raw)
+                if msg.get("id") == 1:
+                    return msg.get("result", {}).get("result", {}).get("value")
+    except Exception:
+        return None
+    return None
+
+
 async def _navigate_tab_to_m365(tab: dict) -> None:
     ws_url = tab.get("webSocketDebuggerUrl")
     if not ws_url:
