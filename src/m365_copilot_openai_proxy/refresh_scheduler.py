@@ -408,6 +408,24 @@ class RefreshScheduler:
         if account is None:
             print(f"Refresh failed: account {account_id} not found", flush=True)
             return False
+        # Preferred path: re-inject stored cookies + seed MSAL localStorage and
+        # capture the token in that SAME live session. Runtime evidence: the
+        # injection session (plain /chat + seeded MSAL account keys) reliably
+        # reaches an established login (shell=False), while a bare profile reopen
+        # navigates to chat?login_hint and degrades to an interactive popup that
+        # dead-ends on spalanding#code (repeated /v1 503s). So capture HERE,
+        # where the seeded account makes silent SSO work; bare reopen is fallback.
+        stored_cookies = list(getattr(account, "cookies", []) or [])
+        if stored_cookies:
+            try:
+                await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
+            except Exception as exc:
+                print(f"Refresh via cookie re-injection errored for {account_id}: {exc}", flush=True)
+            refreshed = self._accounts.get(account_id) or account
+            if refreshed.token and not self._needs_refresh(refreshed.token):
+                print(f"Refresh succeeded for {account_id}: token captured during cookie re-injection", flush=True)
+                return True
+            print(f"Refresh via cookie re-injection did not yield a fresh token for {account_id}; falling back to bare profile reopen", flush=True)
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)

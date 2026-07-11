@@ -411,9 +411,12 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
 
     await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
     await ws.send(json.dumps({"id": 2, "method": "Network.enable", "params": {"maxTotalBufferSize": 10000000, "maxResourceBufferSize": 5000000}}))
-    # login_hint biases silent SSO to the intended account so the nudge
-    # reconnects the substrate WS as the right identity (matches v10 behaviour).
-    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": _m365_chat_url(expected_email)}}))
+    # Plain /chat (NO login_hint). Runtime evidence: with the MSAL account seeded
+    # into localStorage, navigating to plain /chat reaches an established login
+    # (silent SSO works), while chat?login_hint degrades to an interactive popup
+    # that dead-ends on spalanding#code. Identity is still enforced after capture
+    # via _identity_conflict / _select_substrate_token(expected_email).
+    await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": _m365_chat_url()}}))
     await asyncio.sleep(2)
     await ws.send(json.dumps({"id": 4, "method": "Page.reload", "params": {"ignoreCache": True}}))
 
