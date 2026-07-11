@@ -91,24 +91,38 @@ def _token_identity_email(token: str) -> str:
 
 
 def _select_substrate_token(candidates: list[str], expected_email: str = "") -> str | None:
-    """Pick a valid substrate token, preferring the expected identity.
+    """Pick a valid substrate token, PREFERRING the expected identity but never
+    rejecting a valid token solely because the identity did not match.
 
-    The persistent Chromium profile / pushed login cookies can carry sessions
-    for more than one Microsoft account, so the MSAL cache may hold valid
-    substrate tokens for several identities at once. Returning the first valid
-    token therefore risks handing back the WRONG account. When expected_email is
-    set we only accept a matching token; if none matches we return None so the
-    caller can drive a fresh SSO (nudge) for the correct identity rather than
-    silently capturing a stranger. With no expected_email (first-time capture or
-    an opaque token) we fall back to the first valid token (legacy behaviour).
+    Each account owns an isolated Chromium profile that is wiped + re-injected
+    per account_id, so any substrate token captured in that session belongs to
+    this account. The identity claim carried by a substrate token does NOT
+    always match account.email (different/absent claim, casing, opaque token),
+    so a strict "match or None" filter rejected every legitimate token and made
+    the nudge loop time out (observed as repeated /v1 503s even though cookie
+    injection succeeded). We therefore treat expected_email as a PREFERENCE:
+    return the matching token when present, otherwise fall back to the first
+    valid substrate token. Cross-identity protection still exists at write time
+    via _identity_conflict, so this fallback cannot silently overwrite an
+    account with a genuinely different identity.
     """
     want = (expected_email or "").strip().lower()
+    first_valid: str | None = None
     for token in candidates:
         if not _is_substrate_token(token):
             continue
+        if first_valid is None:
+            first_valid = token
         if not want or _token_identity_email(token) == want:
             return token
-    return None
+    if first_valid is not None and want:
+        print(
+            f"Substrate token identity did not match expected {want!r} "
+            f"(got {_token_identity_email(first_valid)!r}); using first valid token "
+            f"(profile is isolated; write-time identity guard still applies)",
+            flush=True,
+        )
+    return first_valid
 
 
 async def _cdp_extract_token(port: int, *, allow_nudge: bool = True, expected_email: str = "") -> str | None:
@@ -346,6 +360,7 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
     deadline = start + 45
     trigger_times = [start + 4, start + 10, start + 18, start + 30]
     triggered = 0
+    first_valid: str | None = None
     while loop.time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
@@ -366,15 +381,27 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
         token = match.group(1)
         if not _is_substrate_token(token):
             continue
-        # Identity pinning: a profile/cookie set carrying multiple Microsoft
-        # sessions can surface a substrate token for the wrong account. When an
-        # expected identity is known, ignore mismatches and keep waiting for the
-        # correct one instead of returning a stranger's token.
+        # Identity is a PREFERENCE, not a hard filter. The profile is isolated
+        # and wiped+re-injected per account, so any substrate token seen here
+        # belongs to this account; a mismatch usually means the substrate token
+        # simply carries a different/absent identity claim than account.email.
+        # Remember the first valid token and prefer a matching one, but never
+        # time out empty-handed when a valid token was captured. Cross-identity
+        # protection still applies at write time via _identity_conflict.
         if want and _token_identity_email(token) != want:
+            if first_valid is None:
+                first_valid = token
             continue
         await ws.send(json.dumps({"id": 20, "method": "Runtime.evaluate", "params": {"expression": "(() => { const i = document.querySelector('[aria-label=\"Message Copilot\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'); if(i){i.focus();document.execCommand('selectAll');document.execCommand('delete');} return true; })()"}}))
         return token
-    return None
+    if first_valid is not None:
+        print(
+            f"Nudge captured a substrate token whose identity did not match expected "
+            f"{want!r} (got {_token_identity_email(first_valid)!r}); using it "
+            f"(profile is isolated; write-time identity guard still applies)",
+            flush=True,
+        )
+    return first_valid
 
 
 def _is_substrate_token(token: str) -> bool:

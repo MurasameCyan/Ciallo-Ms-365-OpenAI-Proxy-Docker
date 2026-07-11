@@ -46,9 +46,18 @@ def test_select_prefers_matching_identity_over_first_valid():
     assert _select_substrate_token([yuzu, gayhub], "gayhub@office.bo.edu.kg") == gayhub
 
 
-def test_select_returns_none_when_no_candidate_matches_expected():
+def test_select_falls_back_to_first_valid_when_no_identity_match():
+    """Identity is a preference, not a hard filter: when no candidate matches the
+    expected identity we still return the first valid substrate token rather than
+    None. The profile is isolated per account and the write-time _identity_conflict
+    guard blocks genuinely mismatched identities, so this is safe and prevents the
+    nudge loop from timing out empty-handed on a legitimate token."""
     yuzu = _substrate_jwt("yuzu@office.bo.edu.kg")
-    assert _select_substrate_token([yuzu], "gayhub@office.bo.edu.kg") is None
+    assert _select_substrate_token([yuzu], "gayhub@office.bo.edu.kg") == yuzu
+
+
+def test_select_returns_none_when_no_valid_candidate():
+    assert _select_substrate_token(["not-a-jwt", ""], "gayhub@office.bo.edu.kg") is None
 
 
 def test_select_falls_back_to_first_valid_without_expected_email():
