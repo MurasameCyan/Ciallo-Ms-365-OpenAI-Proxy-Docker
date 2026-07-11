@@ -6,10 +6,10 @@ import os
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
-from .refresh_browser_helpers import _is_login_url, _is_logged_out_shell
-from .refresh_cookies import _cdp_cookie_params, _critical_cookie_report
+from .account_store import extract_identity
+from .refresh_browser_helpers import _identity_conflict, _is_login_url, _is_logged_out_shell
+from .refresh_cookies import _SESSION_COOKIE_PERSIST_SECONDS, _cdp_cookie_params, _critical_cookie_report
 
 # Verbose cookie-injection diagnostics (critical-cookie report + MSAL
 # localStorage dump). Off by default to keep logs clean; set
@@ -42,6 +42,26 @@ _CDP_LOGIN_DIAG_JS = """
     return JSON.stringify(out).slice(0, 1500);
 })()
 """
+
+
+def _apply_opportunistic_token(accounts, account_id: str, account_email: str, grabbed: str | None) -> bool:
+    """Decide whether an opportunistically grabbed token may be written.
+
+    Pure/synchronous so it is unit-testable without a Chromium session. The
+    identity guard is mandatory: a shared profile can retain another tenant's
+    session, so a mismatched token must never be written to this account.
+    Returns True only when a token was actually written.
+    """
+    if not grabbed:
+        return False
+    if _identity_conflict(account_email, grabbed):
+        _, captured_email = extract_identity(grabbed)
+        print(f"Cookie injection skipped opportunistic token for {account_id}: identity mismatch (account={account_email!r}, captured={captured_email!r})", flush=True)
+        return False
+    accounts.update_token(account_id, grabbed, token_source="cdp")
+    accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=time.time() + _SESSION_COOKIE_PERSIST_SECONDS)
+    print(f"Cookie injection opportunistically captured token for {account_id} (no nudge, same session)", flush=True)
+    return True
 
 
 async def inject_cookies_one(
@@ -215,6 +235,24 @@ async def inject_cookies_one(
                 print(f"Cookie injection armed CDP refresh for {account_id} (NoAccountOnStart shell, SSO capture deferred to refresh): {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
             else:
                 print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
+                # Opportunistic token grab: the login is established and Chromium
+                # is still alive (closes in finally), so try to read a substrate
+                # token from the same session WITHOUT nudging (nudge can block up
+                # to 45s and would stall the awaited push response). On success
+                # this gives the account a real token + 12h expiry immediately,
+                # so the background ensure_fresh(force=False) becomes a no-op and
+                # no second Chromium launch is needed. Any failure is silently
+                # left to that background refresh, so this never regresses the
+                # existing behaviour. The write/identity decision lives in
+                # _apply_opportunistic_token so it is unit-testable without a
+                # Chromium session.
+                try:
+                    from .cli import _cdp_extract_token
+
+                    grabbed = await _cdp_extract_token(account.cdp_port, allow_nudge=False, expected_email=account.email)
+                    _apply_opportunistic_token(accounts, account_id, account.email, grabbed)
+                except Exception as exc:
+                    print(f"Cookie injection opportunistic token skipped for {account_id}: {exc}", flush=True)
         else:
             accounts.set_cookie_status(account_id, False)
             if failures:

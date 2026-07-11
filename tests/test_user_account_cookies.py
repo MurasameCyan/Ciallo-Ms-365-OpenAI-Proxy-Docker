@@ -190,11 +190,13 @@ def test_cookie_push_renames_existing_account_to_microsoft_username(tmp_path):
     assert account.name == "Microsoft User"
 
 
-def test_post_push_refresh_triggers_forced_refresh_on_successful_injection(tmp_path):
-    """A successful cookie injection must spawn a background ensure_fresh(force=True)
-    so the account gets a real token + positive cookie_expires_at (which is what
-    arms keepalive). Asserted on the helper directly because the endpoint fires it
-    detached; the HTTP-layer timing is not deterministic under TestClient."""
+def test_post_push_refresh_triggers_background_refresh_on_successful_injection(tmp_path):
+    """A successful cookie injection must spawn a background ensure_fresh so the
+    account gets a real token + positive cookie_expires_at (which is what arms
+    keepalive). force=False is deliberate: if inject_cookies already grabbed a
+    token opportunistically the call is a cheap no-op, otherwise it does a real
+    (nudge) refresh. Asserted on the helper directly because the endpoint fires
+    it detached; the HTTP-layer timing is not deterministic under TestClient."""
     from m365_copilot_openai_proxy import routes_user
 
     app = make_test_app(tmp_path)
@@ -211,7 +213,7 @@ def test_post_push_refresh_triggers_forced_refresh_on_successful_injection(tmp_p
 
     asyncio.run(_drive())
 
-    assert scheduler.ensure_fresh_calls == [(account.id, True)]
+    assert scheduler.ensure_fresh_calls == [(account.id, False)]
 
 
 def test_post_push_refresh_not_triggered_when_injection_fails(tmp_path):

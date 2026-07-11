@@ -37,7 +37,12 @@ def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
 
     async def _run() -> None:
         try:
-            await scheduler.ensure_fresh(account_id, force=True)
+            # force=False on purpose: if inject_cookies already captured a token
+            # opportunistically in the same session, the token is fresh and this
+            # becomes a cheap no-op (no second Chromium launch). It only spins up
+            # a real refresh (with nudge) when the opportunistic grab did not land
+            # a usable token.
+            await scheduler.ensure_fresh(account_id, force=False)
         except Exception as exc:  # noqa: BLE001 - detached task must not raise
             print(f"Post-push refresh failed for {account_id}: {exc}", flush=True)
 
