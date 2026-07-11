@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import os
-import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -39,10 +35,11 @@ from .refresh_media import (
     _auth_headers_for_account,
     _auth_headers_for_token,
     _body_preview,
-    _designer_fetch_expression,
     _is_designer_media_url,
     _is_teams_media_url,
 )
+from .refresh_image_fetch import fetch_image_one as _fetch_image_one_impl
+from .refresh_cookie_inject import inject_cookies_one as _inject_cookies_one_impl
 
 
 
@@ -58,48 +55,6 @@ _LAUNCH_TIMEOUT_SECONDS = 30
 # cdp accounts warm so a cold /v1 request never lands on an expired session.
 _KEEPALIVE_CHECK_INTERVAL_SECONDS = 300
 _COOKIE_KEEPALIVE_BEFORE_SECONDS = 2 * 60 * 60
-# Media (and future video) bodies are returned base64-encoded over the CDP
-# WebSocket and can far exceed the websockets 1 MB default frame limit (a 2 MB
-# image already triggers HTTP 1009 "message too big"). Media sizes are
-# unpredictable, so disable the frame cap for the media-fetch socket only; the
-# upstream is the trusted M365 endpoint.
-_CDP_MEDIA_MAX_MESSAGE_BYTES = None  # None = no size limit
-
-
-# Verbose cookie-injection diagnostics (critical-cookie report + MSAL
-# localStorage dump). Off by default to keep logs clean; set
-# COOKIE_INJECT_DEBUG=1 to re-enable when troubleshooting NoAccountOnStart /
-# session-establishment problems.
-_COOKIE_INJECT_DEBUG = bool(int(os.environ.get("COOKIE_INJECT_DEBUG", "0")))
-
-# Names of the Microsoft auth cookies that actually carry the signed-in session.
-# Used only for diagnostic logging so we can see, after a failed injection,
-# whether the critical cookies even reached the refresh browser.
-# Read-only page probe: m365 is an MSAL SPA that keeps the signed-in account in
-# localStorage, NOT just cookies. "NoAccountOnStart" means MSAL found no account
-# in its local cache. This dumps the final URL, any MSAL/account localStorage
-# keys, and the client-visible cookie names so we can tell whether the session
-# failed because (a) MSAL has no cached account, or (b) an auth cookie is missing.
-_CDP_LOGIN_DIAG_JS = """
-(() => {
-    const out = {url: location.href, msalKeys: [], cookieNames: []};
-    try {
-        for (const k of Object.keys(localStorage)) {
-            const lk = k.toLowerCase();
-            if (lk.includes('login.windows') || lk.includes('msal') ||
-                lk.includes('authority') || lk.includes('account') ||
-                lk.includes('.microsoft') || lk.includes('clientinfo')) {
-                out.msalKeys.push(k.slice(0, 100));
-            }
-        }
-    } catch (e) {}
-    try {
-        out.cookieNames = document.cookie.split(';')
-            .map(s => s.trim().split('=')[0]).filter(Boolean);
-    } catch (e) {}
-    return JSON.stringify(out).slice(0, 1500);
-})()
-"""
 
 
 class RefreshScheduler:
@@ -342,391 +297,34 @@ class RefreshScheduler:
         return response.content, response.headers.get("content-type", "application/octet-stream")
 
     async def _fetch_image_one(self, account_id: str, url: str, event_sink=None) -> tuple[bytes, str]:
-        account = self._accounts.get(account_id)
-        if account is None:
-            raise RuntimeError(f"account {account_id} not found")
-        account_profile_dir = self._profile_root / account_id
-        if not account_profile_dir.exists():
-            raise RuntimeError("account browser profile is missing; push cookies again")
-        self._profile_root.mkdir(parents=True, exist_ok=True)
-        profile_dir = Path(tempfile.mkdtemp(prefix=f"{account_id}-media-", dir=self._profile_root))
-        _cleanup_profile_locks(profile_dir)
-        proc = None
-        try:
-            chrome_bin = _chromium_path()
-            cdp_port = account.cdp_port
-            if event_sink:
-                event_sink("chromium_launch", cdp_port=cdp_port, browser=chrome_bin)
-            proc = subprocess.Popen([
-                chrome_bin,
-                f"--remote-debugging-port={cdp_port}",
-                f"--user-data-dir={profile_dir}",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-background-networking",
-                "--disable-sync",
-                "--disable-breakpad",
-                "--disable-extensions",
-                "--disable-software-rasterizer",
-                "--headless=new",
-                "about:blank",
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            import httpx
-            import websockets
-
-            deadline = time.time() + _LAUNCH_TIMEOUT_SECONDS
-            tab = None
-            while time.time() < deadline:
-                try:
-                    async with httpx.AsyncClient(timeout=2) as client:
-                        tabs = (await client.get(f"http://localhost:{cdp_port}/json/list")).json()
-                    tab = next((t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")), None)
-                    if tab:
-                        break
-                except Exception:
-                    pass
-                await asyncio.sleep(0.3)
-            if not tab:
-                if event_sink:
-                    event_sink("chromium_cdp_timeout", cdp_port=cdp_port)
-                raise RuntimeError("Chromium CDP tab did not become ready")
-            if event_sink:
-                event_sink("chromium_cdp_ready", cdp_port=cdp_port)
-
-            async with websockets.connect(tab["webSocketDebuggerUrl"], max_size=_CDP_MEDIA_MAX_MESSAGE_BYTES) as ws:
-                next_id = 1
-
-                async def cdp_call(method: str, params: dict | None = None) -> dict:
-                    nonlocal next_id
-                    msg_id = next_id
-                    next_id += 1
-                    payload = {"id": msg_id, "method": method}
-                    if params is not None:
-                        payload["params"] = params
-                    await ws.send(json.dumps(payload))
-                    while True:
-                        msg = json.loads(await ws.recv())
-                        if msg.get("id") == msg_id:
-                            return msg
-
-                await cdp_call("Network.enable")
-                injected_cookies = 0
-                now = time.time()
-                for cookie in account.cookies:
-                    domain = str(cookie.get("domain", "") or ".microsoft.com")
-                    domain_l = domain.lower()
-                    if not any(d in domain_l for d in ("microsoft", "office.com", "live.com")):
-                        continue
-                    try:
-                        params, _, _ = _cdp_cookie_params(cookie, now)
-                    except (TypeError, ValueError):
-                        continue
-                    result = await cdp_call("Network.setCookie", params)
-                    if result.get("result", {}).get("success"):
-                        injected_cookies += 1
-                if event_sink:
-                    event_sink("chromium_cookies", cookie_count=injected_cookies)
-                # Auth is derived from the URL that still carries the fileToken so it
-                # can be lifted into the FileToken header; the request itself must use
-                # the stripped URL, or designerapp rejects it.
-                auth_headers, auth_source = _auth_headers_for_account(account, url)
-                if _is_designer_media_url(url):
-                    # A top-level document navigation to document.ashx is rejected
-                    # with HTTP 400 (Sec-Fetch-Dest: document); the M365 page loads
-                    # the image with an in-page fetch (Sec-Fetch-Dest: empty). Load
-                    # the designerapp origin first so the fetch is same-origin, then
-                    # replay the browser's request verbatim (Authorization + FileToken
-                    # headers, fileToken stripped from the query, cookies included).
-                    fetch_target = designer_object_fetch_url(url)
-                    if event_sink and fetch_target != url:
-                        event_sink("designer_url_normalized", original_query=urlsplit(url).query, fetch_query=urlsplit(fetch_target).query)
-                    parsed_target = urlsplit(fetch_target)
-                    origin = f"{parsed_target.scheme}://{parsed_target.netloc}/"
-                    await cdp_call("Page.enable")
-                    await cdp_call("Runtime.enable")
-                    await cdp_call("Page.navigate", {"url": origin})
-                    if event_sink:
-                        event_sink("chromium_fetch_start", token_header=bool(auth_headers), auth_source=auth_source)
-                    eval_result = await cdp_call(
-                        "Runtime.evaluate",
-                        {
-                            "expression": _designer_fetch_expression(fetch_target, auth_headers),
-                            "awaitPromise": True,
-                            "returnByValue": True,
-                        },
-                    )
-                    result_obj = eval_result.get("result") or {}
-                    if result_obj.get("exceptionDetails"):
-                        raise RuntimeError(str(result_obj.get("exceptionDetails")))
-                    value = (result_obj.get("result") or {}).get("value") or {}
-                    if not value.get("ok"):
-                        raise RuntimeError(str(value.get("error") or "designer fetch failed in Chromium"))
-                    status = int(value.get("status") or 0)
-                    content_type = str(value.get("contentType") or "application/octet-stream")
-                    decoded = base64.b64decode(str(value.get("body") or ""))
-                    if event_sink:
-                        event_sink(
-                            "chromium_response",
-                            status_code=status,
-                            content_type=content_type,
-                            response_host=parsed_target.hostname or "",
-                            response_path=parsed_target.path,
-                            www_authenticate="",
-                        )
-                        event_sink("chromium_body", bytes=len(decoded), base64_encoded=True, body_preview=_body_preview(decoded) if status >= 400 else "")
-                    if status == 404:
-                        raise UpstreamMediaNotFound("upstream media returned HTTP 404")
-                    if status >= 400:
-                        raise RuntimeError(f"upstream media returned HTTP {status}")
-                    return decoded, content_type
-                nav_url = url
-                if auth_headers:
-                    await cdp_call("Network.setExtraHTTPHeaders", {"headers": auth_headers})
-                await cdp_call("Page.enable")
-                if event_sink:
-                    event_sink("chromium_navigate", token_header=bool(auth_headers), auth_source=auth_source)
-                navigate_id = next_id
-                next_id += 1
-                await ws.send(json.dumps({"id": navigate_id, "method": "Page.navigate", "params": {"url": nav_url}}))
-                request_id = ""
-                content_type = "application/octet-stream"
-                status = 0
-                deadline = time.time() + 25
-                while time.time() < deadline:
-                    try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=max(0.1, deadline - time.time()))
-                    except asyncio.TimeoutError:
-                        break
-                    msg = json.loads(raw)
-                    method = msg.get("method")
-                    params = msg.get("params") or {}
-                    if method == "Network.responseReceived":
-                        response = params.get("response") or {}
-                        response_url = str(response.get("url") or "")
-                        if response_url == nav_url or response_url.startswith("https://designerapp.officeapps.live.com/designerapp/document.ashx"):
-                            request_id = str(params.get("requestId") or "")
-                            status = int(response.get("status") or 0)
-                            content_type = str(response.get("mimeType") or "application/octet-stream")
-                            response_headers = response.get("headers") or {}
-                            if event_sink:
-                                event_sink(
-                                    "chromium_response",
-                                    status_code=status,
-                                    content_type=content_type,
-                                    response_host=urlsplit(response_url).hostname or "",
-                                    response_path=urlsplit(response_url).path,
-                                    www_authenticate=str(response_headers.get("www-authenticate") or response_headers.get("WWW-Authenticate") or ""),
-                                )
-                    elif method == "Network.loadingFinished" and request_id and params.get("requestId") == request_id:
-                        break
-                    elif method == "Network.loadingFailed" and request_id and params.get("requestId") == request_id:
-                        raise RuntimeError(str(params.get("errorText") or "image loading failed"))
-                if not request_id:
-                    raise RuntimeError("image response was not observed in Chromium")
-                body_response = await cdp_call("Network.getResponseBody", {"requestId": request_id})
-                result = body_response.get("result") or {}
-                body = str(result.get("body") or "")
-                if result.get("base64Encoded"):
-                    decoded = base64.b64decode(body)
-                    if event_sink:
-                        event_sink("chromium_body", bytes=len(decoded), base64_encoded=True, body_preview=_body_preview(decoded) if status >= 400 else "")
-                    if status == 404:
-                        raise UpstreamMediaNotFound("upstream media returned HTTP 404")
-                    if status >= 400:
-                        raise RuntimeError(f"upstream media returned HTTP {status}")
-                    return decoded, content_type
-                encoded = body.encode("utf-8")
-                if event_sink:
-                    event_sink("chromium_body", bytes=len(encoded), base64_encoded=False, body_preview=_body_preview(encoded) if status >= 400 else "")
-                if status == 404:
-                    raise UpstreamMediaNotFound("upstream media returned HTTP 404")
-                if status >= 400:
-                    raise RuntimeError(f"upstream media returned HTTP {status}")
-                return encoded, content_type
-        finally:
-            await _close_chromium_gracefully(account.cdp_port, proc)
-            if proc is not None and proc.poll() is None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-            shutil.rmtree(profile_dir, ignore_errors=True)
+        # Thin delegator to refresh_image_fetch.fetch_image_one. The chromium
+        # helpers are looked up as module globals here (not passed as defaults)
+        # so tests monkeypatching refresh_scheduler._chromium_path etc. still win.
+        return await _fetch_image_one_impl(
+            self._accounts,
+            self._profile_root,
+            account_id,
+            url,
+            event_sink=event_sink,
+            chromium_path=_chromium_path,
+            cleanup_profile_locks=_cleanup_profile_locks,
+            close_chromium_gracefully=_close_chromium_gracefully,
+            launch_timeout_seconds=_LAUNCH_TIMEOUT_SECONDS,
+        )
 
     async def _inject_cookies_one(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
-        account = self._accounts.get(account_id)
-        if account is None:
-            return 0, len(cookies or [])
-        profile_dir = self._profile_root / account_id
-        # Wipe the persistent profile before injecting the freshly pushed cookies.
-        # The profile is isolated per account_id, so this only clears THIS account's
-        # residual session -- other users' profiles (profile_root/<their id>) are
-        # untouched. Without this, a previous identity's session cookies linger in
-        # the profile and the refresh browser can pick the wrong account, causing
-        # cross-account pollution. This makes the last pushed cookie the sole
-        # session for this account.
-        shutil.rmtree(profile_dir, ignore_errors=True)
-        profile_dir.mkdir(parents=True, exist_ok=True)
-        _cleanup_profile_locks(profile_dir)
-        proc = None
-        try:
-            proc = subprocess.Popen([
-                _chromium_path(),
-                f"--remote-debugging-port={account.cdp_port}",
-                f"--user-data-dir={profile_dir}",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-background-networking",
-                "--disable-sync",
-                "--disable-breakpad",
-                "--disable-features=InfiniteRestore,MediaRouter,DialMediaRouteProvider,TranslateUI",
-                "--log-level=3",
-                "--disable-software-rasterizer",
-                "--headless=new",
-                "https://m365.cloud.microsoft/chat",
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            return 0, len(cookies or [])
-        try:
-            import httpx
-            import websockets
-
-            deadline = time.time() + _LAUNCH_TIMEOUT_SECONDS
-            tab = None
-            async with httpx.AsyncClient(timeout=2) as client:
-                while time.time() < deadline:
-                    try:
-                        tabs = (await client.get(f"http://localhost:{account.cdp_port}/json")).json()
-                        tab = next((t for t in tabs if t.get("type") == "page"), None)
-                        if tab:
-                            break
-                    except Exception:
-                        pass
-                    await asyncio.sleep(0.5)
-            if not tab:
-                return 0, len(cookies or [])
-            injected = 0
-            final_url = tab.get("url", "")
-            async with websockets.connect(tab["webSocketDebuggerUrl"]) as ws:
-                if "m365.cloud.microsoft" not in tab.get("url", ""):
-                    await ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
-                    await asyncio.sleep(3)
-                    try:
-                        await asyncio.wait_for(ws.recv(), timeout=2)
-                    except Exception:
-                        pass
-                pending: set[int] = set()
-                expires_by_id: dict[int, float] = {}
-                successful_expires: list[float] = []
-                now = time.time()
-                session_persisted = 0
-                attempted = 0
-                failures: list[str] = []
-                if _COOKIE_INJECT_DEBUG:
-                    crit = _critical_cookie_report(cookies)
-                    print(f"Cookie inject diag [{account_id}] pushed={len(cookies)} critical={crit or 'NONE'}", flush=True)
-                for i, cookie in enumerate(cookies):
-                    domain = str(cookie.get("domain", "") or ".microsoft.com")
-                    domain_l = domain.lower()
-                    if not any(d in domain_l for d in ("microsoft", "office.com", "live.com")):
-                        continue
-                    try:
-                        params, exp, was_session = _cdp_cookie_params(cookie, now)
-                    except (TypeError, ValueError):
-                        continue
-                    if was_session:
-                        session_persisted += 1
-                    attempted += 1
-                    req_id = 100 + i
-                    if exp > now:
-                        expires_by_id[req_id] = float(exp)
-                    pending.add(req_id)
-                    await ws.send(json.dumps({"id": req_id, "method": "Network.setCookie", "params": params}))
-                deadline = time.time() + 6
-                while pending and time.time() < deadline:
-                    try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
-                    except Exception:
-                        continue
-                    msg = json.loads(raw)
-                    msg_id = msg.get("id")
-                    if msg_id in pending:
-                        pending.remove(msg_id)
-                        if msg.get("result", {}).get("success"):
-                            injected += 1
-                            if msg_id in expires_by_id:
-                                successful_expires.append(expires_by_id[msg_id])
-                        elif len(failures) < 5:
-                            failures.append(json.dumps(msg.get("error") or msg.get("result") or {}, ensure_ascii=False))
-                await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
-                await asyncio.sleep(8)
-                try:
-                    while True:
-                        await asyncio.wait_for(ws.recv(), timeout=0.5)
-                except Exception:
-                    pass
-                try:
-                    async with httpx.AsyncClient(timeout=2) as client:
-                        tabs = (await client.get(f"http://localhost:{account.cdp_port}/json")).json()
-                    cur = next((t for t in tabs if t.get("type") == "page"), None)
-                    if cur:
-                        final_url = cur.get("url", final_url)
-                except Exception:
-                    pass
-                # Read-only login diagnostic: dump MSAL localStorage account keys
-                # and visible cookie names so we can tell whether NoAccountOnStart
-                # is caused by MSAL having no cached account vs a missing cookie.
-                # Gated behind COOKIE_INJECT_DEBUG to avoid running the probe and
-                # spamming logs during normal operation.
-                if _COOKIE_INJECT_DEBUG:
-                    try:
-                        await ws.send(json.dumps({
-                            "id": 8888,
-                            "method": "Runtime.evaluate",
-                            "params": {"expression": _CDP_LOGIN_DIAG_JS, "returnByValue": True},
-                        }))
-                        diag = None
-                        diag_deadline = time.time() + 3
-                        while time.time() < diag_deadline:
-                            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
-                            msg = json.loads(raw)
-                            if msg.get("id") == 8888:
-                                diag = msg.get("result", {}).get("result", {}).get("value")
-                                break
-                        if diag:
-                            print(f"Cookie inject diag [{account_id}] page={diag}", flush=True)
-                    except Exception:
-                        pass
-            if attempted > 0 and injected == attempted and not _is_login_url(final_url):
-                # Legacy (v7 / single-tenant) behaviour: a completed cookie
-                # injection that is NOT redirected to a login page arms CDP
-                # auto-refresh (token_source="cdp"), even when the SPA first
-                # paint shows NoAccountOnStart. The persisted cookies still
-                # drive silent SSO token capture inside _refresh_one, so this
-                # is what enables on-demand /v1 wake-up refresh. Treating
-                # NoAccountOnStart as a failure here (previous behaviour) left
-                # token_source="manual" and permanently disabled auto-refresh.
-                self._accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=min(successful_expires) if successful_expires else 0.0)
-                if _is_logged_out_shell(final_url):
-                    print(f"Cookie injection armed CDP refresh for {account_id} (NoAccountOnStart shell, SSO capture deferred to refresh): {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
-                else:
-                    print(f"Cookie injection established login for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
-            else:
-                self._accounts.set_cookie_status(account_id, False)
-                if failures:
-                    print(f"Cookie injection CDP failures for {account_id}: {' | '.join(failures)}", flush=True)
-                if attempted > 0 and injected == attempted and _is_login_url(final_url):
-                    print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
-            return injected, attempted
-        finally:
-            await _close_chromium_gracefully(account.cdp_port, proc)
-            await asyncio.sleep(1)
-            _cleanup_profile_locks(profile_dir)
+        # Thin delegator to refresh_cookie_inject.inject_cookies_one. Same
+        # module-global resolution of the chromium helpers as _fetch_image_one.
+        return await _inject_cookies_one_impl(
+            self._accounts,
+            self._profile_root,
+            account_id,
+            cookies,
+            chromium_path=_chromium_path,
+            cleanup_profile_locks=_cleanup_profile_locks,
+            close_chromium_gracefully=_close_chromium_gracefully,
+            launch_timeout_seconds=_LAUNCH_TIMEOUT_SECONDS,
+        )
 
     async def _refresh_one(self, account_id: str) -> bool:
         account = self._accounts.get(account_id)
