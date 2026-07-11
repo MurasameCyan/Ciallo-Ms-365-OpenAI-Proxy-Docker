@@ -64,6 +64,40 @@ def _apply_opportunistic_token(accounts, account_id: str, account_email: str, gr
     return True
 
 
+async def _seed_local_storage(ws, items: dict) -> int:
+    """Write captured MSAL localStorage back onto the m365 origin (read/write).
+
+    m365 is an MSAL SPA that keeps the signed-in account in localStorage, not
+    just cookies. A cookie-only profile boots with an empty MSAL cache
+    (NoAccountOnStart), so silent SSO cannot run and refresh dead-ends on an
+    interactive popup. Seeding these keys BEFORE the final navigate (while the
+    tab is on the m365 origin) gives MSAL a cached account so it can do silent
+    iframe SSO. Returns how many keys were set. Best-effort; never raises.
+    """
+    if not items:
+        return 0
+    try:
+        expr = (
+            "(() => { let n = 0; try { const items = " + json.dumps(items)
+            + "; for (const k in items) { try { localStorage.setItem(k, items[k]); n++; } catch (e) {} } } catch (e) {} return n; })()"
+        )
+        await ws.send(json.dumps({
+            "id": 7777,
+            "method": "Runtime.evaluate",
+            "params": {"expression": expr, "returnByValue": True},
+        }))
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+            msg = json.loads(raw)
+            if msg.get("id") == 7777:
+                val = msg.get("result", {}).get("result", {}).get("value")
+                return int(val) if isinstance(val, (int, float)) else 0
+    except Exception:
+        return 0
+    return 0
+
+
 async def inject_cookies_one(
     accounts,
     profile_root,
@@ -183,6 +217,14 @@ async def inject_cookies_one(
                             successful_expires.append(expires_by_id[msg_id])
                     elif len(failures) < 5:
                         failures.append(json.dumps(msg.get("error") or msg.get("result") or {}, ensure_ascii=False))
+            # Seed MSAL localStorage BEFORE the final navigate, while the tab is
+            # on the m365 origin. Without a cached MSAL account the SPA boots
+            # NoAccountOnStart and silent SSO degrades to an interactive popup
+            # that dead-ends on spalanding (observed as /v1 503s). Best-effort.
+            local_storage = getattr(account, "local_storage", None) or {}
+            if local_storage:
+                seeded = await _seed_local_storage(ws, local_storage)
+                print(f"Cookie injection seeded MSAL localStorage for {account_id}: {seeded}/{len(local_storage)} keys", flush=True)
             await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
             await asyncio.sleep(8)
             try:

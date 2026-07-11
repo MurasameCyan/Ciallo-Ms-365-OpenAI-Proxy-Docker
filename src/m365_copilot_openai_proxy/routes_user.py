@@ -299,13 +299,14 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         username = body.get("username")
         account_name = username.strip() if isinstance(username, str) else ""
         cookies = body.get("cookies", [])
+        local_storage = body.get("local_storage") if isinstance(body.get("local_storage"), dict) else None
         if not isinstance(cookies, list) or not cookies:
             return _json_err(400, "No cookies provided")
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
             acc = app.state.account_store.add(name=account_name or k.name or k.username or "user", token="", token_source="cdp")
             app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             k = app.state.key_store.get(k.id) or k
-        app.state.account_store.set_cookies(k.account_id, cookies)
+        app.state.account_store.set_cookies(k.account_id, cookies, local_storage)
         injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
         acc = app.state.account_store.get(k.account_id)
         warning = ""

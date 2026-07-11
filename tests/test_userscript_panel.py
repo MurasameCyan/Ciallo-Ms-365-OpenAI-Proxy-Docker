@@ -7,8 +7,17 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.63" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.63';" in SCRIPT
+    assert "// @version      1.0.64" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.64';" in SCRIPT
+
+
+def test_userscript_exports_msal_local_storage_with_cookies():
+    # m365 is an MSAL SPA that keeps the signed-in account in localStorage, not
+    # just cookies. A cookie-only injected profile boots NoAccountOnStart and
+    # silent SSO degrades to an interactive popup, so the userscript must export
+    # the MSAL localStorage alongside cookies for the server to seed back.
+    assert "function getMsalLocalStorage()" in SCRIPT
+    assert "local_storage: getMsalLocalStorage()" in SCRIPT
 
 
 def test_userscript_panel_title_displays_script_version_on_the_right():

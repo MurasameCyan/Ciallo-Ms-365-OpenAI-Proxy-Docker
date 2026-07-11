@@ -61,6 +61,7 @@ class Account:
     cookie_updated_at: float = 0.0
     cookie_expires_at: float = 0.0
     cookies: list[dict[str, Any]] = field(default_factory=list)
+    local_storage: dict[str, Any] = field(default_factory=dict)
     media_auth_token: str = ""
     media_auth_updated_at: float = 0.0
     designer_auth_token: str = ""
@@ -136,6 +137,7 @@ class AccountStore:
                     cookie_updated_at=float(raw.get("cookie_updated_at", 0.0)),
                     cookie_expires_at=float(raw.get("cookie_expires_at", 0.0)),
                     cookies=list(raw.get("cookies", [])) if isinstance(raw.get("cookies", []), list) else [],
+                    local_storage=dict(raw.get("local_storage", {})) if isinstance(raw.get("local_storage", {}), dict) else {},
                     media_auth_token=str(raw.get("media_auth_token", "") or ""),
                     media_auth_updated_at=float(raw.get("media_auth_updated_at", 0.0) or 0.0),
                     designer_auth_token=str(raw.get("designer_auth_token", "") or ""),
@@ -289,12 +291,14 @@ class AccountStore:
             self._save()
             return acc
 
-    def set_cookies(self, acc_id: str, cookies: list[dict]) -> Account | None:
+    def set_cookies(self, acc_id: str, cookies: list[dict], local_storage: dict | None = None) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
             acc.cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
+            if isinstance(local_storage, dict) and local_storage:
+                acc.local_storage = {str(k): str(v) for k, v in local_storage.items()}
             acc.updated_at = time.time()
             self._save()
             return acc
