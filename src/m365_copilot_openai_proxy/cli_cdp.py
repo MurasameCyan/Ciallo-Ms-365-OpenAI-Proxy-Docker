@@ -393,50 +393,40 @@ def _m365_chat_url(login_hint: str = "") -> str:
     return f"{base}?login_hint={quote(hint, safe='')}"
 
 
-async def _delete_last_sent_message(ws) -> None:
-    """Best-effort removal of the "hi" turn we sent to force the substrate WS.
-
-    We only open the substrate WebSocket by actually submitting a message, so a
-    real turn lands in the account's Copilot history. This runs the delete-UI
-    script twice (the menu -> delete is async) to keep history clean. Failures
-    are swallowed: cleanup must never break token capture.
-    """
-    try:
-        for _ in range(2):
-            await ws.send(json.dumps({"id": 21, "method": "Runtime.evaluate", "params": {"expression": _CDP_DELETE_MSG_JS, "returnByValue": True}}))
-            await asyncio.sleep(1.0)
-    except Exception:
-        pass
-
-
 async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str | None:
     want = (expected_email or "").strip().lower()
 
     async def trigger_input() -> None:
-        # Focus the composer; returnByValue lets the main loop read the id==10
-        # response to tell whether the composer actually rendered (diagnostic:
-        # distinguishes "chat UI never mounted" from "sent but no WS").
+        # Focus the composer, type ONE character, then clear it WITHOUT ever
+        # pressing Enter. This mirrors the single-tenant version: nudging the
+        # input is enough to make Copilot (re)open the substrate WebSocket, and
+        # never submitting keeps the account's chat history clean. Sending a
+        # real "hi" turn (a prior approach) polluted the chat because the
+        # delete-UI cleanup was unreliable (async menu + browser torn down
+        # before setTimeout fired). returnByValue on id==10 lets the main loop
+        # tell "chat UI never mounted" from "mounted but no WS".
         await ws.send(json.dumps({"id": 10, "method": "Runtime.evaluate", "params": {"expression": _CDP_NUDGE_JS, "returnByValue": True}}))
-        await asyncio.sleep(0.4)
-        # Type "hi" with real key events, then press Enter to actually SEND.
-        # A cold-loaded chat page only opens the substrate WebSocket when a
-        # message is submitted; the previous type-and-clear never sent, so no
-        # WS was created (observed ws_total=0). Sending forces the WS; the sent
-        # message is removed after capture via _CDP_DELETE_MSG_JS.
-        for ch, vk, code in (("h", 72, "KeyH"), ("i", 73, "KeyI")):
-            for payload in (
-                {"type": "keyDown", "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk, "key": ch, "code": code},
-                {"type": "char", "text": ch, "key": ch},
-                {"type": "keyUp", "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk, "key": ch, "code": code},
-            ):
-                await ws.send(json.dumps({"id": 11, "method": "Input.dispatchKeyEvent", "params": payload}))
-                await asyncio.sleep(0.05)
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.5)
+        # Simulate a real keystroke (keyDown -> char -> keyUp) so Copilot's
+        # composer reacts as if a user typed.
         for payload in (
-            {"type": "keyDown", "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13, "key": "Enter", "code": "Enter"},
-            {"type": "keyUp", "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13, "key": "Enter", "code": "Enter"},
+            {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"},
+            {"type": "char", "text": "a", "key": "a"},
+            {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA"},
         ):
-            await ws.send(json.dumps({"id": 13, "method": "Input.dispatchKeyEvent", "params": payload}))
+            await ws.send(json.dumps({"id": 11, "method": "Input.dispatchKeyEvent", "params": payload}))
+            await asyncio.sleep(0.05)
+        # Brief pause to let the WS appear, then Ctrl+A + Backspace to clear the
+        # character. Never press Enter -> nothing is ever submitted.
+        await asyncio.sleep(0.5)
+        for payload in (
+            {"type": "keyDown", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA", "modifiers": 2},
+            {"type": "keyUp", "windowsVirtualKeyCode": 65, "nativeVirtualKeyCode": 65, "key": "a", "code": "KeyA", "modifiers": 2},
+        ):
+            await ws.send(json.dumps({"id": 12, "method": "Input.dispatchKeyEvent", "params": payload}))
+            await asyncio.sleep(0.05)
+        for evt_type in ("keyDown", "keyUp"):
+            await ws.send(json.dumps({"id": 13, "method": "Input.dispatchKeyEvent", "params": {"type": evt_type, "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8, "key": "Backspace", "code": "Backspace"}}))
             await asyncio.sleep(0.05)
 
     await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
@@ -509,9 +499,8 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
             if first_valid is None:
                 first_valid = token
             continue
-        # We SENT a real "hi" turn to force the substrate WS open; remove it now
-        # so the account's chat history stays clean (best-effort, non-fatal).
-        await _delete_last_sent_message(ws)
+        # Nothing was ever submitted (type-and-clear only), so there is no chat
+        # turn to clean up here.
         return token
     if first_valid is not None:
         print(
@@ -520,7 +509,6 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
             f"(profile is isolated; write-time identity guard still applies)",
             flush=True,
         )
-        await _delete_last_sent_message(ws)
         return first_valid
     # Capture failed: classify why so the fix can target the right layer.
     #   substrate_total==0  -> chat page never opened the substrate WS (login

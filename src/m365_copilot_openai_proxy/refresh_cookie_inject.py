@@ -298,6 +298,24 @@ async def inject_cookies_one(
                     _apply_opportunistic_token(accounts, account_id, account.email, grabbed)
                 except Exception as exc:
                     print(f"Cookie injection opportunistic token skipped for {account_id}: {exc}", flush=True)
+                # Best-effort media/designer auth harvest in the SAME live session.
+                # media/designer tokens live in the MSAL cache ONLY if the SPA has
+                # already requested those resources (image/audio load), so this
+                # succeeds only when the injected session landed on a chat that
+                # actually rendered media. Missing resources leave existing values
+                # intact. The "targets seen" log tells us what the cache held.
+                try:
+                    from .cli import _cdp_extract_resource_tokens
+
+                    resources = await _cdp_extract_resource_tokens(account.cdp_port)
+                    if resources.get("media"):
+                        accounts.set_media_auth_token(account_id, resources["media"])
+                    if resources.get("designer"):
+                        accounts.set_designer_auth_token(account_id, resources["designer"])
+                    if resources:
+                        print(f"Cookie injection harvested resource tokens for {account_id}: {sorted(resources.keys())}", flush=True)
+                except Exception as exc:
+                    print(f"Cookie injection resource-token harvest skipped for {account_id}: {exc}", flush=True)
         else:
             accounts.set_cookie_status(account_id, False)
             if failures:
