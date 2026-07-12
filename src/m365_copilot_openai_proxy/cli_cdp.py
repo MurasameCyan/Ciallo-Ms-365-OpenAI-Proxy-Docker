@@ -426,6 +426,16 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
     trigger_times = [start + 4, start + 10, start + 18, start + 30]
     triggered = 0
     first_valid: str | None = None
+    # Read-only capture diagnostics: record which WebSockets open during the
+    # nudge window so a failed capture can be classified -- no substrate WS at
+    # all (page never opened the chat connection) vs substrate WS without an
+    # access_token query param vs token present but rejected by the claims
+    # check. access_token values are redacted; never logged verbatim.
+    ws_total = 0
+    substrate_total = 0
+    substrate_no_token = 0
+    substrate_bad_token = 0
+    ws_seen: list[str] = []
     while loop.time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
@@ -438,13 +448,21 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
         if msg.get("method") != "Network.webSocketCreated":
             continue
         url = msg.get("params", {}).get("url", "")
+        ws_total += 1
+        if len(ws_seen) < 8:
+            # Redact any access_token value; keep only host + presence flag.
+            redacted = re.sub(r"(access_token=)[^&]+", r"\1<redacted>", url)
+            ws_seen.append(redacted[:120])
         if "substrate.office.com" not in url:
             continue
+        substrate_total += 1
         match = re.search(r"[?&]access_token=([^&]+)", url)
         if not match:
+            substrate_no_token += 1
             continue
         token = match.group(1)
         if not _is_substrate_token(token):
+            substrate_bad_token += 1
             continue
         # Identity is a PREFERENCE, not a hard filter. The profile is isolated
         # and wiped+re-injected per account, so any substrate token seen here
@@ -466,6 +484,19 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
             f"(profile is isolated; write-time identity guard still applies)",
             flush=True,
         )
+        return first_valid
+    # Capture failed: classify why so the fix can target the right layer.
+    #   substrate_total==0  -> chat page never opened the substrate WS (login
+    #                          established but Copilot did not start a session;
+    #                          nudge/selector likely did not reach the input).
+    #   substrate_no_token  -> substrate WS opened but carried no access_token.
+    #   substrate_bad_token -> token present but failed the substrate claims check.
+    print(
+        f"Nudge capture diagnostic: ws_total={ws_total} substrate_total={substrate_total} "
+        f"substrate_no_token={substrate_no_token} substrate_bad_token={substrate_bad_token} "
+        f"triggered={triggered} ws_seen={ws_seen}",
+        flush=True,
+    )
     return first_valid
 
 
