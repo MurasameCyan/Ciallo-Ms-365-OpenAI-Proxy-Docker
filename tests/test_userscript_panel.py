@@ -7,8 +7,17 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.64" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.64';" in SCRIPT
+    assert "// @version      1.0.65" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.65';" in SCRIPT
+
+
+def test_userscript_exports_media_seed_url_with_cookies():
+    # media/designer auth tokens are NOT in the MSAL cache; they only appear as
+    # Authorization headers when a conversation with media is opened. The
+    # userscript sends the current conversation URL so the refresh flow can
+    # revisit it and capture those live headers. A bare /chat must yield "".
+    assert "function getCurrentChatUrl()" in SCRIPT
+    assert "media_seed_url: getCurrentChatUrl()" in SCRIPT
 
 
 def test_userscript_exports_msal_local_storage_with_cookies():

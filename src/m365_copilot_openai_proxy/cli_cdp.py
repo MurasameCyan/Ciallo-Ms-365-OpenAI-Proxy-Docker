@@ -620,3 +620,100 @@ async def _cdp_extract_resource_tokens(port: int) -> dict[str, str]:
     return result
 
 
+# Media/designer auth tokens are NOT in the MSAL cache; they only appear as
+# Authorization headers on the fetches the SPA issues when a conversation with
+# media is opened. These mirror the userscript's MEDIA_AUTH_HOST_RE rules.
+_MEDIA_AUTH_HOST_RE = re.compile(r"(^|\.)(asyncgw\.teams\.microsoft\.com|teams\.microsoft\.com)$", re.IGNORECASE)
+_DESIGNER_AUTH_HOST_RE = re.compile(r"(^|\.)officeapps\.live\.com$", re.IGNORECASE)
+
+
+async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: float = 12.0) -> dict[str, str]:
+    """Navigate to a media-bearing conversation and capture the Authorization
+    headers the SPA sends to asyncgw/teams (media) and designerapp (designer).
+
+    These tokens are NOT in the MSAL cache; they only surface as live request
+    headers when the page re-fetches media. Mirrors the userscript rules:
+      - designerapp.officeapps.live.com -> store Authorization verbatim (raw JWE)
+      - asyncgw/teams.microsoft.com with 'Bearer X' -> store X (Bearer stripped),
+        preferring asyncgw (the actual media fetch endpoint).
+    Returns {'media': token?, 'designer': token?}; absent keys are omitted so the
+    caller never wipes an existing (manually pushed) token.
+    """
+    result: dict[str, str] = {}
+    if not seed_url:
+        return result
+    try:
+        async with httpx.AsyncClient(timeout=1) as client:
+            tabs = (await client.get(f"http://localhost:{port}/json")).json()
+    except Exception:
+        return result
+
+    tab = _find_m365_page(tabs)
+    if not tab:
+        return result
+
+    media_asyncgw = ""
+    media_teams = ""
+    designer = ""
+    seen_hosts: list[str] = []
+    try:
+        async with websockets.connect(tab["webSocketDebuggerUrl"], max_size=None) as ws:
+            await ws.send(json.dumps({"id": 1, "method": "Network.enable"}))
+            await ws.send(json.dumps({"id": 2, "method": "Page.enable"}))
+            await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": seed_url}}))
+            deadline = time.time() + settle_seconds
+            while time.time() < deadline:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                try:
+                    msg = json.loads(raw)
+                except Exception:
+                    continue
+                if msg.get("method") != "Network.requestWillBeSent":
+                    continue
+                req = msg.get("params", {}).get("request", {})
+                url = str(req.get("url") or "")
+                headers = req.get("headers") or {}
+                auth = ""
+                for hk, hv in headers.items():
+                    if hk.lower() == "authorization":
+                        auth = str(hv or "").strip()
+                        break
+                if not auth:
+                    continue
+                try:
+                    host = (httpx.URL(url).host or "").lower()
+                except Exception:
+                    continue
+                if _DESIGNER_AUTH_HOST_RE.search(host):
+                    if not designer:
+                        designer = auth  # raw JWE, verbatim (no Bearer prefix)
+                        seen_hosts.append(host)
+                elif _MEDIA_AUTH_HOST_RE.search(host):
+                    m = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
+                    if m:
+                        if "asyncgw" in host:
+                            if not media_asyncgw:
+                                media_asyncgw = m.group(1).strip()
+                                seen_hosts.append(host)
+                        elif not media_teams:
+                            media_teams = m.group(1).strip()
+                            seen_hosts.append(host)
+                if designer and media_asyncgw:
+                    break
+    except Exception:
+        pass
+
+    if media_asyncgw:
+        result["media"] = media_asyncgw
+    elif media_teams:
+        result["media"] = media_teams
+    if designer:
+        result["designer"] = designer
+    if seen_hosts:
+        print(f"CDP media-auth capture hosts seen: {seen_hosts[:8]}", flush=True)
+    return result
+
+

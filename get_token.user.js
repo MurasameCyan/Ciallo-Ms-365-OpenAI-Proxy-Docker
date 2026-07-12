@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.64
+// @version      1.0.65
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.64';
+    const SCRIPT_VERSION = '1.0.65';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
@@ -779,6 +779,21 @@
         return out;
     }
 
+    // Capture the CURRENT chat conversation URL so the server can navigate back
+    // into it during a headless token refresh and re-trigger media (image/audio)
+    // fetches. Media/designer auth tokens are NOT in the MSAL cache; they only
+    // appear as Authorization headers on the asyncgw/teams/designerapp fetches
+    // the page issues when a conversation with media is opened. Returns "" for a
+    // bare /chat (no specific conversation) so we never store a useless seed.
+    function getCurrentChatUrl() {
+        try {
+            const u = new URL(location.href);
+            if (u.hostname !== 'm365.cloud.microsoft') return '';
+            if (!/\/chat\/conversation\/[0-9a-fA-F-]{16,}/.test(u.pathname)) return '';
+            return u.origin + u.pathname + u.search;
+        } catch (e) { return ''; }
+    }
+
     // Check if GM_cookie is available
     function hasGMCookie() {
         return (typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') ||
@@ -802,7 +817,7 @@
         const r = await gmFetch(base + '/user/account/cookies', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-            body: JSON.stringify({ cookies, username, local_storage: getMsalLocalStorage() })
+            body: JSON.stringify({ cookies, username, local_storage: getMsalLocalStorage(), media_seed_url: getCurrentChatUrl() })
         });
         return { response: r, data: await r.json() };
     }

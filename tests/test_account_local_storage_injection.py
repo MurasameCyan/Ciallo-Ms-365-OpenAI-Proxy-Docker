@@ -56,3 +56,38 @@ def test_public_serializers_never_expose_local_storage(tmp_path):
 
     assert "local_storage" not in account_public(got)
     assert "local_storage" not in (user_account_public(got) or {})
+
+
+def test_media_seed_url_round_trip(tmp_path):
+    # The media seed conversation URL must survive save/reload so the refresh
+    # flow can revisit it on every refresh to re-capture media/designer auth.
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    acc = store.add(name="user", token="", token_source="cdp")
+    seed = "https://m365.cloud.microsoft/chat/conversation/4479aead-9924-4cc1-a45c-6fca5b51402d"
+    store.set_media_seed_url(acc.id, seed)
+
+    reloaded = AccountStore(persist_path=persist)
+    got = reloaded.get(acc.id)
+    assert got is not None
+    assert got.media_seed_url == seed
+
+
+def test_public_serializers_expose_has_media_seed_not_url(tmp_path):
+    # The raw seed URL is per-account config that can reveal a conversation id;
+    # public APIs expose only a boolean presence flag, never the URL itself.
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    acc = store.add(name="user", token="tok", token_source="cdp")
+    seed = "https://m365.cloud.microsoft/chat/conversation/4479aead-9924-4cc1-a45c-6fca5b51402d"
+    store.set_media_seed_url(acc.id, seed)
+    got = store.get(acc.id)
+
+    pub = account_public(got)
+    user_pub = user_account_public(got) or {}
+    assert pub.get("has_media_seed") is True
+    assert user_pub.get("has_media_seed") is True
+    assert seed not in str(pub)
+    assert seed not in str(user_pub)
+    assert "media_seed_url" not in pub
+    assert "media_seed_url" not in user_pub

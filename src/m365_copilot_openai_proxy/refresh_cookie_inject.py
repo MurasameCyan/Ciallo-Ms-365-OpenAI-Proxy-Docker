@@ -316,6 +316,26 @@ async def inject_cookies_one(
                         print(f"Cookie injection harvested resource tokens for {account_id}: {sorted(resources.keys())}", flush=True)
                 except Exception as exc:
                     print(f"Cookie injection resource-token harvest skipped for {account_id}: {exc}", flush=True)
+                # If a media seed conversation URL is configured, revisit it so the
+                # SPA re-fetches media and we can capture the live Authorization
+                # headers (asyncgw/teams -> media, designerapp -> designer). These
+                # tokens are NOT in the MSAL cache, so this is the reliable path.
+                seed_url = getattr(account, "media_seed_url", "") or ""
+                if seed_url:
+                    try:
+                        from .cli_cdp import _cdp_capture_media_auth
+
+                        captured = await _cdp_capture_media_auth(account.cdp_port, seed_url)
+                        if captured.get("media"):
+                            accounts.set_media_auth_token(account_id, captured["media"])
+                        if captured.get("designer"):
+                            accounts.set_designer_auth_token(account_id, captured["designer"])
+                        if captured:
+                            print(f"Cookie injection captured media auth for {account_id}: {sorted(captured.keys())}", flush=True)
+                        else:
+                            print(f"Cookie injection media-seed navigation yielded no auth headers for {account_id}", flush=True)
+                    except Exception as exc:
+                        print(f"Cookie injection media-auth capture skipped for {account_id}: {exc}", flush=True)
         else:
             accounts.set_cookie_status(account_id, False)
             if failures:

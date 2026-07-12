@@ -66,6 +66,11 @@ class Account:
     media_auth_updated_at: float = 0.0
     designer_auth_token: str = ""
     designer_auth_updated_at: float = 0.0
+    # A specific chat conversation URL (m365.cloud.microsoft/chat/conversation/..)
+    # that contains media. The refresh flow navigates here to re-trigger the
+    # asyncgw/teams/designer media fetches so their Authorization headers can be
+    # captured. Never exposed via public serializers (only has_media_seed bool).
+    media_seed_url: str = ""
     cdp_port: int = _CDP_PORT_BASE
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
@@ -142,6 +147,7 @@ class AccountStore:
                     media_auth_updated_at=float(raw.get("media_auth_updated_at", 0.0) or 0.0),
                     designer_auth_token=str(raw.get("designer_auth_token", "") or ""),
                     designer_auth_updated_at=float(raw.get("designer_auth_updated_at", 0.0) or 0.0),
+                    media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
                     created_at=float(raw.get("created_at", time.time())),
@@ -321,6 +327,16 @@ class AccountStore:
                 return None
             acc.designer_auth_token = token.strip()
             acc.designer_auth_updated_at = time.time() if acc.designer_auth_token else 0.0
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def set_media_seed_url(self, acc_id: str, url: str) -> Account | None:
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.media_seed_url = url.strip()
             acc.updated_at = time.time()
             self._save()
             return acc

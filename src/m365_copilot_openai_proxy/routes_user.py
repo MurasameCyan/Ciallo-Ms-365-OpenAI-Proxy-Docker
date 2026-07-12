@@ -300,6 +300,15 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         account_name = username.strip() if isinstance(username, str) else ""
         cookies = body.get("cookies", [])
         local_storage = body.get("local_storage") if isinstance(body.get("local_storage"), dict) else None
+        # Optional: a specific chat conversation URL the refresh flow can revisit
+        # to re-trigger media fetches. Only accept an m365.cloud.microsoft URL so
+        # a malicious client can never make the headless browser navigate offsite.
+        raw_seed = body.get("media_seed_url")
+        media_seed_url = ""
+        if isinstance(raw_seed, str) and raw_seed.strip():
+            candidate = raw_seed.strip()
+            if candidate.startswith("https://m365.cloud.microsoft/") and len(candidate) <= 2048:
+                media_seed_url = candidate
         if not isinstance(cookies, list) or not cookies:
             return _json_err(400, "No cookies provided")
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
@@ -307,6 +316,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             k = app.state.key_store.get(k.id) or k
         app.state.account_store.set_cookies(k.account_id, cookies, local_storage)
+        if media_seed_url:
+            app.state.account_store.set_media_seed_url(k.account_id, media_seed_url)
         injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
         acc = app.state.account_store.get(k.account_id)
         warning = ""
