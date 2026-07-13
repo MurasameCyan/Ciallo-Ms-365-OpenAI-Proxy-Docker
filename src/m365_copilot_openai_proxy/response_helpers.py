@@ -119,7 +119,12 @@ async def _responses_stream(
             full_text += delta
             yield f"data: {json.dumps({'type': 'response.output_text.delta', 'item_id': item_id, 'output_index': 0, 'content_index': 0, 'delta': delta})}\n\n"
     except SubstrateCopilotError as exc:
+        # Emit both the out-of-band `error` event (kept for existing clients) and
+        # the semantic `response.failed` envelope. Responses API does NOT use a
+        # `[DONE]` sentinel; `response.failed` is the terminal event that lets
+        # strict clients stop cleanly instead of hanging for more deltas.
         yield f"data: {json.dumps({'type': 'error', 'error': {'message': str(exc), 'type': 'upstream_error'}})}\n\n"
+        yield f"data: {json.dumps({'type': 'response.failed', 'response': {'id': resp_id, 'object': 'response', 'created_at': created, 'model': model_alias, 'status': 'failed', 'error': {'message': str(exc), 'code': 'upstream_error'}}})}\n\n"
         return
 
     if text_transform is not None:
