@@ -40,23 +40,31 @@ def _ext_from_media_type(media_type: str) -> str:
     return _MEDIA_TYPE_EXT.get(media_type.lower(), "png")
 
 
-def _image_from_data_url(url: str, index: int) -> ImageData | None:
-    """Parse a data: URL into ImageData; return None for non-data (http) URLs.
+def _image_from_url(url: str, index: int) -> ImageData | None:
+    """Build ImageData from a data: URL (inline base64) or an http(s) URL.
 
-    M365 UploadFile only accepts inline base64 bytes, so remote http(s) image
-    URLs cannot be forwarded and are skipped by the caller."""
-    match = _DATA_URL_RE.match(url.strip())
-    if not match:
-        return None
-    media_type = match.group("media").strip() or "image/png"
-    data = match.group("data").strip()
-    if not data:
-        return None
-    return ImageData(
-        base64=data,
-        media_type=media_type,
-        file_name=f"upload-{index}.{_ext_from_media_type(media_type)}",
-    )
+    For data URLs the base64 bytes are extracted inline. For http(s) URLs the
+    bytes are not fetched here; the returned ImageData carries ``url`` and its
+    base64 is filled in later by downloading (see
+    SubstrateCopilotClient._upload_images). Returns None for unusable input."""
+    url = url.strip()
+    match = _DATA_URL_RE.match(url)
+    if match:
+        media_type = match.group("media").strip() or "image/png"
+        data = match.group("data").strip()
+        if not data:
+            return None
+        return ImageData(
+            base64=data,
+            media_type=media_type,
+            file_name=f"upload-{index}.{_ext_from_media_type(media_type)}",
+        )
+    if url.startswith(("http://", "https://")):
+        return ImageData(
+            url=url,
+            file_name=f"upload-{index}",
+        )
+    return None
 
 
 def _part_field(part: ContentPart, key: str):
@@ -69,10 +77,11 @@ def _part_field(part: ContentPart, key: str):
 
 
 def extract_images_from_dicts(content: list) -> list[ImageData]:
-    """Extract inline base64 images from Responses-style dict content parts.
+    """Extract images from Responses-style dict content parts.
 
-    Handles OpenAI Responses ``input_image``/``image_url`` (data URL) and
-    Anthropic-style ``image`` (source.type == base64). Remote URLs are ignored.
+    Handles OpenAI Responses ``input_image``/``image_url`` (data URL or http(s))
+    and Anthropic-style ``image`` (source.type == base64). Remote http(s) URLs
+    are carried on ImageData.url and downloaded at upload time.
     """
     images: list[ImageData] = []
     for part in content:
@@ -87,7 +96,7 @@ def extract_images_from_dicts(content: list) -> list[ImageData]:
             elif isinstance(image_url, str):
                 url = image_url
             if url:
-                img = _image_from_data_url(url, len(images))
+                img = _image_from_url(url, len(images))
                 if img:
                     images.append(img)
         elif ptype == "image":
@@ -105,10 +114,11 @@ def extract_images_from_dicts(content: list) -> list[ImageData]:
 
 
 def extract_images(content: str | list[ContentPart] | None) -> list[ImageData]:
-    """Extract inline base64 images from OpenAI/Anthropic multimodal content.
+    """Extract images from OpenAI/Anthropic multimodal content.
 
-    Supports OpenAI ``image_url`` parts (data URLs) and Anthropic ``image``
-    parts (source.type == base64). Remote URLs and unknown parts are ignored.
+    Supports OpenAI ``image_url`` parts (data URL or http(s)) and Anthropic
+    ``image`` parts (source.type == base64). Remote http(s) URLs are carried on
+    ImageData.url and downloaded at upload time; unknown parts are ignored.
     """
     if not isinstance(content, list):
         return []
@@ -123,7 +133,7 @@ def extract_images(content: str | list[ContentPart] | None) -> list[ImageData]:
             elif isinstance(image_url, str):
                 url = image_url
             if url:
-                img = _image_from_data_url(url, len(images))
+                img = _image_from_url(url, len(images))
                 if img:
                     images.append(img)
         elif ptype == "image":

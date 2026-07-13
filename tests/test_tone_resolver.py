@@ -60,6 +60,16 @@ def test_build_models_list_emits_normal_and_persist_per_tone():
     assert all(m["owned_by"] == "microsoft-365-copilot" for m in data)
 
 
+def test_build_models_list_advertises_vision_capability():
+    """Every model advertises image input so vision-aware clients (LobeChat,
+    OpenWebUI, etc.) enable image upload. CherryStudio ignores these fields."""
+    data = build_models_list(_TONES, 0)
+    assert data  # non-empty
+    for m in data:
+        assert "image" in m["architecture"]["input_modalities"]
+        assert m["capabilities"]["vision"] is True
+
+
 def test_normalized_session_model_canonicalizes_persist_marker():
     # Display-suffix persist is rewritten to the canonical :persist suffix that
     # _persistent_session's endswith check understands.

@@ -73,6 +73,21 @@ def build_models_list(tone_options: list[dict], created: int) -> list[dict]:
                 "object": "model",
                 "created": created,
                 "owned_by": "microsoft-365-copilot",
+                # Vision capability hints. M365 Copilot accepts image input for
+                # every tone (all tones share one multimodal backend), so every
+                # model advertises image input. Different OpenAI-compatible
+                # clients read different fields, so we emit the common ones:
+                #   - architecture.input_modalities: OpenRouter / OpenWebUI style
+                #   - capabilities.vision: LobeChat / misc style
+                # NOTE: CherryStudio ignores all of these (it detects vision by
+                # its own built-in model-name regex), so its images must still be
+                # enabled by hand — see project memory.
+                "architecture": {
+                    "modality": "text+image->text",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"],
+                },
+                "capabilities": {"vision": True},
             })
     return data
 

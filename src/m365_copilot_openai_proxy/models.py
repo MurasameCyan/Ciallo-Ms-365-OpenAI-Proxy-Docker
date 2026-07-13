@@ -119,12 +119,16 @@ class ImageData(BaseModel):
     """A single inbound image extracted from multimodal message content.
 
     base64 is raw base64 (no data: prefix); media_type is e.g. "image/png".
+    For remote images the client only sends an http(s) ``url``; base64 is then
+    empty at extraction time and filled in later by downloading the url (see
+    SubstrateCopilotClient._upload_images). Exactly one of base64/url is set.
     """
     model_config = ConfigDict(extra="allow")
 
-    base64: str
-    media_type: str
-    file_name: str
+    base64: str = ""
+    media_type: str = "image/png"
+    file_name: str = "upload.png"
+    url: str = ""
 
 
 class TranslatedRequest(BaseModel):
