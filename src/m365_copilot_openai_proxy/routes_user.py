@@ -287,8 +287,27 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         token = str(body.get("authorization", "") or "").strip()
         if not token:
             return _json_err(400, "Designer auth token is empty")
-        app.state.account_store.set_designer_auth_token(k.account_id, token)
+        app.state.account_store.set_designer_auth_token(k.account_id, token)    
         return {"status": "ok", "has_designer_auth": True}
+
+    @app.post("/user/account/refresh-token")
+    async def user_set_account_refresh_token(request: Request) -> dict:
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        if not k.account_id or app.state.account_store.get(k.account_id) is None:
+            return _json_err(400, "No bound account")
+        body = await request.json()
+        # The OAuth2 refresh_token is an opaque string (not a JWT), so we only do
+        # sanity checks: non-empty and a plausible length. It lets the scheduler
+        # refresh the substrate token over plain HTTP (no headless browser).
+        rt = str(body.get("refresh_token", "") or "").strip()
+        if len(rt) < 20:
+            return _json_err(400, "Refresh token is empty or too short")
+        if len(rt) > 8192:
+            return _json_err(400, "Refresh token is implausibly long")
+        app.state.account_store.set_refresh_token(k.account_id, rt)
+        return {"status": "ok", "has_refresh_token": True}
 
     @app.post("/user/account/cookies")
     async def user_set_account_cookies(request: Request) -> dict:

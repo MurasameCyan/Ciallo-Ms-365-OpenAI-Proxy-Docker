@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.65
+// @version      1.0.66
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.65';
+    const SCRIPT_VERSION = '1.0.66';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
@@ -55,6 +55,10 @@
     let mediaAuthPushInFlight = false;
     let latestDesignerAuth = null;
     let designerAuthPushInFlight = false;
+    // OAuth2 refresh_token captured from the AAD token response. Lets the proxy
+    // refresh the substrate token over plain HTTP (no headless browser).
+    let latestRefreshToken = '';
+    let refreshTokenPushInFlight = false;
 
     // Store the latest captured chat payloads (for mode-field comparison)
     // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
@@ -496,6 +500,24 @@
                         } catch (e) {}
                     }, () => {});
                 }
+                // Capture the OAuth2 refresh_token from the AAD token response so
+                // the proxy can refresh the substrate token over plain HTTP. Clone
+                // the response (reading the body once would consume it for the SPA).
+                if (p && typeof p.then === 'function' && reqUrl.indexOf('oauth2/v2.0/token') !== -1) {
+                    p.then((tokenResp) => {
+                        try {
+                            if (!tokenResp || !tokenResp.clone) return;
+                            tokenResp.clone().json().then((data) => {
+                                try {
+                                    if (data && typeof data.refresh_token === 'string' && data.refresh_token) {
+                                        latestRefreshToken = data.refresh_token;
+                                        pushLatestRefreshTokenSilently();
+                                    }
+                                } catch (e) {}
+                            }, () => {});
+                        } catch (e) {}
+                    }, () => {});
+                }
             } catch (e) {}
             return p;
         };
@@ -873,6 +895,26 @@
         finally { designerAuthPushInFlight = false; }
     }
 
+    async function pushUserRefreshToken(base) {
+        const key = getUserApiKey();
+        if (!key || !latestRefreshToken) return null;
+        const r = await gmFetch(base + '/user/account/refresh-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({ refresh_token: latestRefreshToken })
+        });
+        return { response: r, data: await r.json() };
+    }
+
+    async function pushLatestRefreshTokenSilently() {
+        if (refreshTokenPushInFlight || !latestRefreshToken) return;
+        const base = getProxyBase();
+        if (!base || !getUserApiKey()) return;
+        refreshTokenPushInFlight = true;
+        try { await pushUserRefreshToken(base); } catch (e) {}
+        finally { refreshTokenPushInFlight = false; }
+    }
+
     // Push Token to proxy
     async function pushToken() {
         const base = getProxyBase();
@@ -882,6 +924,7 @@
             const ur = await pushUserToken(base, latestToken);
             if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
             if (ur.response.ok && latestDesignerAuth) { try { await pushUserDesignerAuth(base); } catch (e) {} }
+            if (ur.response.ok && latestRefreshToken) { try { await pushUserRefreshToken(base); } catch (e) {} }
             alert(ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
         } catch (e) { alert(tr('network_error') + e); }
     }

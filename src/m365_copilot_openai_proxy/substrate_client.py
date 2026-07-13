@@ -251,7 +251,7 @@ class SubstrateCopilotClient:
     ) -> AsyncIterator[str]:
         text = _combine_text(prompt, additional_context)
         if session is None:
-            async for chunk in self._chat_stream_for_turn(
+            async for chunk in self._stream_turn_with_retry(
                 text=text,
                 conv_id=str(uuid.uuid4()),
                 session_id=str(uuid.uuid4()),
@@ -272,7 +272,7 @@ class SubstrateCopilotClient:
             ) from exc
         try:
             turn = session.reserve_turn()
-            async for chunk in self._chat_stream_for_turn(
+            async for chunk in self._stream_turn_with_retry(
                 text=text,
                 conv_id=turn.conversation_id,
                 session_id=turn.client_session_id,
@@ -281,6 +281,44 @@ class SubstrateCopilotClient:
                 yield chunk
         finally:
             session.lock.release()
+
+    async def _stream_turn_with_retry(
+        self,
+        text: str,
+        conv_id: str,
+        session_id: str,
+        is_start_of_session: bool,
+    ) -> AsyncIterator[str]:
+        """Stream one turn; if the upstream returns a clean-but-empty response
+        (connected, invoked, ended with no text/image), retry ONCE.
+
+        The retry always runs on a brand-new throwaway conversation (fresh
+        conv_id/session_id, is_start_of_session=True) so a persistent session's
+        user message is never posted twice -- at worst the retry loses prior
+        context, which is preferable to a duplicated turn. A retry only happens
+        when the first attempt yielded nothing at all; any real error raises
+        SubstrateCopilotError and propagates without retrying. All yields from
+        _chat_stream_for_turn are non-empty, so tracking yielded_any is exact.
+        """
+        yielded_any = False
+        async for chunk in self._chat_stream_for_turn(
+            text=text,
+            conv_id=conv_id,
+            session_id=session_id,
+            is_start_of_session=is_start_of_session,
+        ):
+            yielded_any = True
+            yield chunk
+        if yielded_any:
+            return
+        # Empty upstream response: retry once on a fresh throwaway conversation.
+        async for chunk in self._chat_stream_for_turn(
+            text=text,
+            conv_id=str(uuid.uuid4()),
+            session_id=str(uuid.uuid4()),
+            is_start_of_session=True,
+        ):
+            yield chunk
 
     async def _chat_stream_for_turn(
         self,

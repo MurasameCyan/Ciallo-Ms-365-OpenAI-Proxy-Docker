@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .account_crypto import SENSITIVE_FIELDS, AccountCipher, load_or_create_key
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
 
@@ -66,6 +67,12 @@ class Account:
     media_auth_updated_at: float = 0.0
     designer_auth_token: str = ""
     designer_auth_updated_at: float = 0.0
+    # OAuth2 refresh_token (captured by the userscript from the token response).
+    # Lets the scheduler refresh the substrate token over plain HTTP without a
+    # headless browser. Rotated on every successful exchange. Never exposed via
+    # public serializers (only has_refresh_token bool).
+    refresh_token: str = ""
+    refresh_token_updated_at: float = 0.0
     # A specific chat conversation URL (m365.cloud.microsoft/chat/conversation/..)
     # that contains media. The refresh flow navigates here to re-trigger the
     # asyncgw/teams/designer media fetches so their Authorization headers can be
@@ -113,6 +120,14 @@ class AccountStore:
         self._lock = threading.RLock()
         self._persist_path = Path(persist_path) if persist_path else None
         self._cdp_port_base = _CDP_PORT_BASE
+        # At-rest encryption for sensitive fields. The key lives next to the
+        # accounts file (data/.enc_key); when cryptography is unavailable the
+        # cipher degrades to a plaintext passthrough (see account_crypto).
+        if self._persist_path is not None:
+            key = load_or_create_key(self._persist_path.parent / ".enc_key")
+        else:
+            key = None
+        self._cipher = AccountCipher(key)
         if self._persist_path is not None:
             self._load()
 
@@ -128,6 +143,16 @@ class AccountStore:
         for acc_id, raw in data.items():
             if not isinstance(raw, dict):
                 continue
+            # Decrypt sensitive fields in place. A field may be an encrypted
+            # envelope (new format) or legacy plaintext (pre-encryption); a
+            # field that fails to decrypt is dropped to its default rather than
+            # crashing the whole load.
+            for fname in SENSITIVE_FIELDS:
+                if fname in raw and self._cipher.is_envelope(raw[fname]):
+                    try:
+                        raw[fname] = self._cipher.decrypt_value(raw[fname])
+                    except ValueError:
+                        raw.pop(fname, None)
             try:
                 loaded_port = int(raw.get("cdp_port", _CDP_PORT_BASE))
                 if loaded_port in _RESERVED_CDP_PORTS:
@@ -147,6 +172,8 @@ class AccountStore:
                     media_auth_updated_at=float(raw.get("media_auth_updated_at", 0.0) or 0.0),
                     designer_auth_token=str(raw.get("designer_auth_token", "") or ""),
                     designer_auth_updated_at=float(raw.get("designer_auth_updated_at", 0.0) or 0.0),
+                    refresh_token=str(raw.get("refresh_token", "") or ""),
+                    refresh_token_updated_at=float(raw.get("refresh_token_updated_at", 0.0) or 0.0),
                     media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
@@ -180,6 +207,13 @@ class AccountStore:
             return
         with self._lock:
             data = {acc_id: asdict(acc) for acc_id, acc in self._accounts.items()}
+        # Encrypt sensitive field values before writing. asdict() returned fresh
+        # dicts, so mutating them here does not touch the in-memory Accounts.
+        # When encryption is disabled encrypt_value is an identity passthrough.
+        for record in data.values():
+            for fname in SENSITIVE_FIELDS:
+                if fname in record:
+                    record[fname] = self._cipher.encrypt_value(record[fname])
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._persist_path.with_suffix(".tmp")
@@ -341,6 +375,17 @@ class AccountStore:
             self._save()
             return acc
 
+    def set_refresh_token(self, acc_id: str, token: str) -> Account | None:
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.refresh_token = token.strip()
+            acc.refresh_token_updated_at = time.time() if acc.refresh_token else 0.0
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
     def clear_credentials(self, acc_id: str) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
@@ -351,6 +396,8 @@ class AccountStore:
             acc.media_auth_updated_at = 0.0
             acc.designer_auth_token = ""
             acc.designer_auth_updated_at = 0.0
+            acc.refresh_token = ""
+            acc.refresh_token_updated_at = 0.0
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
             acc.cookie_expires_at = 0.0

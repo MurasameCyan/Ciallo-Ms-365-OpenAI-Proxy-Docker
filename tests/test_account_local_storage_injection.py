@@ -91,3 +91,51 @@ def test_public_serializers_expose_has_media_seed_not_url(tmp_path):
     assert seed not in str(user_pub)
     assert "media_seed_url" not in pub
     assert "media_seed_url" not in user_pub
+
+
+def test_refresh_token_round_trip(tmp_path):
+    # The OAuth2 refresh_token must survive save/reload so the scheduler can do
+    # the plain-HTTP substrate exchange without a headless browser after restart.
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    acc = store.add(name="user", token="", token_source="manual")
+    rt = "1.AT4A" + "x" * 200
+    store.set_refresh_token(acc.id, rt)
+
+    reloaded = AccountStore(persist_path=persist)
+    got = reloaded.get(acc.id)
+    assert got is not None
+    assert got.refresh_token == rt
+
+
+def test_public_serializers_expose_has_refresh_token_not_value(tmp_path):
+    # The refresh_token is a long-lived high-value credential; public APIs expose
+    # only a boolean presence flag, never the token value itself.
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    acc = store.add(name="user", token="tok", token_source="manual")
+    rt = "1.AT4A" + "s3cr3t" * 40
+    store.set_refresh_token(acc.id, rt)
+    got = store.get(acc.id)
+
+    pub = account_public(got)
+    user_pub = user_account_public(got) or {}
+    assert pub.get("has_refresh_token") is True
+    assert user_pub.get("has_refresh_token") is True
+    assert rt not in str(pub)
+    assert rt not in str(user_pub)
+    assert "refresh_token" not in pub
+    assert "refresh_token" not in user_pub
+
+
+def test_clear_credentials_wipes_refresh_token(tmp_path):
+    # Clearing credentials (logout/unbind) must remove the refresh_token too, so
+    # a wiped account cannot keep silently minting substrate tokens over HTTP.
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    acc = store.add(name="user", token="tok", token_source="manual")
+    store.set_refresh_token(acc.id, "1.AT4A" + "x" * 200)
+    store.clear_credentials(acc.id)
+    got = store.get(acc.id)
+    assert got is not None
+    assert got.refresh_token == ""

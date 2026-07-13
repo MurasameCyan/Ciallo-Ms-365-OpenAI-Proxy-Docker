@@ -470,6 +470,78 @@ def test_chat_stream_captures_asyncgw_media_signalr_event_for_debug(monkeypatch)
 
 
 
+def test_chat_stream_closes_upstream_ws_when_generator_closed(monkeypatch):
+    """Client-disconnect contract: closing the stream generator mid-flight MUST
+    close the upstream WebSocket via ``async with`` __aexit__, so a client
+    disconnect (or proxy timeout) releases the upstream connection immediately
+    instead of leaking it and burning Copilot quota. This behaviour is implicit
+    -- it relies on GeneratorExit/CancelledError (BaseException) NOT being
+    swallowed by the ``except Exception`` handler in _chat_stream_for_turn. This
+    test locks that contract so a future ``except BaseException`` cannot silently
+    break it."""
+    closed = {"value": False}
+    started = {"value": False}
+
+    class FakeWebSocket:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            closed["value"] = True
+            return False
+
+        async def send(self, data):
+            return None
+
+        async def recv(self):
+            return "{}" + SIGNALR_SEP
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            # Deliver one chunk, then block forever to emulate an upstream that
+            # stops sending while the client is still (about to be dis)connected.
+            if not started["value"]:
+                started["value"] = True
+                return (
+                    json.dumps(
+                        {
+                            "type": 1,
+                            "target": "update",
+                            "arguments": [{"writeAtCursor": "hello"}],
+                        }
+                    )
+                    + SIGNALR_SEP
+                )
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(substrate_client.websockets, "connect", lambda *args, **kwargs: FakeWebSocket())
+    client = SubstrateCopilotClient.__new__(SubstrateCopilotClient)
+    client._token = "token"
+    client._time_zone = "Asia/Shanghai"
+    client._tone = "Magic"
+    client._extra_tool_prompt = ""
+    client._oid = "oid"
+    client._tid = "tid"
+
+    async def run():
+        gen = client._chat_stream_for_turn(
+            text="hi",
+            conv_id="conv",
+            session_id="session",
+            is_start_of_session=True,
+        )
+        first = await gen.__anext__()
+        assert first == "hello"
+        # Simulate client disconnect: close the generator while it is blocked
+        # awaiting the next upstream frame.
+        await gen.aclose()
+        return closed["value"]
+
+    assert asyncio.run(run()) is True
+
+
 def test_chat_stream_appends_image_markdown_from_event_level_payload(monkeypatch):
     image_url = "https://images.example/generated-from-event.png"
     update = {

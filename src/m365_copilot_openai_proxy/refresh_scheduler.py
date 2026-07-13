@@ -40,12 +40,18 @@ from .refresh_media import (
 )
 from .refresh_image_fetch import fetch_image_one as _fetch_image_one_impl
 from .refresh_cookie_inject import inject_cookies_one as _inject_cookies_one_impl
+from .refresh_via_rt import refresh_via_rt
 
 
 
 # How many seconds before token expiry we proactively refresh. Matches the
 # single-tenant --refresh-before-seconds default so behaviour stays familiar.
 _REFRESH_BEFORE_SECONDS = 300
+# Fallback TTL for the designer auth token (a raw JWE we cannot decode for its
+# real exp): treat it as stale once it ages past this since last capture. media
+# tokens are Bearer JWTs and use their own exp instead. Kept conservative so a
+# lazy re-capture happens before the token actually lapses mid-session.
+_MEDIA_TOKEN_TTL_SECONDS = 45 * 60
 # Max seconds to wait for the on-demand Chromium to expose the M365 tab + token.
 _LAUNCH_TIMEOUT_SECONDS = 30
 # Background keepalive: how often the loop scans the account pool, and how long
@@ -231,6 +237,84 @@ class RefreshScheduler:
         except Exception:
             return False
 
+    def _media_token_stale(self, token: str, updated_at: float) -> bool:
+        """True when a media/designer auth token is missing or near/at expiry.
+
+        media is a Bearer JWT (decodable -> use its exp); designer is a raw JWE
+        that we cannot decode, so fall back to an age-based heuristic from when
+        it was last captured. Either way an empty token is always stale.
+        """
+        if not token:
+            return True
+        try:
+            from .token_store import decode_jwt_payload
+
+            exp = int(decode_jwt_payload(token).get("exp", 0))
+            if exp:
+                return time.time() > exp - _REFRESH_BEFORE_SECONDS
+        except Exception:
+            pass
+        # Undecodable (e.g. designer JWE): treat as stale once it ages past the
+        # fallback TTL from its last capture.
+        if updated_at <= 0:
+            return True
+        return time.time() - updated_at > _MEDIA_TOKEN_TTL_SECONDS
+
+    async def ensure_media_fresh(self, account_id: str, url: str) -> None:
+        """Lazily refresh the media/designer auth token before a media fetch.
+
+        media/designer tokens are NOT produced by the RT/HTTP substrate refresh
+        (different client + flow); they only surface as live request headers when
+        the SPA re-fetches media. So keep them alive on demand: when a media
+        request arrives and the relevant token is missing/stale AND the account
+        has a media_seed_url + stored cookies, re-run the proven cookie
+        re-injection (which navigates the seed conversation and captures the auth
+        headers at the end). Best-effort: any failure just leaves the fetch to
+        fall back to the Chromium image path as before.
+        """
+        account = self._accounts.get(account_id)
+        if account is None:
+            return
+        seed_url = (getattr(account, "media_seed_url", "") or "").strip()
+        if not seed_url:
+            return
+        stored_cookies = list(getattr(account, "cookies", []) or [])
+        if not stored_cookies:
+            return
+        is_designer = _is_designer_media_url(url)
+        if is_designer:
+            stale = self._media_token_stale(account.designer_auth_token, account.designer_auth_updated_at)
+        else:
+            stale = self._media_token_stale(account.media_auth_token, account.media_auth_updated_at)
+        if not stale:
+            return
+        print(
+            f"Lazy media keepalive for {account_id}: "
+            f"{'designer' if is_designer else 'media'} token stale, re-capturing via seed",
+            flush=True,
+        )
+        async with self._account_lock(account_id):
+            async with self._lock:
+                try:
+                    await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
+                except Exception as exc:
+                    print(f"Lazy media keepalive failed for {account_id}: {exc}", flush=True)
+
+    async def _try_rt_refresh(self, account_id: str) -> bool:
+        """Attempt the fast HTTP refresh_token exchange (no browser).
+
+        Serialised per-account (not through the global Chromium lock, since this
+        is plain HTTP and never launches a browser). Returns True only when a
+        fresh substrate token was obtained and persisted. A False result -- no
+        stored RT, dead RT chain, or any error -- lets the caller fall back to
+        the CDP refresh path.
+        """
+        account = self._accounts.get(account_id)
+        if account is None or not (getattr(account, "refresh_token", "") or "").strip():
+            return False
+        async with self._account_lock(account_id):
+            return await refresh_via_rt(self._accounts, account_id)
+
     async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
         """Ensure the account's token is valid, refreshing on demand if needed.
 
@@ -241,6 +325,13 @@ class RefreshScheduler:
         if account is None:
             print(f"Refresh skipped: account {account_id} not found", flush=True)
             return False
+        # Fast path: if the account carries an OAuth2 refresh_token, try the
+        # plain-HTTP substrate exchange first (no headless Chromium, no Copilot
+        # quota spend). Only runs when a refresh is actually due (or forced).
+        # On success we're done; on failure we fall through to the CDP path.
+        if (getattr(account, "refresh_token", "") or "").strip() and (force or self._needs_refresh(account.token)):
+            if await self._try_rt_refresh(account_id):
+                return True
         if account.token_source != "cdp":
             # Manual accounts have no auto-refresh profile of their own. On the
             # passive /v1 path (force=False) we trust a still-valid token and
@@ -294,6 +385,12 @@ class RefreshScheduler:
         # from the URL that STILL carries the fileToken (so it can be lifted into the
         # header), then request the stripped URL. The Chromium fallback receives the
         # unstripped URL and strips it internally for the same reason.
+        # Lazy media keepalive: media/designer auth tokens are not produced by the
+        # RT/HTTP substrate refresh, so top them up on demand right before we need
+        # them (only fires when stale + a media_seed_url + cookies exist). Runs
+        # before auth-header computation so a freshly captured token is used.
+        await self.ensure_media_fresh(account_id, fetch_url)
+        account = self._accounts.get(account_id) or account
         auth_headers, auth_source = _auth_headers_for_account(account, fetch_url)
         # designerapp rejects plain httpx GETs (no browser context, HTTP 400), so
         # skip the direct path entirely and let Chromium replay the browser's

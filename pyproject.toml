@@ -5,6 +5,7 @@ description = "OpenAI-compatible shim for Microsoft 365 Copilot Chat"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
+    "cryptography>=43.0.0,<47.0.0",
     "fastapi>=0.116.0,<1.0.0",
     "httpx>=0.28.0,<1.0.0",
     "pydantic-settings>=2.10.0,<3.0.0",
