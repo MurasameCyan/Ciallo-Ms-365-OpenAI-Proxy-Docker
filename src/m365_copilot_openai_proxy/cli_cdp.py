@@ -626,8 +626,33 @@ async def _cdp_extract_resource_tokens(port: int) -> dict[str, str]:
 _MEDIA_AUTH_HOST_RE = re.compile(r"(^|\.)(asyncgw\.teams\.microsoft\.com|teams\.microsoft\.com)$", re.IGNORECASE)
 _DESIGNER_AUTH_HOST_RE = re.compile(r"(^|\.)officeapps\.live\.com$", re.IGNORECASE)
 
+async def _cdp_mouse_wheel_scroll(ws, base_id: int) -> None:
+    """Drive a REAL mouse-wheel scroll via CDP Input.dispatchMouseEvent.
 
-async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: float = 12.0) -> dict[str, str]:
+    designerapp images are lazy-loaded behind IntersectionObserver, which only
+    reacts to TRUSTED input. A synthetic Runtime.evaluate scroll (Event('scroll')
+    / setting scrollTop) is ignored exactly like the old keepalive that had no
+    effect, so the designer asset never re-fetches and its Authorization header
+    never surfaces. A CDP mouseWheel event is a real trusted input dispatched
+    through the browser's normal pipeline, so the observers fire and the assets
+    re-request. Mirrors the nudge's use of Input.dispatchKeyEvent for genuine
+    keystrokes rather than synthetic DOM events.
+    """
+    # Wheel down through the transcript in several ticks, then back up, over the
+    # content area (viewport centre). deltaY>0 scrolls down.
+    for i, dy in enumerate((600, 600, 600, 600, -1200, -1200)):
+        try:
+            await ws.send(json.dumps({
+                "id": base_id + i,
+                "method": "Input.dispatchMouseEvent",
+                "params": {"type": "mouseWheel", "x": 400, "y": 400, "deltaX": 0, "deltaY": dy},
+            }))
+        except Exception:
+            return
+        await asyncio.sleep(0.15)
+
+
+async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: float = 16.0) -> dict[str, str]:
     """Navigate to a media-bearing conversation and capture the Authorization
     headers the SPA sends to asyncgw/teams (media) and designerapp (designer).
 
@@ -660,9 +685,21 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
         async with websockets.connect(tab["webSocketDebuggerUrl"], max_size=None) as ws:
             await ws.send(json.dumps({"id": 1, "method": "Network.enable"}))
             await ws.send(json.dumps({"id": 2, "method": "Page.enable"}))
+            await ws.send(json.dumps({"id": 4, "method": "Input.enable"}))
             await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": seed_url}}))
             deadline = time.time() + settle_seconds
+            scroll_id = 100
+            next_scroll = time.time() + 3.0  # let the conversation paint first
             while time.time() < deadline:
+                # Periodically drive a REAL mouse-wheel scroll to force the SPA to
+                # re-fetch lazy assets (designer images especially) so their
+                # authenticated requests reappear on the wire. Keep nudging until
+                # the designer key is captured; media/asyncgw usually fires on the
+                # initial paint.
+                if not designer and time.time() >= next_scroll:
+                    await _cdp_mouse_wheel_scroll(ws, scroll_id)
+                    scroll_id += 10
+                    next_scroll = time.time() + 2.5
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
                 except asyncio.TimeoutError:
