@@ -236,9 +236,9 @@ code{color:#a5b4fc}
       <div style="margin-top:.75rem">
       <div class="hint" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
       <div class="user-default-grid">
-        <label class="user-config-field"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
+        <label class="user-config-field" style="display:none"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
         <label class="user-config-field"><span data-i18n="run_permission_label">运行权限</span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>
-        <label class="user-config-field"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
+        <label class="user-config-field" style="display:none"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
         <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
         <label class="user-config-field"><span data-i18n="ws_idle_timeout_label">对话响应超时分钟</span><input id="user-ws-idle-timeout" type="number" min="0" onchange="saveTone()"></label>
       </div>

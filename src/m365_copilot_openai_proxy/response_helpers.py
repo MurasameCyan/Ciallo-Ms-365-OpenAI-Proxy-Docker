@@ -97,8 +97,9 @@ async def _responses_stream(
     session: PersistentSession | None = None,
     on_text_done: Callable[[str], None] | None = None,
     text_transform: Callable[[str], str] | None = None,
+    response_id: str | None = None,
 ) -> AsyncIterator[str]:
-    resp_id = f"resp_{uuid.uuid4().hex}"
+    resp_id = response_id or f"resp_{uuid.uuid4().hex}"
     item_id = f"msg_{uuid.uuid4().hex}"
     created = int(time.time())
 

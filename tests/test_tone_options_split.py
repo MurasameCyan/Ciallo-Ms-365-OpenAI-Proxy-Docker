@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
+from m365_copilot_openai_proxy.runtime_settings import normalize_tone_options
 from m365_copilot_openai_proxy.tone_options import TONE_OPTIONS, TONE_VALUES
 
 
@@ -32,8 +33,11 @@ def test_create_app_exposes_shared_tone_options(tmp_path):
     assert response.status_code == 200
     options = response.json()["options"]
     # Tone options are now admin-editable (persisted in runtime settings); with no
-    # override the picker defaults to the built-in modes. Compare on the meaningful
-    # fields (value + display labels); `label` is normalized to label_zh.
+    # override the picker defaults to the built-in modes, passed through
+    # normalize_tone_options (2-column format: display names have whitespace
+    # collapsed to underscores and label_en mirrors the display name). Compare
+    # against that normalized contract rather than the raw built-in list.
+    expected = normalize_tone_options([dict(o) for o in TONE_OPTIONS])
     assert [(o["value"], o["label_zh"], o["label_en"]) for o in options] == [
-        (o["value"], o["label_zh"], o["label_en"]) for o in TONE_OPTIONS
+        (o["value"], o["label_zh"], o["label_en"]) for o in expected
     ]

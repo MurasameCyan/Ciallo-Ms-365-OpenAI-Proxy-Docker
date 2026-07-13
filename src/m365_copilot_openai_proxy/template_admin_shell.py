@@ -125,8 +125,8 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <span data-i18n="tone_options_title">对话模式列表（全局）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="margin-top:.75rem">
-<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="tone_options_hint">每行一个模式，格式：底层tone值 | 显示名 | 英文名（英文名可省略）。底层值即发送给 M365 的 tone，可填任意字符串。保存后立即生效。</div>
-<textarea id="tone-options-input" rows="7" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical;scrollbar-width:none;-ms-overflow-style:none" placeholder="Gpt_5_2_Reasoning | GPT 5.5 快速响应 | GPT 5.5 Fast"></textarea>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="tone_options_hint">每行一个模式，格式：底层tone值 | 显示名（显示名可省略，默认用tone值）。显示名会作为 /v1/models 里的模型名，其中的空格会自动转为下划线；每个模式会生成普通与「-持续」两个模型。底层值即发送给 M365 的 tone，可填任意字符串。保存后立即生效。</div>
+<textarea id="tone-options-input" rows="7" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical;scrollbar-width:none;-ms-overflow-style:none" placeholder="Gpt_5_2_Reasoning | GPT 5.5 快速响应"></textarea>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
 <button id="tone-options-save" onclick="saveToneOptions()" data-i18n="media_suffix_save">保存</button>
 <button id="tone-options-reset" onclick="resetToneOptions()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>

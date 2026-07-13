@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import uuid
@@ -13,6 +14,7 @@ from .translator import flatten_content
 
 _PERSIST_MODEL_SUFFIX = ":persist"
 _SESSION_ID_HEADER = "x-m365-session-id"
+_RESP_ID_PREFIX = "resp_"
 
 
 def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
@@ -26,7 +28,36 @@ def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
     return "conv_" + uuid.uuid4().hex[:12], "New conversation"
 
 
+def _encode_responses_session_id(session_key: str) -> str:
+    """Encode a session key into a Responses `resp_...` id so the client can
+    echo it back as `previous_response_id` on the next turn. A random suffix
+    keeps each id unique (per OpenAI semantics) while the encoded prefix stays
+    stable across the conversation."""
+    token = base64.urlsafe_b64encode(session_key.encode()).decode().rstrip("=")
+    return f"{_RESP_ID_PREFIX}{token}.{uuid.uuid4().hex[:8]}"
+
+
+def _decode_responses_session_id(resp_id: str | None) -> str | None:
+    """Recover the session key previously encoded by
+    `_encode_responses_session_id`. Returns None for ids that were not produced
+    by us (e.g. plain random ids) so callers fall back to other keys."""
+    if not isinstance(resp_id, str) or not resp_id.startswith(_RESP_ID_PREFIX):
+        return None
+    token = resp_id[len(_RESP_ID_PREFIX):].split(".", 1)[0]
+    if not token:
+        return None
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        decoded = base64.urlsafe_b64decode(padded.encode()).decode()
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return decoded or None
+
+
 def _responses_session_key(request: OpenAIResponsesRequest) -> str | None:
+    prev = _decode_responses_session_id(getattr(request, "previous_response_id", None))
+    if prev:
+        return prev
     user = getattr(request, "user", None)
     if isinstance(user, str) and user.strip():
         return user.strip()

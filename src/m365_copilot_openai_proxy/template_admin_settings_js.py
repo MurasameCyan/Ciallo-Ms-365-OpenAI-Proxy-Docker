@@ -88,8 +88,8 @@ async function resetMediaSuffixes(){
 }
 function _toneOptionsToText(opts){
   return (opts||[]).map(o=>{
-    const v=o.value||'';const zh=o.label_zh||o.label||v;const en=o.label_en||zh;
-    return en&&en!==zh?(v+' | '+zh+' | '+en):(v+' | '+zh);
+    const v=o.value||'';const zh=o.label_zh||o.label||v;
+    return v+' | '+zh;
   }).join('\\n');
 }
 function _toneOptionsFromInput(){
@@ -99,8 +99,8 @@ function _toneOptionsFromInput(){
     line=line.trim();if(!line)return;
     const p=line.split('|').map(s=>s.trim());
     const v=p[0];if(!v)return;
-    const zh=p[1]||v;const en=p[2]||zh;
-    out.push({value:v,label_zh:zh,label_en:en});
+    const zh=p[1]||v;
+    out.push({value:v,label_zh:zh});
   });
   return out;
 }

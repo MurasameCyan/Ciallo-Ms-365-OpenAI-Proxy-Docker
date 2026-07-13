@@ -59,13 +59,22 @@ _MAX_TONE_OPTIONS = 40
 _MAX_TONE_FIELD_LEN = 80
 
 
+def _sanitize_tone_label(label: str) -> str:
+    """Collapse whitespace to underscores so a display name is safe to use as a
+    model id in OpenAI-compatible clients (many clients break on spaces when a
+    model is added manually)."""
+    return re.sub(r"\s+", "_", label.strip())
+
+
 def normalize_tone_options(value) -> list[dict]:
     """Coerce admin input into a clean list of {value,label,label_zh,label_en}.
 
-    Accepts either a list of dicts (from JSON) or a newline/‖-delimited string
-    (from the textarea editor) where each line is `value | label_zh | label_en`
-    (label_en optional). Blank/duplicate values are dropped. Falls back to the
-    built-in list when nothing valid remains so the picker is never empty.
+    Accepts either a list of dicts (from JSON) or a newline-delimited string
+    (from the textarea editor) where each line is `value | display_name`
+    (display name optional; defaults to the tone value). Display names have
+    their whitespace collapsed to underscores so each tone can double as a
+    model id. Blank/duplicate values are dropped. Falls back to the built-in
+    list when nothing valid remains so the picker is never empty.
     """
     raw_items: list = []
     if isinstance(value, str):
@@ -75,9 +84,8 @@ def normalize_tone_options(value) -> list[dict]:
                 continue
             parts = [p.strip() for p in line.split("|")]
             val = parts[0]
-            zh = parts[1] if len(parts) > 1 and parts[1] else val
-            en = parts[2] if len(parts) > 2 and parts[2] else zh
-            raw_items.append({"value": val, "label_zh": zh, "label_en": en})
+            label = parts[1] if len(parts) > 1 and parts[1] else val
+            raw_items.append({"value": val, "label_zh": label})
     elif isinstance(value, list):
         raw_items = value
 
@@ -89,10 +97,11 @@ def normalize_tone_options(value) -> list[dict]:
         val = str(item.get("value") or "").strip()[:_MAX_TONE_FIELD_LEN]
         if not val or val in seen:
             continue
-        zh = str(item.get("label_zh") or item.get("label") or val).strip()[:_MAX_TONE_FIELD_LEN]
-        en = str(item.get("label_en") or zh).strip()[:_MAX_TONE_FIELD_LEN]
+        label = str(item.get("label_zh") or item.get("label") or item.get("label_en") or val).strip()[:_MAX_TONE_FIELD_LEN]
+        label = _sanitize_tone_label(label) or val
         seen.add(val)
-        options.append({"value": val, "label": zh, "label_zh": zh, "label_en": en})
+        # label_en kept equal to label for backward-compatible serialization.
+        options.append({"value": val, "label": label, "label_zh": label, "label_en": label})
         if len(options) >= _MAX_TONE_OPTIONS:
             break
     if not options:

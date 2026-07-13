@@ -13,9 +13,14 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import OpenAIChatRequest
 from .response_helpers import _openai_stream
-from .routes_api_common import effective_run_permission, request_model_alias
+from .routes_api_common import (
+    effective_run_permission,
+    request_model_alias,
+    resolve_request_tone,
+)
 from .routes_media_proxy import request_media_rewriter
-from .session_helpers import _PERSIST_MODEL_SUFFIX, _persistent_session
+from .session_helpers import _persistent_session
+from .tone_resolver import build_models_list, normalized_session_model
 from .session_store import PersistentSession
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
 from .tool_call_parser import (
@@ -37,21 +42,11 @@ def register_chat_routes(
 ) -> None:
     @app.get("/v1/models")
     async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> dict:
-        model_alias = request_model_alias(app, raw_request, settings)
+        tone_options = getattr(app.state, "tone_options", None) or []
+        created = int(time.time())
         return {
             "object": "list",
-            "data": [
-                {
-                    "id": model_alias,
-                    "object": "model",
-                    "owned_by": "microsoft-365-copilot",
-                },
-                {
-                    "id": f"{model_alias}{_PERSIST_MODEL_SUFFIX}",
-                    "object": "model",
-                    "owned_by": "microsoft-365-copilot",
-                },
-            ],
+            "data": build_models_list(tone_options, created),
         }
 
     @app.post("/v1/chat/completions")
@@ -82,7 +77,14 @@ def register_chat_routes(
             "tool_calls_result": None,
         }
         try:
-            session = _persistent_session(app, raw_request, request.model, request.user, request)
+            # Each tone is exposed as its own model via /v1/models, so the
+            # requested model name now selects the conversation tone (and its
+            # persistent variant). Override the client tone accordingly; the
+            # persist marker is normalized so _persistent_session's suffix check
+            # keeps working regardless of which variant the client addressed.
+            resolved_tone, _is_persist = resolve_request_tone(app, request.model)
+            client._tone = resolved_tone
+            session = _persistent_session(app, raw_request, normalized_session_model(request.model), request.user, request)
             # Whenever we reuse a persistent M365 session that already has history
             # (both auto mode and explicit :persist mode), the server remembers the
             # prior turns — so only send the incremental turn instead of resending the
@@ -96,7 +98,7 @@ def register_chat_routes(
             call_record["incremental"] = incremental
             call_record["turn_count"] = session.turn_count if session is not None else None
             _key_obj = getattr(raw_request.state, "api_key_obj", None)
-            call_record["tone"] = (_key_obj.tone if _key_obj is not None else getattr(app.state, 'current_tone', 'Magic')) or 'Magic'
+            call_record["tone"] = resolved_tone
             # System prompt: the key's own override wins; if the key hasn't set one,
             # fall back to the global system prompt (admin's "系统提示词（全局）").
             _key_sp = ((_key_obj.system_prompt if _key_obj is not None else "") or "").strip()

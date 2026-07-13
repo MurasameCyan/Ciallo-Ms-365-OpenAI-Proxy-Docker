@@ -111,6 +111,8 @@ class OpenAIResponsesRequest(BaseModel):
     input: str | list[Any]
     instructions: str | None = None
     stream: bool = False
+    previous_response_id: str | None = None
+    user: str | None = None
 
 
 class TranslatedRequest(BaseModel):

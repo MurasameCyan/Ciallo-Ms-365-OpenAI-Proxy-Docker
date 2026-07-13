@@ -11,10 +11,11 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import AnthropicMessagesRequest
 from .response_helpers import _anthropic_stream
-from .routes_api_common import request_model_alias
+from .routes_api_common import request_model_alias, resolve_request_tone
 from .routes_media_proxy import request_media_rewriter
 from .session_helpers import _messages_session_key, _persistent_session
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
+from .tone_resolver import normalized_session_model
 from .translator import translate_anthropic_request
 
 
@@ -32,13 +33,17 @@ def register_messages_routes(
     ):
         model_alias = request_model_alias(app, raw_request, settings)
         try:
+            # The requested model name selects the conversation tone (and its
+            # persistent variant); override the client tone and normalize the
+            # persist marker for _persistent_session's suffix check.
+            resolved_tone, _is_persist = resolve_request_tone(app, request.model)
+            client._tone = resolved_tone
             translated = translate_anthropic_request(request)
-            session = _persistent_session(app, raw_request, request.model, _messages_session_key(request), request)
+            session = _persistent_session(app, raw_request, normalized_session_model(request.model), _messages_session_key(request), request)
             media_rewriter = request_media_rewriter(app, raw_request)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        _key_obj = getattr(raw_request.state, "api_key_obj", None)
         call_record = {
             "api": "anthropic",
             "endpoint": "/v1/messages",
@@ -48,7 +53,7 @@ def register_messages_routes(
             "tools": [],
             "messages": len(request.messages),
             "model": request.model,
-            "tone": (_key_obj.tone if _key_obj is not None else getattr(app.state, 'current_tone', 'Magic')) or 'Magic',
+            "tone": resolved_tone,
             "tool_calls_result": None if request.stream else [],
         }
 
