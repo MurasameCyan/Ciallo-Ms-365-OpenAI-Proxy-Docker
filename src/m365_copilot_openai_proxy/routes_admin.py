@@ -146,7 +146,10 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
         if not cookies:
             return _json_err(400, "No stored cookies to refresh; push cookies from the browser first")
         try:
-            injected, total = await app.state.refresh_scheduler.inject_cookies(acc_id, cookies)
+            # allow_nudge=True: the admin refresh button must re-mint all three
+            # keys (substrate token + media + designer) in this same session and
+            # revisit media_seed_url, regardless of whether an RT path exists.
+            injected, total = await app.state.refresh_scheduler.inject_cookies(acc_id, cookies, allow_nudge=True)
         except Exception as exc:
             return _json_err(502, f"Cookie refresh failed: {exc}")
         acc = app.state.account_store.get(acc_id)

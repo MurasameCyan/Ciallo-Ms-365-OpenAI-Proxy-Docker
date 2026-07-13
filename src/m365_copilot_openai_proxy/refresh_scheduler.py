@@ -362,13 +362,19 @@ class RefreshScheduler:
             async with self._lock:
                 return await self._refresh_one(account_id)
 
-    async def inject_cookies(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
+    async def inject_cookies(self, account_id: str, cookies: list[dict], *, allow_nudge: bool = False) -> tuple[int, int]:
+        # allow_nudge=True drives a full token capture (substrate + media/designer
+        # keys + media_seed navigation) in the SAME injected session, exactly like
+        # the /v1 wake-up refresh. The admin "cookie refresh" button passes True so
+        # it always re-mints all three keys regardless of the RT path; the user
+        # self-service push keeps False so its awaited response returns fast (token
+        # is filled in by the detached _spawn_post_push_refresh task instead).
         account = self._accounts.get(account_id)
         if account is None or not cookies:
             return 0, len(cookies or [])
         async with self._account_lock(account_id):
             async with self._lock:
-                return await self._inject_cookies_one(account_id, cookies)
+                return await self._inject_cookies_one(account_id, cookies, allow_nudge=allow_nudge)
 
     async def fetch_image(self, account_id: str, url: str, event_sink=None) -> tuple[bytes, str]:
         account = self._accounts.get(account_id)
