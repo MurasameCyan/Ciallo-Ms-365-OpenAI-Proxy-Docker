@@ -12,6 +12,7 @@ from .call_log_store import load_call_log
 from .config import Settings
 from .media_proxy_events import init_media_proxy_events
 from .key_store import KeyStore
+from .login_guard import LoginRateLimiter
 from .metrics_store import init_metrics_store
 from .refresh_scheduler import RefreshScheduler
 from .runtime_settings import _read_runtime_settings
@@ -78,6 +79,10 @@ def init_app_state(
     app.state.key_store = KeyStore(
         persist_path=Path(settings.token_dir) / "keys.json"
     )
+    # Per-IP failed-login throttle for the /user self-service login (mirrors the
+    # admin login lockout). Shared instance so /user/login and /user/repassword
+    # count against the same window.
+    app.state.user_login_limiter = LoginRateLimiter()
     app.state.refresh_scheduler = RefreshScheduler(
         app.state.account_store,
         profile_root=Path(settings.token_dir) / "profiles",

@@ -10,6 +10,20 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .account_crypto import AccountCipher, load_or_create_key
+
+# API-key field values encrypted at rest in keys.json. The raw key secret and
+# the login password material would let anyone who reads a leaked/backed-up
+# keys.json authenticate as the user, so they are AES-256-GCM encrypted with the
+# same data-dir key as accounts.json. Non-sensitive metadata (name, account_id,
+# tone, timestamps, ...) stays plaintext so the file remains greppable.
+SENSITIVE_KEY_FIELDS = (
+    "key",
+    "password",
+    "password_hash",
+    "password_salt",
+)
+
 
 def _hash_password(password: str, salt: str) -> str:
     """Derive a PBKDF2-HMAC-SHA256 hash so plaintext passwords are never stored."""
@@ -81,6 +95,14 @@ class KeyStore:
         self._by_username: dict[str, str] = {}  # lowercased username -> id
         self._lock = threading.RLock()
         self._persist_path = Path(persist_path) if persist_path else None
+        # At-rest encryption for sensitive fields, sharing the same data-dir key
+        # (.enc_key) as AccountStore. When cryptography is unavailable the cipher
+        # degrades to a plaintext passthrough (see account_crypto).
+        if self._persist_path is not None:
+            key = load_or_create_key(self._persist_path.parent / ".enc_key")
+        else:
+            key = None
+        self._cipher = AccountCipher(key)
         if self._persist_path is not None:
             self._load()
 
@@ -99,6 +121,16 @@ class KeyStore:
         for key_id, raw in data.items():
             if not isinstance(raw, dict):
                 continue
+            # Decrypt sensitive fields in place. A field may be an encrypted
+            # envelope (new format) or legacy plaintext (pre-encryption); a field
+            # that fails to decrypt is dropped to its default rather than crashing
+            # the whole load (mirrors AccountStore._load).
+            for fname in SENSITIVE_KEY_FIELDS:
+                if fname in raw and self._cipher.is_envelope(raw[fname]):
+                    try:
+                        raw[fname] = self._cipher.decrypt_value(raw[fname])
+                    except ValueError:
+                        raw.pop(fname, None)
             try:
                 self._keys[key_id] = ApiKey(
                     id=raw.get("id", key_id),
@@ -132,6 +164,13 @@ class KeyStore:
             return
         with self._lock:
             data = {key_id: asdict(k) for key_id, k in self._keys.items()}
+        # Encrypt sensitive field values before writing. asdict() returned fresh
+        # dicts, so mutating them here does not touch the in-memory ApiKeys. When
+        # encryption is disabled encrypt_value is an identity passthrough.
+        for record in data.values():
+            for fname in SENSITIVE_KEY_FIELDS:
+                if fname in record and record[fname] != "":
+                    record[fname] = self._cipher.encrypt_value(record[fname])
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._persist_path.with_suffix(".tmp")

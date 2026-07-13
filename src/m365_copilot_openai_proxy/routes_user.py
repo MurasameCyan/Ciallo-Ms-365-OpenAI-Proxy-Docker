@@ -52,8 +52,6 @@ def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
 
 
 def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options: list[dict]) -> None:
-    tone_values = {o["value"] for o in tone_options}
-
     def _resolve_user_key(request: Request) -> ApiKey | None:
         """Resolve the caller's own ApiKey from the Authorization header.
 
@@ -78,6 +76,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         hand back the key so the browser keeps using Bearer auth for /user/* and
         /v1/* — no change needed downstream.
         """
+        ip = request.client.host if request.client else "unknown"
+        if app.state.user_login_limiter.is_locked(ip):
+            return _json_err(429, "Too many login attempts, try again later", "auth_error")
         body = await request.json()
         username = str(body.get("username", "")).strip()
         password = str(body.get("password", ""))
@@ -85,9 +86,11 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             return _json_err(400, "Username and password are required", "auth_error")
         k = app.state.key_store.resolve_by_login(username, password)
         if k is None:
+            app.state.user_login_limiter.record_failure(ip)
             return _json_err(401, "Wrong username or password", "auth_error")
         if not k.enabled:
             return _json_err(403, "This account is disabled", "auth_error")
+        app.state.user_login_limiter.clear(ip)
         return {"status": "ok", "key": k.key, "name": k.name or k.username}
 
     @app.post("/user/repassword")
@@ -95,13 +98,20 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         k = _resolve_user_key(request)
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
+        # Throttle old-password guessing under a key distinct from /user/login so
+        # the two flows don't share/consume each other's window.
+        rp_ip = f"{request.client.host if request.client else 'unknown'}:repw"
+        if app.state.user_login_limiter.is_locked(rp_ip):
+            return _json_err(429, "Too many attempts, try again later", "auth_error")
         body = await request.json()
         old_password = str(body.get("old_password", ""))
         new_password = str(body.get("new_password", ""))
         if not old_password or not new_password:
             return _json_err(400, "Old password and new password are required", "auth_error")
         if not k.check_password(old_password):
+            app.state.user_login_limiter.record_failure(rp_ip)
             return _json_err(401, "Wrong password", "auth_error")
+        app.state.user_login_limiter.clear(rp_ip)
         perr = _validate_password(new_password)
         if perr:
             return _json_err(400, perr)
