@@ -686,6 +686,20 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
             await ws.send(json.dumps({"id": 1, "method": "Network.enable"}))
             await ws.send(json.dumps({"id": 2, "method": "Page.enable"}))
             await ws.send(json.dumps({"id": 4, "method": "Input.enable"}))
+            # Disable HTTP cache for this navigation: designer images are otherwise
+            # served from disk cache on revisit, so the authenticated designerapp
+            # request (carrying the Authorization header we sniff) never hits the
+            # wire and the designer key cannot be recaptured. Forcing no-cache makes
+            # the SPA re-issue the real authenticated fetch.
+            await ws.send(json.dumps({"id": 5, "method": "Network.setCacheDisabled", "params": {"cacheDisabled": True}}))
+            # Diagnostic: echo which stored conversation we navigate into (path only,
+            # query stripped) so logs show whether the built-in media_seed_url was
+            # actually resolved and targeted.
+            try:
+                _seed_path = httpx.URL(seed_url).path or seed_url
+            except Exception:
+                _seed_path = seed_url
+            print(f"CDP media-auth navigating to media seed conversation: {_seed_path}", flush=True)
             await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": seed_url}}))
             deadline = time.time() + settle_seconds
             scroll_id = 100
