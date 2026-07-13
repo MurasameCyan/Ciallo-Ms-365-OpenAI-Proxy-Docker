@@ -31,6 +31,7 @@ async def _openai_stream(
     session: PersistentSession | None = None,
     on_text_done: Callable[[str], None] | None = None,
     text_transform: Callable[[str], str] | None = None,
+    images: list | None = None,
 ) -> AsyncIterator[str]:
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -45,7 +46,7 @@ async def _openai_stream(
     raw_text = ""
     full_text = ""
     try:
-        async for delta in client.chat_stream(prompt, additional_context, session):
+        async for delta in client.chat_stream(prompt, additional_context, session, images):
             delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
             if not delta:
                 continue
@@ -98,6 +99,7 @@ async def _responses_stream(
     on_text_done: Callable[[str], None] | None = None,
     text_transform: Callable[[str], str] | None = None,
     response_id: str | None = None,
+    images: list | None = None,
 ) -> AsyncIterator[str]:
     resp_id = response_id or f"resp_{uuid.uuid4().hex}"
     item_id = f"msg_{uuid.uuid4().hex}"
@@ -110,7 +112,7 @@ async def _responses_stream(
     raw_text = ""
     full_text = ""
     try:
-        async for delta in client.chat_stream(prompt, additional_context, session):
+        async for delta in client.chat_stream(prompt, additional_context, session, images):
             delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
             if not delta:
                 continue
@@ -146,6 +148,7 @@ async def _anthropic_stream(
     session: PersistentSession | None = None,
     on_text_done: Callable[[str], None] | None = None,
     text_transform: Callable[[str], str] | None = None,
+    images: list | None = None,
 ) -> AsyncIterator[str]:
     msg_id = f"msg_{uuid.uuid4().hex}"
 
@@ -159,7 +162,7 @@ async def _anthropic_stream(
     raw_text = ""
     full_text = ""
     try:
-        async for delta in client.chat_stream(prompt, additional_context, session):
+        async for delta in client.chat_stream(prompt, additional_context, session, images):
             delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
             if not delta:
                 continue

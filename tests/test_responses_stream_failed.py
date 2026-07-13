@@ -22,7 +22,7 @@ def test_responses_stream_emits_response_failed_envelope_on_upstream_error():
     spec."""
 
     class FailingStreamClient:
-        async def chat_stream(self, prompt, additional_context, session=None):
+        async def chat_stream(self, prompt, additional_context, session=None, images=None):
             raise SubstrateCopilotError("upstream broke")
             yield ""  # unreachable; marks this as an async generator
 
@@ -50,7 +50,7 @@ def test_responses_stream_emits_response_completed_on_success():
     the success terminal event."""
 
     class OkStreamClient:
-        async def chat_stream(self, prompt, additional_context, session=None):
+        async def chat_stream(self, prompt, additional_context, session=None, images=None):
             yield "hello"
 
     chunks = _collect(

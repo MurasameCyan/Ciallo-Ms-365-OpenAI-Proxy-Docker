@@ -175,6 +175,7 @@ class SubstrateCopilotClient:
         session_id: str,
         req_id: str,
         is_start_of_session: bool,
+        annotations: list[dict] | None = None,
     ) -> str:
         # If the prompt contains tool_call format instructions, prepend a strong reminder
         # directly into the user message (not just system prompt) for better compliance
@@ -231,6 +232,7 @@ class SubstrateCopilotClient:
                     "experienceType": "Default",
                     "adaptiveCards": [],
                     "clientPreferences": {},
+                    **({"messageAnnotations": annotations} if annotations else {}),
                 },
                 "plugins": [{"Id": "BingWebSearch", "Source": "BuiltIn"}],
                 "isSbsSupported": True,
@@ -243,19 +245,42 @@ class SubstrateCopilotClient:
         }
         return json.dumps(payload, ensure_ascii=False) + SIGNALR_SEP
 
+    async def _upload_images(self, images: list | None) -> list[dict]:
+        """Upload inbound images and return their messageAnnotations entries.
+
+        Uploads happen once per request (before the retry loop) against a
+        throwaway upload conversation id; the returned docId annotations are
+        reusable across the actual chat turn and any retry. Failed uploads are
+        skipped so the turn can still proceed as text-only."""
+        if not images:
+            return []
+        from .substrate_upload import upload_image
+        upload_conv_id = str(uuid.uuid4())
+        annotations: list[dict] = []
+        for image in images:
+            annotation = await upload_image(
+                self._token, self._oid, self._tid, upload_conv_id, image
+            )
+            if annotation:
+                annotations.append(annotation)
+        return annotations
+
     async def chat_stream(
         self,
         prompt: str,
         additional_context: list[str],
         session: PersistentSession | None = None,
+        images: list | None = None,
     ) -> AsyncIterator[str]:
         text = _combine_text(prompt, additional_context)
+        annotations = await self._upload_images(images)
         if session is None:
             async for chunk in self._stream_turn_with_retry(
                 text=text,
                 conv_id=str(uuid.uuid4()),
                 session_id=str(uuid.uuid4()),
                 is_start_of_session=True,
+                annotations=annotations,
             ):
                 yield chunk
             return
@@ -277,6 +302,7 @@ class SubstrateCopilotClient:
                 conv_id=turn.conversation_id,
                 session_id=turn.client_session_id,
                 is_start_of_session=turn.is_start_of_session,
+                annotations=annotations,
             ):
                 yield chunk
         finally:
@@ -288,6 +314,7 @@ class SubstrateCopilotClient:
         conv_id: str,
         session_id: str,
         is_start_of_session: bool,
+        annotations: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         """Stream one turn; if the upstream returns a clean-but-empty response
         (connected, invoked, ended with no text/image), retry ONCE.
@@ -306,6 +333,7 @@ class SubstrateCopilotClient:
             conv_id=conv_id,
             session_id=session_id,
             is_start_of_session=is_start_of_session,
+            annotations=annotations,
         ):
             yielded_any = True
             yield chunk
@@ -317,6 +345,7 @@ class SubstrateCopilotClient:
             conv_id=str(uuid.uuid4()),
             session_id=str(uuid.uuid4()),
             is_start_of_session=True,
+            annotations=annotations,
         ):
             yield chunk
 
@@ -326,6 +355,7 @@ class SubstrateCopilotClient:
         conv_id: str,
         session_id: str,
         is_start_of_session: bool,
+        annotations: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         req_id = str(uuid.uuid4())
         url = self._ws_url(conv_id, session_id, req_id)
@@ -341,7 +371,7 @@ class SubstrateCopilotClient:
                 idle_timeout = getattr(self, "_idle_timeout", None) or _WS_IDLE_TIMEOUT
                 await ws.send(json.dumps({"protocol": "json", "version": 1}) + SIGNALR_SEP)
                 await asyncio.wait_for(ws.recv(), timeout=idle_timeout)
-                await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session))
+                await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session, annotations))
                 fallback_text = ""
                 streamed_text = ""
                 yielded_images: set[str] = set()
@@ -414,8 +444,9 @@ class SubstrateCopilotClient:
         prompt: str,
         additional_context: list[str],
         session: PersistentSession | None = None,
+        images: list | None = None,
     ) -> str:
         chunks: list[str] = []
-        async for chunk in self.chat_stream(prompt, additional_context, session):
+        async for chunk in self.chat_stream(prompt, additional_context, session, images):
             chunks.append(chunk)
         return "".join(chunks)

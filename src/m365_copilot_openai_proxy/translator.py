@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Iterable
 
 from .models import (
     AnthropicMessagesRequest,
     ContentPart,
+    ImageData,
     OpenAIChatRequest,
+    OpenAIResponsesRequest,
     ToolCall,
     TranslatedRequest,
 )
@@ -18,6 +21,123 @@ def flatten_content(content: str | list[ContentPart] | None) -> str:
     if isinstance(content, str):
         return content
     return "".join(part.text or "" for part in content if part.type == "text")
+
+
+# data:<media_type>;base64,<data>
+_DATA_URL_RE = re.compile(r"^data:(?P<media>[^;,]+);base64,(?P<data>.+)$", re.DOTALL)
+
+_MEDIA_TYPE_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+}
+
+
+def _ext_from_media_type(media_type: str) -> str:
+    return _MEDIA_TYPE_EXT.get(media_type.lower(), "png")
+
+
+def _image_from_data_url(url: str, index: int) -> ImageData | None:
+    """Parse a data: URL into ImageData; return None for non-data (http) URLs.
+
+    M365 UploadFile only accepts inline base64 bytes, so remote http(s) image
+    URLs cannot be forwarded and are skipped by the caller."""
+    match = _DATA_URL_RE.match(url.strip())
+    if not match:
+        return None
+    media_type = match.group("media").strip() or "image/png"
+    data = match.group("data").strip()
+    if not data:
+        return None
+    return ImageData(
+        base64=data,
+        media_type=media_type,
+        file_name=f"upload-{index}.{_ext_from_media_type(media_type)}",
+    )
+
+
+def _part_field(part: ContentPart, key: str):
+    """Read an extra (non-text) field off a ContentPart (extra='allow')."""
+    value = getattr(part, key, None)
+    if value is not None:
+        return value
+    extra = getattr(part, "model_extra", None) or {}
+    return extra.get(key)
+
+
+def extract_images_from_dicts(content: list) -> list[ImageData]:
+    """Extract inline base64 images from Responses-style dict content parts.
+
+    Handles OpenAI Responses ``input_image``/``image_url`` (data URL) and
+    Anthropic-style ``image`` (source.type == base64). Remote URLs are ignored.
+    """
+    images: list[ImageData] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        ptype = part.get("type")
+        if ptype in ("image_url", "input_image"):
+            image_url = part.get("image_url")
+            url = ""
+            if isinstance(image_url, dict):
+                url = str(image_url.get("url") or "")
+            elif isinstance(image_url, str):
+                url = image_url
+            if url:
+                img = _image_from_data_url(url, len(images))
+                if img:
+                    images.append(img)
+        elif ptype == "image":
+            source = part.get("source")
+            if isinstance(source, dict) and source.get("type") == "base64":
+                data = str(source.get("data") or "")
+                media_type = str(source.get("media_type") or "image/png")
+                if data:
+                    images.append(ImageData(
+                        base64=data,
+                        media_type=media_type,
+                        file_name=f"upload-{len(images)}.{_ext_from_media_type(media_type)}",
+                    ))
+    return images
+
+
+def extract_images(content: str | list[ContentPart] | None) -> list[ImageData]:
+    """Extract inline base64 images from OpenAI/Anthropic multimodal content.
+
+    Supports OpenAI ``image_url`` parts (data URLs) and Anthropic ``image``
+    parts (source.type == base64). Remote URLs and unknown parts are ignored.
+    """
+    if not isinstance(content, list):
+        return []
+    images: list[ImageData] = []
+    for part in content:
+        ptype = getattr(part, "type", None)
+        if ptype in ("image_url", "input_image"):
+            image_url = _part_field(part, "image_url")
+            url = ""
+            if isinstance(image_url, dict):
+                url = str(image_url.get("url") or "")
+            elif isinstance(image_url, str):
+                url = image_url
+            if url:
+                img = _image_from_data_url(url, len(images))
+                if img:
+                    images.append(img)
+        elif ptype == "image":
+            source = _part_field(part, "source")
+            if isinstance(source, dict) and source.get("type") == "base64":
+                data = str(source.get("data") or "")
+                media_type = str(source.get("media_type") or "image/png")
+                if data:
+                    images.append(ImageData(
+                        base64=data,
+                        media_type=media_type,
+                        file_name=f"upload-{len(images)}.{_ext_from_media_type(media_type)}",
+                    ))
+    return images
 
 
 def _join_lines(lines: Iterable[str]) -> str:
@@ -116,6 +236,7 @@ def translate_openai_request(request: OpenAIChatRequest, incremental: bool = Fal
     system_lines: list[str] = []
     transcript_lines: list[str] = []
     prompt = ""
+    images: list[ImageData] = []
 
     # Inject tool definitions into system context
     tools_prompt = _format_tools_prompt(request.tools, system_override)
@@ -196,6 +317,7 @@ def translate_openai_request(request: OpenAIChatRequest, incremental: bool = Fal
             if message.role != "user":
                 raise ValueError("The final OpenAI message must be a user message.")
             prompt = text
+            images = extract_images(message.content)
             continue
         if not skip_transcript:
             transcript_lines.append(f"{message.role.capitalize()}: {text}")
@@ -210,11 +332,10 @@ def translate_openai_request(request: OpenAIChatRequest, incremental: bool = Fal
     transcript_text = _join_lines(transcript_lines)
     if transcript_text:
         additional_context.append(f"Prior conversation transcript:\n{transcript_text}")
-    return TranslatedRequest(prompt=prompt, additional_context=additional_context)
+    return TranslatedRequest(prompt=prompt, additional_context=additional_context, images=images)
 
 
-def translate_responses_request(request: "OpenAIResponsesRequest") -> TranslatedRequest:
-    from .models import OpenAIResponsesRequest
+def translate_responses_request(request: OpenAIResponsesRequest) -> TranslatedRequest:
     instructions = request.instructions or ""
     if isinstance(request.input, str):
         return TranslatedRequest(
@@ -227,16 +348,23 @@ def translate_responses_request(request: "OpenAIResponsesRequest") -> Translated
         system_lines.append(instructions)
     transcript_lines: list[str] = []
     prompt = ""
+    images: list[ImageData] = []
     items = request.input
     for index, item in enumerate(items):
         role = item.get("role", "") if isinstance(item, dict) else ""
-        content = item.get("content", "") if isinstance(item, dict) else str(item)
-        if isinstance(content, list):
-            content = "".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") in ("text", "input_text"))
+        raw_content = item.get("content", "") if isinstance(item, dict) else str(item)
+        if isinstance(raw_content, list):
+            content = "".join(p.get("text", "") for p in raw_content if isinstance(p, dict) and p.get("type") in ("text", "input_text"))
+        else:
+            content = raw_content
         text = content.strip()
-        if not text:
-            continue
         is_last = index == len(items) - 1
+        # The final user turn may carry images (and possibly no text), so extract
+        # before the empty-text skip below would otherwise drop an image-only turn.
+        if is_last and role == "user" and isinstance(raw_content, list):
+            images = extract_images_from_dicts(raw_content)
+        if not text and not (is_last and images):
+            continue
         if role in {"system", "developer"}:
             system_lines.append(text)
             continue
@@ -246,7 +374,7 @@ def translate_responses_request(request: "OpenAIResponsesRequest") -> Translated
             prompt = text
             continue
         transcript_lines.append(f"{role.capitalize()}: {text}")
-    if not prompt:
+    if not prompt and not images:
         raise ValueError("No user message found in input.")
     additional_context: list[str] = []
     system_text = _join_lines(system_lines)
@@ -255,7 +383,7 @@ def translate_responses_request(request: "OpenAIResponsesRequest") -> Translated
     transcript_text = _join_lines(transcript_lines)
     if transcript_text:
         additional_context.append(f"Prior conversation transcript:\n{transcript_text}")
-    return TranslatedRequest(prompt=prompt, additional_context=additional_context)
+    return TranslatedRequest(prompt=prompt, additional_context=additional_context, images=images)
 
 
 def translate_anthropic_request(
@@ -264,16 +392,18 @@ def translate_anthropic_request(
     system_text = flatten_content(request.system).strip()
     transcript_lines: list[str] = []
     prompt = ""
+    images: list[ImageData] = []
 
     for index, message in enumerate(request.messages):
         text = flatten_content(message.content).strip()
-        if not text:
-            continue
         is_last = index == len(request.messages) - 1
         if is_last:
             if message.role != "user":
                 raise ValueError("The final Anthropic message must be a user message.")
             prompt = text
+            images = extract_images(message.content)
+            continue
+        if not text:
             continue
         transcript_lines.append(f"{message.role.capitalize()}: {text}")
 
@@ -286,4 +416,4 @@ def translate_anthropic_request(
     transcript_text = _join_lines(transcript_lines)
     if transcript_text:
         additional_context.append(f"Prior conversation transcript:\n{transcript_text}")
-    return TranslatedRequest(prompt=prompt, additional_context=additional_context)
+    return TranslatedRequest(prompt=prompt, additional_context=additional_context, images=images)

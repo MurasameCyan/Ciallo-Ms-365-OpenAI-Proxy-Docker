@@ -49,20 +49,20 @@ class FakeNotFoundRefreshScheduler(FakeRefreshScheduler):
 
 
 class FakeCopilotClient:
-    async def chat_stream(self, prompt, additional_context, session=None):
+    async def chat_stream(self, prompt, additional_context, session=None, images=None):
         yield f"![image]({SOURCE_IMAGE_URL})"
 
-    async def chat(self, prompt, additional_context, session=None):
+    async def chat(self, prompt, additional_context, session=None, images=None):
         return f"![image]({SOURCE_IMAGE_URL})"
 
 
 class SplitAudioCopilotClient:
-    async def chat_stream(self, prompt, additional_context, session=None):
+    async def chat_stream(self, prompt, additional_context, session=None, images=None):
         yield "已生成文件：\n\n `https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/"
         yield "0-ea-d4-101412848fe8be7ad7f1c4c110d1fa4f/views/original/"
         yield "cat_meow.wav` \n\n（这是一个合成的“喵”声音频，可直接下载播放。）"
 
-    async def chat(self, prompt, additional_context, session=None):
+    async def chat(self, prompt, additional_context, session=None, images=None):
         return "已生成文件：\n\n `https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d4-101412848fe8be7ad7f1c4c110d1fa4f/views/original/cat_meow.wav` \n\n（这是一个合成的“喵”声音频，可直接下载播放。）"
 
 

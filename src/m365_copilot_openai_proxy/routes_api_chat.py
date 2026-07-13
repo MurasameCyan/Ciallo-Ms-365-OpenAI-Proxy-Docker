@@ -127,6 +127,7 @@ def register_chat_routes(
                             tool_names={t.function.name for t in request.tools if t.function},
                             read_only_guard=read_only_guard,
                             text_transform=media_rewriter,
+                            images=translated.images,
                         ),
                         media_type="text/event-stream",
                     )
@@ -139,10 +140,11 @@ def register_chat_routes(
                         session,
                         on_text_done=lambda text: record_response_text(app.state, call_record, text),
                         text_transform=media_rewriter,
+                        images=translated.images,
                     ),
                     media_type="text/event-stream",
                 )
-            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
+            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session, translated.images))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
@@ -232,11 +234,12 @@ async def _openai_stream_with_tools(
     tool_names: set | None = None,
     read_only_guard: bool = False,
     text_transform: Callable[[str], str] | None = None,
+    images: list | None = None,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream."""
     _log = logging.getLogger("copilot_proxy")
     chunks: list[str] = []
-    async for delta in client.chat_stream(prompt, additional_context, session):
+    async for delta in client.chat_stream(prompt, additional_context, session, images):
         chunks.append(delta)
     full_text = "".join(chunks)
 

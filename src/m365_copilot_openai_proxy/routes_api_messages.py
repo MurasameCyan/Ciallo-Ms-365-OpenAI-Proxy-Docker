@@ -69,12 +69,13 @@ def register_messages_routes(
                     session,
                     on_text_done=lambda text: record_response_text(app.state, call_record, text),
                     text_transform=media_rewriter,
+                    images=translated.images,
                 ),
                 media_type="text/event-stream",
             )
 
         try:
-            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session))
+            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session, translated.images))
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 

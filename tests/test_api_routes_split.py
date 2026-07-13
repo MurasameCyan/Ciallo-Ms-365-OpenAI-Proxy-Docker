@@ -30,7 +30,7 @@ def test_chat_completions_uses_reloaded_bound_account_token_without_global_token
     seen_tokens = []
 
     class FakeCopilotClient:
-        async def chat(self, prompt, additional_context, session=None):
+        async def chat(self, prompt, additional_context, session=None, images=None):
             return "ok"
 
     def factory(token=None, **kwargs):
@@ -63,7 +63,7 @@ def test_chat_stream_does_not_emit_duplicate_media_citation_fallback_after_proxy
     media_url = "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d2/views/original/flowing_water.wav"
 
     class FakeCopilotClient:
-        async def chat_stream(self, prompt, additional_context, session=None):
+        async def chat_stream(self, prompt, additional_context, session=None, images=None):
             yield f"已生成流水声（WAV 格式）：\n\n🎧 `{media_url}` \n\n这是一个约 12 秒的潺潺流水音效。"
             yield "已生成流水声（WAV 格式）：\n\n🎧 [流水声](\ue200cite\ue202turn1file1\ue201)\n\n这是一个约 12 秒的潺潺流水音效。"
 

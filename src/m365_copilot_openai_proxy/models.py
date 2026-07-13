@@ -115,6 +115,19 @@ class OpenAIResponsesRequest(BaseModel):
     user: str | None = None
 
 
+class ImageData(BaseModel):
+    """A single inbound image extracted from multimodal message content.
+
+    base64 is raw base64 (no data: prefix); media_type is e.g. "image/png".
+    """
+    model_config = ConfigDict(extra="allow")
+
+    base64: str
+    media_type: str
+    file_name: str
+
+
 class TranslatedRequest(BaseModel):
     prompt: str
     additional_context: list[str] = Field(default_factory=list)
+    images: list[ImageData] = Field(default_factory=list)
