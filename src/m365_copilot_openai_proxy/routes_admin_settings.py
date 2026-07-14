@@ -17,6 +17,7 @@ from .runtime_settings import (
     normalize_media_proxy_suffixes,
     normalize_tone_options,
 )
+from .runtime_flags import set_flags as _set_log_flags
 from .token_store import write_system_prompt, write_tone, write_tool_prompt
 from .translator import default_tool_system_prompt
 
@@ -82,6 +83,8 @@ def register_admin_settings_routes(
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
+            "user_log_verbose": bool(body.get("user_log_verbose", current.get("user_log_verbose", True))),
+            "user_log_errors": bool(body.get("user_log_errors", current.get("user_log_errors", True))),
             "media_proxy_suffixes": normalize_media_proxy_suffixes(body.get("media_proxy_suffixes", current.get("media_proxy_suffixes"))) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
             "media_proxy_ttl_seconds": int_setting("media_proxy_ttl_seconds", 60),
             "tone_options": normalize_tone_options(body.get("tone_options", current.get("tone_options"))),
@@ -110,6 +113,9 @@ def register_admin_settings_routes(
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
         app.state.tone_options = data["tone_options"]
+        app.state.user_log_verbose = data["user_log_verbose"]
+        app.state.user_log_errors = data["user_log_errors"]
+        _set_log_flags(verbose=data["user_log_verbose"], errors=data["user_log_errors"])
         app.state.call_log_limit = data["call_log_limit"]
         trim_call_log(app.state)
         logging.getLogger().setLevel(app.state.log_level)

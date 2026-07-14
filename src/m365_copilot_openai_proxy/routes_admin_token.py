@@ -12,7 +12,7 @@ from .token_identity import update_username_from_token
 from .token_store import write_token, write_username
 
 
-def register_admin_token_routes(app: FastAPI, require_admin: Callable[[Request], object | None]) -> None:
+def register_admin_token_routes(app: FastAPI, require_admin: Callable[[Request], object | None], *, admin_cdp_enabled: bool = False) -> None:
     @app.get("/admin/token/status")
     async def token_status(request: Request) -> dict:
         err = require_admin(request)
@@ -60,6 +60,13 @@ def register_admin_token_routes(app: FastAPI, require_admin: Callable[[Request],
             if acc is not None:
                 app.state.account_store.push_token(acc.id, token)
         return {"status": "ok", "message": "Token updated", "token_status": app.state.token_store.status()}
+
+    # The endpoints below all talk to the shared admin CDP Chromium on the primary
+    # port (9222). When that browser is not started (pool deployments), skip
+    # registering them entirely so callers get a clean 404 instead of a connection
+    # error, and no misleading CDP failure logs are emitted.
+    if not admin_cdp_enabled:
+        return
 
     @app.post("/admin/token/auto-capture")
     async def auto_capture_token(request: Request) -> dict:

@@ -25,6 +25,7 @@ import time
 
 from .account_store import AccountStore, extract_identity
 from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .runtime_flags import elog, ulog
 
 # The Copilot SPA's public client id (same one seen in our capture logs and in
 # the MSAL refreshtoken cache key). Public client => no secret needed.
@@ -91,35 +92,35 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
             resp = await client.post(_TOKEN_URL.format(tenant=tenant), data=data, headers=headers)
     except Exception as exc:
-        print(f"RT refresh failed for {account_id}: HTTP error: {exc}", flush=True)
+        elog(f"RT refresh failed for {account_id}: HTTP error: {exc}")
         return False
 
     if resp.status_code != 200:
         # AADSTS codes here (e.g. invalid_grant when the RT chain is dead) tell
         # us the RT is no longer usable, so the caller falls back to CDP.
         detail = _error_detail(resp)
-        print(f"RT refresh failed for {account_id}: HTTP {resp.status_code} {detail}", flush=True)
+        elog(f"RT refresh failed for {account_id}: HTTP {resp.status_code} {detail}")
         return False
 
     try:
         payload = resp.json()
     except Exception as exc:
-        print(f"RT refresh failed for {account_id}: cannot parse token response: {exc}", flush=True)
+        elog(f"RT refresh failed for {account_id}: cannot parse token response: {exc}")
         return False
 
     access_token = payload.get("access_token")
     if not access_token:
-        print(f"RT refresh failed for {account_id}: no access_token in response", flush=True)
+        elog(f"RT refresh failed for {account_id}: no access_token in response")
         return False
 
     # Validate it really is a substrate token before trusting it.
     try:
         claims = decode_jwt_payload(access_token)
     except Exception as exc:
-        print(f"RT refresh failed for {account_id}: access_token not a JWT: {exc}", flush=True)
+        elog(f"RT refresh failed for {account_id}: access_token not a JWT: {exc}")
         return False
     if not is_substrate_token_claims(claims):
-        print(f"RT refresh failed for {account_id}: token aud={claims.get('aud')!r} is not substrate", flush=True)
+        elog(f"RT refresh failed for {account_id}: token aud={claims.get('aud')!r} is not substrate")
         return False
 
     # Identity guard: never overwrite an established account with a token that
@@ -127,10 +128,9 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
     if account.email:
         _, captured_email = extract_identity(access_token)
         if captured_email and captured_email.lower() != account.email.lower():
-            print(
+            elog(
                 f"RT refresh rejected for {account_id}: identity mismatch "
-                f"(account={account.email!r}, captured={captured_email!r})",
-                flush=True,
+                f"(account={account.email!r}, captured={captured_email!r})"
             )
             return False
 
@@ -145,10 +145,9 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
     # account stays "manual" and a "cdp" account stays "cdp".
     accounts.update_token(account_id, access_token)
     seconds = max(0, int(claims.get("exp", 0)) - int(time.time()))
-    print(
+    ulog(
         f"RT refresh succeeded for {account_id}: substrate token via HTTP "
-        f"(expires in {seconds}s, rotated_rt={'yes' if rotated and rotated != rt else 'no'})",
-        flush=True,
+        f"(expires in {seconds}s, rotated_rt={'yes' if rotated and rotated != rt else 'no'})"
     )
     return True
 

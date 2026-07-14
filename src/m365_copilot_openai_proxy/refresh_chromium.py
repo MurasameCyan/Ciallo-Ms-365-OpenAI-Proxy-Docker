@@ -9,6 +9,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+from .runtime_flags import ulog
 
 _LOGGED_CHROMIUM_PATH: str | None = None
 
@@ -19,7 +20,7 @@ def _chromium_path() -> str:
     global _LOGGED_CHROMIUM_PATH
     if resolved != _LOGGED_CHROMIUM_PATH:
         _LOGGED_CHROMIUM_PATH = resolved
-        print(f"Chromium binary resolved to: {resolved}", flush=True)
+        ulog(f"Chromium binary resolved to: {resolved}")
     return resolved
 
 

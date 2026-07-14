@@ -15,6 +15,7 @@ from .key_store import KeyStore
 from .login_guard import LoginRateLimiter
 from .metrics_store import init_metrics_store
 from .refresh_scheduler import RefreshScheduler
+from .runtime_flags import set_flags as _set_log_flags
 from .runtime_settings import _read_runtime_settings
 from .session_store import PersistentSessionStore
 from .substrate_client import SubstrateCopilotClient
@@ -87,7 +88,13 @@ def init_app_state(
         app.state.account_store,
         profile_root=Path(settings.token_dir) / "profiles",
     )
-    runtime_settings = _read_runtime_settings(settings.token_dir)
+    runtime_settings = _read_runtime_settings(
+        settings.token_dir,
+        env_defaults={
+            "user_log_verbose": settings.log_user_verbose,
+            "user_log_errors": settings.log_user_errors,
+        },
+    )
     app.state.call_log_limit = runtime_settings["call_log_limit"]
     app.state.call_log_path = Path(settings.token_dir) / "call_log.json"
     app.state.call_log: list[dict] = load_call_log(app.state.call_log_path, app.state.call_log_limit)
@@ -109,6 +116,16 @@ def init_app_state(
     app.state.log_level = runtime_settings["log_level"]
     app.state.run_permission = runtime_settings["run_permission"]
     app.state.tone_options = runtime_settings["tone_options"]
+    # User/account log toggles: sync process-wide flags from the resolved settings.
+    app.state.user_log_verbose = runtime_settings["user_log_verbose"]
+    app.state.user_log_errors = runtime_settings["user_log_errors"]
+    _set_log_flags(
+        verbose=runtime_settings["user_log_verbose"],
+        errors=runtime_settings["user_log_errors"],
+    )
+    # Whether the shared admin CDP (port 9222) and its dependent endpoints are on.
+    # Pure .env: pool deployments leave it off and drive per-account Chromium.
+    app.state.admin_cdp_enabled = bool(settings.enable_admin_cdp)
     logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]

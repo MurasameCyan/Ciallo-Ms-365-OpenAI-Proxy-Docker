@@ -10,6 +10,7 @@ import time
 from .account_store import extract_identity
 from .refresh_browser_helpers import _identity_conflict, _is_login_url, _is_logged_out_shell
 from .refresh_cookies import _SESSION_COOKIE_PERSIST_SECONDS, _cdp_cookie_params, _critical_cookie_report
+from .runtime_flags import elog, ulog
 
 # Verbose cookie-injection diagnostics (critical-cookie report + MSAL
 # localStorage dump). Off by default to keep logs clean; set
@@ -56,11 +57,11 @@ def _apply_opportunistic_token(accounts, account_id: str, account_email: str, gr
         return False
     if _identity_conflict(account_email, grabbed):
         _, captured_email = extract_identity(grabbed)
-        print(f"Cookie injection skipped opportunistic token for {account_id}: identity mismatch (account={account_email!r}, captured={captured_email!r})", flush=True)
+        elog(f"Cookie injection skipped opportunistic token for {account_id}: identity mismatch (account={account_email!r}, captured={captured_email!r})")
         return False
     accounts.update_token(account_id, grabbed, token_source="cdp")
     accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=time.time() + _SESSION_COOKIE_PERSIST_SECONDS)
-    print(f"Cookie injection opportunistically captured token for {account_id} (no nudge, same session)", flush=True)
+    ulog(f"Cookie injection opportunistically captured token for {account_id} (no nudge, same session)")
     return True
 
 
@@ -183,7 +184,7 @@ async def inject_cookies_one(
             failures: list[str] = []
             if _COOKIE_INJECT_DEBUG:
                 crit = _critical_cookie_report(cookies)
-                print(f"Cookie inject diag [{account_id}] pushed={len(cookies)} critical={crit or 'NONE'}", flush=True)
+                ulog(f"Cookie inject diag [{account_id}] pushed={len(cookies)} critical={crit or 'NONE'}")
             for i, cookie in enumerate(cookies):
                 domain = str(cookie.get("domain", "") or ".microsoft.com")
                 domain_l = domain.lower()
@@ -224,7 +225,7 @@ async def inject_cookies_one(
             local_storage = getattr(account, "local_storage", None) or {}
             if local_storage:
                 seeded = await _seed_local_storage(ws, local_storage)
-                print(f"Cookie injection seeded MSAL localStorage for {account_id}: {seeded}/{len(local_storage)} keys", flush=True)
+                ulog(f"Cookie injection seeded MSAL localStorage for {account_id}: {seeded}/{len(local_storage)} keys")
             await ws.send(json.dumps({"id": 9999, "method": "Page.navigate", "params": {"url": "https://m365.cloud.microsoft/chat"}}))
             await asyncio.sleep(8)
             try:
@@ -261,7 +262,7 @@ async def inject_cookies_one(
                             diag = msg.get("result", {}).get("result", {}).get("value")
                             break
                     if diag:
-                        print(f"Cookie inject diag [{account_id}] page={diag}", flush=True)
+                        ulog(f"Cookie inject diag [{account_id}] page={diag}")
                 except Exception:
                     pass
         if attempted > 0 and injected == attempted and not _is_login_url(final_url):
@@ -288,16 +289,16 @@ async def inject_cookies_one(
             #     decision lives in _apply_opportunistic_token (unit-testable).
             shell = _is_logged_out_shell(final_url)
             if shell and not allow_nudge:
-                print(f"Cookie injection armed CDP refresh for {account_id} (NoAccountOnStart shell, SSO capture deferred to refresh): {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}", flush=True)
+                ulog(f"Cookie injection armed CDP refresh for {account_id} (NoAccountOnStart shell, SSO capture deferred to refresh): {injected}/{attempted}, persisted session cookies={session_persisted}, final_url={final_url}")
             else:
-                print(f"Cookie injection {'capturing token' if allow_nudge else 'established login'} for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, shell={shell}, final_url={final_url}", flush=True)
+                ulog(f"Cookie injection {'capturing token' if allow_nudge else 'established login'} for {account_id}: {injected}/{attempted}, persisted session cookies={session_persisted}, shell={shell}, final_url={final_url}")
                 try:
                     from .cli import _cdp_extract_token
 
                     grabbed = await _cdp_extract_token(account.cdp_port, allow_nudge=allow_nudge, expected_email=account.email)
                     _apply_opportunistic_token(accounts, account_id, account.email, grabbed)
                 except Exception as exc:
-                    print(f"Cookie injection opportunistic token skipped for {account_id}: {exc}", flush=True)
+                    elog(f"Cookie injection opportunistic token skipped for {account_id}: {exc}")
                 # Best-effort media/designer auth harvest in the SAME live session.
                 # media/designer tokens live in the MSAL cache ONLY if the SPA has
                 # already requested those resources (image/audio load), so this
@@ -313,9 +314,9 @@ async def inject_cookies_one(
                     if resources.get("designer"):
                         accounts.set_designer_auth_token(account_id, resources["designer"])
                     if resources:
-                        print(f"Cookie injection harvested resource tokens for {account_id}: {sorted(resources.keys())}", flush=True)
+                        ulog(f"Cookie injection harvested resource tokens for {account_id}: {sorted(resources.keys())}")
                 except Exception as exc:
-                    print(f"Cookie injection resource-token harvest skipped for {account_id}: {exc}", flush=True)
+                    elog(f"Cookie injection resource-token harvest skipped for {account_id}: {exc}")
                 # If a media seed conversation URL is configured, revisit it so the
                 # SPA re-fetches media and we can capture the live Authorization
                 # headers (asyncgw/teams -> media, designerapp -> designer). These
@@ -331,17 +332,17 @@ async def inject_cookies_one(
                         if captured.get("designer"):
                             accounts.set_designer_auth_token(account_id, captured["designer"])
                         if captured:
-                            print(f"Cookie injection captured media auth for {account_id}: {sorted(captured.keys())}", flush=True)
+                            ulog(f"Cookie injection captured media auth for {account_id}: {sorted(captured.keys())}")
                         else:
-                            print(f"Cookie injection media-seed navigation yielded no auth headers for {account_id}", flush=True)
+                            elog(f"Cookie injection media-seed navigation yielded no auth headers for {account_id}")
                     except Exception as exc:
-                        print(f"Cookie injection media-auth capture skipped for {account_id}: {exc}", flush=True)
+                        elog(f"Cookie injection media-auth capture skipped for {account_id}: {exc}")
         else:
             accounts.set_cookie_status(account_id, False)
             if failures:
-                print(f"Cookie injection CDP failures for {account_id}: {' | '.join(failures)}", flush=True)
+                elog(f"Cookie injection CDP failures for {account_id}: {' | '.join(failures)}")
             if attempted > 0 and injected == attempted and _is_login_url(final_url):
-                print(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}", flush=True)
+                elog(f"Cookie injection did not establish login for {account_id}: redirected to {final_url}")
         return injected, attempted
     finally:
         await close_chromium_gracefully(account.cdp_port, proc)

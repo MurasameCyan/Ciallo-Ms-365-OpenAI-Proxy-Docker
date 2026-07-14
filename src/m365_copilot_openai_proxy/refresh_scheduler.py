@@ -41,6 +41,7 @@ from .refresh_media import (
 from .refresh_image_fetch import fetch_image_one as _fetch_image_one_impl
 from .refresh_cookie_inject import inject_cookies_one as _inject_cookies_one_impl
 from .refresh_via_rt import refresh_via_rt
+from .runtime_flags import elog, ulog
 
 
 
@@ -171,13 +172,13 @@ class RefreshScheduler:
                     if stop.is_set():
                         break
                     if self._keepalive_due(account):
-                        print(f"Keepalive: refreshing {account.id} (cookie near expiry)", flush=True)
+                        ulog(f"Keepalive: refreshing {account.id} (cookie near expiry)")
                         try:
                             # force=True so a still-valid-but-soon-to-expire token is
                             # refreshed now. ensure_fresh serialises via the global lock.
                             await self.ensure_fresh(account.id, force=True)
                         except Exception as exc:
-                            print(f"Keepalive refresh error for {account.id}: {exc}", flush=True)
+                            elog(f"Keepalive refresh error for {account.id}: {exc}")
                     elif self._recovery_due(account):
                         # Self-heal a stuck (cookie_valid=False) account. force=True
                         # routes into _refresh_one, which now re-injects the stored
@@ -186,14 +187,14 @@ class RefreshScheduler:
                         # the user confirmed recovers the session (not just a bare
                         # cookie re-inject: this also gets a usable token back).
                         self._recovery_attempted_at[account.id] = time.time()
-                        print(f"Keepalive: self-heal refreshing {account.id} (cookie invalid)", flush=True)
+                        ulog(f"Keepalive: self-heal refreshing {account.id} (cookie invalid)")
                         try:
                             ok = await self.ensure_fresh(account.id, force=True)
-                            print(f"Keepalive self-heal for {account.id}: {'recovered' if ok else 'still failing'}", flush=True)
+                            ulog(f"Keepalive self-heal for {account.id}: {'recovered' if ok else 'still failing'}")
                         except Exception as exc:
-                            print(f"Keepalive self-heal error for {account.id}: {exc}", flush=True)
+                            elog(f"Keepalive self-heal error for {account.id}: {exc}")
             except Exception as exc:
-                print(f"Keepalive loop iteration error: {exc}", flush=True)
+                elog(f"Keepalive loop iteration error: {exc}")
             try:
                 await asyncio.wait_for(stop.wait(), timeout=self._keepalive_interval_seconds)
             except asyncio.TimeoutError:
@@ -288,17 +289,16 @@ class RefreshScheduler:
             stale = self._media_token_stale(account.media_auth_token, account.media_auth_updated_at)
         if not stale:
             return
-        print(
+        ulog(
             f"Lazy media keepalive for {account_id}: "
-            f"{'designer' if is_designer else 'media'} token stale, re-capturing via seed",
-            flush=True,
+            f"{'designer' if is_designer else 'media'} token stale, re-capturing via seed"
         )
         async with self._account_lock(account_id):
             async with self._lock:
                 try:
                     await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
                 except Exception as exc:
-                    print(f"Lazy media keepalive failed for {account_id}: {exc}", flush=True)
+                    elog(f"Lazy media keepalive failed for {account_id}: {exc}")
 
     async def _try_rt_refresh(self, account_id: str) -> bool:
         """Attempt the fast HTTP refresh_token exchange (no browser).
@@ -323,7 +323,7 @@ class RefreshScheduler:
         """
         account = self._accounts.get(account_id)
         if account is None:
-            print(f"Refresh skipped: account {account_id} not found", flush=True)
+            elog(f"Refresh skipped: account {account_id} not found")
             return False
         # Fast path: if the account carries an OAuth2 refresh_token, try the
         # plain-HTTP substrate exchange first (no headless Chromium, no Copilot
@@ -343,10 +343,10 @@ class RefreshScheduler:
             # "cdp"; otherwise it logs a real failure instead of a silent no-op.
             if not force:
                 if self._is_expired(account.token):
-                    print(f"Refresh skipped: account {account_id} is manual and its token is expired (no auto-refresh profile)", flush=True)
+                    elog(f"Refresh skipped: account {account_id} is manual and its token is expired (no auto-refresh profile)")
                     return False
                 return bool(account.token)
-            print(f"Forced refresh on manual account {account_id}: attempting CDP capture from its profile", flush=True)
+            ulog(f"Forced refresh on manual account {account_id}: attempting CDP capture from its profile")
             async with self._account_lock(account_id):
                 async with self._lock:
                     return await self._refresh_one(account_id)
@@ -509,7 +509,7 @@ class RefreshScheduler:
     async def _refresh_one(self, account_id: str) -> bool:
         account = self._accounts.get(account_id)
         if account is None:
-            print(f"Refresh failed: account {account_id} not found", flush=True)
+            elog(f"Refresh failed: account {account_id} not found")
             return False
         # Preferred path: re-inject stored cookies + seed MSAL localStorage and
         # capture the token in that SAME live session. Runtime evidence: the
@@ -523,12 +523,12 @@ class RefreshScheduler:
             try:
                 await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
             except Exception as exc:
-                print(f"Refresh via cookie re-injection errored for {account_id}: {exc}", flush=True)
+                elog(f"Refresh via cookie re-injection errored for {account_id}: {exc}")
             refreshed = self._accounts.get(account_id) or account
             if refreshed.token and not self._needs_refresh(refreshed.token):
-                print(f"Refresh succeeded for {account_id}: token captured during cookie re-injection", flush=True)
+                ulog(f"Refresh succeeded for {account_id}: token captured during cookie re-injection")
                 return True
-            print(f"Refresh via cookie re-injection did not yield a fresh token for {account_id}; falling back to bare profile reopen", flush=True)
+            elog(f"Refresh via cookie re-injection did not yield a fresh token for {account_id}; falling back to bare profile reopen")
         profile_dir = self._profile_root / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_profile_locks(profile_dir)
@@ -556,7 +556,7 @@ class RefreshScheduler:
                 _refresh_launch_url(account.email),
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:
-            print(f"Refresh failed for {account_id}: Chromium launch error: {exc}", flush=True)
+            elog(f"Refresh failed for {account_id}: Chromium launch error: {exc}")
             return False
 
         try:
@@ -571,7 +571,7 @@ class RefreshScheduler:
                 tabs = _cdp_tab_summary(account.cdp_port)
                 if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:
                     self._accounts.set_cookie_status(account_id, False)
-                print(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
+                elog(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {tabs}")
                 return False
             token = await _cdp_extract_token(account.cdp_port, allow_nudge=True, expected_email=account.email)
             if not token:
@@ -589,10 +589,10 @@ class RefreshScheduler:
 
                     diag = await _cdp_login_diagnostic(account.cdp_port)
                     if diag:
-                        print(f"Refresh login diagnostic for {account_id}: {diag}", flush=True)
+                        ulog(f"Refresh login diagnostic for {account_id}: {diag}")
                 except Exception as exc:
-                    print(f"Refresh login diagnostic skipped for {account_id}: {exc}", flush=True)
-                print(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {tabs}", flush=True)
+                    elog(f"Refresh login diagnostic skipped for {account_id}: {exc}")
+                elog(f"Refresh failed for {account_id}: no fresh substrate token captured from CDP port {account.cdp_port}; tabs: {tabs}")
                 return False
             # Identity guard: the persistent profile can retain another account's
             # session, so a captured token may belong to the wrong identity. Never
@@ -600,7 +600,7 @@ class RefreshScheduler:
             if _identity_conflict(account.email, token):
                 _, captured_email = extract_identity(token)
                 self._accounts.set_cookie_status(account_id, False)
-                print(f"Refresh rejected for {account_id}: identity mismatch (account={account.email!r}, captured={captured_email!r})", flush=True)
+                elog(f"Refresh rejected for {account_id}: identity mismatch (account={account.email!r}, captured={captured_email!r})")
                 return False
             self._accounts.update_token(account_id, token, token_source="cdp")
             # A successful CDP refresh means Microsoft just re-established the
@@ -619,13 +619,13 @@ class RefreshScheduler:
                 if resources.get("designer"):
                     self._accounts.set_designer_auth_token(account_id, resources["designer"])
                 if resources:
-                    print(f"Refresh harvested resource tokens for {account_id}: {sorted(resources.keys())}", flush=True)
+                    ulog(f"Refresh harvested resource tokens for {account_id}: {sorted(resources.keys())}")
             except Exception as exc:
-                print(f"Refresh resource-token harvest skipped for {account_id}: {exc}", flush=True)
-            print(f"Refresh succeeded for {account_id}: token updated from CDP", flush=True)
+                elog(f"Refresh resource-token harvest skipped for {account_id}: {exc}")
+            ulog(f"Refresh succeeded for {account_id}: token updated from CDP")
             return True
         except Exception as exc:
-            print(f"Refresh failed for {account_id}: {exc}", flush=True)
+            elog(f"Refresh failed for {account_id}: {exc}")
             return False
         finally:
             await _close_chromium_gracefully(account.cdp_port, proc)

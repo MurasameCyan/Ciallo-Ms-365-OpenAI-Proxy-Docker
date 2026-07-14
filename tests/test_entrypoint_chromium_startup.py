@@ -35,12 +35,15 @@ def test_entrypoint_prefers_configured_or_full_chromium_browser_binary():
 
 
 def test_entrypoint_starts_startup_cdp_without_requiring_env_token():
-    # Multi-tenant tokens live in accounts.json, not M365_ACCESS_TOKEN, so CDP
-    # startup must NOT gate on that env var (it would keep auto-refresh off for
-    # pool deployments). It should start on CHROME_BIN + AUTO_REFRESH alone.
+    # Multi-tenant tokens live in accounts.json, not M365_ACCESS_TOKEN, so the
+    # shared CDP startup must NOT gate on that env var. Per-account refresh runs
+    # from the app startup keepalive hook (per-account 9322+ ports) regardless of
+    # STARTUP_CDP, so the shared 9222 browser is now opt-in via ENABLE_ADMIN_CDP
+    # (default off) without disabling pool refresh.
     assert 'STARTUP_CDP="false"' in ENTRYPOINT
     assert 'if [ -n "$M365_ACCESS_TOKEN" ]; then' not in ENTRYPOINT
-    assert 'if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then' in ENTRYPOINT
+    assert 'ENABLE_ADMIN_CDP="${ENABLE_ADMIN_CDP:-false}"' in ENTRYPOINT
+    assert 'if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ] && [ "$ENABLE_ADMIN_CDP" = "true" ]; then' in ENTRYPOINT
     assert '[ "$STARTUP_CDP" = "true" ]' in ENTRYPOINT
 
 

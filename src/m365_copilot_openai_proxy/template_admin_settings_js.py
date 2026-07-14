@@ -45,6 +45,8 @@ async function loadRuntimeSettings(){
     const mt=document.getElementById('media-proxy-ttl-input');if(mt&&document.activeElement!==mt)mt.value=s.media_proxy_ttl_seconds?Math.max(1,Math.round(s.media_proxy_ttl_seconds/86400)):'';
     const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
     const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
+    const uv=document.getElementById('runtime-user-log-verbose');if(uv){uv.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';uv.value=s.user_log_verbose?'true':'false';initGlassSelect(uv.parentElement);refreshGlassSelect(uv)};
+    const ue=document.getElementById('runtime-user-log-errors');if(ue){ue.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ue.value=s.user_log_errors?'true':'false';initGlassSelect(ue.parentElement);refreshGlassSelect(ue)};
   }catch(e){}
 }
 async function saveRuntimeSettings(btnId){
@@ -56,6 +58,8 @@ async function saveRuntimeSettings(btnId){
   put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
   const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
   const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
+  const uv=document.getElementById('runtime-user-log-verbose');if(uv)body.user_log_verbose=uv.value==='true';
+  const ue=document.getElementById('runtime-user-log-errors');if(ue)body.user_log_errors=ue.value==='true';
   body.media_proxy_suffixes=_mediaSuffixListFromInput();
   const mt=document.getElementById('media-proxy-ttl-input');if(mt&&mt.value!=='')body.media_proxy_ttl_seconds=Math.max(1,Number(mt.value||1)||1)*86400;
   try{

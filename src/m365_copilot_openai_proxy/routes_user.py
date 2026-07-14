@@ -15,6 +15,7 @@ from .response_helpers import _json_err
 from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 from .translator import default_tool_system_prompt
+from .runtime_flags import elog
 
 # Keep strong references to fire-and-forget background tasks so the event loop
 # does not garbage-collect them mid-flight (see asyncio.create_task docs).
@@ -44,7 +45,7 @@ def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
             # a usable token.
             await scheduler.ensure_fresh(account_id, force=False)
         except Exception as exc:  # noqa: BLE001 - detached task must not raise
-            print(f"Post-push refresh failed for {account_id}: {exc}", flush=True)
+            elog(f"Post-push refresh failed for {account_id}: {exc}")
 
     task = loop.create_task(_run())
     _BACKGROUND_TASKS.add(task)

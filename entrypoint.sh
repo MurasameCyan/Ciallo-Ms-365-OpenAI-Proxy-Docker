@@ -46,11 +46,15 @@ else
 fi
 
 STARTUP_CDP="false"
-# Multi-tenant tokens live in accounts.json (per-account), not in the
-# M365_ACCESS_TOKEN env var, so requiring that env var here kept CDP (and thus
-# auto-refresh) permanently off for pool deployments. Start CDP whenever a
-# browser exists and AUTO_REFRESH is enabled, matching the single-tenant image.
-if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ]; then
+# ENABLE_ADMIN_CDP (default false) gates the SHARED admin Chromium on the primary
+# port (9222) and the admin endpoints that depend on it. Pool deployments leave it
+# off: per-account Chromium (9322+) and the keepalive/cookie-refresh loop run from
+# the app startup hook regardless of this flag, so turning it off does NOT disable
+# per-account refresh. Set ENABLE_ADMIN_CDP=true to restore the shared 9222 browser
+# (single-tenant startup capture + /admin/token/auto-capture, /admin/cookie/inject,
+# /admin/chromium/* endpoints).
+ENABLE_ADMIN_CDP="${ENABLE_ADMIN_CDP:-false}"
+if [ -n "$CHROME_BIN" ] && [ "$AUTO_REFRESH" = "true" ] && [ "$ENABLE_ADMIN_CDP" = "true" ]; then
     STARTUP_CDP="true"
 fi
 

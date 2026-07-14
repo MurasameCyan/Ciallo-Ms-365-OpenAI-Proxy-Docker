@@ -40,6 +40,11 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "log_level": "INFO",
     "call_log_limit": 100,
     "run_permission": "full",
+    # User/account runtime log toggles (see runtime_flags.py). verbose gates normal
+    # progress logs, errors gates failure logs. Seeded from .env on first boot; the
+    # persisted file wins once written, and the admin UI can flip them at runtime.
+    "user_log_verbose": True,
+    "user_log_errors": True,
     "media_proxy_suffixes": list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
     # Signed media proxy URL lifetime. The upstream designer/media auth token is
     # refreshed alongside cookies, so the fetch itself always uses the freshest
@@ -131,8 +136,12 @@ def _runtime_settings_path(token_dir: str) -> Path:
     return Path(token_dir) / "runtime_settings.json"
 
 
-def _read_runtime_settings(token_dir: str) -> dict:
+def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> dict:
     data = dict(_RUNTIME_SETTINGS_DEFAULTS)
+    # .env-provided defaults layer on top of the static defaults but UNDER the
+    # persisted file, giving precedence: file > .env > static default.
+    if env_defaults:
+        data.update({k: env_defaults[k] for k in data.keys() if k in env_defaults})
     try:
         raw = json.loads(_runtime_settings_path(token_dir).read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -156,6 +165,8 @@ def _read_runtime_settings(token_dir: str) -> dict:
     data["run_permission"] = str(data.get("run_permission") or _RUNTIME_SETTINGS_DEFAULTS["run_permission"]).strip()
     if data["run_permission"] not in _RUN_PERMISSIONS:
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
+    data["user_log_verbose"] = bool(data.get("user_log_verbose"))
+    data["user_log_errors"] = bool(data.get("user_log_errors"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     data["tone_options"] = normalize_tone_options(data.get("tone_options"))
     try:

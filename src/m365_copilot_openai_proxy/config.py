@@ -19,3 +19,11 @@ class Settings(BaseSettings):
     idle_timeout_minutes: int = Field(default=30, alias="IDLE_TIMEOUT_MINUTES")
     token_dir: str = Field(default="/home/app/token", alias="TOKEN_DIR")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    # Runtime user/account log toggles. Seed the initial value of the (Web-editable)
+    # runtime settings; the runtime settings file wins once written.
+    log_user_verbose: bool = Field(default=True, alias="LOG_USER_VERBOSE")
+    log_user_errors: bool = Field(default=True, alias="LOG_USER_ERRORS")
+    # Whether to run the shared admin CDP Chromium on the primary port (9222) and
+    # register the admin endpoints that depend on it. Off by default: pool
+    # deployments drive per-account Chromium on their own ports instead.
+    enable_admin_cdp: bool = Field(default=False, alias="ENABLE_ADMIN_CDP")

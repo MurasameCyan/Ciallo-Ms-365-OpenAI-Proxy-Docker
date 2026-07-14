@@ -10,6 +10,7 @@ import httpx
 import websockets
 
 from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .runtime_flags import elog, ulog
 
 logger = logging.getLogger(__name__)
 
@@ -116,11 +117,10 @@ def _select_substrate_token(candidates: list[str], expected_email: str = "") -> 
         if not want or _token_identity_email(token) == want:
             return token
     if first_valid is not None and want:
-        print(
+        elog(
             f"Substrate token identity did not match expected {want!r} "
             f"(got {_token_identity_email(first_valid)!r}); using first valid token "
-            f"(profile is isolated; write-time identity guard still applies)",
-            flush=True,
+            f"(profile is isolated; write-time identity guard still applies)"
         )
     return first_valid
 
@@ -503,11 +503,10 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
         # turn to clean up here.
         return token
     if first_valid is not None:
-        print(
+        elog(
             f"Nudge captured a substrate token whose identity did not match expected "
             f"{want!r} (got {_token_identity_email(first_valid)!r}); using it "
-            f"(profile is isolated; write-time identity guard still applies)",
-            flush=True,
+            f"(profile is isolated; write-time identity guard still applies)"
         )
         return first_valid
     # Capture failed: classify why so the fix can target the right layer.
@@ -516,11 +515,10 @@ async def _cdp_nudge_and_wait_for_token(ws, *, expected_email: str = "") -> str 
     #                          nudge/selector likely did not reach the input).
     #   substrate_no_token  -> substrate WS opened but carried no access_token.
     #   substrate_bad_token -> token present but failed the substrate claims check.
-    print(
+    ulog(
         f"Nudge capture diagnostic: ws_total={ws_total} substrate_total={substrate_total} "
         f"substrate_no_token={substrate_no_token} substrate_bad_token={substrate_bad_token} "
-        f"triggered={triggered} ws_seen={ws_seen}",
-        flush=True,
+        f"triggered={triggered} ws_seen={ws_seen}"
     )
     return first_valid
 
@@ -616,7 +614,7 @@ async def _cdp_extract_resource_tokens(port: int) -> dict[str, str]:
         if kind and kind not in result and secret:
             result[kind] = secret
     if seen_targets:
-        print(f"CDP resource-token targets seen: {seen_targets[:8]}", flush=True)
+        ulog(f"CDP resource-token targets seen: {seen_targets[:8]}")
     return result
 
 
@@ -681,6 +679,7 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
     media_teams = ""
     designer = ""
     seen_hosts: list[str] = []
+    all_hosts: set[str] = set()
     try:
         async with websockets.connect(tab["webSocketDebuggerUrl"], max_size=None) as ws:
             await ws.send(json.dumps({"id": 1, "method": "Network.enable"}))
@@ -699,7 +698,7 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
                 _seed_path = httpx.URL(seed_url).path or seed_url
             except Exception:
                 _seed_path = seed_url
-            print(f"CDP media-auth navigating to media seed conversation: {_seed_path}", flush=True)
+            ulog(f"CDP media-auth navigating to media seed conversation: {_seed_path}")
             await ws.send(json.dumps({"id": 3, "method": "Page.navigate", "params": {"url": seed_url}}))
             deadline = time.time() + settle_seconds
             scroll_id = 100
@@ -727,6 +726,17 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
                 req = msg.get("params", {}).get("request", {})
                 url = str(req.get("url") or "")
                 headers = req.get("headers") or {}
+                try:
+                    host = (httpx.URL(url).host or "").lower()
+                except Exception:
+                    host = ""
+                # Diagnostic: record EVERY request host on the wire (regardless of
+                # whether it carried an Authorization header) so the logs can tell
+                # "the SPA never even requested designerapp" (image stuck loading /
+                # served from cache) apart from "it requested but sent no auth". Cap
+                # the set so a chatty page cannot bloat the log line.
+                if host and host not in all_hosts and len(all_hosts) < 40:
+                    all_hosts.add(host)
                 auth = ""
                 for hk, hv in headers.items():
                     if hk.lower() == "authorization":
@@ -734,9 +744,7 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
                         break
                 if not auth:
                     continue
-                try:
-                    host = (httpx.URL(url).host or "").lower()
-                except Exception:
+                if not host:
                     continue
                 if _DESIGNER_AUTH_HOST_RE.search(host):
                     if not designer:
@@ -764,7 +772,16 @@ async def _cdp_capture_media_auth(port: int, seed_url: str, settle_seconds: floa
     if designer:
         result["designer"] = designer
     if seen_hosts:
-        print(f"CDP media-auth capture hosts seen: {seen_hosts[:8]}", flush=True)
+        ulog(f"CDP media-auth capture hosts seen: {seen_hosts[:8]}")
+    # Diagnostic: dump EVERY request host observed in the window (auth or not) and
+    # explicitly flag whether designerapp was contacted at all. This distinguishes
+    # "the SPA never requested designerapp" (image stuck loading / served from
+    # cache -> nothing to sniff) from "requested but carried no Authorization".
+    designer_seen = any(_DESIGNER_AUTH_HOST_RE.search(h) for h in all_hosts)
+    ulog(
+        f"CDP media-auth capture diag: designerapp_requested={designer_seen}, "
+        f"designer_captured={bool(designer)}, all_hosts={sorted(all_hosts)}"
+    )
     return result
 
 

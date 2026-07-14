@@ -36,7 +36,7 @@ def register_app_routes(
         admin_auth.login_lockout_sec,
     )
 
-    register_admin_token_routes(app, admin_auth.require_admin)
+    register_admin_token_routes(app, admin_auth.require_admin, admin_cdp_enabled=bool(resolved_settings.enable_admin_cdp))
 
     register_admin_observability_routes(app, admin_auth.require_admin)
 
