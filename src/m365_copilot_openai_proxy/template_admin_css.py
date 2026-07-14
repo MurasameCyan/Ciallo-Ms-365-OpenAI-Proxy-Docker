@@ -157,10 +157,10 @@ body[data-theme="light"] .tone-select option{background:#fff;color:#243049}
 .ports-logs-grid{align-items:start!important}
 .ports-logs-card input{min-height:38px!important;margin-top:.5rem!important;padding:9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
 .ports-log-level{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:.5rem!important;position:relative;z-index:20}
-.ports-log-level .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
-.ports-log-level .glass-select-trigger{height:38px!important;min-height:38px!important;padding:9px 36px 9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
-.ports-log-level .glass-select.open{z-index:3100!important}
-.ports-log-level .glass-select-menu{z-index:3200!important}
+.ports-logs-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
+.ports-logs-grid .glass-select-trigger{height:38px!important;min-height:38px!important;padding:9px 36px 9px 12px!important;border-radius:10px!important;font-size:.875rem!important;font-weight:700!important}
+.ports-logs-grid .glass-select.open{z-index:3100!important}
+.ports-logs-grid .glass-select-menu{z-index:3200!important}
 .layout .glass-select.open{z-index:2000}
 .layout .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 .view-settings:has(.glass-select.open){z-index:2000;overflow:visible}
