@@ -19,7 +19,7 @@ from .substrate_parse import (
     _image_markdown,
     _is_image_loading_placeholder,
     _message_content,
-    _remaining_fallback_text,
+    _final_fallback_remainder,
 )
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
@@ -38,7 +38,7 @@ __all__ = [
     "_image_markdown",
     "_is_image_loading_placeholder",
     "_message_content",
-    "_remaining_fallback_text",
+    "_final_fallback_remainder",
 ]
 
 SIGNALR_SEP = "\x1e"
@@ -432,7 +432,7 @@ class SubstrateCopilotClient:
                                 yielded_images.add(image_url)
                                 yielded_any = True
                         if t == 3:
-                            remaining = _remaining_fallback_text(streamed_text, fallback_text)
+                            remaining = _final_fallback_remainder(streamed_text, fallback_text)
                             if remaining:
                                 yield remaining
                             return

@@ -45,6 +45,9 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # persisted file wins once written, and the admin UI can flip them at runtime.
     "user_log_verbose": True,
     "user_log_errors": True,
+    # Suppress high-frequency uvicorn access-log lines (see runtime_flags.py).
+    # On by default; the admin UI can flip it at runtime.
+    "suppress_access_log": True,
     "media_proxy_suffixes": list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
     # Signed media proxy URL lifetime. The upstream designer/media auth token is
     # refreshed alongside cookies, so the fetch itself always uses the freshest
@@ -167,6 +170,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
     data["user_log_verbose"] = bool(data.get("user_log_verbose"))
     data["user_log_errors"] = bool(data.get("user_log_errors"))
+    data["suppress_access_log"] = bool(data.get("suppress_access_log"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     data["tone_options"] = normalize_tone_options(data.get("tone_options"))
     try:

@@ -8,7 +8,7 @@ from m365_copilot_openai_proxy.substrate_parse import (
     _image_markdown,
     _is_image_loading_placeholder,
     _message_content,
-    _remaining_fallback_text,
+    _final_fallback_remainder,
 )
 
 
@@ -84,31 +84,31 @@ def test_extract_image_urls_strips_backticks():
     assert _extract_image_urls(node) == ["https://x/a.png"]
 
 
-# --- _remaining_fallback_text ----------------------------------------------
+# --- _final_fallback_remainder ---------------------------------------------
 
-def test_remaining_fallback_empty_fallback_returns_empty():
-    assert _remaining_fallback_text("streamed", "") == ""
-
-
-def test_remaining_fallback_empty_streamed_returns_full_fallback():
-    assert _remaining_fallback_text("", "full fallback") == "full fallback"
+def test_final_fallback_empty_fallback_returns_empty():
+    assert _final_fallback_remainder("streamed", "") == ""
 
 
-def test_remaining_fallback_returns_suffix_when_fallback_extends_streamed():
-    assert _remaining_fallback_text("Hello", "Hello world") == " world"
+def test_final_fallback_empty_streamed_returns_full_fallback():
+    assert _final_fallback_remainder("", "full fallback") == "full fallback"
 
 
-def test_remaining_fallback_empty_when_fallback_already_streamed():
-    assert _remaining_fallback_text("Hello world extra", "Hello world") == ""
+def test_final_fallback_returns_suffix_when_fallback_extends_streamed():
+    assert _final_fallback_remainder("Hello", "Hello world") == " world"
 
 
-def test_remaining_fallback_empty_when_signatures_match_despite_link_noise():
+def test_final_fallback_empty_when_fallback_already_streamed():
+    assert _final_fallback_remainder("Hello world extra", "Hello world") == ""
+
+
+def test_final_fallback_empty_when_signatures_match_despite_link_noise():
     # streamed carries a backtick URL that dedupe strips; fallback is the same
     # prose without it. Neither startswith/contains the other, so this exercises
     # the signature-match branch (not the prefix branch): nothing extra emitted.
     streamed = "See the docs `https://x/a` now"
     fallback = "See the docs now"
-    assert _remaining_fallback_text(streamed, fallback) == ""
+    assert _final_fallback_remainder(streamed, fallback) == ""
 
 
 # --- _dedupe_repeated_delta ------------------------------------------------

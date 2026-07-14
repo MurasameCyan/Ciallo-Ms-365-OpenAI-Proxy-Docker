@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # runtime settings; the runtime settings file wins once written.
     log_user_verbose: bool = Field(default=True, alias="LOG_USER_VERBOSE")
     log_user_errors: bool = Field(default=True, alias="LOG_USER_ERRORS")
+    # Suppress high-frequency uvicorn access-log lines (admin/user polling, health
+    # checks, favicon, root, media proxy). On by default; the admin UI can flip it.
+    suppress_access_log: bool = Field(default=True, alias="SUPPRESS_ACCESS_LOG")
     # Whether to run the shared admin CDP Chromium on the primary port (9222) and
     # register the admin endpoints that depend on it. Off by default: pool
     # deployments drive per-account Chromium on their own ports instead.

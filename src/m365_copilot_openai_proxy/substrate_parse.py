@@ -41,7 +41,17 @@ def _dedupe_signature(text: str) -> str:
     return normalized
 
 
-def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
+def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
+    """Final (t==3) reconciliation ONLY: return the tail of the whole fallback
+    answer that has not been streamed yet.
+
+    This compares the ENTIRE streamed-so-far text against the ENTIRE fallback
+    answer and is meant to run exactly once, after the stream ends. Do NOT use
+    it as a per-delta guard: its ``fallback in streamed`` / signature-subset
+    branches would drop small repeated fragments (``2a_1``, a closing ``}``)
+    and corrupt formulas or code. Per-delta dedupe belongs in
+    ``_dedupe_repeated_delta``.
+    """
     if not fallback_text:
         return ""
     if not streamed_text:

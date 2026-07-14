@@ -45,6 +45,41 @@ def test_runtime_settings_saves_normalized_media_suffixes(tmp_path):
     assert "glb" in reloaded.get("/admin/runtime-settings").json()["settings"]["media_proxy_suffixes"]
 
 
+def test_suppress_access_log_default_from_env(tmp_path):
+    client = TestClient(create_app(Settings(
+        TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="",
+        SUPPRESS_ACCESS_LOG=False,
+    )))
+
+    settings = client.get("/admin/runtime-settings").json()["settings"]
+
+    assert settings["suppress_access_log"] is False
+
+
+def test_suppress_access_log_web_override_persists_and_updates_flag(tmp_path):
+    from m365_copilot_openai_proxy import runtime_flags
+
+    client = TestClient(create_app(Settings(
+        TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="",
+        SUPPRESS_ACCESS_LOG=True,
+    )))
+
+    response = client.post("/admin/runtime-settings", json={"suppress_access_log": False})
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["suppress_access_log"] is False
+    # Web override must update the live process-wide flag, not just persist.
+    assert runtime_flags.SUPPRESS_ACCESS_LOG is False
+    # And it survives a restart (file overrides the .env default).
+    reloaded = TestClient(create_app(Settings(
+        TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="",
+        SUPPRESS_ACCESS_LOG=True,
+    )))
+    assert reloaded.get("/admin/runtime-settings").json()["settings"]["suppress_access_log"] is False
+
+    runtime_flags.set_flags(suppress_access_log=True)
+
+
 def test_user_log_flags_default_from_env(tmp_path):
     client = TestClient(create_app(Settings(
         TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="",

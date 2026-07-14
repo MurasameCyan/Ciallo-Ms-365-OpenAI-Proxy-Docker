@@ -17,6 +17,7 @@ import httpx
 import uvicorn
 import websockets
 
+from . import runtime_flags
 from .app import create_app
 from .config import Settings
 from .token_store import decode_jwt_payload, is_substrate_token_claims, read_token as read_token_from_store, write_token as write_token_to_store, write_username, read_username
@@ -53,26 +54,38 @@ class _SuppressCtrlC(logging.Filter):
 logging.getLogger("uvicorn.error").addFilter(_SuppressCtrlC())
 
 
-# High-frequency polling endpoints from the web admin/user pages (+ container
-# health check) and the media image proxy flood the access log with one INFO
-# line each. Filter successful ones out so the log stays readable; /v1/ chat
-# API traffic and non-2xx/3xx responses (e.g. auth failures, expired media
-# signatures) are kept.
-_NOISY_ACCESS_PATHS = ("/admin/", "/healthz", "/user/", "/v1/m365-media")
-_ACCESS_STATUS_RE = re.compile(r'"\s+(\d{3})\b')
+# High-frequency, low-value access-log lines: web admin/user page polling, the
+# container health check, favicon, the bare landing page and the media proxy all
+# emit one INFO line each and drown out real traffic. When SUPPRESS_ACCESS_LOG is
+# on (default), drop the SUCCESSFUL ones so the log stays readable. Real API
+# traffic (POST /v1/chat/completions) and any non-2xx/3xx response (auth
+# failures, expired media signatures, 404s) are always kept so problems surface.
+# The toggle is read live from runtime_flags so the admin UI can flip it without
+# a restart (this filter is registered at import, before app.state exists).
+_NOISY_EXACT_PATHS = frozenset({"/", "/favicon.ico", "/healthz"})
+_NOISY_PATH_PREFIXES = ("/admin", "/user", "/v1/m365-media")
+# uvicorn access format: '1.2.3.4:5 - "GET /admin/tone HTTP/1.1" 200 OK'
+_ACCESS_LINE_RE = re.compile(r'"[A-Z]+\s+(?P<path>\S+)\s+HTTP/[\d.]+"\s+(?P<status>\d{3})')
+
+
+def _is_noisy_access_path(path: str) -> bool:
+    path = path.split("?", 1)[0]
+    if path in _NOISY_EXACT_PATHS:
+        return True
+    return any(path == pre or path.startswith(pre + "/") for pre in _NOISY_PATH_PREFIXES)
 
 
 class _SuppressPollingAccess(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        # uvicorn access format: '... "GET /admin/tone HTTP/1.1" 200 OK'
-        if any(p in msg for p in _NOISY_ACCESS_PATHS):
-            m = _ACCESS_STATUS_RE.search(msg)
-            # Suppress only successful/redirect polling; keep 4xx/5xx so problems
-            # (e.g. auth failures) stay visible.
-            if m and m.group(1)[0] in ("2", "3"):
-                return False
-        return True
+        if not runtime_flags.SUPPRESS_ACCESS_LOG:
+            return True
+        m = _ACCESS_LINE_RE.search(record.getMessage())
+        if not m:
+            return True
+        # Keep 4xx/5xx so failures stay visible; only suppress noisy 2xx/3xx.
+        if m.group("status")[0] not in ("2", "3"):
+            return True
+        return not _is_noisy_access_path(m.group("path"))
 
 
 logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccess())

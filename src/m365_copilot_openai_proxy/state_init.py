@@ -93,6 +93,7 @@ def init_app_state(
         env_defaults={
             "user_log_verbose": settings.log_user_verbose,
             "user_log_errors": settings.log_user_errors,
+            "suppress_access_log": settings.suppress_access_log,
         },
     )
     app.state.call_log_limit = runtime_settings["call_log_limit"]
@@ -119,9 +120,11 @@ def init_app_state(
     # User/account log toggles: sync process-wide flags from the resolved settings.
     app.state.user_log_verbose = runtime_settings["user_log_verbose"]
     app.state.user_log_errors = runtime_settings["user_log_errors"]
+    app.state.suppress_access_log = runtime_settings["suppress_access_log"]
     _set_log_flags(
         verbose=runtime_settings["user_log_verbose"],
         errors=runtime_settings["user_log_errors"],
+        suppress_access_log=runtime_settings["suppress_access_log"],
     )
     # Whether the shared admin CDP (port 9222) and its dependent endpoints are on.
     # Pure .env: pool deployments leave it off and drive per-account Chromium.

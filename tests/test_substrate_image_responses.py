@@ -4,7 +4,7 @@ import asyncio
 import json
 
 from m365_copilot_openai_proxy import substrate_client
-from m365_copilot_openai_proxy.substrate_client import SIGNALR_SEP, SubstrateCopilotClient, _message_content, _remaining_fallback_text
+from m365_copilot_openai_proxy.substrate_client import SIGNALR_SEP, SubstrateCopilotClient, _message_content, _final_fallback_remainder
 
 
 def test_message_content_suppresses_loading_placeholder_when_image_exists():
@@ -48,9 +48,9 @@ def test_message_content_normalizes_raw_bang_backtick_designer_image_text():
     assert _message_content(entry) == f"![image]({image_url})"
 
 
-def test_remaining_fallback_text_appends_image_after_loading_stream_delta():
+def test_final_fallback_remainder_appends_image_after_loading_stream_delta():
     assert (
-        _remaining_fallback_text(
+        _final_fallback_remainder(
             "Loading image",
             "Loading image\n\n![image](https://images.example/generated.png)",
         )
@@ -58,19 +58,19 @@ def test_remaining_fallback_text_appends_image_after_loading_stream_delta():
     )
 
 
-def test_remaining_fallback_text_avoids_repeating_identical_stream_text():
-    assert _remaining_fallback_text("Loading image", "Loading image") == ""
+def test_final_fallback_remainder_avoids_repeating_identical_stream_text():
+    assert _final_fallback_remainder("Loading image", "Loading image") == ""
 
 
-def test_remaining_fallback_text_avoids_repeating_media_citation_variant():
+def test_final_fallback_remainder_avoids_repeating_media_citation_variant():
     media_url = "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original/bird_chirp.wav"
     streamed = f"已为你生成一段模拟小鸟叫声的 WAV 音频：\n\n `{media_url}` \n\n如果需要不同风格，我也可以生成对应版本。"
     fallback = "已为你生成一段模拟小鸟叫声的 WAV 音频：\n\n[下载小鸟叫声](\ue200cite\ue202turn3file1\ue201)\n\n如果需要不同风格，我也可以生成对应版本。"
 
-    assert _remaining_fallback_text(streamed, fallback) == ""
+    assert _final_fallback_remainder(streamed, fallback) == ""
 
 
-def test_remaining_fallback_text_avoids_repeating_proxied_audio_and_citation_variant():
+def test_final_fallback_remainder_avoids_repeating_proxied_audio_and_citation_variant():
     proxy_url = "http://multi.qovop.cyou/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
     streamed = (
         "已生成流水声（WAV 格式）：\n\n"
@@ -97,7 +97,7 @@ def test_remaining_fallback_text_avoids_repeating_proxied_audio_and_citation_var
         "- 🧘 长时白噪音版（1分钟/5分钟）"
     )
 
-    assert _remaining_fallback_text(streamed, fallback) == ""
+    assert _final_fallback_remainder(streamed, fallback) == ""
 
 
 def test_chat_stream_appends_final_image_markdown_after_loading_delta(monkeypatch):
