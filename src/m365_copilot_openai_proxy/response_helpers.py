@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable
 from fastapi.responses import JSONResponse
 
 from .session_store import PersistentSession
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, _remaining_fallback_text
+from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, _dedupe_repeated_delta
 
 
 def _transform_complete_text(full_text: str, text_transform: Callable[[str], str] | None) -> str:
@@ -47,7 +47,7 @@ async def _openai_stream(
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session, images):
-            delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
+            delta = _dedupe_repeated_delta(raw_text, delta)
             if not delta:
                 continue
             raw_text += delta
@@ -113,7 +113,7 @@ async def _responses_stream(
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session, images):
-            delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
+            delta = _dedupe_repeated_delta(raw_text, delta)
             if not delta:
                 continue
             raw_text += delta
@@ -163,7 +163,7 @@ async def _anthropic_stream(
     full_text = ""
     try:
         async for delta in client.chat_stream(prompt, additional_context, session, images):
-            delta = _remaining_fallback_text(raw_text, delta) if raw_text and delta else delta
+            delta = _dedupe_repeated_delta(raw_text, delta)
             if not delta:
                 continue
             raw_text += delta

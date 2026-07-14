@@ -57,6 +57,36 @@ def _remaining_fallback_text(streamed_text: str, fallback_text: str) -> str:
     return fallback_text
 
 
+def _dedupe_repeated_delta(streamed_text: str, delta: str) -> str:
+    r"""Per-delta guard for the SSE response layer (response_helpers).
+
+    ``chat_stream`` already yields a deduplicated incremental stream (the t==3
+    fallback reconciliation happens inside substrate_client). As defense in
+    depth the response layer must still drop a delta that RE-EMITS the entire
+    answer so far -- observed with media answers, where the model restates the
+    whole message swapping a raw backtick-wrapped URL for a
+    ``[text](cite...)`` link.
+
+    It must NOT drop a delta merely because its short text already appeared
+    earlier: math and code answers legitimately repeat tokens such as ``2a_1``,
+    ``+ 3d = 6`` or a closing ``}`` across separate deltas. Dropping those
+    corrupts formulas (``\\frac{8}{2}(2a_1+7d)`` losing ``2a_1``) and silently
+    deletes code.
+
+    Rule: drop the delta only when its dedupe-signature is a SUPERSET of the
+    whole streamed-so-far signature (the delta reproduces everything already
+    emitted, modulo URL/citation noise). Incremental fragments never satisfy
+    this because their signature is a small subset, not a superset.
+    """
+    if not delta or not streamed_text:
+        return delta
+    streamed_sig = _dedupe_signature(streamed_text)
+    delta_sig = _dedupe_signature(delta)
+    if streamed_sig and delta_sig and streamed_sig in delta_sig:
+        return ""
+    return delta
+
+
 def _message_content(entry: dict) -> str:
     text = normalize_m365_media_text(str(entry.get("text") or ""))
     image_urls = _extract_image_urls(entry)

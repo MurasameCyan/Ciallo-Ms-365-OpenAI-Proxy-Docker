@@ -13,6 +13,7 @@ from .session_store import PersistentSession
 from .substrate_parse import (
     _capture_suspicious_response_event,
     _combine_text,
+    _dedupe_repeated_delta,
     _dedupe_signature,
     _extract_image_urls,
     _image_markdown,
@@ -31,6 +32,7 @@ __all__ = [
     "SubstrateCopilotError",
     "_capture_suspicious_response_event",
     "_combine_text",
+    "_dedupe_repeated_delta",
     "_dedupe_signature",
     "_extract_image_urls",
     "_image_markdown",

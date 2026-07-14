@@ -155,14 +155,16 @@ async function doInlineLogin(){
 // 用户名 > 登录 > 有效 > 过期时间 > 剩余 > 自动刷新 > 标题 > 页面 > 错误
 async function loadStatus(){
   try{
-    const [tr,cr]=await Promise.all([
-      fetch('/admin/token/status',{credentials:'include'}),
-      fetch('/admin/chromium/login-status',{credentials:'include'}).catch(()=>null),
-    ]);
+    const tr=await fetch('/admin/token/status',{credentials:'include'});
     if(tr.status===401){showInlineLogin();return}
     const d=await tr.json();
+    // /admin/chromium/login-status is only registered when the shared admin CDP
+    // is on. Skip it otherwise so we don't emit a 404 on every 60s poll.
+    window.__adminCdpEnabled=!!d.admin_cdp_enabled;
     let c={};
-    if(cr&&cr.ok){try{c=await cr.json()}catch(e){c={}}}
+    if(d.admin_cdp_enabled){
+      try{const cr=await fetch('/admin/chromium/login-status',{credentials:'include'});if(cr&&cr.ok)c=await cr.json()}catch(e){c={}}
+    }
     const v=d.valid;
     const cls=v?'valid':'invalid';
     const exp=d.expires_at?new Date(d.expires_at).toLocaleString():'N/A';
@@ -281,6 +283,7 @@ async function autoCapture(){
 
 async function checkLogin(){
   const msg=document.getElementById('update-msg');
+  if(window.__adminCdpEnabled===false){msg.className='msg err';msg.textContent=t('check_failed');return}
   msg.className='msg';msg.textContent=t('check_login');
   await new Promise(r=>setTimeout(r,1500));
   try{

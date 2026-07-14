@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from m365_copilot_openai_proxy.substrate_parse import (
     _combine_text,
+    _dedupe_repeated_delta,
     _dedupe_signature,
     _extract_image_urls,
     _image_markdown,
@@ -108,6 +109,29 @@ def test_remaining_fallback_empty_when_signatures_match_despite_link_noise():
     streamed = "See the docs `https://x/a` now"
     fallback = "See the docs now"
     assert _remaining_fallback_text(streamed, fallback) == ""
+
+
+# --- _dedupe_repeated_delta ------------------------------------------------
+
+def test_dedupe_repeated_delta_keeps_incremental_repeated_tokens():
+    # Math/code stream repeated short tokens across deltas; none may be dropped
+    # even though the later token already appeared in the accumulated stream.
+    streamed = "2a_1 + 3d = 6\n"
+    assert _dedupe_repeated_delta(streamed, "2a_1") == "2a_1"
+    assert _dedupe_repeated_delta(streamed, " + 7d = 10\n") == " + 7d = 10\n"
+
+
+def test_dedupe_repeated_delta_keeps_first_delta_when_nothing_streamed():
+    assert _dedupe_repeated_delta("", "hello") == "hello"
+
+
+def test_dedupe_repeated_delta_drops_full_reemission_with_link_variant():
+    # The model restates the ENTIRE answer, swapping a raw backtick URL for a
+    # citation link. Signatures match (URL/citation noise stripped), so the
+    # whole re-emission is dropped rather than duplicated.
+    streamed = "See the report `https://x/a` here"
+    reemit = "See the report [link](\ue200cite\ue202turn1file1\ue201) here"
+    assert _dedupe_repeated_delta(streamed, reemit) == ""
 
 
 # --- _dedupe_signature -----------------------------------------------------

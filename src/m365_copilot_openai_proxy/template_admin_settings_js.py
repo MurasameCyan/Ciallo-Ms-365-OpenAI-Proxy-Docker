@@ -38,7 +38,7 @@ async function loadRuntimeSettings(){
     const d=await r.json(),s=d.settings||{};
     __runtimeSettings={...s};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-cdp-port',s.cdp_port);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
     const ms=document.getElementById('media-suffix-input');if(ms&&document.activeElement!==ms)ms.value=(s.media_proxy_suffixes||[]).join('\\n');
     const to=document.getElementById('tone-options-input');if(to&&document.activeElement!==to)to.value=_toneOptionsToText(s.tone_options||[]);
@@ -55,7 +55,7 @@ async function saveRuntimeSettings(btnId){
   if(btn){btn.disabled=true;btn.textContent='...'}
   const body={...__runtimeSettings};
   const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
-  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('cdp_port','runtime-cdp-port',v=>Number(v||9222));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
+  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
   const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
   const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
   const uv=document.getElementById('runtime-user-log-verbose');if(uv)body.user_log_verbose=uv.value==='true';

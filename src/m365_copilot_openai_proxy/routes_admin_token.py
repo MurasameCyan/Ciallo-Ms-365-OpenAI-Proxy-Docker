@@ -20,6 +20,10 @@ def register_admin_token_routes(app: FastAPI, require_admin: Callable[[Request],
         status = app.state.token_store.status()
         status["auto_refresh"] = app.state.auto_refresh_enabled
         status["username"] = (getattr(app.state, 'username', '') or None) if len(getattr(app.state, 'username', '')) > 1 else None
+        # Expose whether the shared admin CDP endpoints are registered so the
+        # admin UI can skip polling /admin/chromium/login-status (which is not
+        # registered when CDP is off) and avoid a recurring 404 every minute.
+        status["admin_cdp_enabled"] = admin_cdp_enabled
         return status
 
     @app.post("/admin/token/auto-refresh-toggle")
