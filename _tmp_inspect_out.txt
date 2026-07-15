@@ -1,0 +1,231 @@
+=== ADMIN light token block ===
+/* iOS26 Liquid Glass light theme — neutral system palette, soft glass, no neon.
+   Accent vars (--cyan/--violet/--pink/--gold) are remapped to iOS system colors
+   so shared button/focus/badge rules pick up the new look automatically. */
+body[data-theme="light"]{
+--cyan:#007aff;--violet:#5856d6;--pink:#ff2d55;--gold:#ff9f0a;
+--muted:#6b6b70;--line:rgba(60,60,67,.12);
+--bg:radial-gradient(circle at 16% 10%,rgba(0,122,255,.05),transparent 30%),radial-gradient(circle at 84% 8%,rgba(88,86,214,.04),transparent 28%),radial-gradient(circle at 50% 92%,rgba(0,0,0,.02),transparent 32%),linear-gradient(160deg,#f2f3f7 0%,#e9ebf0 48%,#f4f5f8 100%);
+--text:#1c1c1e;--card:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.52));--surface:rgba(255,255,255,.62);--surface-border:rgba(255,255,255,.7);
+--sidebar:rgba(255,255,255,.52);--nav-hover:rgba(0,122,255,.07);--h1grad:linear-gradient(135deg,#1d1d1f,#3a3a3c 70%,#636366);--shadow:0 8px 28px rgba(0,0,0,.07);--chip:rgba(120,120,128,.1);--chip-border:rgba(120,120,128,.16);
+--inner:rgba(255,255,255,.62);--inner-border:rgba(120,120,128,.18);--track:rgba(120,120,128,.14);--grid:rgba(120,120,128,.1);--strong:#000000;--faint:#8e8e93}
+
+=== ADMIN component marker present === True
+
+=== ADMIN component block (first 2500) ===
+/* iOS26 light — component overrides (system blue, soft glass, no neon rainbow) */
+body[data-theme="light"]{scrollbar-color:rgba(0,122,255,.28) rgba(120,120,128,.08)}
+body[data-theme="light"]::before{background:linear-gradient(rgba(60,60,67,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(60,60,67,.05) 1px,transparent 1px);background-size:44px 44px;opacity:.55}
+body[data-theme="light"] .orb{opacity:.1;filter:blur(28px);background:conic-gradient(from 160deg,rgba(0,122,255,.55),rgba(88,86,214,.45),rgba(255,45,85,.28),rgba(0,122,255,.55))}
+body[data-theme="light"] .card{border-radius:22px;backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%)}
+body[data-theme="light"] .card::before{background:linear-gradient(135deg,rgba(255,255,255,.75),transparent 42%,rgba(0,122,255,.12),rgba(88,86,214,.08));opacity:.55}
+body[data-theme="light"] .card:has(details[open])::after{background:linear-gradient(90deg,transparent,rgba(0,122,255,.45),rgba(88,86,214,.28),transparent);animation:none;opacity:.7}
+body[data-theme="light"] details[open] summary{background:linear-gradient(135deg,rgba(0,122,255,.05),rgba(88,86,214,.04))}
+body[data-theme="light"] button,body[data-theme="light"] .page-btn{color:#fff;background:linear-gradient(180deg,#0a84ff 0%,#007aff 100%);box-shadow:0 4px 14px rgba(0,122,255,.28),inset 0 1px 0 rgba(255,255,255,.28);text-shadow:none;border-radius:12px;font-weight:700}
+body[data-theme="light"] button:hover,body[data-theme="light"] .page-btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,122,255,.32),inset 0 1px 0 rgba(255,255,255,.32)}
+body[data-theme="light"] button:active,body[data-theme="light"] .page-btn:active{transform:translateY(0);filter:brightness(.96)}
+body[data-theme="light"] .btn-ghost,body[data-theme="light"] button.btn-ghost{color:#1c1c1e!important;background:rgba(120,120,128,.12)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.7)!important}
+body[data-theme="light"] input:focus,body[data-theme="light"] textarea:focus,body[data-theme="light"] select:focus{border:1px solid rgba(0,122,255,.45)!important;background-image:none!important;background:var(--inner)!important;box-shadow:0 0 0 4px rgba(0,122,255,.14)!important;animation:none!important;outline:none}
+body[data-theme="light"] .page-select:focus,body[data-theme="light"] .tone-select:focus{border:1px solid rgba(0,122,255,.45)!important;background-image:none!important;box-shadow:0 0 0 4px rgba(0,122,255,.14)!important;animation:none!impor
+
+
+######## USER ########
+len 67805
+style blocks 1 total css chars 25482
+light rules 19
+  L0: body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,180,.22);--text:#1f2740;--card:linear-gra
+  L1: body[data-theme="light"] .modal-card{background:rgba(255,255,255,.3);border-color:rgba(99,102,180,.22)}
+  L2: body[data-theme="light"] .account-icon-btn-pass{color:#a16207!important;background:rgba(250,204,21,.28)!important;border-color:rgba(202,138,4,.55)!important}
+  L3: body[data-theme="light"] .account-icon-btn-out{color:#0369a1!important;background:rgba(14,165,233,.2)!important;border-color:rgba(2,132,199,.5)!important}
+  L4: body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
+  L5: body[data-theme="light"] .glass-select-trigger{color:#1c1c1e!important;background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(0,122,255,.06))!important;border-color:rgba(60,60,67,.14)!important;
+  L6: body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(242,243,247,.9));border-color:rgba(60,60,67,.12);box-shadow:0 16px 36px rgba(0,0,0,.1),inset 0 
+  L7: body[data-theme="light"] .glass-select-option{color:#6b6b70!important}
+  L8: body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#1c1c1e!important}
+  L9: body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
+  L10: body[data-theme="light"] .hint,body[data-theme="light"] label,body[data-theme="light"] .call-param-row,body[data-theme="light"] .status-line{color:#4b5878}
+  L11: body[data-theme="light"] code,body[data-theme="light"] .call-param-row code{color:#4f46e5}
+  L12: body[data-theme="light"] .pill{background:rgba(99,102,180,.12);color:#334155}
+  L13: body[data-theme="light"] .pill.ok{background:rgba(220,252,231,.88);color:#166534}
+  L14: body[data-theme="light"] .pill.bad{background:rgba(254,226,226,.9);color:#991b1b}
+  L15: body[data-theme="light"] .msg{color:#15803d}
+  L16: body[data-theme="light"] .api-row>span:first-child{color:var(--text)}
+  L17: body[data-theme="light"] .account-side{background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(240,245,255,.62));border-color:rgba(99,102,180,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.86),0
+  L18: body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:first-child{border-color:rgba(99,102,180,.18)}
+  :root: :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-
+  button: button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-size:.85rem;font-weight:800;cursor:pointer;margin-top:.6rem;background:linear-gradient(135deg,var(--cya
+  button:hover: button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
+  input:focus: input:focus{border:1px solid transparent!important;background-image:linear-gradient(rgba(10,16,36,.58),rgba(10,16,36,.58)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pin
+  fieldFlow: @keyframes fieldFlow{to{background-position:0 0,300% 0}
+  .orb: .orb{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(16px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;le
+  body::before: body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03)
+  .card::before: .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.42),transparent 30%,rgba(255,94,219,.32),
+  .card: .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:10px;backdrop-filter:blur(20px);box-shadow:0 24px 70px r
+  a color: a{color:var(--cyan);
+  .msg.ok: NOT FOUND
+  .msg.err: NOT FOUND
+  .sidebar: NOT FOUND
+  .layout: NOT FOUND
+  .login-card: NOT FOUND
+  .panel: NOT FOUND
+  .chip: NOT FOUND
+  .badge: NOT FOUND
+  .switch: NOT FOUND
+  glass-select light: body[data-theme="light"] .glass-select-trigger{color:#1c1c1e!important;background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(0,122,255,.06))!important;border-color:rgba(60,6
+  residual in light: 11
+   99,102,180 -> body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,1
+   96,180,242 -> body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,1
+   243049 -> body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,1
+   5b6785 -> body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,1
+   99,102,180 -> body[data-theme="light"] .modal-card{background:rgba(255,255,255,.3);border-color:rgba(99,102,180,.22)}
+   243049 -> body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
+   14,116,144 -> body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
+   0e7490 -> body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
+   99,102,180 -> body[data-theme="light"] .pill{background:rgba(99,102,180,.12);color:#334155}
+   99,102,180 -> body[data-theme="light"] .account-side{background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(240,245,255,.62));border-color:rgba(99,102,180,.24);box-shad
+   99,102,180 -> body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:first-child{border-color:rgba(99,102,180,.18)}
+
+
+######## LOGIN ########
+len 8052
+style blocks 1 total css chars 5649
+light rules 0
+  :root: :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--text:#f3f6ff;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
+  button: button{width:100%;color:#050815;border:none;border-radius:12px;padding:.8rem;font-size:.95rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--cyan),#d6fbff 5
+  button:hover: button:hover{transform:translateY(-2px);box-shadow:0 22px 44px rgba(96,242,255,.4)}
+  input:focus: input:focus{border:1px solid transparent;background-image:linear-gradient(rgba(7,11,27,.58),rgba(7,11,27,.58)),linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gol
+  fieldFlow: NOT FOUND
+  .orb: .orb{position:fixed;width:340px;height:340px;border-radius:50%;filter:blur(14px);background:conic-gradient(from 160deg,var(--cyan),var(--pink),var(--violet),var(--cyan));top:50%;le
+  body::before: body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03)
+  .card::before: NOT FOUND
+  .card: NOT FOUND
+  a color: NOT FOUND
+  .msg.ok: NOT FOUND
+  .msg.err: .msg.err{display:block;background:rgba(127,29,29,.5);color:#fecaca;border:1px solid rgba(239,68,68,.5)}
+  .sidebar: NOT FOUND
+  .layout: NOT FOUND
+  .login-card: NOT FOUND
+  .panel: NOT FOUND
+  .chip: NOT FOUND
+  .badge: NOT FOUND
+  .switch: NOT FOUND
+  glass-select light: NOT FOUND
+  residual in light: 0
+
+=== src/m365_copilot_openai_proxy/template_user.py structure ===
+lines 324 len 32407
+  find ':root{' -> 471
+  find 'data-theme="light"' -> 1114
+  find 'body[data-theme="light"]' -> 1109
+  find '_USER_HTML' -> 270
+  find '_LOGIN_HTML' -> -1
+  find '_GLASS' -> 65
+   1|from __future__ import annotations
+   2|
+   3|from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS
+   4|from .template_user_account_js import _USER_ACCOUNT_JS
+   5|from .template_user_config_js import _USER_CONFIG_JS
+   6|from .template_user_i18n import _USER_I18N_JS
+   7|
+   8|_USER_HTML = """<!DOCTYPE html>
+   9|<html lang="zh">
+  10|<head>
+  11|<meta charset="utf-8">
+  12|<meta name="viewport" content="width=device-width, initial-scale=1">
+  13|<title>Ciallo Ms-365 Copilot 代理 · 用户</title>
+  14|<style>
+  15|:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8...
+  16|body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-...
+  17|*{box-sizing:border-box}
+  18|html{scrollbar-gutter:stable;scrollbar-color:rgba(96,242,255,.45) rgba(8,13,32,.22);scrollbar-width:thin}
+  19|::-webkit-scrollbar{width:10px;height:10px}
+  20|::-webkit-scrollbar-track{background:rgba(8,13,32,.22);border-radius:999px}
+  21|::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(96,242,255,.58),rgba(140,107,255,.48));border-radius:999px;border:2px solid...
+  22|::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(96,242,255,.78),rgba(255,94,219,.58))}
+  23|body{margin:0;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;color:var(--text);line-height:1.5;min-height:1...
+  24|body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),lin...
+  25|.orb{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(16px);background:conic-gradient(from 160deg,var(--cyan),var(--pin...
+  26|.wrap{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+  27|h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe598);-webkit-background-clip:text;background...
+  28|.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  29|.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:10px;backdrop-fi...
+  30|.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px...
+  31|.modal-card{position:relative;width:360px;max-width:92vw;border-radius:14px;padding:1.25rem;background:rgba(15,23,42,.3);border:1px solid rg...
+  32|body[data-theme="light"] .modal-card{background:rgba(255,255,255,.3);border-color:rgba(99,102,180,.22)}
+  33|.card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.4...
+  34|.card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,tran...
+  35|details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:backgr...
+  36|details[open] summary{background:linear-gradient(135deg,rgba(96,242,255,.04),rgba(140,107,255,.04))}
+  37|@keyframes flowBorder{to{background-position:240% 0}}
+  38|.card h2{font-size:1rem;margin:0 0 .8rem;color:var(--strong)}
+  39|#login-card{width:380px;max-width:calc(100vw - 32px);margin:8vh auto 1.5rem;text-align:center;padding:2.6rem;border-radius:28px}
+  40|#login-card .brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgb...
+  41|#login-card .brand-mark:before,#login-card .brand-mark:after{content:"";position:absolute;inset:12px;border-radius:12px;border:1px solid rgb...
+  42|#login-card .brand-mark:after{inset:8px;opacity:.58;animation:userMarkSpinReverse 6.2s linear infinite}
+  43|#login-card input{background:rgba(10,16,36,.46)!important;border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(14px);box-shadow:inset...
+  44|#login-card input:focus{border:1px solid transparent!important;background-image:linear-gradient(rgba(10,16,36,.58),rgba(10,16,36,.58)),linea...
+  45|#login-card input:-webkit-autofill,#login-card input:-webkit-autofill:focus,#login-card input:-webkit-autofill:hover{-webkit-text-fill-color...
+  46|@keyframes userMarkSpin{from{transform:rotate(16deg)}to{transform:rotate(376deg)}}
+  47|@keyframes userMarkSpinReverse{from{transform:rotate(-12deg)}to{transform:rotate(-372deg)}}
+  48|label{display:block;font-size:.85rem;color:var(--muted);margin:.6rem 0 .3rem}
+  49|input,select,textarea{width:100%;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--text);padding:....
+  50|input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(96,242,255,.16)}
+
+=== src/m365_copilot_openai_proxy/template_login.py structure ===
+lines 86 len 8109
+  find ':root{' -> 234
+  find 'data-theme="light"' -> -1
+  find 'body[data-theme="light"]' -> -1
+  find '_USER_HTML' -> -1
+  find '_LOGIN_HTML' -> 36
+  find '_GLASS' -> -1
+   1|from __future__ import annotations
+   2|
+   3|_LOGIN_HTML = """<!DOCTYPE html>
+   4|<html lang="en">
+   5|<head>
+   6|<meta charset="utf-8">
+   7|<meta name="viewport" content="width=device-width,initial-scale=1">
+   8|<title>Ciallo Ms-365 OpenAI Proxy</title>
+   9|<style>
+  10|:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--text:#f3f6ff;--muted:#9aa7d1;--line:rgba(108,137,255,.24)}
+  11|*{box-sizing:border-box;margin:0;padding:0}
+  12|html{scrollbar-gutter:stable;scrollbar-color:rgba(96,242,255,.45) rgba(8,13,32,.22);scrollbar-width:thin}
+  13|::-webkit-scrollbar{width:10px;height:10px}
+  14|::-webkit-scrollbar-track{background:rgba(8,13,32,.22);border-radius:999px}
+  15|::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(96,242,255,.58),rgba(140,107,255,.48));border-radius:999px;border:2px solid...
+  16|::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(96,242,255,.78),rgba(255,94,219,.58))}
+  17|body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);min-height:100vh;display:flex;align-items:center;ju...
+  18|body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),lin...
+  19|.orb{position:fixed;width:340px;height:340px;border-radius:50%;filter:blur(14px);background:conic-gradient(from 160deg,var(--cyan),var(--pin...
+  20|.login-box{position:relative;z-index:2;width:380px;max-width:calc(100vw - 32px);padding:2.6rem;text-align:center;border-radius:28px;border:1...
+  21|.login-box::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,2...
+  22|.brand-mark{width:56px;height:56px;margin:0 auto 1rem;border-radius:18px;position:relative;background:linear-gradient(135deg,rgba(96,242,255...
+  23|.brand-mark::before,.brand-mark::after{content:"";position:absolute;inset:12px;border-radius:12px;border:1px solid rgba(255,255,255,.34);ani...
+  24|.brand-mark::after{inset:8px;opacity:.58;animation:markSpinReverse 6.2s linear infinite}
+  25|@keyframes markSpin{from{transform:rotate(16deg)}to{transform:rotate(376deg)}}
+  26|@keyframes markSpinReverse{from{transform:rotate(-12deg)}to{transform:rotate(-372deg)}}
+  27|.login-box h1{font-size:1.3rem;margin-bottom:.5rem;letter-spacing:.04em;background:linear-gradient(135deg,#fff,#8deef7 44%,#ffc6f1 78%,#ffe5...
+  28|.login-box p{color:var(--muted);font-size:.85rem;margin-bottom:1.6rem;letter-spacing:.02em}
+  29|input{width:100%;padding:.8rem 1rem;background:rgba(7,11,27,.46);border:1px solid rgba(255,255,255,.14);border-radius:12px;color:var(--text)...
+  30|input:-webkit-autofill,input:-webkit-autofill:focus,input:-webkit-autofill:hover{-webkit-text-fill-color:var(--text)!important;background-co...
+  31|input:focus{border:1px solid transparent;background-image:linear-gradient(rgba(7,11,27,.58),rgba(7,11,27,.58)),linear-gradient(90deg,var(--c...
+  32|@keyframes loginFieldFlow{to{background-position:0 0,300% 0}}
+  33|button{width:100%;color:#050815;border:none;border-radius:12px;padding:.8rem;font-size:.95rem;font-weight:700;cursor:pointer;background:line...
+  34|button:hover{transform:translateY(-2px);box-shadow:0 22px 44px rgba(96,242,255,.4)}
+  35|button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  36|.msg{padding:.5rem .75rem;border-radius:10px;font-size:.8rem;margin-top:.75rem;display:none}
+  37|.msg.err{display:block;background:rgba(127,29,29,.5);color:#fecaca;border:1px solid rgba(239,68,68,.5)}
+  38|.lang-btn{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--text);fo...
+  39|.lang-btn:hover{transform:translateY(-1px)}
+  40|@keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+  41|@keyframes pulse{50%{scale:1.08;opacity:.68}}
+  42|</style>
+  43|</head>
+  44|<body>
+  45|<div class="orb"></div>
+  46|<div class="login-box">
+  47|<button class="lang-btn" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+  48|<div class="brand-mark" aria-hidden="true"></div>
+  49|<h1>Ciallo Ms-365 OpenAI Proxy</h1>
+  50|<p id="login-desc" data-i18n="login_desc">输入管理员密码以继续</p>

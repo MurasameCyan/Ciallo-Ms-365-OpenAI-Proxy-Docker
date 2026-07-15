@@ -1,26 +1,6 @@
-from __future__ import annotations
 
-from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS
-from .template_user_account_js import _USER_ACCOUNT_JS
-from .template_user_config_js import _USER_CONFIG_JS
-from .template_user_i18n import _USER_I18N_JS
-
-_USER_HTML = """<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ciallo Ms-365 Copilot 代理 · 用户</title>
-<style>
 :root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);--strong:#eaf0ff;--faint:#8a97c4;--inner:rgba(9,14,34,.66);--inner-border:rgba(108,137,255,.2);--text:#f3f6ff;--card:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,10,24,.76));--bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);--chip:rgba(255,255,255,.06);--chip-border:rgba(255,255,255,.14)}
-/* iOS26 Liquid Glass light theme — aligned with admin; dark :root untouched */
-body[data-theme="light"]{
---cyan:#007aff;--violet:#5856d6;--pink:#ff2d55;--gold:#ff9f0a;
---muted:#6b6b70;--line:rgba(60,60,67,.12);
---bg:radial-gradient(circle at 16% 10%,rgba(0,122,255,.05),transparent 30%),radial-gradient(circle at 84% 8%,rgba(88,86,214,.04),transparent 28%),radial-gradient(circle at 50% 92%,rgba(0,0,0,.02),transparent 32%),linear-gradient(160deg,#f2f3f7 0%,#e9ebf0 48%,#f4f5f8 100%);
---text:#1c1c1e;--card:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.52));--strong:#000000;--faint:#8e8e93;
---inner:rgba(255,255,255,.62);--inner-border:rgba(120,120,128,.18);--chip:rgba(120,120,128,.1);--chip-border:rgba(120,120,128,.16);--shadow:0 8px 28px rgba(0,0,0,.07);--h1grad:linear-gradient(135deg,#1d1d1f,#3a3a3c 70%,#636366)}
-
+body[data-theme="light"]{--muted:#5b6785;--line:rgba(99,102,180,.22);--strong:#243049;--faint:#7581a3;--inner:rgba(255,255,255,.72);--inner-border:rgba(99,102,180,.22);--text:#1f2740;--card:linear-gradient(180deg,rgba(255,255,255,.9),rgba(244,247,253,.84));--bg:radial-gradient(circle at 18% 12%,rgba(96,180,242,.16),transparent 28%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.14),transparent 26%),radial-gradient(circle at 50% 92%,rgba(255,150,220,.12),transparent 28%),linear-gradient(135deg,#edf3fb 0%,#e4ebf6 48%,#eef2f8 100%);--chip:rgba(99,102,180,.08);--chip-border:rgba(99,102,180,.22)}
 *{box-sizing:border-box}
 html{scrollbar-gutter:stable;scrollbar-color:rgba(96,242,255,.45) rgba(8,13,32,.22);scrollbar-width:thin}
 ::-webkit-scrollbar{width:10px;height:10px}
@@ -36,7 +16,7 @@ h1{font-size:1.4rem;margin:0;background:linear-gradient(135deg,#fff,#8deef7 44%,
 .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:1.5rem;margin-bottom:10px;backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.38);overflow:hidden}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem}
 .modal-card{position:relative;width:360px;max-width:92vw;border-radius:14px;padding:1.25rem;background:rgba(15,23,42,.3);border:1px solid rgba(96,242,255,.28);box-shadow:0 24px 70px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%)}
-body[data-theme="light"] .modal-card{background:rgba(255,255,255,.72);border-color:rgba(60,60,67,.12);box-shadow:0 16px 40px rgba(0,0,0,.1);backdrop-filter:blur(28px) saturate(160%)}
+body[data-theme="light"] .modal-card{background:rgba(255,255,255,.3);border-color:rgba(99,102,180,.22)}
 .card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(135deg,rgba(96,242,255,.42),transparent 30%,rgba(255,94,219,.32),rgba(255,215,111,.24));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.75;pointer-events:none}
 .card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 details summary{min-height:42px;display:flex;align-items:center;position:relative;border-radius:14px;padding:.15rem .25rem;transition:background .2s}
@@ -81,8 +61,29 @@ select option{transition:none!important}
 select option:checked{background:#1e40af;color:#fff}
 @keyframes userSelectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.22),0 0 30px rgba(255,94,219,.2),inset 0 1px 0 rgba(255,255,255,.14)}}
 .account-main select option{background:#10162f;color:#f3f6ff}
-body[data-theme="light"] .account-main select option{background:#fff;color:#1c1c1e}
-""" + _GLASS_SELECT_CSS + _NO_SPIN_CSS + """
+body[data-theme="light"] .account-main select option{background:#fff;color:#243049}
+select.glass-native{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important}
+.glass-select{position:relative;display:inline-block;min-width:120px;vertical-align:middle;z-index:20}
+.glass-select.open{z-index:80}
+.tone-select+.glass-select{min-width:180px}
+.glass-select-trigger{width:100%;min-height:30px;margin:0!important;padding:.42rem 2rem .42rem .7rem!important;border-radius:12px!important;color:var(--strong)!important;text-align:left!important;background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(96,242,255,.08),rgba(140,107,255,.08))!important;border:1px solid rgba(96,242,255,.28)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(0,0,0,.12)!important;backdrop-filter:blur(14px);position:relative;overflow:hidden;transition:none!important}
+.glass-select-trigger:after{content:"";position:absolute;right:.72rem;top:50%;width:.46rem;height:.46rem;border-right:2px solid var(--cyan);border-bottom:2px solid var(--cyan);transform:translateY(-65%) rotate(45deg);opacity:.9}
+.glass-select.open .glass-select-trigger{border-color:rgba(96,242,255,.58)!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),0 0 20px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.24)!important}
+.glass-select-menu{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(460px,calc(100vw - 32px));overflow:visible;border-radius:14px;padding:.28rem;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,11,27,.78));border:1px solid rgba(96,242,255,.28);box-shadow:0 18px 44px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(145%);display:none}
+.glass-select-scroll{max-height:min(60vh,420px);overflow-y:auto;border-radius:10px;scrollbar-width:none;-ms-overflow-style:none}
+.glass-select-scroll::-webkit-scrollbar{width:0;height:0;display:none}
+.tone-select+.glass-select .glass-select-menu{left:auto;right:0}
+.glass-select.open .glass-select-menu{display:block}
+.glass-select-menu:before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--pink),var(--gold),var(--cyan));background-size:260% 100%;animation:flowBorder 2.2s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.75}
+.glass-select-option{position:relative;width:100%;margin:0!important;padding:.48rem .62rem!important;border-radius:10px!important;background:transparent!important;color:var(--muted)!important;box-shadow:none!important;text-align:left!important;font-size:.82rem!important;line-height:1.2!important;white-space:nowrap!important;transition:none!important}
+.glass-select-option:hover{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.13))!important;color:var(--text)!important;transform:none!important}
+.glass-select-option.active{color:var(--text)!important;background:linear-gradient(135deg,rgba(96,242,255,.24),rgba(255,94,219,.12))!important;box-shadow:inset 3px 0 0 rgba(96,242,255,.82)!important}
+body[data-theme="light"] .glass-select-trigger{color:#1c1c1e!important;background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(0,122,255,.06))!important;border-color:rgba(60,60,67,.14)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 4px 12px rgba(0,0,0,.04)!important}
+body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(242,243,247,.9));border-color:rgba(60,60,67,.12);box-shadow:0 16px 36px rgba(0,0,0,.1),inset 0 1px 0 rgba(255,255,255,.92)}
+body[data-theme="light"] .glass-select-option{color:#6b6b70!important}
+body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#1c1c1e!important}
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .account-main .glass-select.open{z-index:2000}
 .account-main .tone-select+.glass-select .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 .account-main textarea{margin-top:.65rem}
@@ -105,16 +106,16 @@ select:focus{border-color:var(--cyan)!important;background-image:none!important;
 @keyframes fieldFlow{to{background-position:0 0,300% 0}}
 .qs-link{color:var(--cyan);font-weight:700;text-decoration:none;padding:.02rem .28rem;border-radius:6px;background:linear-gradient(135deg,rgba(96,242,255,.12),rgba(140,107,255,.12));border:1px solid rgba(96,242,255,.28);transition:box-shadow .18s,background .18s}
 .qs-link:hover{text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.22),rgba(255,94,219,.18));box-shadow:0 0 14px rgba(96,242,255,.28)}
-body[data-theme="light"] .qs-link{color:#007aff;border-color:rgba(0,122,255,.22);background:linear-gradient(135deg,rgba(0,122,255,.08),rgba(88,86,214,.06))}
-body[data-theme="light"] .hint,body[data-theme="light"] label,body[data-theme="light"] .call-param-row,body[data-theme="light"] .status-line{color:#6b6b70}
-body[data-theme="light"] code,body[data-theme="light"] .call-param-row code{color:#5856d6}
-body[data-theme="light"] .pill{background:rgba(120,120,128,.12);color:#3a3a3c}
+body[data-theme="light"] .qs-link{color:#0e7490;border-color:rgba(14,116,144,.3);background:linear-gradient(135deg,rgba(14,116,144,.1),rgba(124,58,237,.1))}
+body[data-theme="light"] .hint,body[data-theme="light"] label,body[data-theme="light"] .call-param-row,body[data-theme="light"] .status-line{color:#4b5878}
+body[data-theme="light"] code,body[data-theme="light"] .call-param-row code{color:#4f46e5}
+body[data-theme="light"] .pill{background:rgba(99,102,180,.12);color:#334155}
 body[data-theme="light"] .pill.ok{background:rgba(220,252,231,.88);color:#166534}
 body[data-theme="light"] .pill.bad{background:rgba(254,226,226,.9);color:#991b1b}
 body[data-theme="light"] .msg{color:#15803d}
 body[data-theme="light"] .api-row>span:first-child{color:var(--text)}
-body[data-theme="light"] .account-side{background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(242,243,247,.62));border-color:rgba(60,60,67,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 10px 28px rgba(0,0,0,.05)}
-body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:first-child{border-color:rgba(60,60,67,.12)}
+body[data-theme="light"] .account-side{background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(240,245,255,.62));border-color:rgba(99,102,180,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.86),0 12px 32px rgba(80,100,160,.12)}
+body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:first-child{border-color:rgba(99,102,180,.18)}
 .api-info{margin-top:.75rem;padding:.75rem;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;font-family:monospace;font-size:.8rem;line-height:1.6}
 .api-grp{font-weight:700;color:var(--strong);margin:.5rem 0 .25rem;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:.78rem}
 .api-grp:first-child{margin-top:0}
@@ -171,186 +172,3 @@ body[data-lang="en"] .card h2{font-size:.95rem}
 a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
 code{color:#a5b4fc}
-
-
-/* iOS26 light — component overrides (user page; dark base rules untouched) */
-body[data-theme="light"]{scrollbar-color:rgba(0,122,255,.28) rgba(120,120,128,.08)}
-body[data-theme="light"]::-webkit-scrollbar-track{background:rgba(120,120,128,.08)}
-body[data-theme="light"]::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(0,122,255,.4),rgba(88,86,214,.32));border-color:rgba(255,255,255,.5)}
-body[data-theme="light"]::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(0,122,255,.55),rgba(88,86,214,.42))}
-body[data-theme="light"]::before{background:linear-gradient(rgba(60,60,67,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(60,60,67,.05) 1px,transparent 1px);background-size:44px 44px;opacity:.55}
-body[data-theme="light"] .orb{opacity:.1;filter:blur(28px);background:conic-gradient(from 160deg,rgba(0,122,255,.55),rgba(88,86,214,.45),rgba(255,45,85,.28),rgba(0,122,255,.55))}
-body[data-theme="light"] h1{background:var(--h1grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-body[data-theme="light"] .card{border-radius:22px;backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%);box-shadow:var(--shadow)}
-body[data-theme="light"] .card::before{background:linear-gradient(135deg,rgba(255,255,255,.75),transparent 42%,rgba(0,122,255,.12),rgba(88,86,214,.08));opacity:.55}
-body[data-theme="light"] .card:has(details[open])::after{background:linear-gradient(90deg,transparent,rgba(0,122,255,.45),rgba(88,86,214,.28),transparent);animation:none;opacity:.7}
-body[data-theme="light"] details[open] summary{background:linear-gradient(135deg,rgba(0,122,255,.05),rgba(88,86,214,.04))}
-body[data-theme="light"] button{color:#fff;background:linear-gradient(180deg,#0a84ff 0%,#007aff 100%);box-shadow:0 4px 14px rgba(0,122,255,.28),inset 0 1px 0 rgba(255,255,255,.28);text-shadow:none;border-radius:12px;font-weight:700}
-body[data-theme="light"] button:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,122,255,.32),inset 0 1px 0 rgba(255,255,255,.32)}
-body[data-theme="light"] button:active{transform:translateY(0);filter:brightness(.96)}
-body[data-theme="light"] .btn-ghost,body[data-theme="light"] button.btn-ghost{color:#1c1c1e!important;background:rgba(120,120,128,.12)!important;border:1px solid rgba(60,60,67,.12)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.7)!important}
-body[data-theme="light"] input:focus,body[data-theme="light"] select:focus,body[data-theme="light"] textarea:focus{border:1px solid rgba(0,122,255,.45)!important;background-image:none!important;background:var(--inner)!important;box-shadow:0 0 0 4px rgba(0,122,255,.14)!important;animation:none!important;outline:none}
-body[data-theme="light"] #login-card input{background:rgba(255,255,255,.72)!important;border:1px solid rgba(60,60,67,.14)!important;-webkit-text-fill-color:#1c1c1e;-webkit-box-shadow:0 0 0 1000px rgba(255,255,255,.72) inset;box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}
-body[data-theme="light"] #login-card input:focus{border:1px solid rgba(0,122,255,.45)!important;background-image:none!important;background:rgba(255,255,255,.86)!important;-webkit-box-shadow:0 0 0 1000px rgba(255,255,255,.86) inset,0 0 0 4px rgba(0,122,255,.14)!important;box-shadow:0 0 0 4px rgba(0,122,255,.14)!important;animation:none!important}
-body[data-theme="light"] a{color:#007aff}
-body[data-theme="light"] .glass-select.open .glass-select-trigger{border-color:rgba(0,122,255,.4)!important;box-shadow:0 0 0 3px rgba(0,122,255,.12),0 4px 14px rgba(0,0,0,.05)!important}
-body[data-theme="light"] .glass-select-menu:before{background:linear-gradient(90deg,rgba(0,122,255,.35),rgba(88,86,214,.25),rgba(0,122,255,.35));animation:none;opacity:.45}
-body[data-theme="light"] .glass-select-option:hover{background:rgba(0,122,255,.08)!important;color:#1c1c1e!important}
-body[data-theme="light"] .glass-select-option.active{color:#007aff!important;background:rgba(0,122,255,.12)!important;box-shadow:inset 3px 0 0 #007aff!important}
-</style>
-</head>
-<body>
-<div class="orb" aria-hidden="true"></div>
-<div class="wrap">
-  <div class="top">
-    <h1 data-i18n="title">Ciallo Ms-365 Copilot 代理 · 用户</h1>
-    <div style="display:flex;gap:.5rem;align-items:center">
-      <button class="btn-ghost" id="theme-toggle" onclick="toggleTheme()">&#127769;</button>
-      <button class="btn-ghost" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
-    </div>
-  </div>
-
-  <div id="login-card" class="card">
-    <div class="brand-mark" aria-hidden="true"></div>
-    <h2 data-i18n="login_title">登录</h2>
-    <div class="hint" data-i18n="login_hint">输入管理员分配给你的用户名与密码，管理自己的对话模式、提示词与账户 Token。</div>
-    <input id="username" type="text" autocomplete="off" data-i18n-ph="username_ph" placeholder="用户名" onkeydown="if(event.key==='Enter')doLogin()">
-    <input id="password" type="password" autocomplete="off" data-i18n-ph="password_ph" placeholder="密码" style="margin-top:.5rem" onkeydown="if(event.key==='Enter')doLogin()">
-    <div class="row login-row"><button id="login-btn" onclick="doLogin()" data-i18n="login_btn">登录</button><span id="login-msg" class="msg"></span></div>
-  </div>
-
-  <div id="app" class="hidden">
-    <div class="card">
-      <h2 data-i18n="qs_title">快速使用指南</h2>
-      <div class="hint" style="line-height:1.7" data-i18n-html="qs_body">1. 安装 <a href="https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js" target="_blank" rel="noopener" class="qs-link">油猴脚本</a> 并打开 <a href="https://m365.cloud.microsoft/chat" target="_blank" rel="noopener" class="qs-link">M365 Copilot</a>，随意发一条消息触发 WebSocket。<br>2. 在脚本面板点击「一键推送」或 手动「推送/复制 Token」，「推送 Cookie」均可。<br>3. 在账户卡片中复制 Base URL 与 API Key，填入 OpenAI 兼容客户端即可使用。</div>
-      <details style="margin-top:.75rem;cursor:pointer">
-        <summary style="font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-          <span data-i18n="endpoints_title">OpenAI 兼容接口</span>
-          <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
-        </summary>
-        <div class="api-info">
-          <div class="api-grp" data-i18n="api_grp_public">公共接口</div>
-          <div class="api-row"><span>GET&nbsp; /healthz</span><span data-i18n="api_healthz">健康检查</span></div>
-          <div class="api-grp" data-i18n="api_grp_v1">OpenAI 兼容接口</div>
-          <div class="api-row"><span>POST /v1/chat/completions</span><span data-i18n="api_chat">OpenAI 兼容对话</span></div>
-          <div class="api-row"><span>POST /v1/messages</span><span data-i18n="api_messages">Anthropic 兼容消息</span></div>
-          <div class="api-row"><span>GET&nbsp; /v1/models</span><span data-i18n="api_models">模型列表</span></div>
-          <div class="api-row"><span>POST /v1/responses</span><span data-i18n="api_responses">Responses 接口</span></div>
-        </div>
-      </details>
-    </div>
-    <div class="card account-card">
-      <div class="account-main">
-        <div style="display:flex;align-items:center;gap:20px;margin-bottom:.75rem">
-          <h2 data-i18n="account_title" style="margin:0;height:32px;display:flex;align-items:center;line-height:1">账户控制台</h2>
-          <span id="account-console-actions"></span>
-        </div>
-        <div id="account-info"></div>
-        <label class="section-title" data-i18n="call_params_title">调用参数</label>
-        <div class="call-param-box">
-          <div class="call-param-row"><span>Base URL:</span><code id="base-url"></code><button onclick="copyBaseUrl(this)" class="btn-ghost compact-action" data-i18n="copy_base">复制</button></div>
-          <div class="call-param-row"><span>API Key:</span><code id="my-key"></code><button onclick="copyMyKey(this)" class="btn-ghost compact-action" data-i18n="copy_key">复制</button></div>
-        </div>
-        <div class="row" style="margin-top:.6rem"><button onclick="regenMyKey(this)" data-i18n="regen_my_key">重置 API Key</button><span id="regen-msg" class="msg"></span></div>
-        <label class="section-title" data-i18n="manual_update_title">手动更新</label>
-        <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
-        <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。&#10;access_token / wss://substrate.office.com/..."></textarea>
-      </div>
-      <div class="account-side" id="account-status-panel"></div>
-    </div>
-
-    <div class="card mode-profile-card">
-      <details id="mode-profile-details" style="cursor:pointer">
-      <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-      <span data-i18n="mode_profile_title">默认配置</span>
-      <span id="tone-msg" class="msg"></span>
-      <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
-      </summary>
-      <div style="margin-top:.75rem">
-      <div class="hint" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
-      <div class="user-default-grid">
-        <label class="user-config-field" style="display:none"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
-        <label class="user-config-field"><span data-i18n="run_permission_label">运行权限</span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>
-        <label class="user-config-field" style="display:none"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
-        <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
-        <label class="user-config-field"><span data-i18n="ws_idle_timeout_label">对话响应超时分钟</span><input id="user-ws-idle-timeout" type="number" min="0" onchange="saveTone()"></label>
-      </div>
-      <div class="user-media-suffix">
-        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem"><span class="user-config-label" data-i18n="user_media_suffix_label">媒体后缀名</span></div>
-        <div class="hint" data-i18n="user_media_suffix_hint">填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。</div>
-        <textarea id="user-media-suffix" rows="3" onchange="saveTone()" placeholder=""></textarea>
-      </div>
-      </div>
-      </details>
-    </div>
-
-    <div class="card">
-      <details id="tool-prompt-details" style="cursor:pointer">
-      <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-      <span data-i18n="tool_prompt_title">提示词增强</span>
-      <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
-      </summary>
-      <div style="margin-top:.75rem">
-      <div class="hint" data-i18n="tool_prompt_hint">追加到工具调用提示词后的自定义指令，仅作用于你自己的 Key。留空则不追加。</div>
-      <textarea id="tool-prompt"></textarea>
-      <div class="row"><button onclick="saveToolPrompt()" data-i18n="save">保存</button><span id="tool-msg" class="msg"></span></div>
-      </div>
-      </details>
-      <hr style="border:none;border-top:1px solid #334155;margin:1.1rem 0">
-      <details id="sys-prompt-details" style="cursor:pointer">
-      <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-      <span data-i18n="sys_prompt_title">系统提示词（高级）</span>
-      <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
-      </summary>
-      <div style="margin-top:.75rem">
-      <div class="hint" data-i18n="sys_prompt_hint">覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。改错会导致工具调用失效，仅供高级用户调试。留空则使用内置默认。</div>
-      <div id="sys-prompt-locked">
-      <button onclick="unlockSysPrompt()" style="background:linear-gradient(135deg,#ef4444,#dc2626)" data-i18n="system_prompt_unlock">解锁编辑</button>
-      </div>
-      <div id="sys-prompt-editor" style="display:none">
-      <textarea id="sys-prompt" style="border-color:#7f1d1d"></textarea>
-      <div class="row"><button onclick="saveSysPrompt()" data-i18n="save">保存</button><button class="btn-ghost" onclick="resetSysPrompt()" data-i18n="reset">恢复默认</button><span id="sys-msg" class="msg"></span></div>
-      </div>
-      </div>
-      </details>
-    </div>
-  </div>
-</div>
-
-<script>
-""" + _USER_I18N_JS + """let lang=localStorage.getItem('lang')||'zh';
-let toneOptions=[];
-let sysDefault='';
-let userTimeZone='';
-function t(k){const v=i18n[lang][k];return v==null?k:v}
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function getKey(){return sessionStorage.getItem('user_api_key')||''}
-function authHeaders(){return {'Content-Type':'application/json','Authorization':'Bearer '+getKey()}}
-function applyLang(){
-  document.body.setAttribute('data-lang',lang);
-  document.documentElement.lang=lang==='zh'?'zh':'en';
-  document.title=t('title');
-  const btn=document.getElementById('lang-toggle');
-  btn.innerHTML=lang==='zh'?'&#127760; EN':'&#127760; 中文';
-  document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(i18n[lang][k]!=null)el.textContent=i18n[lang][k]});
-  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(i18n[lang][k]!=null)el.placeholder=i18n[lang][k]});
-  document.querySelectorAll('[data-i18n-html]').forEach(el=>{const k=el.getAttribute('data-i18n-html');if(i18n[lang][k]!=null)el.innerHTML=i18n[lang][k]});
-  renderToneOptions();
-  try{
-    if(typeof applyUserLangDynamic==='function' && _userMeCache){applyUserLangDynamic()}
-    else if(getKey()){loadMe()}
-  }catch(e){}
-}
-function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
-""" + _GLASS_SELECT_JS + """
-function applyTheme(){const theme=localStorage.getItem('user_theme')||'dark';document.body.setAttribute('data-theme',theme);const b=document.getElementById('theme-toggle');if(b)b.innerHTML=theme==='light'?'&#9728;':'&#127769;'}
-function toggleTheme(){localStorage.setItem('user_theme',(localStorage.getItem('user_theme')||'dark')==='dark'?'light':'dark');applyTheme()}
-""" + _USER_CONFIG_JS + """
-""" + _USER_ACCOUNT_JS + """
-applyTheme();
-applyLang();
-setInterval(tickUserCountdown,1000);
-loadMe();
-</script>
-</body>
-</html>"""

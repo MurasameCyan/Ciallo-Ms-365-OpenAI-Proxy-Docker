@@ -39,6 +39,25 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .lang-btn:hover{transform:translateY(-1px)}
 @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes pulse{50%{scale:1.08;opacity:.68}}
+
+
+/* iOS26 light — admin login follows localStorage admin_theme; dark defaults untouched */
+body[data-theme="light"]{--cyan:#007aff;--violet:#5856d6;--pink:#ff2d55;--gold:#ff9f0a;--text:#1c1c1e;--muted:#6b6b70;--line:rgba(60,60,67,.12);--strong:#000000;--faint:#8e8e93;--inner:rgba(255,255,255,.72);scrollbar-color:rgba(0,122,255,.28) rgba(120,120,128,.08);background:radial-gradient(circle at 16% 10%,rgba(0,122,255,.05),transparent 30%),radial-gradient(circle at 84% 8%,rgba(88,86,214,.04),transparent 28%),radial-gradient(circle at 50% 92%,rgba(0,0,0,.02),transparent 32%),linear-gradient(160deg,#f2f3f7 0%,#e9ebf0 48%,#f4f5f8 100%)}
+body[data-theme="light"]::before{background:linear-gradient(rgba(60,60,67,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(60,60,67,.05) 1px,transparent 1px);background-size:44px 44px;opacity:.55}
+body[data-theme="light"] .orb{opacity:.1;filter:blur(28px);background:conic-gradient(from 160deg,rgba(0,122,255,.55),rgba(88,86,214,.45),rgba(255,45,85,.28),rgba(0,122,255,.55))}
+body[data-theme="light"] .login-box{background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,255,255,.58));border-color:rgba(60,60,67,.12);box-shadow:0 16px 40px rgba(0,0,0,.08);backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%)}
+body[data-theme="light"] .login-box::before{background:linear-gradient(135deg,rgba(255,255,255,.8),transparent 42%,rgba(0,122,255,.14),rgba(88,86,214,.1));opacity:.55}
+body[data-theme="light"] .brand-mark{background:linear-gradient(135deg,#0a84ff,#007aff);box-shadow:0 4px 18px rgba(0,122,255,.28),inset 0 1px 0 rgba(255,255,255,.35)}
+body[data-theme="light"] .login-box h1{background:linear-gradient(135deg,#1d1d1f,#3a3a3c 70%,#636366);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+body[data-theme="light"] input{background:rgba(255,255,255,.72);border:1px solid rgba(60,60,67,.14);color:#1c1c1e;-webkit-text-fill-color:#1c1c1e;box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}
+body[data-theme="light"] input:focus{border:1px solid rgba(0,122,255,.45);background-image:none;background:rgba(255,255,255,.86);box-shadow:0 0 0 4px rgba(0,122,255,.14);animation:none}
+body[data-theme="light"] input:-webkit-autofill,body[data-theme="light"] input:-webkit-autofill:focus,body[data-theme="light"] input:-webkit-autofill:hover{-webkit-text-fill-color:#1c1c1e!important;box-shadow:0 0 0 1000px rgba(255,255,255,.86) inset!important}
+body[data-theme="light"] button{color:#fff;background:linear-gradient(180deg,#0a84ff 0%,#007aff 100%);box-shadow:0 4px 14px rgba(0,122,255,.28),inset 0 1px 0 rgba(255,255,255,.28)}
+body[data-theme="light"] button:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,122,255,.32),inset 0 1px 0 rgba(255,255,255,.32)}
+body[data-theme="light"] .lang-btn{background:rgba(120,120,128,.12);border-color:rgba(60,60,67,.14);color:#1c1c1e;box-shadow:none}
+body[data-theme="light"] .msg.err{background:rgba(254,226,226,.85);color:#b91c1c;border-color:rgba(239,68,68,.35)}
+body[data-theme="light"]::-webkit-scrollbar-track{background:rgba(120,120,128,.08)}
+body[data-theme="light"]::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(0,122,255,.4),rgba(88,86,214,.32));border-color:rgba(255,255,255,.5)}
 </style>
 </head>
 <body>
@@ -67,6 +86,12 @@ function applyLang(){
   document.getElementById('pw').placeholder=t('placeholder');
 }
 function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lang);applyLang()}
+
+function applyTheme(){
+  const th=localStorage.getItem('admin_theme')||'dark';
+  document.body.setAttribute('data-theme',th);
+}
+applyTheme();
 applyLang();
 async function doLogin(){
   const pw=document.getElementById('pw').value;
