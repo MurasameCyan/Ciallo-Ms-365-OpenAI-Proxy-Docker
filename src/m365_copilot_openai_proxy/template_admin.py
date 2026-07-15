@@ -33,6 +33,18 @@ function toggleLang(){
   localStorage.setItem('lang',lang);
   applyLang();
 }
+// ── i18n 重渲染约定（重构锚点）─────────────────────────────────────────────
+// 切换语言只需重刷标签，不应产生网络请求。为此每个动态块拆成两段：
+//   loadXxx()   —— 只负责 fetch + 写内存缓存（window.__xxx / 模块级变量）
+//   renderXxx() —— 纯函数，只读缓存渲染 DOM，可被反复安全调用
+// applyLang() 末尾只调 renderXxx()（零网络）。存量的 loadAccounts/loadKeys
+// 暂用 localOnly 单函数式（load+render 合体，localOnly=true 时跳过 fetch），
+// 属"能用但风格不统一"。目标形态：
+//   1) 新增动态块一律用两段式；
+//   2) 后续机会性把 accounts/keys 也拆成 load+render；
+//   3) 各模块把自己的 renderXxx push 到 window.__i18nRerender=[]，
+//      applyLang() 改为遍历执行，从根上杜绝"新增块漏翻译"。
+// ────────────────────────────────────────────────────────────────────────
 function applyLang(){
   document.body.setAttribute('data-lang',lang);
   document.documentElement.lang=lang==='zh'?'zh':'en';
