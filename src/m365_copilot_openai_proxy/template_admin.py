@@ -46,17 +46,17 @@ function applyLang(){
   if(vt){const vk=vt.getAttribute('data-i18n');if(vk&&i18n[lang][vk]!=null)vt.textContent=i18n[lang][vk]}
   const out=document.getElementById('admin-logout');if(out)out.title=lang==='zh'?'退出管理后台':'Sign out admin';
   applyTheme();applyCollapse();
-  try{if(typeof loadAccounts==='function')loadAccounts()}catch(e){}
-  try{if(typeof loadKeys==='function')loadKeys()}catch(e){}
+  // Language switch only relocalizes labels; re-render every dynamic block from
+  // its in-memory cache instead of re-fetching (no network requests here).
+  try{if(typeof loadAccounts==='function')loadAccounts(true)}catch(e){}
+  try{if(typeof loadKeys==='function')loadKeys(true)}catch(e){}
   try{if(typeof renderDashboard==='function')renderDashboard()}catch(e){}
-  try{if(typeof loadRuntimeSettings==='function')loadRuntimeSettings()}catch(e){}
-  try{if(typeof loadTone==='function')loadTone()}catch(e){}
-  // Log/capture blocks are version-cached (loadXxx returns early on 'unchanged'),
-  // so re-render directly from the in-memory data to relocalize labels.
+  try{if(typeof renderRuntimeSettings==='function')renderRuntimeSettings(__runtimeSettings)}catch(e){}
+  try{if(typeof renderTone==='function')renderTone()}catch(e){}
   try{if(typeof renderCallLog==='function'&&window.__callLogItems)renderCallLog(window.__callLogItems)}catch(e){}
   try{if(typeof renderCapture==='function'&&window.__capItems)renderCapture(window.__capItems)}catch(e){}
   try{if(typeof renderMediaProxyEvents==='function'&&window.__mediaProxyEvents)renderMediaProxyEvents(window.__mediaProxyEvents)}catch(e){}
-  try{if(typeof loadStatus==='function')loadStatus()}catch(e){}
+  try{if(typeof renderStatus==='function')renderStatus()}catch(e){}
 }
 applyLang();
 
@@ -169,43 +169,51 @@ async function loadStatus(){
     if(d.admin_cdp_enabled){
       try{const cr=await fetch('/admin/chromium/login-status',{credentials:'include'});if(cr&&cr.ok)c=await cr.json()}catch(e){c={}}
     }
-    const v=d.valid;
-    const cls=v?'valid':'invalid';
-    const exp=d.expires_at?new Date(d.expires_at).toLocaleString():'N/A';
     if(d.username)window.__m365_username=d.username;
-    const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
-    const warnCls=(v&&d.seconds_remaining<600)?'warn':'';
-    let html='';
-    // 1. 用户名
-    if(d.username)html+=row(t('username_label'),d.username,'valid');
-    // 2. 登录 (chromium) — 状态显示为 是/否
-    if(c.chromium_running===false){
-      html+=row(t('login'),t('chromium_not_running'),'invalid');
-    }else if(c.chromium_running){
-      html+=row(t('login'),c.logged_in?t('status_yes'):t('status_no'),c.logged_in?'valid':'warn');
-    }
-    const logoutBtn=document.getElementById('btn-logout');
-    if(logoutBtn)logoutBtn.style.display=c.logged_in?'inline-block':'none';
-    // 3. 自动刷新（紧跟登录下方）
-    html+=row(t('auto_refresh_label'),d.auto_refresh?t('status_yes'):t('status_no'),d.auto_refresh?'valid':'warn');
-    // 4. 有效
-    html+=row(t('valid'),v?t('status_yes'):t('status_no'),cls);
-    // 5. 过期时间
-    html+=row(t('expires'),exp,warnCls);
-    // 6. 剩余
-    html+=row(t('remaining'),'<span id="remaining-sec">'+fmtSec(d.seconds_remaining)+'</span>',warnCls);
-    // 7. 标题 (chromium)
-    if(c.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+c.title+'</span></div>';
-    // 8. 页面 (chromium)
-    if(c.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+c.url+'</span></div>';
-    // 9. 错误
-    if(d.error)html+=row(t('error'),d.error,'invalid');
-    const sc=document.getElementById('legacy-status-content');if(sc)sc.innerHTML=html;
+    // Cache both payloads so language switch can re-render without re-fetching.
+    window.__statusData=d;window.__statusChromium=c;
+    renderStatus();
     startCountdown(d.seconds_remaining||0);
-    updateRefreshBtn(d.auto_refresh);
   }catch(e){
     const sc=document.getElementById('legacy-status-content');if(sc)sc.innerHTML='<span class="invalid">Failed to load</span>';
   }
+}
+// Pure render from cached token/chromium status; safe to call on language switch (no network).
+function renderStatus(){
+  const d=window.__statusData;if(!d)return;
+  const c=window.__statusChromium||{};
+  const v=d.valid;
+  const cls=v?'valid':'invalid';
+  const exp=d.expires_at?new Date(d.expires_at).toLocaleString():'N/A';
+  const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
+  const warnCls=(v&&d.seconds_remaining<600)?'warn':'';
+  let html='';
+  // 1. 用户名
+  if(d.username)html+=row(t('username_label'),d.username,'valid');
+  // 2. 登录 (chromium) — 状态显示为 是/否
+  if(c.chromium_running===false){
+    html+=row(t('login'),t('chromium_not_running'),'invalid');
+  }else if(c.chromium_running){
+    html+=row(t('login'),c.logged_in?t('status_yes'):t('status_no'),c.logged_in?'valid':'warn');
+  }
+  const logoutBtn=document.getElementById('btn-logout');
+  if(logoutBtn)logoutBtn.style.display=c.logged_in?'inline-block':'none';
+  // 3. 自动刷新（紧跟登录下方）
+  html+=row(t('auto_refresh_label'),d.auto_refresh?t('status_yes'):t('status_no'),d.auto_refresh?'valid':'warn');
+  // 4. 有效
+  html+=row(t('valid'),v?t('status_yes'):t('status_no'),cls);
+  // 5. 过期时间
+  html+=row(t('expires'),exp,warnCls);
+  // 6. 剩余
+  html+=row(t('remaining'),'<span id="remaining-sec">'+fmtSec(d.seconds_remaining)+'</span>',warnCls);
+  // 7. 标题 (chromium)
+  if(c.title)html+='<div class="status-row"><span class="status-label">'+t('title')+'</span><span class="status-value" style="font-size:.75rem">'+c.title+'</span></div>';
+  // 8. 页面 (chromium)
+  if(c.url)html+='<div class="status-row"><span class="status-label">'+t('page')+'</span><span class="status-value" style="font-size:.75rem;word-break:break-all">'+c.url+'</span></div>';
+  // 9. 错误
+  if(d.error)html+=row(t('error'),d.error,'invalid');
+  const sc=document.getElementById('legacy-status-content');if(sc)sc.innerHTML=html;
+  updateRefreshBtn(d.auto_refresh);
 }
 
 function fmtSec(s){

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 _ADMIN_KEYS_JS = """let __keys=[];
 let __selectedKeyIds=new Set();
-async function loadKeys(){
+async function loadKeys(localOnly=false){
   const box=document.getElementById('keys-content');
   if(!box)return;
   try{
-    const r=await fetch('/admin/keys',{credentials:'include'});
-    if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
-    const d=await r.json();
-    __keys=d.keys||[];
+    if(!localOnly){
+      const r=await fetch('/admin/keys',{credentials:'include'});
+      if(r.status===401){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
+      const d=await r.json();
+      __keys=d.keys||[];
+    }
     if(!__keys.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_keys')+'</span>';renderDashboard();return}
     const __pg=_slicePage(__keys,'keys');
     let h='<div class="tbl-tools"><button onclick="batchSetKeys(true)" style="font-size:.72rem;padding:3px 8px;background:#059669">'+t('batch_enable')+'</button><button onclick="batchSetKeys(false)" style="font-size:.72rem;padding:3px 8px;background:#b45309">'+t('batch_disable')+'</button><button onclick="batchDeleteKeys()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'

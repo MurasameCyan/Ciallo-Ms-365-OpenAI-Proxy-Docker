@@ -5,29 +5,34 @@ _ADMIN_SETTINGS_JS = """async function loadTone(){
     const r=await fetch('/admin/tone',{credentials:'include'});
     if(r.status===401){return}
     const d=await r.json();
-    const sel=document.getElementById('tone-select');
-    if(!sel)return;
-    const cur=d.tone||'Magic';
-    const opts=d.options||[];
-    window.__toneOpts=opts;
-    // Skip re-render if unchanged (avoids resetting an open dropdown). Signature
-    // includes lang so switching language re-renders the localized labels.
-    const sig=JSON.stringify(opts)+'|'+cur+'|'+lang;
-    if(sig===window.__toneSig)return;
-    window.__toneSig=sig;
-    const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
-    sel.innerHTML=opts.map(o=>'<option value="'+o.value+'">'+lbl(o)+'</option>').join('');
-    sel.value=opts.some(o=>o.value===cur)?cur:(opts[0]?opts[0].value:'');
-    initGlassSelect(sel.parentElement);
-    refreshGlassSelect(sel);
-    sel.onchange=()=>saveTone(sel.value);
+    window.__toneOpts=d.options||[];
+    window.__toneCur=d.tone||'Magic';
+    renderTone();
   }catch(e){}
+}
+// Pure render from cached tone options; safe to call on language switch (no network).
+function renderTone(){
+  const sel=document.getElementById('tone-select');
+  if(!sel)return;
+  const opts=window.__toneOpts||[];
+  const cur=window.__toneCur||'Magic';
+  // Skip re-render if unchanged (avoids resetting an open dropdown). Signature
+  // includes lang so switching language re-renders the localized labels.
+  const sig=JSON.stringify(opts)+'|'+cur+'|'+lang;
+  if(sig===window.__toneSig)return;
+  window.__toneSig=sig;
+  const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
+  sel.innerHTML=opts.map(o=>'<option value="'+o.value+'">'+lbl(o)+'</option>').join('');
+  sel.value=opts.some(o=>o.value===cur)?cur:(opts[0]?opts[0].value:'');
+  initGlassSelect(sel.parentElement);
+  refreshGlassSelect(sel);
+  sel.onchange=()=>saveTone(sel.value);
 }
 async function saveTone(tone){
   try{
     const r=await fetch('/admin/tone',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone})});
     if(!r.ok)return;
-    window.__toneSig='';
+    window.__toneCur=tone;window.__toneSig='';
     const s=document.getElementById('tone-saved');
     if(s){s.textContent=t('tone_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
   }catch(e){}
@@ -37,6 +42,13 @@ async function loadRuntimeSettings(){
     const r=await fetch('/admin/runtime-settings',{credentials:'include'});if(!r.ok)return;
     const d=await r.json(),s=d.settings||{};
     __runtimeSettings={...s};
+    renderRuntimeSettings(__runtimeSettings);
+  }catch(e){}
+}
+// Pure render from cached settings; safe to call on language switch (no network).
+function renderRuntimeSettings(s){
+  try{
+    s=s||{};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
     set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
