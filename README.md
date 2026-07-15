@@ -33,7 +33,7 @@ cp .env.example .env
 ### 2. 启动服务
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 服务在 `http://localhost:8000` 启动，打开浏览器访问即为 Web 管理页面。首次访问需输入管理密码（`ADMIN_PASSWORD` 或 `API_KEY` 的值）。
@@ -64,7 +64,12 @@ docker-compose up -d
 
 Web 管理页面显示 Token 有效性和 Chromium 登录状态。点击 **Check Login** 检查 Chromium 是否已登录，点击 **Auto Capture** 让 Chromium 自动捕获新 Token。
 
+> **Check Login / Auto Capture / Cookie 注入依赖共享 admin Chromium（9222），仅在 `ENABLE_ADMIN_CDP=true` 时可用**。默认多租户部署下这些按钮对应的端点未注册；请改用 `/` 用户自助页推送账户 Token / Cookie，刷新由每账户独立 Chromium 或 RT 承担。
+
 ## API 端点
+
+<details>
+<summary>展开查看全部 API 端点</summary>
 
 ### OpenAI 兼容 API
 
@@ -77,59 +82,59 @@ Web 管理页面显示 Token 有效性和 Chromium 登录状态。点击 **Check
 
 ### 会话与页面
 
-| 端点                    | 说明                              |
-| ----------------------- | --------------------------------- |
-| `GET /healthz`          | 健康检查                          |
-| `GET /`                 | 用户自助页面（API Key 登录）      |
-| `GET /admin`            | 运营总控台页面（管理密码登录）    |
-| `POST /admin/login`     | 运营总控台登录                    |
-| `POST /admin/logout`    | 运营总控台登出                    |
+| 端点                   | 说明                           |
+| ---------------------- | ------------------------------ |
+| `GET /healthz`       | 健康检查                       |
+| `GET /`              | 用户自助页面（API Key 登录）   |
+| `GET /admin`         | 运营总控台页面（管理密码登录） |
+| `POST /admin/login`  | 运营总控台登录                 |
+| `POST /admin/logout` | 运营总控台登出                 |
 
 ### 管理端点 — 账户池与 API Key
 
-| 端点                                    | 说明                         |
-| --------------------------------------- | ---------------------------- |
-| `GET POST /admin/accounts`              | 列出 / 添加账户              |
-| `POST /admin/accounts/{id}/token`       | 更新账户 Token               |
-| `POST /admin/accounts/{id}/token/clear` | 清除账户 Token               |
-| `POST /admin/accounts/{id}/rename`      | 重命名账户                   |
-| `POST /admin/accounts/{id}/refresh`     | 立即刷新账户 Token（CDP）    |
+| 端点                                         | 说明                         |
+| -------------------------------------------- | ---------------------------- |
+| `GET POST /admin/accounts`                 | 列出 / 添加账户              |
+| `POST /admin/accounts/{id}/token`          | 更新账户 Token               |
+| `POST /admin/accounts/{id}/token/clear`    | 清除账户 Token               |
+| `POST /admin/accounts/{id}/rename`         | 重命名账户                   |
+| `POST /admin/accounts/{id}/refresh`        | 立即刷新账户 Token（CDP）    |
 | `POST /admin/accounts/{id}/cookie-refresh` | 用 Cookie 拉起 Chromium 刷新 |
-| `DELETE /admin/accounts/{id}`           | 删除账户（解绑其 Key）       |
-| `GET POST /admin/keys`                  | 列出 / 新建 API Key          |
-| `POST /admin/keys/{id}`                 | 更新 Key（绑定/模式/启停等） |
-| `POST /admin/keys/{id}/regenerate`      | 重置 Key 明文               |
-| `DELETE /admin/keys/{id}`               | 删除 API Key                 |
+| `DELETE /admin/accounts/{id}`              | 删除账户（解绑其 Key）       |
+| `GET POST /admin/keys`                     | 列出 / 新建 API Key          |
+| `POST /admin/keys/{id}`                    | 更新 Key（绑定/模式/启停等） |
+| `POST /admin/keys/{id}/regenerate`         | 重置 Key 明文                |
+| `DELETE /admin/keys/{id}`                  | 删除 API Key                 |
 
 ### 管理端点 — 设置与可观测性
 
-| 端点                                | 说明                         |
-| ----------------------------------- | ---------------------------- |
-| `GET /admin/token/status`           | Token 有效性与自动刷新状态   |
-| `POST /admin/token/update`          | 手动推送 Token               |
-| `POST /admin/token/auto-refresh-toggle` | 切换自动刷新开关         |
-| `GET POST /admin/tone`              | 查询 / 设置对话模式          |
-| `GET POST /admin/tool-prompt`       | 查询 / 设置提示词增强        |
-| `GET POST /admin/system-prompt`     | 查询 / 设置系统提示词        |
-| `GET POST /admin/runtime-settings`  | 查询 / 设置运行设置（日志开关等） |
-| `GET /admin/call-log`               | API 调用记录                 |
-| `POST /admin/call-log/clear`        | 清空调用记录                 |
-| `GET /admin/summary`                | 总览统计                     |
-| `GET /admin/stats`                  | 明细统计                     |
-| `GET /admin/metrics-history`        | 指标历史                     |
-| `POST /admin/metrics-history/clear` | 清空指标历史                 |
-| `GET /admin/media-proxy/events`     | 媒体代理事件                 |
-| `POST /admin/media-proxy/events/clear` | 清空媒体代理事件          |
-| `GET POST /admin/capture-payload`   | 查询 / 接收模式抓包数据      |
-| `POST /admin/capture-payload/clear` | 清空抓包数据                 |
-| `GET POST /admin/capture-toggle`    | 查询 / 切换抓包开关          |
+| 端点                                      | 说明                              |
+| ----------------------------------------- | --------------------------------- |
+| `GET /admin/token/status`               | Token 有效性与自动刷新状态        |
+| `POST /admin/token/update`              | 手动推送 Token                    |
+| `POST /admin/token/auto-refresh-toggle` | 切换自动刷新开关                  |
+| `GET POST /admin/tone`                  | 查询 / 设置对话模式               |
+| `GET POST /admin/tool-prompt`           | 查询 / 设置提示词增强             |
+| `GET POST /admin/system-prompt`         | 查询 / 设置系统提示词             |
+| `GET POST /admin/runtime-settings`      | 查询 / 设置运行设置（日志开关等） |
+| `GET /admin/call-log`                   | API 调用记录                      |
+| `POST /admin/call-log/clear`            | 清空调用记录                      |
+| `GET /admin/summary`                    | 总览统计                          |
+| `GET /admin/stats`                      | 明细统计                          |
+| `GET /admin/metrics-history`            | 指标历史                          |
+| `POST /admin/metrics-history/clear`     | 清空指标历史                      |
+| `GET /admin/media-proxy/events`         | 媒体代理事件                      |
+| `POST /admin/media-proxy/events/clear`  | 清空媒体代理事件                  |
+| `GET POST /admin/capture-payload`       | 查询 / 接收模式抓包数据           |
+| `POST /admin/capture-payload/clear`     | 清空抓包数据                      |
+| `GET POST /admin/capture-toggle`        | 查询 / 切换抓包开关               |
 
 ### 管理端点 — 共享 CDP（仅 `ENABLE_ADMIN_CDP=true` 时注册）
 
 > 默认多租户部署下 `ENABLE_ADMIN_CDP=false`，以下端点**不注册**（调用返回 404），刷新由每账户独立 Chromium 承担。设为 `true` 才启用 9222 共享浏览器及这些端点。
 
-| 端点                               | 说明                         |
-| ---------------------------------- | ---------------------------- |
+| 端点                                 | 说明                         |
+| ------------------------------------ | ---------------------------- |
 | `POST /admin/token/auto-capture`   | 触发共享 Chromium 捕获 Token |
 | `POST /admin/cookie/inject`        | 注入 Cookie 到共享 Chromium  |
 | `GET /admin/chromium/login-status` | 共享 Chromium 登录状态       |
@@ -137,45 +142,60 @@ Web 管理页面显示 Token 有效性和 Chromium 登录状态。点击 **Check
 
 ### 用户自助端点（用自己的 API Key 认证）
 
-| 端点                              | 说明                                        |
-| --------------------------------- | ------------------------------------------- |
-| `POST /user/login`                | 用户页登录                                  |
-| `POST /user/repassword`           | 修改自己的登录密码                          |
-| `GET /user/me`                    | 查询自己的 Key 信息与绑定账户状态           |
-| `POST /user/tone`                 | 设置自己的对话模式                          |
-| `POST /user/tool-prompt`          | 设置自己的提示词增强                        |
-| `POST /user/system-prompt`        | 设置自己的系统提示词                        |
-| `POST /user/account/token`        | 推送/更新绑定账户的 Token（无则自动创建）   |
-| `POST /user/account/cookies`      | 推送绑定账户的 Cookie（供 CDP 刷新）        |
-| `POST /user/account/refresh-token`| 立即刷新绑定账户的 Token                    |
-| `POST /user/account/media-auth`   | 推送媒体（图片）访问凭据                    |
-| `POST /user/account/designer-auth`| 推送 Designer 访问凭据                      |
-| `POST /user/account/logout`       | 登出绑定账户（清凭据）                      |
-| `POST /user/account/unbind`       | 解绑当前账户                                |
-| `POST /user/regenerate-key`       | 重置自己的 API Key                          |
+| 端点                                 | 说明                                      |
+| ------------------------------------ | ----------------------------------------- |
+| `POST /user/login`                 | 用户页登录                                |
+| `POST /user/repassword`            | 修改自己的登录密码                        |
+| `GET /user/me`                     | 查询自己的 Key 信息与绑定账户状态         |
+| `POST /user/tone`                  | 设置自己的对话模式                        |
+| `POST /user/tool-prompt`           | 设置自己的提示词增强                      |
+| `POST /user/system-prompt`         | 设置自己的系统提示词                      |
+| `POST /user/account/token`         | 推送/更新绑定账户的 Token（无则自动创建） |
+| `POST /user/account/cookies`       | 推送绑定账户的 Cookie（供 CDP 刷新）      |
+| `POST /user/account/refresh-token` | 立即刷新绑定账户的 Token                  |
+| `POST /user/account/media-auth`    | 推送媒体（图片）访问凭据                  |
+| `POST /user/account/designer-auth` | 推送 Designer 访问凭据                    |
+| `POST /user/account/logout`        | 登出绑定账户（清凭据）                    |
+| `POST /user/account/unbind`        | 解绑当前账户                              |
+| `POST /user/regenerate-key`        | 重置自己的 API Key                        |
+
+</details>
 
 ## 按需刷新机制
 
 默认采用按需刷新模式，降低长时间保持连接的账号风控：
 
 1. **容器启动不自动刷新** — `auto_refresh` 初始为关闭状态，无后台 token 刷新活动
-2. **`/v1/` 请求触发同步刷新** — 当有 `/v1/` API 请求且 Token 过期或不存在时，中间件**同步调用 CDP 刷新** Token，请求等待刷新完成后继续
+2. **`/v1/` 请求触发按需刷新** — 当有 `/v1/` API 请求且 Token 过期或不存在时，中间件**同步刷新** Token（先 RT 后 CDP，见下），请求等待刷新完成后继续
 3. **空闲自动暂停** — 超过 `IDLE_TIMEOUT_MINUTES`（默认 30 分钟）无 `/v1/` 请求时，自动暂停刷新循环
 4. **再次请求自动唤醒** — 下一个 `/v1/` 请求到来时，自动唤醒刷新
 5. **Web 按钮控制** — 可通过 Web 页面手动启用/暂停自动刷新
 
-> **注意按需刷新机制唤醒需要先刷新 Token 所以首轮回复等待时间会增加。**
+### 两级刷新链路：RT 优先 → CDP 回退
+
+刷新到期（或强制刷新）时，按以下顺序取新 Token：
+
+1. **RT 快速刷新（首选，无浏览器）** — 账户若持有 OAuth2 `refresh_token`，直接向 AAD `oauth2/v2.0/token` 端点做纯 HTTP 交换，换回新的 substrate access token。**不拉起 Chromium、不消耗 Copilot 配额**，速度快、开销低。交换同时会轮换 `refresh_token` 并持久化，使刷新链持续续期；并带身份守卫（换回的身份与账户 email 不符则拒绝）。RT 由油猴脚本从 M365 token 响应中捕获后推送（`/user/account/token`、`/user/account/cookies`）。
+2. **CDP 刷新（回退）** — 当账户没有 RT、RT 链已失效（AAD 返回 `invalid_grant` 等）或 HTTP 交换出错时，才回退到拉起该账户专属 Chromium profile（独立 CDP 端口 9322+）抓取新 Token。
+
+> media / designer（图片、Designer）Token 不经 RT 产生，由 CDP 媒体捕获路径按需懒保活。
+
+> **注意按需刷新机制唤醒需要先刷新 Token 所以首轮回复等待时间会增加**；RT 路径通常只需一次 HTTP 往返，明显快于 CDP 拉起浏览器。
 
 ```
 /v1/ 请求 → 记录 last_request_time → 检查 token 有效性
                                         ├─ 有效 → 正常处理
-                                        └─ 过期 + auto_refresh 关闭 →
-                                            ├─ 同步调用 CDP 刷新 token
-                                            ├─ 刷新成功 → 用新 token 正常处理
-                                            └─ 刷新失败 → 返回 503
+                                        └─ 过期/缺失 →
+                                            ├─ 有 RT → HTTP 交换 substrate token（无浏览器）
+                                            │           ├─ 成功 → 轮换并持久化 RT → 正常处理
+                                            │           └─ 失败 → 回退 CDP
+                                            ├─ CDP：拉起账户专属 Chromium 抓 token
+                                            │           ├─ 成功 → 用新 token 正常处理
+                                            │           └─ 失败 → 返回 503
+                                            └─ 手动账户且已过期 → 返回 503
 
 _auto_refresh_loop → 检查 auto_refresh_enabled → 检查空闲时间
-                        ├─ 启用 + 有请求 → 正常刷新
+                        ├─ 启用 + 有请求 → 正常刷新（同样 RT 优先）
                         └─ 暂停或无请求 → 休眠等待唤醒
 ```
 
@@ -183,46 +203,46 @@ _auto_refresh_loop → 检查 auto_refresh_enabled → 检查空闲时间
 
 ### 服务配置（`.env` / pydantic Settings）
 
-| 变量                     | 必需         | 默认值            | 说明                                        |
-| ------------------------ | ------------ | ----------------- | ------------------------------------------- |
-| `API_KEY`                | **是** | —                | 全局/快速启动 API Key；若一个 Key 都没注册且此项留空，`/v1/` 端点无认证开放 |
-| `ADMIN_PASSWORD`         | 否           | —                | `/admin` 总控台密码，未设置时回退使用 `API_KEY` |
-| `M365_ACCESS_TOKEN`      | 否           | —                | 单账户 Substrate Token，留空则由脚本推送或自动捕获（多租户按账户管理，一般不用） |
-| `M365_TIME_ZONE`         | 否           | `Asia/Shanghai` | 发送给 Copilot 的时区                       |
-| `M365_MODEL_ALIAS`       | 否           | `m365-copilot`  | 自定义模型名称                              |
-| `TOKEN_DIR`              | 否           | `/home/app/token` | 令牌/账户/Key/会话等持久化目录（挂载卷）    |
-| `IDLE_TIMEOUT_MINUTES`   | 否           | `30`            | 空闲多少分钟无 `/v1/` 请求后暂停自动刷新    |
-| `LOG_LEVEL`              | 否           | `INFO`          | 日志输出等级（DEBUG/INFO/WARNING/ERROR/CRITICAL），Web 轮询与 `/healthz` 始终过滤 |
+| 变量                     | 必需         | 默认值              | 说明                                                                                |
+| ------------------------ | ------------ | ------------------- | ----------------------------------------------------------------------------------- |
+| `API_KEY`              | **是** | —                  | 全局/快速启动 API Key；若一个 Key 都没注册且此项留空，`/v1/` 端点无认证开放       |
+| `ADMIN_PASSWORD`       | 否           | —                  | `/admin` 总控台密码，未设置时回退使用 `API_KEY`                                 |
+| `M365_ACCESS_TOKEN`    | 否           | —                  | 单账户 Substrate Token，留空则由脚本推送或自动捕获（多租户按账户管理，一般不用）    |
+| `M365_TIME_ZONE`       | 否           | `Asia/Shanghai`   | 发送给 Copilot 的时区                                                               |
+| `M365_MODEL_ALIAS`     | 否           | `m365-copilot`    | 自定义模型名称                                                                      |
+| `TOKEN_DIR`            | 否           | `/home/app/token` | 令牌/账户/Key/会话等持久化目录（挂载卷）                                            |
+| `IDLE_TIMEOUT_MINUTES` | 否           | `30`              | 空闲多少分钟无 `/v1/` 请求后暂停自动刷新                                          |
+| `LOG_LEVEL`            | 否           | `INFO`            | 日志输出等级（DEBUG/INFO/WARNING/ERROR/CRITICAL），Web 轮询与 `/healthz` 始终过滤 |
 
 ### 日志与安全开关
 
-| 变量                     | 必需 | 默认值   | 说明                                             |
-| ------------------------ | ---- | -------- | ------------------------------------------------ |
-| `LOG_USER_VERBOSE`       | 否   | `true`   | 账户/刷新的普通进度日志（可在 `/admin` 运行设置里改） |
-| `LOG_USER_ERRORS`        | 否   | `true`   | 账户/刷新的失败/异常日志（可在 `/admin` 运行设置里改） |
-| `SUPPRESS_ACCESS_LOG`    | 否   | `true`   | 屏蔽高频 uvicorn 访问日志（轮询/健康检查/favicon 等） |
-| `ALLOWED_ORIGINS`        | 否   | —        | CORS 允许来源（逗号分隔），留空按内置策略处理     |
-| `ADMIN_COOKIE_SECURE`    | 否   | `0`      | 管理会话 Cookie 是否加 `Secure`（HTTPS 部署置 `1`） |
+| 变量                    | 必需 | 默认值   | 说明                                                     |
+| ----------------------- | ---- | -------- | -------------------------------------------------------- |
+| `LOG_USER_VERBOSE`    | 否   | `true` | 账户/刷新的普通进度日志（可在 `/admin` 运行设置里改）  |
+| `LOG_USER_ERRORS`     | 否   | `true` | 账户/刷新的失败/异常日志（可在 `/admin` 运行设置里改） |
+| `SUPPRESS_ACCESS_LOG` | 否   | `true` | 屏蔽高频 uvicorn 访问日志（轮询/健康检查/favicon 等）    |
+| `ALLOWED_ORIGINS`     | 否   | —       | CORS 允许来源（逗号分隔），留空按内置策略处理            |
+| `ADMIN_COOKIE_SECURE` | 否   | `0`    | 管理会话 Cookie 是否加 `Secure`（HTTPS 部署置 `1`）  |
 
 ### 浏览器刷新层（Dockerfile / entrypoint.sh 消费，非 pydantic Settings）
 
 > 以下变量在容器入口脚本读取并转成 serve 的 CLI 参数。**除 `ENABLE_ADMIN_CDP` 外，其余仅在 `ENABLE_ADMIN_CDP=true` 时才生效**——默认多租户部署下共享 9222 浏览器不启动，刷新由每账户独立 Chromium（9322+）承担。
 
-| 变量                     | 必需 | 默认值   | 说明                                             |
-| ------------------------ | ---- | -------- | ------------------------------------------------ |
-| `ENABLE_ADMIN_CDP`       | 否   | `false`  | 是否启动共享 admin Chromium（9222）并注册其依赖端点 |
-| `AUTO_REFRESH`           | 否   | `true`   | 共享 CDP 开启时，是否自动刷新 Token              |
-| `REFRESH_BEFORE_SECONDS` | 否   | `300`    | 共享 CDP 开启时，Token 过期前多少秒开始刷新      |
-| `CHROME_CDP_PORT`        | 否   | `9222`   | 共享 Chromium CDP 端口                           |
-| `CHROME_BIN`             | 否   | 自动探测 | Chromium 可执行名（chromium/chrome 系列）        |
+| 变量                       | 必需 | 默认值    | 说明                                                |
+| -------------------------- | ---- | --------- | --------------------------------------------------- |
+| `ENABLE_ADMIN_CDP`       | 否   | `false` | 是否启动共享 admin Chromium（9222）并注册其依赖端点 |
+| `AUTO_REFRESH`           | 否   | `true`  | 共享 CDP 开启时，是否自动刷新 Token                 |
+| `REFRESH_BEFORE_SECONDS` | 否   | `300`   | 共享 CDP 开启时，Token 过期前多少秒开始刷新         |
+| `CHROME_CDP_PORT`        | 否   | `9222`  | 共享 Chromium CDP 端口                              |
+| `CHROME_BIN`             | 否   | 自动探测  | Chromium 可执行名（chromium/chrome 系列）           |
 
 ## 客户端配置
 
-| 设置     | 值                                      |
-| -------- | --------------------------------------- |
-| Base URL | `http://your-server:8000/v1`          |
-| API Key  | 你设置的 `API_KEY` 值                 |
-| Model    | `m365-copilot / m365-copilot:persist` |
+| 设置     | 值                             |
+| -------- | ------------------------------ |
+| Base URL | `http://your-server:8000/v1` |
+| API Key  | 你设置的 `API_KEY` 值        |
+| Model    | 列表获取                       |
 
 ### Claude Code
 
@@ -244,7 +264,7 @@ Model: m365-copilot
 
 ### API Key
 
-**必须在 `.env` 中设置 `API_KEY`**，否则所有 `/v1/` API 端点无认证开放。启动时未设置会打印警告。所有 `/v1/` API 请求需携带 `Authorization: Bearer your-key` 头。
+`/v1/` API 请求需携带 `Authorization: Bearer your-key` 头。**仅当 `API_KEY` 为空且 `/admin` 里一个 API Key 都没注册时，`/v1/` 端点才无认证开放**（此时启动会打印警告）。因此两种方式任选其一即可保护接口：设置全局 `API_KEY`，或在 `/admin` 创建 per-user Key。多租户推荐后者。
 
 ```bash
 curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
@@ -272,15 +292,39 @@ curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
 
 ### 内存与刷新
 
-保留 CDP 自动刷新，但采用**按需串行**策略：平时账户只在磁盘/内存存 Token，无浏览器进程；某账户 Token 临近过期且有请求时，才拉起它专属的 Chromium profile（独立 CDP 端口）抓取新 Token，随即关闭。串行队列保证同一时刻最多一个 Chromium 存活，因此多账户下峰值内存仍接近单租户（约数百 MB，而非账户数 × 300MB）。
+采用**按需 + 串行**策略：平时账户只在磁盘/内存存 Token，无浏览器进程。某账户 Token 临近过期且有请求时才刷新，按[两级链路](#两级刷新链路rt-优先--cdp-回退)——**优先走 RT 纯 HTTP 交换（无浏览器、零内存开销）**；仅当 RT 缺失或失效时，才回退拉起该账户专属的 Chromium profile（独立 CDP 端口）抓取新 Token 后随即关闭。串行队列保证同一时刻最多一个 Chromium 存活，因此多账户下峰值内存仍接近单租户（约数百 MB，而非账户数 × 300MB）；持有 RT 的账户刷新时通常根本不启动浏览器。
+
+## 媒体 / Designer 授权抓取
+
+图片、语音等媒体内容与 Designer（PPT/图像生成）走的是**独立于 substrate 的授权**，这两个 token **不在 MSAL 缓存里**，也不由 RT / CDP 的 substrate 刷新产生——它们只在页面打开含媒体的对话时，作为 `teams.microsoft.com` / `officeapps.live.com` 等域请求的 `Authorization` 头短暂出现。因此需要油猴脚本在浏览器侧嗅探并推送。
+
+**抓取方式**：油猴脚本 hook 页面的 fetch/XHR，当检测到发往下列域的带 `Authorization` 头请求时，捕获并**自动静默推送**到代理（也可用面板按钮手动推）：
+
+| 类型          | 触发域                    | Token 形态                                               | 推送端点                             |
+| ------------- | ------------------------- | -------------------------------------------------------- | ------------------------------------ |
+| media-auth    | `*.teams.microsoft.com` | `Bearer <JWT>`（存储时剥离 `Bearer` 前缀）           | `POST /user/account/media-auth`    |
+| designer-auth | `*.officeapps.live.com` | 裸 JWE（**无 `Bearer` 前缀**，原样存储原样回放） | `POST /user/account/designer-auth` |
+
+**使用步骤**：
+
+1. 在 M365 Copilot 中**打开一个新会话在当前会话发送生成图片然后发送生成音频的消息**，必须是同一条会话记录里包含两种。
+2. 油猴脚本面板点击一键推送。
+3. 之后经代理请求媒体时，服务端用存储的凭据回放；由 [`/v1/m365-media`](#api-端点) 媒体代理（HMAC 签名 + 主机白名单）对外提供。
+4. 推送 Cookie 时脚本会附带 `media_seed_url`（当前对话 URL），刷新流程可回访该对话**重新触发媒体请求以保活**这两个 token。
+
+> 这两个 token 有效期短、且只能在浏览器打开相应内容时抓到，属于**尽力而为**的懒保活；若媒体链接失效，重新打开一次含媒体的对话再推送即可。media / designer 授权与 substrate token 相互独立，缺失时**不影响**普通文本对话。
 
 ## 持久会话与上下文优化
 
-### 持久会话
+会话键的解析**按以下优先级**（高到低）取第一个命中的：
 
-- **Header 模式**：请求头 `X-M365-Session-Id: my-session`
-- **模型后缀模式**：使用模型名 `m365-copilot:persist`
-- **自动检测**：默认模型 `m365-copilot` 会按首条用户消息的哈希自动分组，同一对话的连续轮次复用同一个 M365 会话，在客户端新建对话则自动开启新会话
+1. **Header 模式（固定会话 ID，最高优先级）**：请求头 `X-M365-Session-Id: my-session`。客户端自定义任意字符串，同一字符串即同一 M365 会话，最稳定可控——推荐需要精确控制会话边界的场景（如多智能体、并行会话）。
+2. **模型后缀模式**：使用模型名 `m365-copilot:persist`，同一 Key 下复用固定的 `model:default` 会话。
+3. **自动检测（默认）**：默认模型 `m365-copilot` 会按首条用户消息的哈希自动分组，同一对话的连续轮次复用同一个 M365 会话，在客户端新建对话则自动开启新会话。
+
+> **租户隔离**：所有会话键都会自动加上 `tenant` 前缀（该请求 API Key 的 id，未绑定则用账户 id / `global`）。因此**不同 Key 即使推送相同的 `X-M365-Session-Id` 值或相同开场白，也不会串会话**。
+>
+> Responses API（`/v1/responses`）另有一条通道：会话键会被编码进返回的 `resp_...` id，客户端把它作为 `previous_response_id` 回传即可续接，无需显式 Header。
 
 ### 增量上下文优化
 
@@ -314,7 +358,7 @@ curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
 
 ## 对话模式
 
-M365 Copilot 支持多种模型 / 思考模式，由 Substrate 请求中的 `tone` 字段控制。可在 Web 管理页面「对话模式」下拉选择，选择后立即生效并持久保存。
+M365 Copilot 支持多种模型 / 思考模式，由 Substrate 请求中的 `tone` 字段控制。可在 Web 管理页面「对话模式」下拉选择，选择即生效并持久保存。
 
 | 模式             | 说明                       |
 | ---------------- | -------------------------- |
