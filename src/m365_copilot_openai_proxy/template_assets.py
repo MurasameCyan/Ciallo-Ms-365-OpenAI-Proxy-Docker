@@ -16,10 +16,10 @@ _GLASS_SELECT_CSS = """select.glass-native{position:absolute!important;opacity:0
 .glass-select-option{position:relative;width:100%;margin:0!important;padding:.48rem .62rem!important;border-radius:10px!important;background:transparent!important;color:var(--muted)!important;box-shadow:none!important;text-align:left!important;font-size:.82rem!important;line-height:1.2!important;white-space:nowrap!important;transition:none!important}
 .glass-select-option:hover{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.13))!important;color:var(--text)!important;transform:none!important}
 .glass-select-option.active{color:var(--text)!important;background:linear-gradient(135deg,rgba(96,242,255,.24),rgba(255,94,219,.12))!important;box-shadow:inset 3px 0 0 rgba(96,242,255,.82)!important}
-body[data-theme="light"] .glass-select-trigger{color:#243049!important;background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(96,180,242,.13),rgba(124,58,237,.1))!important;border-color:rgba(14,116,144,.24)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.86),0 8px 18px rgba(47,61,116,.08)!important}
-body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(242,247,255,.88));border-color:rgba(14,116,144,.22);box-shadow:0 18px 38px rgba(80,100,160,.16),inset 0 1px 0 rgba(255,255,255,.86)}
-body[data-theme="light"] .glass-select-option{color:#5b6785!important}
-body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#243049!important}"""
+body[data-theme="light"] .glass-select-trigger{color:#1c1c1e!important;background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(0,122,255,.06))!important;border-color:rgba(60,60,67,.14)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 4px 12px rgba(0,0,0,.04)!important}
+body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(242,243,247,.9));border-color:rgba(60,60,67,.12);box-shadow:0 16px 36px rgba(0,0,0,.1),inset 0 1px 0 rgba(255,255,255,.92)}
+body[data-theme="light"] .glass-select-option{color:#6b6b70!important}
+body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#1c1c1e!important}"""
 
 # Hide the browser-native up/down spinner on number inputs so they match the
 # other text inputs / custom glass-selects. Shared by both the admin and user

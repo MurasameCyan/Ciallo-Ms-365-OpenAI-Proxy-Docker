@@ -190,7 +190,7 @@ def test_admin_table_pagination_javascript_is_split_into_tables_module():
 
 def test_admin_keys_javascript_is_split_into_keys_module():
     assert "let __keys=[];" in _ADMIN_KEYS_JS
-    assert "async function loadKeys()" in _ADMIN_KEYS_JS
+    assert "async function loadKeys(localOnly=false)" in _ADMIN_KEYS_JS
     assert "function toggleKeyForm(show)" in _ADMIN_KEYS_JS
     assert "async function submitKey()" in _ADMIN_KEYS_JS
     assert "async function batchDeleteKeys()" in _ADMIN_KEYS_JS
