@@ -35,8 +35,10 @@ button:hover{transform:translateY(-2px);box-shadow:0 22px 44px rgba(96,242,255,.
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .msg{padding:.5rem .75rem;border-radius:10px;font-size:.8rem;margin-top:.75rem;display:none}
 .msg.err{display:block;background:rgba(127,29,29,.5);color:#fecaca;border:1px solid rgba(239,68,68,.5)}
-.lang-btn{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--text);font-size:12px;padding:5px 13px;border-radius:999px;cursor:pointer;font-weight:600;width:auto;box-shadow:none}
-.lang-btn:hover{transform:translateY(-1px)}
+.top-tools{position:absolute;top:14px;right:14px;display:flex;align-items:center;gap:8px;z-index:3}
+.lang-btn,.theme-btn{position:static;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--text);font-size:12px;padding:5px 12px;border-radius:999px;cursor:pointer;font-weight:600;width:auto;min-width:0;box-shadow:none;line-height:1.2}
+.theme-btn{padding:5px 10px;font-size:14px}
+.lang-btn:hover,.theme-btn:hover{transform:translateY(-1px);box-shadow:none}
 @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes pulse{50%{scale:1.08;opacity:.68}}
 
@@ -54,7 +56,7 @@ body[data-theme="light"] input:focus{border:1px solid rgba(0,122,255,.45);backgr
 body[data-theme="light"] input:-webkit-autofill,body[data-theme="light"] input:-webkit-autofill:focus,body[data-theme="light"] input:-webkit-autofill:hover{-webkit-text-fill-color:#1c1c1e!important;box-shadow:0 0 0 1000px rgba(255,255,255,.86) inset!important}
 body[data-theme="light"] button{color:#fff;background:linear-gradient(180deg,#0a84ff 0%,#007aff 100%);box-shadow:0 4px 14px rgba(0,122,255,.28),inset 0 1px 0 rgba(255,255,255,.28)}
 body[data-theme="light"] button:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,122,255,.32),inset 0 1px 0 rgba(255,255,255,.32)}
-body[data-theme="light"] .lang-btn{background:rgba(120,120,128,.12);border-color:rgba(60,60,67,.14);color:#1c1c1e;box-shadow:none}
+body[data-theme="light"] .lang-btn,body[data-theme="light"] .theme-btn{background:rgba(120,120,128,.12);border-color:rgba(60,60,67,.14);color:#1c1c1e;box-shadow:none}
 body[data-theme="light"] .msg.err{background:rgba(254,226,226,.85);color:#b91c1c;border-color:rgba(239,68,68,.35)}
 body[data-theme="light"]::-webkit-scrollbar-track{background:rgba(120,120,128,.08)}
 body[data-theme="light"]::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(0,122,255,.4),rgba(88,86,214,.32));border-color:rgba(255,255,255,.5)}
@@ -63,7 +65,10 @@ body[data-theme="light"]::-webkit-scrollbar-thumb{background:linear-gradient(180
 <body>
 <div class="orb"></div>
 <div class="login-box">
-<button class="lang-btn" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+<div class="top-tools">
+<button type="button" class="theme-btn" id="theme-toggle" onclick="toggleTheme()" title="Theme" aria-label="Theme">&#127769;</button>
+<button type="button" class="lang-btn" id="lang-toggle" onclick="toggleLang()">&#127760; EN</button>
+</div>
 <div class="brand-mark" aria-hidden="true"></div>
 <h1>Ciallo Ms-365 OpenAI Proxy</h1>
 <p id="login-desc" data-i18n="login_desc">输入管理员密码以继续</p>
@@ -90,6 +95,16 @@ function toggleLang(){lang=lang==='zh'?'en':'zh';localStorage.setItem('lang',lan
 function applyTheme(){
   const th=localStorage.getItem('admin_theme')||'dark';
   document.body.setAttribute('data-theme',th);
+  const b=document.getElementById('theme-toggle');
+  if(b){
+    b.innerHTML=th==='light'?'&#9728;':'&#127769;';
+    b.title=th==='light'?'Light':'Dark';
+  }
+}
+function toggleTheme(){
+  const th=(localStorage.getItem('admin_theme')||'dark')==='light'?'dark':'light';
+  localStorage.setItem('admin_theme',th);
+  applyTheme();
 }
 applyTheme();
 applyLang();
