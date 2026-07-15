@@ -6,7 +6,7 @@
 
 > 这是主项目的 `multi` 分支，镜像标签为 `:multi`。单租户（单账户单 Key）请用 `main` 分支 / `:latest` 镜像。
 
-基于 [m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy)，封装为 Docker 镜像，支持：
+支持：
 
 - **多账户池** — 每个账户拥有独立 M365 Token 与 Chromium 刷新配置
 - **多 API Key** — 每个 Key 绑定一个账户，可单独设置对话模式 / 提示词，随时启用停用
@@ -292,7 +292,7 @@ curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
 
 ### 内存与刷新
 
-采用**按需 + 串行**策略：平时账户只在磁盘/内存存 Token，无浏览器进程。某账户 Token 临近过期且有请求时才刷新，按[两级链路](#两级刷新链路rt-优先--cdp-回退)——**优先走 RT 纯 HTTP 交换（无浏览器、零内存开销）**；仅当 RT 缺失或失效时，才回退拉起该账户专属的 Chromium profile（独立 CDP 端口）抓取新 Token 后随即关闭。串行队列保证同一时刻最多一个 Chromium 存活，因此多账户下峰值内存仍接近单租户（约数百 MB，而非账户数 × 300MB）；持有 RT 的账户刷新时通常根本不启动浏览器。
+采用**按需 + 串行**策略：平时账户只在磁盘/内存存 Token，无浏览器进程。某账户 Token 临近过期且有请求时才刷新，按[两级链路](#两级刷新链路rt-优先--cdp-回退)——**优先走 RT 纯 HTTP 交换（无浏览器、零内存开销）**；仅当 RT 缺失或失效时，才回退拉起该账户专属的 Chromium profile（独立 CDP 端口）抓取新 Token 后随即关闭。串行队列保证同一时刻最多一个 Chromium 存活，因此多账户下峰值内存仍接近单租户（约数百 MB，而非账户数 × 300MB）；持有 RT 的账户刷新时通常不会启动浏览器。
 
 ## 媒体 / Designer 授权抓取
 
@@ -300,10 +300,10 @@ curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
 
 **抓取方式**：油猴脚本 hook 页面的 fetch/XHR，当检测到发往下列域的带 `Authorization` 头请求时，捕获并**自动静默推送**到代理（也可用面板按钮手动推）：
 
-| 类型          | 触发域                    | Token 形态                                               | 推送端点                             |
-| ------------- | ------------------------- | -------------------------------------------------------- | ------------------------------------ |
-| media-auth    | `*.teams.microsoft.com` | `Bearer <JWT>`（存储时剥离 `Bearer` 前缀）           | `POST /user/account/media-auth`    |
-| designer-auth | `*.officeapps.live.com` | 裸 JWE（**无 `Bearer` 前缀**，原样存储原样回放） | `POST /user/account/designer-auth` |
+| 类型          | 触发域                    | Token 形态                                     | 推送端点                             |
+| ------------- | ------------------------- | ---------------------------------------------- | ------------------------------------ |
+| media-auth    | `*.teams.microsoft.com` | `Bearer <JWT>`（存储时剥离 `Bearer` 前缀） | `POST /user/account/media-auth`    |
+| designer-auth | `*.officeapps.live.com` | 裸 JWE（**无 `Bearer` 前缀**）         | `POST /user/account/designer-auth` |
 
 **使用步骤**：
 
@@ -360,16 +360,6 @@ curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
 
 M365 Copilot 支持多种模型 / 思考模式，由 Substrate 请求中的 `tone` 字段控制。可在 Web 管理页面「对话模式」下拉选择，选择即生效并持久保存。
 
-| 模式             | 说明                       |
-| ---------------- | -------------------------- |
-| 自动             | 由 Copilot 决定思考时长    |
-| 快速答复         | 立即回答                   |
-| 深度思考         | 思考更长时间以获得更好回答 |
-| GPT 5.5 快速响应 | GPT 5.5 + 快速             |
-| GPT 5.5 深度思考 | GPT 5.5 + 推理             |
-| GPT 5.2 快速响应 | GPT 5.2 + 快速             |
-| GPT 5.2 深度思考 | GPT 5.2 + 推理             |
-
 ## 架构
 
 ```
@@ -391,10 +381,12 @@ M365 Copilot 支持多种模型 / 思考模式，由 Substrate 请求中的 `ton
 
 ## 预览
 
-![1782869646324](image/README/1782869646324.png)
-
-![1782854190802](image/README/1782854190802.png)
 
 ## License
 
 Apache License 2.0
+
+## 致谢
+
+- [kuchris/m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy)
+- [KilimcininKorOglu/M365Bridge](https://github.com/KilimcininKorOglu/M365Bridge)
