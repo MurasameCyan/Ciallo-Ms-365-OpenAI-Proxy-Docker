@@ -49,9 +49,13 @@ function applyLang(){
   try{if(typeof loadAccounts==='function')loadAccounts()}catch(e){}
   try{if(typeof loadKeys==='function')loadKeys()}catch(e){}
   try{if(typeof renderDashboard==='function')renderDashboard()}catch(e){}
-  try{if(typeof loadCallLog==='function')loadCallLog()}catch(e){}
-  try{if(typeof loadCapture==='function')loadCapture()}catch(e){}
-  try{if(typeof loadMediaProxyEvents==='function')loadMediaProxyEvents()}catch(e){}
+  try{if(typeof loadRuntimeSettings==='function')loadRuntimeSettings()}catch(e){}
+  try{if(typeof loadTone==='function')loadTone()}catch(e){}
+  // Log/capture blocks are version-cached (loadXxx returns early on 'unchanged'),
+  // so re-render directly from the in-memory data to relocalize labels.
+  try{if(typeof renderCallLog==='function'&&window.__callLogItems)renderCallLog(window.__callLogItems)}catch(e){}
+  try{if(typeof renderCapture==='function'&&window.__capItems)renderCapture(window.__capItems)}catch(e){}
+  try{if(typeof renderMediaProxyEvents==='function'&&window.__mediaProxyEvents)renderMediaProxyEvents(window.__mediaProxyEvents)}catch(e){}
   try{if(typeof loadStatus==='function')loadStatus()}catch(e){}
 }
 applyLang();
