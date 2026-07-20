@@ -34,9 +34,14 @@ USER app
 RUN uv sync --frozen --no-dev
 USER root
 
-# Optional build-time commit for the admin sidebar GitHub badge.
-# Pass: docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) ...
+# Build-time commit for the admin sidebar GitHub badge.
+# CI passes github.sha; local: docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) ...
+# Image has no .git, so env + baked file are the only reliable sources at runtime.
 ARG GIT_COMMIT=
+RUN if [ -n "$GIT_COMMIT" ]; then \
+      printf '%s\n' "$GIT_COMMIT" > /app/GIT_COMMIT && \
+      chown app:app /app/GIT_COMMIT; \
+    fi
 ENV GIT_COMMIT=${GIT_COMMIT}
 
 # Copy project source and entrypoint

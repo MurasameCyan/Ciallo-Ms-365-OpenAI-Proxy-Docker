@@ -45,3 +45,14 @@ def test_collapsed_css_hides_side_version():
     from m365_copilot_openai_proxy.template_admin_css import _ADMIN_CSS
 
     assert 'body[data-collapsed="1"] .side-version{display:none!important}' in _ADMIN_CSS
+
+
+def test_dockerfile_and_ci_bake_git_commit():
+    from pathlib import Path
+
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    workflow = Path(".github/workflows/docker.yml").read_text(encoding="utf-8")
+    assert "ARG GIT_COMMIT" in dockerfile
+    assert "/app/GIT_COMMIT" in dockerfile
+    assert "GIT_COMMIT=${{ github.sha }}" in workflow
+    assert "build-args:" in workflow
