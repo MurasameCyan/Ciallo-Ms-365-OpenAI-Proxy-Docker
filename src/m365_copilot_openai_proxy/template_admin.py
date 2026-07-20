@@ -125,7 +125,7 @@ function renderAdminUpdateBar(){
   chip.setAttribute('data-build',buildId);
   const hasUpdate=!!(u&&u.hasUpdate);
   const checkedOk=!!(u&&!u.error);
-  let actionLabel=lang==='zh'?'检查更新':'Check';
+  let actionLabel=lang==='zh'?'检查':'Check';
   if(loading)actionLabel=lang==='zh'?'检查中…':'Checking…';
   else if(hasUpdate&&u&&u.latest)actionLabel=(lang==='zh'?'新 ':'New ')+u.latest;
   else if(checkedOk&&!hasUpdate)actionLabel=lang==='zh'?'已最新':'Up to date';
@@ -133,11 +133,10 @@ function renderAdminUpdateBar(){
   btn.classList.toggle('loading',loading);
   btn.classList.toggle('has-update',checkedOk&&hasUpdate);
   btn.disabled=loading;
+  btn.removeAttribute('title');
   if(checkedOk&&hasUpdate){
-    btn.title=(lang==='zh'?'本地 ':'Local ')+buildId+' · remote '+(u.latest||'?');
     btn.onclick=function(){if(u.htmlUrl)window.open(u.htmlUrl,'_blank','noopener')};
   }else{
-    btn.title=(u&&u.error)||(lang==='zh'?'点击对照 GitHub multi 最新 commit（不会自动检测）':'Click to compare GitHub multi HEAD (manual only)');
     btn.onclick=function(){checkAdminUpdate()};
   }
   const repo=document.getElementById('side-repo-btn');
