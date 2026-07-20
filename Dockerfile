@@ -34,6 +34,11 @@ USER app
 RUN uv sync --frozen --no-dev
 USER root
 
+# Optional build-time commit for the admin sidebar GitHub badge.
+# Pass: docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) ...
+ARG GIT_COMMIT=
+ENV GIT_COMMIT=${GIT_COMMIT}
+
 # Copy project source and entrypoint
 COPY --chown=app:app src/ src/
 COPY --chown=app:app entrypoint.sh /entrypoint.sh

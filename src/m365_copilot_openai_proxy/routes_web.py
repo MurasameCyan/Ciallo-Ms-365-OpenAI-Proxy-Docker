@@ -8,6 +8,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from .build_info import inject_build_info
 from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
 
 
@@ -57,7 +58,8 @@ def register_web_routes(
     async def admin_page(request: Request) -> HTMLResponse:
         if admin_secret and not is_admin_authenticated(request):
             return HTMLResponse(_LOGIN_HTML, headers={"Cache-Control": "no-store"})
-        return HTMLResponse(_ADMIN_HTML, headers={"Cache-Control": "no-store"})
+        # Inject short git hash + commit URL for the sidebar badge (hidden when collapsed).
+        return HTMLResponse(inject_build_info(_ADMIN_HTML), headers={"Cache-Control": "no-store"})
 
     @app.get("/favicon.ico")
     async def favicon() -> Response:
