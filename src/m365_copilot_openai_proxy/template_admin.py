@@ -116,8 +116,7 @@ window.__adminUpdateLoading=false;
 function renderAdminUpdateBar(){
   const chip=document.getElementById('side-build-chip');
   const btn=document.getElementById('side-update-btn');
-  const label=document.getElementById('side-update-label');
-  if(!chip||!btn||!label)return;
+  if(!chip||!btn)return;
   const u=window.__adminUpdateInfo;
   const loading=!!window.__adminUpdateLoading;
   const buildId=(u&&(u.buildId||u.current))||chip.getAttribute('data-build')||chip.textContent.trim()||'…';
@@ -125,15 +124,16 @@ function renderAdminUpdateBar(){
   chip.setAttribute('data-build',buildId);
   const hasUpdate=!!(u&&u.hasUpdate);
   const checkedOk=!!(u&&!u.error);
-  let actionLabel=lang==='zh'?'检查':'Check';
-  if(loading)actionLabel=lang==='zh'?'检查中…':'Checking…';
-  else if(hasUpdate&&u&&u.latest)actionLabel=(lang==='zh'?'新 ':'New ')+u.latest;
-  else if(checkedOk&&!hasUpdate)actionLabel=lang==='zh'?'已最新':'Up to date';
-  label.textContent=actionLabel;
   btn.classList.toggle('loading',loading);
   btn.classList.toggle('has-update',checkedOk&&hasUpdate);
+  btn.classList.toggle('is-latest',checkedOk&&!hasUpdate);
   btn.disabled=loading;
   btn.removeAttribute('title');
+  // aria-label only (no visual hover tooltip)
+  if(loading)btn.setAttribute('aria-label',lang==='zh'?'检查中':'Checking');
+  else if(checkedOk&&hasUpdate)btn.setAttribute('aria-label',(lang==='zh'?'有更新 ':'Update ')+(u.latest||''));
+  else if(checkedOk)btn.setAttribute('aria-label',lang==='zh'?'已最新':'Up to date');
+  else btn.setAttribute('aria-label',lang==='zh'?'检查':'Check');
   if(checkedOk&&hasUpdate){
     btn.onclick=function(){if(u.htmlUrl)window.open(u.htmlUrl,'_blank','noopener')};
   }else{
