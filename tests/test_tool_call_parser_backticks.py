@@ -77,3 +77,47 @@ def test_extract_plain_json_fence_still_detected():
 
     assert len(calls) == 1
     assert calls[0]["function"]["name"] == "Read"
+
+
+def test_extract_unfenced_tool_json_object():
+    # Model sometimes emits tool JSON without any markdown fence.
+    text = (
+        "I'll write the file now.\n"
+        '{"name": "Write", "arguments": {"file_path": "S:/tmp/a.txt", "content": "hi"}}\n'
+        "Done."
+    )
+
+    calls = _extract_tool_calls(text)
+
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "Write"
+    args = json.loads(calls[0]["function"]["arguments"])
+    assert args["file_path"] == "S:/tmp/a.txt"
+    assert args["content"] == "hi"
+
+
+def test_strip_unfenced_tool_json_keeps_prose():
+    text = (
+        "prefix\n"
+        '{"name": "Read", "arguments": {"file_path": "S:/tmp/a.txt"}}\n'
+        "suffix"
+    )
+
+    remaining = _strip_tool_call_blocks(text)
+
+    assert "Read" not in remaining
+    assert "prefix" in remaining
+    assert "suffix" in remaining
+
+
+def test_unfenced_scan_does_not_double_count_fenced_block():
+    text = (
+        "```tool_call\n"
+        '{"name": "Read", "arguments": {"file_path": "S:/tmp/a.txt"}}\n'
+        "```"
+    )
+
+    calls = _extract_tool_calls(text)
+
+    assert len(calls) == 1
+

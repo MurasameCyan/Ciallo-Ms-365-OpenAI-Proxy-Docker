@@ -96,12 +96,45 @@ def _coerce_tool_call(obj: dict) -> dict | None:
     }
 
 
+def _scan_unfenced_tool_json(text: str) -> list[tuple[dict, int, int]]:
+    """Find balanced JSON objects in free text that look like tool calls.
+
+    Used when the model emits bare ``{"name":...,"arguments":...}`` without a
+    markdown fence (common after prompt pressure / partial compliance). Skips
+    objects that already sit inside a matched fenced span (caller filters).
+    """
+    results: list[tuple[dict, int, int]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        # Cheap prefilter: tool-shaped keys must appear soon after the brace.
+        window = text[i : i + 240]
+        if '"name"' not in window and '"tool"' not in window and '"function"' not in window:
+            i += 1
+            continue
+        try:
+            obj, end = _DECODER.raw_decode(text, i)
+        except (json.JSONDecodeError, ValueError):
+            i += 1
+            continue
+        if isinstance(obj, dict) and _coerce_tool_call(obj):
+            results.append((obj, i, end))
+            i = end
+            continue
+        i += 1
+    return results
+
+
 def _extract_tool_calls(text: str) -> list[dict]:
     """Parse tool_call JSON blocks from model text output into OpenAI tool_calls format.
 
     Tolerant to several formats the M365 Copilot model may emit:
     1. ```tool_call fenced blocks (preferred)
     2. ```json (or bare ```) fenced blocks whose JSON has a "name" key
+    3. Unfenced balanced JSON objects with name/arguments (last resort)
     """
     calls = []
     matched_spans: list[tuple[int, int]] = []
@@ -121,6 +154,16 @@ def _extract_tool_calls(text: str) -> list[dict]:
         tc = _coerce_tool_call(obj)
         if tc:
             calls.append(tc)
+            matched_spans.append((start, end))
+
+    # 3. Unfenced tool-shaped JSON outside already-matched spans.
+    for obj, start, end in _scan_unfenced_tool_json(text):
+        if any(s <= start < e or s < end <= e or (start <= s and end >= e) for s, e in matched_spans):
+            continue
+        tc = _coerce_tool_call(obj)
+        if tc:
+            calls.append(tc)
+            matched_spans.append((start, end))
 
     return calls
 
@@ -263,6 +306,8 @@ def _strip_tool_call_blocks(text: str) -> str:
     Uses the same balanced-brace scanner as extraction so the removed span
     matches exactly what was parsed as a tool_call (including ``` inside the
     JSON body). Only blocks that decode into a tool_call are stripped.
+    Also strips unfenced tool-shaped JSON objects for consistency with
+    ``_extract_tool_calls``.
     """
     spans: list[tuple[int, int]] = []
     for obj, start, end in _parse_fenced_json_blocks(text, _TOOL_CALL_FENCE_RE):
@@ -270,6 +315,11 @@ def _strip_tool_call_blocks(text: str) -> str:
             spans.append((start, end))
     for obj, start, end in _parse_fenced_json_blocks(text, _JSON_FENCE_RE):
         if any(s <= start < e for s, e in spans):
+            continue
+        if _coerce_tool_call(obj):
+            spans.append((start, end))
+    for obj, start, end in _scan_unfenced_tool_json(text):
+        if any(s <= start < e or s < end <= e or (start <= s and end >= e) for s, e in spans):
             continue
         if _coerce_tool_call(obj):
             spans.append((start, end))

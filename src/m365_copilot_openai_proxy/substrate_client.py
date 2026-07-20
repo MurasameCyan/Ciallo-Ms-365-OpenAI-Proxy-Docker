@@ -20,6 +20,7 @@ from .substrate_parse import (
     _is_image_loading_placeholder,
     _message_content,
     _final_fallback_remainder,
+    clean_m365_citations,
 )
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
@@ -39,6 +40,7 @@ __all__ = [
     "_is_image_loading_placeholder",
     "_message_content",
     "_final_fallback_remainder",
+    "clean_m365_citations",
 ]
 
 SIGNALR_SEP = "\x1e"
@@ -85,13 +87,19 @@ _VARIANTS = (
     "feature.MacOutlookHubToHelix,Agt_bizchat_enableGpt5ForHelix"
 )
 
+# Chat payload optionsSets. Kept in sync with observed M365 web traffic and
+# cross-checked against public protocol notes (HEXUXIU/M365-Copilot2API).
+# See docs/protocol-options-diff.md for the full A/B matrix and rationale.
 _OPTIONS_SETS = [
     "search_result_progress_messages_with_search_queries",
+    "update_textdoc_response_after_streaming",
+    "deepleo_networking_timeout_10minutes_canmore",
     "cwc_flux_image",
     "cwc_code_interpreter",
     "cwc_code_interpreter_amsfix",
     "cwcfluxgptv",
     "flux_v3_gptv_enable_upload_multi_image_in_turn_wo_ch",
+    "gptvnorm2048",
     "cwc_code_interpreter_citation_fix",
     "code_interpreter_interactive_charts",
     "cwc_code_interpreter_interactive_charts_inline_image",
@@ -103,9 +111,17 @@ _OPTIONS_SETS = [
     "flux_v3_progress_messages",
     "enable_batch_token_processing",
     "enable_gg_gpt",
+    "flux_v3_references",
+    "flux_v3_references_entities",
     "flux_v3_image_gen_enable_dimensions",
+    "flux_v3_image_gen_enable_non_watermarked_storage",
+    "flux_v3_image_gen_enable_icon_dimensions",
     "flux_v3_image_gen_enable_system_text_with_params",
     "flux_v3_image_gen_enable_designer_dimensions_meta_prompting_in_system_prompts",
+    "flux_v3_image_gen_enable_story",
+    "rich_responses",
+    "pages_citations",
+    "pages_citations_multiturn",
     "enable_structured_output",
     "precise_mode",
 ]
@@ -405,6 +421,9 @@ class SubstrateCopilotClient:
                             args = (msg.get("arguments") or [{}])[0]
                             delta = args.get("writeAtCursor")
                             if delta and not _is_image_loading_placeholder(delta):
+                                delta = clean_m365_citations(delta)
+                                if not delta:
+                                    continue
                                 if not yielded_any and fallback_text:
                                     yield fallback_text
                                     streamed_text += fallback_text

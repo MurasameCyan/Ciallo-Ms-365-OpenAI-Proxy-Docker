@@ -5,6 +5,38 @@ import re
 
 from .media_proxy import normalize_m365_media_text
 
+# M365 injects private-use citation markers in streamed and final text, e.g.
+#   [label](\ue200cite\ue202turn1file1\ue201)
+# or bare  \ue200cite\ue202...\ue201  / PUA-wrapped "cite" runs.
+# These are not useful in OpenAI-compatible clients and break dedupe signatures.
+_MARKDOWN_CITE_RE = re.compile(
+    r"\[[^\]]*\]\(\s*[\uE000-\uF8FF]*cite[\uE000-\uF8FF][^\)]*\)",
+    re.IGNORECASE,
+)
+# Bare markers look like: \ue200cite\ue202turn1file1\ue201
+# Only consume PUA + ascii id pieces — never trailing prose/CJK.
+_BARE_PUA_CITE_RE = re.compile(
+    r"[\uE000-\uF8FF]cite[\uE000-\uF8FF][A-Za-z0-9_]*[\uE000-\uF8FF]?",
+    re.IGNORECASE,
+)
+
+
+def clean_m365_citations(text: str) -> str:
+    """Strip M365 private-use citation markers from model text.
+
+    Safe on partial stream deltas: only complete cite patterns are removed.
+    """
+    if not text:
+        return ""
+    # Fast path: most chunks have neither the word "cite" nor private-use chars.
+    if "cite" not in text.lower() and not any("\ue000" <= c <= "\uf8ff" for c in text):
+        return text
+    cleaned = _MARKDOWN_CITE_RE.sub("", text)
+    cleaned = _BARE_PUA_CITE_RE.sub("", cleaned)
+    # Collapse whitespace left by removed markers (keep newlines).
+    cleaned = re.sub(r"[^\S\n]{2,}", " ", cleaned)
+    return cleaned
+
 
 def _capture_suspicious_response_event(sink, msg: dict) -> None:
     if sink is None:
@@ -34,9 +66,9 @@ def _capture_suspicious_response_event(sink, msg: dict) -> None:
 
 
 def _dedupe_signature(text: str) -> str:
-    normalized = re.sub(r"`https?://[^`\s]+`", "", text)
+    normalized = clean_m365_citations(text)
+    normalized = re.sub(r"`https?://[^`\s]+`", "", normalized)
     normalized = re.sub(r"\[[^\]]+\]\(https?://[^\)]+\)", "", normalized)
-    normalized = re.sub(r"\[[^\]]+\]\(\ue200cite\ue202[^\)]+\ue201\)", "", normalized)
     normalized = re.sub(r"\s+", "", normalized)
     return normalized
 
@@ -98,7 +130,7 @@ def _dedupe_repeated_delta(streamed_text: str, delta: str) -> str:
 
 
 def _message_content(entry: dict) -> str:
-    text = normalize_m365_media_text(str(entry.get("text") or ""))
+    text = clean_m365_citations(normalize_m365_media_text(str(entry.get("text") or "")))
     image_urls = _extract_image_urls(entry)
     if image_urls and _is_image_loading_placeholder(text):
         text = ""

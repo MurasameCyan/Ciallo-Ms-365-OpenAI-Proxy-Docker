@@ -9,6 +9,7 @@ from m365_copilot_openai_proxy.substrate_parse import (
     _is_image_loading_placeholder,
     _message_content,
     _final_fallback_remainder,
+    clean_m365_citations,
 )
 
 
@@ -139,6 +140,37 @@ def test_dedupe_repeated_delta_drops_full_reemission_with_link_variant():
 def test_dedupe_signature_strips_urls_links_and_whitespace():
     assert _dedupe_signature("a `https://x/a` b") == "ab"
     assert _dedupe_signature("a [t](https://x/a) b") == "ab"
+
+
+# --- clean_m365_citations --------------------------------------------------
+
+def test_clean_m365_citations_strips_markdown_cite_links():
+    raw = "已生成音频：\n\n🎧 [流水声](\ue200cite\ue202turn1file1\ue201)\n\n可下载。"
+    cleaned = clean_m365_citations(raw)
+    assert "\ue200" not in cleaned
+    assert "cite" not in cleaned.lower()
+    assert "流水声" not in cleaned  # whole markdown link removed
+    assert "已生成音频" in cleaned
+    assert "可下载" in cleaned
+
+
+def test_clean_m365_citations_strips_bare_pua_cite_runs():
+    raw = "见参考 \ue200cite\ue202turn2file0\ue201 结束"
+    cleaned = clean_m365_citations(raw)
+    assert "\ue200" not in cleaned
+    assert "见参考" in cleaned
+    assert "结束" in cleaned
+
+
+def test_clean_m365_citations_leaves_normal_text_and_urls():
+    raw = "See [docs](https://example.com) and `https://x/a`"
+    assert clean_m365_citations(raw) == raw
+
+
+def test_message_content_strips_citations_from_text():
+    entry = {"text": "音频 [x](\ue200cite\ue202turn1file1\ue201) 完成"}
+    assert "\ue200" not in _message_content(entry)
+    assert "完成" in _message_content(entry)
 
 
 # --- _message_content ------------------------------------------------------
