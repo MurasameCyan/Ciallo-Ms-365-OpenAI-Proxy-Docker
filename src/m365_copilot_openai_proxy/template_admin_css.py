@@ -225,13 +225,14 @@ body{padding:.85rem 0 .85rem .85rem}
 .nav-item:hover::after,.nav-item.active::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.9),rgba(255,94,219,.6),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 .nav-ico{font-size:1.05rem;width:1.4rem;text-align:center;flex-shrink:0;grid-column:1}
 .nav-item span:not(.nav-ico){transition:opacity .16s ease;grid-column:2;text-align:center;justify-self:center}
-/* Footer stack: version badge above the 4 tool buttons. */
-.side-footer{margin-top:auto;display:flex;flex-direction:column;gap:.55rem;padding-top:.35rem}
-.side-version{display:inline-flex;align-items:center;gap:.42rem;align-self:flex-start;max-width:100%;padding:.28rem .55rem .28rem .42rem;border-radius:999px;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums;background:linear-gradient(135deg,rgba(96,242,255,.1),rgba(140,107,255,.1));border:1px solid rgba(96,242,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.16);backdrop-filter:blur(12px);transition:color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease}
+/* Footer stack: version badge snug above the 4 tool buttons (no large dead gap). */
+.side-footer{margin-top:auto;display:flex;flex-direction:column;gap:.4rem;padding-top:.15rem;width:100%}
+.side-version{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;align-self:stretch;width:100%;box-sizing:border-box;min-height:32px;padding:.3rem .5rem;border-radius:12px;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums;background:linear-gradient(135deg,rgba(96,242,255,.1),rgba(140,107,255,.1));border:1px solid rgba(96,242,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.16);backdrop-filter:blur(12px);transition:color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease}
 .side-version:hover{color:var(--text);text-decoration:none;background:linear-gradient(135deg,rgba(96,242,255,.2),rgba(255,94,219,.12));border-color:rgba(96,242,255,.4);box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 0 16px rgba(96,242,255,.16)}
 .side-gh-ico{flex:0 0 auto;display:block;opacity:.92}
 .side-hash{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.side-tools{position:relative;height:92px;padding-top:3.6rem}
+/* Tools row: fixed height for absolute icon layout; no top padding (badge sits just above). */
+.side-tools{position:relative;height:42px;padding-top:0;width:100%}
 body[data-theme="light"] .side-version{color:var(--muted);background:linear-gradient(135deg,rgba(255,255,255,.78),rgba(0,122,255,.08));border-color:rgba(0,122,255,.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}
 body[data-theme="light"] .side-version:hover{color:var(--text);border-color:rgba(0,122,255,.28)}
 .icon-btn{position:absolute;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.16));border:1px solid rgba(96,242,255,.28);color:var(--text);border-radius:12px;padding:0;font-size:1.05rem;line-height:1;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 0 18px rgba(96,242,255,.12),0 0 20px rgba(96,242,255,.12);backdrop-filter:blur(14px);transition:background .16s ease,opacity .18s ease,filter .18s ease,box-shadow .16s ease;will-change:opacity;overflow:hidden}
