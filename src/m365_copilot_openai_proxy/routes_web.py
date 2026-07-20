@@ -8,7 +8,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .build_info import inject_build_info
+from .build_info import check_for_update, current_build_id, inject_build_info, resolve_build_info
 from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
 
 
@@ -20,6 +20,7 @@ def register_web_routes(
     login_failures: dict[str, list[float]],
     login_rate_limit: int,
     login_lockout_sec: float,
+    require_admin: Callable[[Request], object | None] | None = None,
 ) -> None:
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -50,6 +51,37 @@ def register_web_routes(
         resp.delete_cookie("admin_auth", path="/")
         return resp
 
+    @app.get("/admin/system/version", response_model=None)
+    async def admin_system_version(request: Request):
+        """Local BUILD_ID only — never hits GitHub (GRA getSystemVersion)."""
+        if require_admin is not None:
+            err = require_admin(request)
+            if err is not None:
+                return err
+        elif admin_secret and not is_admin_authenticated(request):
+            return JSONResponse({"error": {"message": "Admin authentication required", "type": "auth_error"}}, status_code=401)
+        info = resolve_build_info()
+        build_id = current_build_id()
+        return {
+            "current": info["hash"] if info["hash"] != "n/a" else build_id,
+            "buildId": build_id,
+            "version": build_id,
+            "repoUrl": info["repo_url"],
+            "commitUrl": info["commit_url"],
+            "trackRef": info["track_ref"],
+        }
+
+    @app.get("/admin/system/update-check", response_model=None)
+    async def admin_system_update_check(request: Request):
+        """User-triggered compare against GitHub track-ref HEAD (GRA checkUpdate)."""
+        if require_admin is not None:
+            err = require_admin(request)
+            if err is not None:
+                return err
+        elif admin_secret and not is_admin_authenticated(request):
+            return JSONResponse({"error": {"message": "Admin authentication required", "type": "auth_error"}}, status_code=401)
+        return await check_for_update()
+
     @app.get("/", response_class=HTMLResponse)
     async def user_page(request: Request) -> HTMLResponse:
         return HTMLResponse(_USER_HTML, headers={"Cache-Control": "no-store"})
@@ -58,7 +90,7 @@ def register_web_routes(
     async def admin_page(request: Request) -> HTMLResponse:
         if admin_secret and not is_admin_authenticated(request):
             return HTMLResponse(_LOGIN_HTML, headers={"Cache-Control": "no-store"})
-        # Inject short git hash + commit URL for the sidebar badge (hidden when collapsed).
+        # Inject short git hash + repo URL for the sidebar (hidden when collapsed).
         return HTMLResponse(inject_build_info(_ADMIN_HTML), headers={"Cache-Control": "no-store"})
 
     @app.get("/favicon.ico")

@@ -109,6 +109,71 @@ async function adminLogout(){
   location.reload();
 }
 
+// GRA-style sidebar: local BUILD_ID + user-triggered update check (no auto GitHub).
+// Rules: only after click + success show "已最新"; never treat "local only" as latest.
+window.__adminUpdateInfo=null;
+window.__adminUpdateLoading=false;
+function renderAdminUpdateBar(){
+  const chip=document.getElementById('side-build-chip');
+  const btn=document.getElementById('side-update-btn');
+  const label=document.getElementById('side-update-label');
+  if(!chip||!btn||!label)return;
+  const u=window.__adminUpdateInfo;
+  const loading=!!window.__adminUpdateLoading;
+  const buildId=(u&&(u.buildId||u.current))||chip.getAttribute('data-build')||chip.textContent.trim()||'…';
+  chip.textContent=buildId;
+  chip.setAttribute('data-build',buildId);
+  const hasUpdate=!!(u&&u.hasUpdate);
+  const checkedOk=!!(u&&!u.error);
+  let actionLabel=lang==='zh'?'检查更新':'Check';
+  if(loading)actionLabel=lang==='zh'?'检查中…':'Checking…';
+  else if(hasUpdate&&u&&u.latest)actionLabel=(lang==='zh'?'新 ':'New ')+u.latest;
+  else if(checkedOk&&!hasUpdate)actionLabel=lang==='zh'?'已最新':'Up to date';
+  label.textContent=actionLabel;
+  btn.classList.toggle('loading',loading);
+  btn.classList.toggle('has-update',checkedOk&&hasUpdate);
+  btn.disabled=loading;
+  if(checkedOk&&hasUpdate){
+    btn.title=(lang==='zh'?'本地 ':'Local ')+buildId+' · remote '+(u.latest||'?');
+    btn.onclick=function(){if(u.htmlUrl)window.open(u.htmlUrl,'_blank','noopener')};
+  }else{
+    btn.title=(u&&u.error)||(lang==='zh'?'点击对照 GitHub multi 最新 commit（不会自动检测）':'Click to compare GitHub multi HEAD (manual only)');
+    btn.onclick=function(){checkAdminUpdate()};
+  }
+  const repo=document.getElementById('side-repo-btn');
+  if(repo)repo.title='GitHub';
+}
+async function loadAdminVersion(){
+  // Local only — never calls update-check / GitHub.
+  try{
+    const r=await fetch('/admin/system/version',{credentials:'include'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const id=d.buildId||d.current||d.version;
+    const chip=document.getElementById('side-build-chip');
+    if(chip&&id){chip.textContent=id;chip.setAttribute('data-build',id);chip.title='BUILD_ID '+id}
+    const repo=document.getElementById('side-repo-btn');
+    if(repo&&d.repoUrl)repo.href=d.repoUrl;
+  }catch(e){}
+  renderAdminUpdateBar();
+}
+async function checkAdminUpdate(){
+  if(window.__adminUpdateLoading)return;
+  window.__adminUpdateLoading=true;
+  renderAdminUpdateBar();
+  try{
+    const r=await fetch('/admin/system/update-check',{credentials:'include'});
+    const d=r.ok?await r.json():{error:'HTTP '+r.status,current:null,latest:null,hasUpdate:false};
+    window.__adminUpdateInfo=d;
+  }catch(e){
+    window.__adminUpdateInfo={error:String(e),current:null,latest:null,hasUpdate:false};
+  }finally{
+    window.__adminUpdateLoading=false;
+    renderAdminUpdateBar();
+  }
+}
+loadAdminVersion();
+
 // Debug: toggle whether the backend accepts pushed capture payloads.
 async function loadCaptureToggle(){
   const gate=document.getElementById('capture-gate');

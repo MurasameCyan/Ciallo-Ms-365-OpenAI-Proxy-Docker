@@ -34,6 +34,7 @@ def register_app_routes(
         admin_auth.login_failures,
         admin_auth.login_rate_limit,
         admin_auth.login_lockout_sec,
+        require_admin=admin_auth.require_admin,
     )
 
     register_admin_token_routes(app, admin_auth.require_admin, admin_cdp_enabled=bool(resolved_settings.enable_admin_cdp))
