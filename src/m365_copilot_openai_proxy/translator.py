@@ -399,14 +399,29 @@ def translate_responses_request(request: OpenAIResponsesRequest) -> TranslatedRe
 def translate_anthropic_request(
     request: AnthropicMessagesRequest,
 ) -> TranslatedRequest:
-    system_text = flatten_content(request.system).strip()
+    system_lines: list[str] = []
+    top_level_system = flatten_content(request.system).strip()
+    if top_level_system:
+        system_lines.append(top_level_system)
     transcript_lines: list[str] = []
     prompt = ""
     images: list[ImageData] = []
 
+    # OpenAI->Anthropic bridging clients may put system prompts inside messages[].
+    # Those never become the prompt, so the "final message must be user" check
+    # applies to the last non-system message instead.
+    last_content_index = -1
+    for index, message in enumerate(request.messages):
+        if message.role != "system":
+            last_content_index = index
+
     for index, message in enumerate(request.messages):
         text = flatten_content(message.content).strip()
-        is_last = index == len(request.messages) - 1
+        if message.role == "system":
+            if text:
+                system_lines.append(text)
+            continue
+        is_last = index == last_content_index
         if is_last:
             if message.role != "user":
                 raise ValueError("The final Anthropic message must be a user message.")
@@ -421,6 +436,7 @@ def translate_anthropic_request(
         raise ValueError("A final user message is required.")
 
     additional_context: list[str] = []
+    system_text = _join_lines(system_lines)
     if system_text:
         additional_context.append(f"System instructions:\n{system_text}")
     transcript_text = _join_lines(transcript_lines)

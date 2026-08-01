@@ -74,7 +74,11 @@ class OpenAIChatRequest(BaseModel):
 class AnthropicMessage(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    role: Literal["user", "assistant"]
+    # "system" is not part of the official Anthropic schema (system belongs in the
+    # top-level `system` field), but OpenAI->Anthropic bridging clients routinely
+    # place system prompts inside messages[]. Accept it here and let
+    # translate_anthropic_request fold it into the system context.
+    role: Literal["user", "assistant", "system"]
     content: str | list[ContentPart]
 
 
