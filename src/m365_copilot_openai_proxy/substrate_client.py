@@ -138,6 +138,33 @@ _ALLOWED_MESSAGE_TYPES = [
     "SwitchRespondingEndpoint",
 ]
 
+# M365 refuses a turn it will not answer -- a `tone` the account may not use
+# among the causes -- by sending ONE canned line as the whole answer, with no
+# streamed deltas. Passed through, that reads as a normal reply, so a mode the
+# account cannot use looks like it "works" while every answer is this sentence.
+#
+# Raw-frame capture of such a turn (2026-08-02, tone Claude_Fable) showed the
+# completion frame also marks it structurally, which is what the code keys off
+# first: `item.turnState == "Failed"` and `item.result.value == "InternalError"`
+# (a successful turn: "Completed"/"Success"), and the refusal message carries
+# `contentOrigin: "BotConnection"` rather than "DeepLeo". The same sentence is
+# substrate's generic error text -- `POST /m365Copilot/GetUserSettings {}`
+# answers with it under `result.value == "InvalidRequest"` -- so it says
+# "request rejected", not "the model declined".
+# ponytail: the text match is kept as a second signal for builds that send the
+# line on a turn marked Completed. Ceiling: a reworded line AND a Completed turn
+# would restore the silent pass-through; nothing short of both.
+_M365_REFUSAL_TEXTS = frozenset({
+    "Sorry, I wasn't able to respond to that. Is there something else I can help with?",
+})
+
+# Stable markers in the two tone-failure error texts. scan_tones.py imports these
+# to tell "M365 knows this mode but will not serve it" from "M365 does not know
+# this value at all", so the wording below can be reworded without silently
+# breaking that classification.
+_REFUSED_TURN_MARKER = "refused this turn"
+_EMPTY_TURN_MARKER = "empty response twice"
+
 
 class SubstrateCopilotError(RuntimeError):
     pass
@@ -335,7 +362,7 @@ class SubstrateCopilotClient:
         annotations: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         """Stream one turn; if the upstream returns a clean-but-empty response
-        (connected, invoked, ended with no text/image), retry ONCE.
+        (connected, invoked, ended with no text/image), retry ONCE, then fail.
 
         The retry always runs on a brand-new throwaway conversation (fresh
         conv_id/session_id, is_start_of_session=True) so a persistent session's
@@ -344,6 +371,13 @@ class SubstrateCopilotClient:
         when the first attempt yielded nothing at all; any real error raises
         SubstrateCopilotError and propagates without retrying. All yields from
         _chat_stream_for_turn are non-empty, so tracking yielded_any is exact.
+
+        Two empty attempts raise rather than returning "": an empty answer reads
+        as a working-but-mute model in every client. Measured cause (2026-08-02):
+        a `tone` M365 does not recognise makes substrate drop the invoke outright
+        -- the turn ends with no update and no completion frame at all, unlike a
+        tone it knows but will not serve, which fails loudly enough for
+        _chat_stream_for_turn to catch.
         """
         yielded_any = False
         async for chunk in self._chat_stream_for_turn(
@@ -358,6 +392,7 @@ class SubstrateCopilotClient:
         if yielded_any:
             return
         # Empty upstream response: retry once on a fresh throwaway conversation.
+        retried_any = False
         async for chunk in self._chat_stream_for_turn(
             text=text,
             conv_id=str(uuid.uuid4()),
@@ -365,7 +400,14 @@ class SubstrateCopilotClient:
             is_start_of_session=True,
             annotations=annotations,
         ):
+            retried_any = True
             yield chunk
+        if not retried_any:
+            raise SubstrateCopilotError(
+                f"M365 Copilot returned an {_EMPTY_TURN_MARKER} (conversation mode "
+                f"'{self._tone}'). A mode M365 does not recognise always does this: "
+                f"check the mode list against a scan_tones.py run."
+            )
 
     async def _chat_stream_for_turn(
         self,
@@ -394,6 +436,9 @@ class SubstrateCopilotClient:
                 streamed_text = ""
                 yielded_images: set[str] = set()
                 yielded_any = False
+                # Non-empty once the completion frame says the turn failed; holds the
+                # upstream's own verdict string so the error names it.
+                turn_failure = ""
                 ws_iter = ws.__aiter__()
                 while True:
                     try:
@@ -438,11 +483,18 @@ class SubstrateCopilotClient:
                                         fallback_text = _message_content(entry)
                                         break
                         if t == 2:
-                            item_msgs = (msg.get("item") or {}).get("messages") or []
+                            item = msg.get("item") or {}
+                            item_msgs = item.get("messages") or []
                             for entry in reversed(item_msgs):
                                 if entry.get("author") != "user":
                                     fallback_text = _message_content(entry)
                                     break
+                            # The completion frame states the verdict for the whole
+                            # turn; a rejected tone lands here as Failed/InternalError.
+                            result = item.get("result") or {}
+                            result_value = str(result.get("value") or "")
+                            if item.get("turnState") == "Failed" or (result_value and result_value != "Success"):
+                                turn_failure = result_value or "Failed"
                         for image_url in _extract_image_urls(msg):
                             if image_url not in yielded_images:
                                 markdown = ("\n\n" if streamed_text else "") + _image_markdown(image_url)
@@ -452,6 +504,17 @@ class SubstrateCopilotClient:
                                 yielded_any = True
                         if t == 3:
                             remaining = _final_fallback_remainder(streamed_text, fallback_text)
+                            # Nothing streamed and the turn was marked failed (or its
+                            # whole answer is the canned refusal) => report it as an
+                            # upstream failure instead of returning it as the reply.
+                            if not yielded_any and (turn_failure or remaining.strip() in _M365_REFUSAL_TEXTS):
+                                detail = f" (upstream result: {turn_failure})" if turn_failure else ""
+                                raise SubstrateCopilotError(
+                                    f"M365 Copilot {_REFUSED_TURN_MARKER} instead of answering "
+                                    f"(conversation mode '{self._tone}'){detail}. If every request "
+                                    f"in this mode does this, the mode is not available for this "
+                                    f"account -- switch to another mode."
+                                )
                             if remaining:
                                 yield remaining
                             return
