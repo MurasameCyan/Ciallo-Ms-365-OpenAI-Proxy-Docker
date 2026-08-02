@@ -61,13 +61,19 @@
 | `Claude_Sonnet` | `claude-sonnet-4-6` | `claude-sonnet-4-6-持续` | Claude Sonnet |
 | `Claude_Sonnet_Reasoning` | `claude-sonnet-4-5_Reasoning` | `claude-sonnet-4-5_Reasoning-持续` | Claude Sonnet 思考 |
 | `Claude_Fable` | `claude-fable-5` | `claude-fable-5-持续` | Claude Fable |
+| `Claude_Opus` | `claude-opus` | `claude-opus-持续` | Claude Opus |
 | `Gpt_5_6_Reasoning` | `gpt-5.6_Reasoning` | `gpt-5.6_Reasoning-持续` | GPT 5.6 思考 |
 | `Gpt_5_5_Chat` | `gpt-5.5_Chat` | `gpt-5.5_Chat-持续` | GPT 5.5 快速 |
 | `Gpt_5_5_Reasoning` | `gpt-5.5_Reasoning` | `gpt-5.5_Reasoning-持续` | GPT 5.5 思考 |
+| `Gpt_5_4_Chat` | `gpt-5.4_Chat` | `gpt-5.4_Chat-持续` | GPT 5.4 快速 |
+| `Gpt_5_4_Reasoning` | `gpt-5.4_Reasoning` | `gpt-5.4_Reasoning-持续` | GPT 5.4 思考 |
+| `Gpt_5_3_Chat` | `gpt-5.3_Chat` | `gpt-5.3_Chat-持续` | GPT 5.3 快速 |
 | `Gpt_5_2_Chat` | `gpt-5.2_Chat` | `gpt-5.2_Chat-持续` | GPT 5.2 快速 |
 | `Gpt_5_2_Reasoning` | `gpt-5.2_Reasoning` | `gpt-5.2_Reasoning-持续` | GPT 5.2 思考 |
 
-共 **22** 个默认可选模型 ID（11 模式 × 2 变体）。
+共 **30** 个默认可选模型 ID（15 模式 × 2 变体）。
+
+某个模式能不能用由 M365 侧的 rollout 决定，与本项目无关：M365 拒绝服务的模式会返回 502 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
 
 ### 请求示例
 

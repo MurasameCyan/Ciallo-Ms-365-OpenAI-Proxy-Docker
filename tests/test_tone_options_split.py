@@ -15,9 +15,13 @@ EXPECTED_TONE_VALUES = {
     "Claude_Sonnet",
     "Claude_Sonnet_Reasoning",
     "Claude_Fable",
+    "Claude_Opus",
     "Gpt_5_6_Reasoning",
     "Gpt_5_5_Chat",
     "Gpt_5_5_Reasoning",
+    "Gpt_5_4_Chat",
+    "Gpt_5_4_Reasoning",
+    "Gpt_5_3_Chat",
     "Gpt_5_2_Chat",
     "Gpt_5_2_Reasoning",
 }
