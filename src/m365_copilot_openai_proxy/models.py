@@ -82,6 +82,21 @@ class AnthropicMessage(BaseModel):
     content: str | list[ContentPart]
 
 
+class AnthropicToolDefinition(BaseModel):
+    """A tool as the Anthropic Messages API declares it.
+
+    Anthropic keeps name/description/schema flat on the tool object, where
+    OpenAI nests them under ``function``. ``input_schema`` is the JSON Schema for
+    the arguments (OpenAI calls the same thing ``parameters``).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    description: str | None = None
+    input_schema: dict[str, Any] | None = None
+
+
 class AnthropicMessagesRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -91,6 +106,8 @@ class AnthropicMessagesRequest(BaseModel):
     stream: bool = False
     max_tokens: int | None = None
     temperature: float | None = None
+    tools: list[AnthropicToolDefinition] | None = None
+    tool_choice: dict[str, Any] | None = None
 
 
 class CopilotMessage(BaseModel):

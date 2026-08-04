@@ -11,6 +11,8 @@ from .models import (
     OpenAIChatRequest,
     OpenAIResponsesRequest,
     ToolCall,
+    ToolDefinition,
+    ToolFunction,
     TranslatedRequest,
 )
 
@@ -230,6 +232,72 @@ def _format_tools_prompt(tools, system_override: str | None = None) -> str | Non
     )
 
 
+def _anthropic_tools_as_openai(tools) -> list[ToolDefinition]:
+    """Adapt Anthropic tool definitions to the OpenAI shape.
+
+    Anthropic keeps ``name``/``description``/``input_schema`` flat on the tool;
+    OpenAI nests them under ``function`` with the schema called ``parameters``.
+    Re-shaping here lets the Anthropic path reuse ``_format_tools_prompt`` (and
+    the admin-editable system prompt it renders) unchanged.
+    """
+    adapted: list[ToolDefinition] = []
+    for tool in tools or []:
+        name = (getattr(tool, "name", "") or "").strip()
+        if not name:
+            continue
+        schema = getattr(tool, "input_schema", None)
+        if schema is None:
+            extra = getattr(tool, "model_extra", None) or {}
+            schema = extra.get("parameters")
+        adapted.append(ToolDefinition(function=ToolFunction(
+            name=name,
+            description=getattr(tool, "description", None),
+            parameters=schema if isinstance(schema, dict) else None,
+        )))
+    return adapted
+
+
+def _anthropic_tool_blocks(content) -> tuple[list[str], list[str]]:
+    """Split Anthropic ``tool_use`` / ``tool_result`` blocks out of message content.
+
+    Claude-style clients carry the agentic loop inside content blocks: the
+    assistant's request is a ``tool_use`` block, and the host's answer comes back
+    as a ``tool_result`` block on a *user* message. ``flatten_content`` only reads
+    ``text`` blocks, so without this both halves vanished and the model never saw
+    that its tool call had run. Returns (tool_use lines, tool_result lines) in the
+    same wording ``translate_openai_request`` uses for its transcript.
+    """
+    uses: list[str] = []
+    results: list[str] = []
+    if not isinstance(content, list):
+        return uses, results
+    for part in content:
+        ptype = getattr(part, "type", None)
+        if ptype == "tool_use":
+            name = _part_field(part, "name") or "tool"
+            args = _part_field(part, "input")
+            try:
+                rendered = json.dumps(args, ensure_ascii=False) if args is not None else "{}"
+            except (TypeError, ValueError):
+                rendered = str(args)
+            uses.append(f"Assistant called tool: {name}({rendered})")
+        elif ptype == "tool_result":
+            body = _part_field(part, "content")
+            if isinstance(body, list):
+                text = "".join(
+                    str(block.get("text") or "")
+                    for block in body
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
+            else:
+                text = "" if body is None else str(body)
+            label = "Tool result"
+            if _part_field(part, "is_error"):
+                label = "Tool error"
+            results.append(f"Tool: {label}\n{text}".rstrip())
+    return uses, results
+
+
 def _format_tool_results(tool_calls: list[ToolCall] | None, content: str, name: str | None, tool_call_id: str | None) -> str:
     """Format a tool role message into human-readable text."""
     parts = []
@@ -398,8 +466,16 @@ def translate_responses_request(request: OpenAIResponsesRequest) -> TranslatedRe
 
 def translate_anthropic_request(
     request: AnthropicMessagesRequest,
+    system_override: str | None = None,
 ) -> TranslatedRequest:
     system_lines: list[str] = []
+
+    # Same tool instruction block the OpenAI path injects, so a Claude-style
+    # client asking for a file write gets the ```tool_call``` contract too.
+    tools_prompt = _format_tools_prompt(_anthropic_tools_as_openai(request.tools), system_override)
+    if tools_prompt:
+        system_lines.append(tools_prompt)
+
     top_level_system = flatten_content(request.system).strip()
     if top_level_system:
         system_lines.append(top_level_system)
@@ -422,17 +498,32 @@ def translate_anthropic_request(
                 system_lines.append(text)
             continue
         is_last = index == last_content_index
+        tool_uses, tool_results = _anthropic_tool_blocks(message.content)
         if is_last:
             if message.role != "user":
                 raise ValueError("The final Anthropic message must be a user message.")
             prompt = text
             images = extract_images(message.content)
+            if tool_results:
+                # Agentic loop: the host ran the tool and sent only its result
+                # back, with no new user text. Put the result in the transcript
+                # and synthesize the same continuation prompt the OpenAI path
+                # uses, so the turn is not rejected as an empty prompt.
+                transcript_lines.extend(tool_results)
+                if not prompt:
+                    prompt = (
+                        "The tool action you requested has been executed by the host and the "
+                        "result is shown above. Continue the task: if more actions are needed, "
+                        "emit the next tool_call; otherwise give the user your final answer."
+                    )
             continue
+        for line in (*tool_uses, *tool_results):
+            transcript_lines.append(line)
         if not text:
             continue
         transcript_lines.append(f"{message.role.capitalize()}: {text}")
 
-    if not prompt:
+    if not prompt and not images:
         raise ValueError("A final user message is required.")
 
     additional_context: list[str] = []
