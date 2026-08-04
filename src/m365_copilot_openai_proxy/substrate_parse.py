@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from difflib import SequenceMatcher
 
 from .media_proxy import normalize_m365_media_text
 
@@ -66,11 +67,47 @@ def _capture_suspicious_response_event(sink, msg: dict) -> None:
 
 
 def _dedupe_signature(text: str) -> str:
+    """Normalize text down to the part that identifies WHAT was said.
+
+    Every form a URL can take must collapse to the same thing, because the two
+    sides of a dedupe comparison reach us through different pipelines: streamed
+    deltas are only citation-cleaned, while the upstream fallback also goes
+    through ``normalize_m365_media_text``, which rewrites a bare image URL into
+    ``![image](url)``. Leaving bare URLs (or the ``!`` of an image link) in the
+    signature made the same sentence produce two different signatures, so dedupe
+    missed the restatement and the answer was emitted twice.
+    """
     normalized = clean_m365_citations(text)
-    normalized = re.sub(r"`https?://[^`\s]+`", "", normalized)
-    normalized = re.sub(r"\[[^\]]+\]\(https?://[^\)]+\)", "", normalized)
+    normalized = re.sub(r"!?\[[^\]]*\]\(\s*https?://[^\)]*\)", "", normalized)
+    normalized = re.sub(r"`\s*https?://[^`]*`", "", normalized)
+    # Bounded to URL-legal characters, not \S+: a URL butted straight against
+    # CJK prose ("https://x/a.png完成") would otherwise swallow the prose too and
+    # make dedupe drop real content.
+    normalized = re.sub(r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+", "", normalized)
     normalized = re.sub(r"\s+", "", normalized)
     return normalized
+
+
+# Share of the fallback signature that must already appear in the streamed text
+# for the fallback to count as a restatement rather than new content.
+_RESTATEMENT_COVERAGE = 0.9
+
+
+def _signature_coverage(streamed_sig: str, fallback_sig: str) -> float:
+    """Fraction of ``fallback_sig`` that also appears in ``streamed_sig``.
+
+    Uses matching blocks rather than a plain substring test so a fallback that
+    only differs from the streamed answer in scattered spots (one swapped
+    character, a changed punctuation mark, a re-worded clause) still scores as
+    almost fully covered.
+    """
+    if not fallback_sig:
+        return 1.0
+    if not streamed_sig:
+        return 0.0
+    matcher = SequenceMatcher(None, streamed_sig, fallback_sig, autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    return matched / len(fallback_sig)
 
 
 def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
@@ -83,6 +120,18 @@ def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
     branches would drop small repeated fragments (``2a_1``, a closing ``}``)
     and corrupt formulas or code. Per-delta dedupe belongs in
     ``_dedupe_repeated_delta``.
+
+    The upstream fallback is the server's authoritative full message for the
+    turn, so it regularly restates text we already streamed with cosmetic
+    differences: ``_message_content`` runs ``normalize_m365_media_text`` over it
+    (a bare image URL becomes ``![image](url)``) while streamed deltas are only
+    citation-cleaned, and M365 sometimes re-words a clause in the final frame.
+    Neither startswith/contains nor a strict signature-subset test catches those,
+    so emitting the fallback verbatim appended the WHOLE answer a second time --
+    the "reply shows up twice" bug. Fall back to a coverage ratio instead: a
+    fallback that is already ``_RESTATEMENT_COVERAGE`` covered by the stream adds
+    nothing, and a partially-covered one is trimmed to the tail after the shared
+    prefix so its already-streamed head is not repeated.
     """
     if not fallback_text:
         return ""
@@ -96,7 +145,20 @@ def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
     fallback_sig = _dedupe_signature(fallback_text)
     if streamed_sig and fallback_sig and (streamed_sig in fallback_sig or fallback_sig in streamed_sig):
         return ""
-    return fallback_text
+    if _signature_coverage(streamed_sig, fallback_sig) >= _RESTATEMENT_COVERAGE:
+        return ""
+    # Partially covered: drop the head the stream already delivered verbatim and
+    # emit only what follows, instead of re-sending the whole fallback.
+    prefix = _common_prefix_len(streamed_text, fallback_text)
+    return fallback_text[prefix:] if prefix else fallback_text
+
+
+def _common_prefix_len(left: str, right: str) -> int:
+    limit = min(len(left), len(right))
+    index = 0
+    while index < limit and left[index] == right[index]:
+        index += 1
+    return index
 
 
 def _dedupe_repeated_delta(streamed_text: str, delta: str) -> str:
