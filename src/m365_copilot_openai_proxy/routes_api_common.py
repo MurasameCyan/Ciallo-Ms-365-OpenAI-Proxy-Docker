@@ -1,12 +1,34 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 from .config import Settings
 from .key_store import ApiKey
 from .runtime_settings import _RUN_PERMISSIONS
+from .substrate_client import _EMPTY_TURN_MARKER, _REFUSED_TURN_MARKER
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 from .tone_resolver import resolve_tone
+
+
+def upstream_http_error(exc: Exception) -> HTTPException:
+    """Map a SubstrateCopilotError onto the status code its cause deserves.
+
+    Every failure used to surface as 502, so a turn M365 simply would not answer
+    looked identical to a broken gateway: clients retried a refusal that no retry
+    can fix, and the operator had nothing to distinguish "this mode is
+    unavailable for this account" from "the upstream connection died".
+
+    A refused or twice-empty turn is upstream declining the request itself, so it
+    maps to 400 -- the request as phrased will not be served. Everything else
+    (idle timeout, closed socket, unusable token) stays 502.
+
+    Keyed on the markers substrate_client raises rather than on exception
+    subclasses, matching how mode availability is already classified from these
+    same strings.
+    """
+    detail = str(exc)
+    refused = _REFUSED_TURN_MARKER in detail or _EMPTY_TURN_MARKER in detail
+    return HTTPException(status_code=400 if refused else 502, detail=detail)
 
 
 def request_model_alias(app: FastAPI, raw_request: Request, settings: Settings) -> str:

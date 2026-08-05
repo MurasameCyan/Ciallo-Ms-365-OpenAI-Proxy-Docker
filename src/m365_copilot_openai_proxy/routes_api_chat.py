@@ -17,6 +17,7 @@ from .routes_api_common import (
     effective_run_permission,
     request_model_alias,
     resolve_request_tone,
+    upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
 from .session_helpers import _persistent_session
@@ -154,7 +155,7 @@ def register_chat_routes(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise upstream_http_error(exc) from exc
 
         # If request included tools, parse model output for tool_call blocks
         tool_calls = _extract_tool_calls(text) if request.tools else []

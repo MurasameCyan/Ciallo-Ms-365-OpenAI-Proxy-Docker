@@ -17,6 +17,7 @@ from .routes_api_common import (
     effective_run_permission,
     request_model_alias,
     resolve_request_tone,
+    upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
 from .session_helpers import _messages_session_key, _persistent_session
@@ -149,7 +150,7 @@ def register_messages_routes(
         try:
             raw_text = await client.chat(translated.prompt, translated.additional_context, session, translated.images)
         except SubstrateCopilotError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise upstream_http_error(exc) from exc
 
         # Parse the RAW model text, never the media-rewritten one. The rewriter
         # base64-encodes the source URL into a ?u= parameter, which destroys the

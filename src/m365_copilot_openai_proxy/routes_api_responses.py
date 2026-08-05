@@ -11,7 +11,7 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import OpenAIResponsesRequest
 from .response_helpers import _responses_stream
-from .routes_api_common import request_model_alias, resolve_request_tone
+from .routes_api_common import request_model_alias, resolve_request_tone, upstream_http_error
 from .routes_media_proxy import request_media_rewriter
 from .session_helpers import (
     _encode_responses_session_id,
@@ -90,7 +90,7 @@ def register_responses_routes(
         try:
             text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session, translated.images))
         except SubstrateCopilotError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise upstream_http_error(exc) from exc
 
         record_response_text(app.state, call_record, text)
         append_call_log(app.state, call_record)
