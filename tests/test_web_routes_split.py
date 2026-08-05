@@ -24,6 +24,41 @@ def test_web_routes_are_registered_by_web_routes_module(tmp_path):
     assert "/healthz" in paths
 
 
+def test_healthz_reuses_its_result_within_the_cache_window(tmp_path, monkeypatch):
+    # /healthz is unauthenticated and stats the token file plus JWT-decodes once
+    # per account, so repeated anonymous polling must not redo that work.
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
+    client = TestClient(app)
+    calls = []
+    original = app.state.token_store.status
+    monkeypatch.setattr(
+        app.state.token_store, "status", lambda: (calls.append(1), original())[1]
+    )
+
+    first = client.get("/healthz").json()
+    second = client.get("/healthz").json()
+
+    assert first == second
+    assert len(calls) == 1, "second /healthz within the TTL recomputed the status"
+
+
+def test_healthz_recomputes_after_the_cache_window(tmp_path, monkeypatch):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
+    client = TestClient(app)
+    client.get("/healthz")
+    # Age the cached entry past the TTL rather than sleeping.
+    stamp, body = app.state._healthz_cache
+    app.state._healthz_cache = (stamp - 3600, body)
+    calls = []
+    original = app.state.token_store.status
+    monkeypatch.setattr(
+        app.state.token_store, "status", lambda: (calls.append(1), original())[1]
+    )
+
+    assert client.get("/healthz").status_code == 200
+    assert len(calls) == 1, "a stale cache entry must be refreshed"
+
+
 def test_admin_page_injects_git_hash_badge(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_COMMIT", "1234567890abcdef")
     resolve_build_info.cache_clear()
