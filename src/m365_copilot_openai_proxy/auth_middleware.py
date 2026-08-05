@@ -21,7 +21,7 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
         CORSMiddleware,
         allow_origins=_allowed_origins,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", _SESSION_ID_HEADER],
+        allow_headers=["Content-Type", "Authorization", "x-api-key", "anthropic-version", _SESSION_ID_HEADER],
         max_age=86400,
     )
 
@@ -38,7 +38,7 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
                 if origin in _allowed_origins:
                     resp.headers["Access-Control-Allow-Origin"] = origin
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = f"Content-Type, Authorization, {_SESSION_ID_HEADER}"
+            resp.headers["Access-Control-Allow-Headers"] = f"Content-Type, Authorization, x-api-key, anthropic-version, {_SESSION_ID_HEADER}"
             resp.headers["Access-Control-Max-Age"] = "86400"
             return resp
 
@@ -52,9 +52,14 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
         if path in ("/", "/admin", "/favicon.ico", "/healthz") or path.startswith("/admin/") or path.startswith("/user/"):
             return await call_next(request)
 
+        # Anthropic clients authenticate with a bare "x-api-key" header rather
+        # than "Authorization: Bearer" -- the official SDK sends only the former,
+        # so keying auth on Bearer alone rejected every /v1/messages caller with
+        # a 401 before the route ever ran. Bearer stays first so an explicit
+        # Authorization header still wins when a client sends both.
         auth = request.headers.get("Authorization", "")
         match = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
-        raw_key = match.group(1) if match else ""
+        raw_key = match.group(1) if match else request.headers.get("x-api-key", "").strip()
 
         key_obj = app.state.key_store.resolve(raw_key) if raw_key else None
         if key_obj is not None:

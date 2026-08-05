@@ -67,6 +67,46 @@ def test_v1_rejects_registered_disabled_key(tmp_path):
     assert response.json()["error"]["message"] == "API key is disabled"
 
 
+def test_v1_accepts_x_api_key_header(tmp_path):
+    """Anthropic's SDK sends only ``x-api-key``, never ``Authorization``."""
+    client = make_client(tmp_path)
+
+    response = client.get("/v1/models", headers={"x-api-key": "admin-key"})
+
+    assert response.status_code == 200
+    assert response.json()["object"] == "list"
+
+
+def test_v1_accepts_registered_key_via_x_api_key(tmp_path):
+    client = make_client(tmp_path)
+    key = client.app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+
+    response = client.get("/v1/models", headers={"x-api-key": key.key})
+
+    assert response.status_code == 200
+
+
+def test_v1_rejects_bad_x_api_key(tmp_path):
+    client = make_client(tmp_path)
+
+    response = client.get("/v1/models", headers={"x-api-key": "wrong-key"})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["message"] == "Invalid API key"
+
+
+def test_bearer_takes_precedence_over_x_api_key(tmp_path):
+    """A client sending both gets the explicit Authorization header honoured."""
+    client = make_client(tmp_path)
+
+    response = client.get(
+        "/v1/models",
+        headers={"Authorization": "Bearer admin-key", "x-api-key": "wrong-key"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_auth_error_preserves_allowed_cors_origin(tmp_path, monkeypatch):
     origin = "https://client.example"
     monkeypatch.setenv("ALLOWED_ORIGINS", origin)
