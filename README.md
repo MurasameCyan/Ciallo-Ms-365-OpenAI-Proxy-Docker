@@ -35,7 +35,7 @@
 - **油猴脚本** — Tampermonkey 一键推送 Token + Cookie（及 media / designer 凭据）
 - **增量上下文** — 复用会话时只发送新增内容，不重发完整历史
 - **会话持久化** — 容器重启后旧对话仍可正确续接
-- **提示词增强** — Web 可调 tool_call 行为与系统提示词，持久保存；服务端兜底重试（半成品）
+- **提示词增强** — Web 可调 tool_call 行为与系统提示词，持久保存；服务端兜底重试 + 散文兜底救援（半成品）
 - **API Key 认证** + **Web 管理页面**
 
 ## 可调用模型目录
@@ -73,7 +73,7 @@
 
 共 **30** 个默认可选模型 ID（15 模式 × 2 变体）。
 
-某个模式能不能用由 M365 侧的 rollout 决定，与本项目无关：M365 拒绝服务的模式会返回 502 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
+某个模式能不能用由 M365 侧的 rollout 决定，与本项目无关：M365 拒绝服务的模式会返回 **400** 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。用 400 而非 502，是因为重试改变不了上游的拒绝——502 会让客户端把它当成网关故障反复重试。传输层故障（空闲超时、断流）与凭据问题仍然是 502。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
 
 ### 请求示例
 
@@ -360,10 +360,21 @@ Model:    Copilot_自动
 
 ### API Key
 
-`/v1/` API 请求需携带 `Authorization: Bearer your-key` 头。**仅当 `API_KEY` 为空且 `/admin` 里一个 API Key 都没注册时，`/v1/` 端点才无认证开放**（此时启动会打印警告）。两种方式任选其一即可保护接口：设置全局 `API_KEY`，或在 `/admin` 创建 per-user Key。多租户推荐后者。
+`/v1/` API 请求需携带 API Key，两种头都接受（`Authorization` 优先）：
+
+| 请求头 | 用途 |
+| ------ | ---- |
+| `Authorization: Bearer your-key` | OpenAI 兼容客户端的标准形式 |
+| `x-api-key: your-key` | Anthropic 官方 SDK / Claude Code 的标准形式 |
+
+**仅当 `API_KEY` 为空且 `/admin` 里一个 API Key 都没注册时，`/v1/` 端点才无认证开放**（此时启动会打印警告）。两种方式任选其一即可保护接口：设置全局 `API_KEY`，或在 `/admin` 创建 per-user Key。多租户推荐后者。
 
 ```bash
 curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
+
+# Anthropic SDK 形式
+curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
+  http://localhost:8000/v1/models
 ```
 
 ### Web 管理页面
@@ -449,6 +460,7 @@ curl -H "Authorization: Bearer YOUR_SECRET_KEY" http://localhost:8000/v1/models
 - **提示词增强**：追加在工具调用提示词之后的自定义指令，用于微调 tool_call 行为，留空则不追加。
 - **系统提示词（高级）**：覆盖工具调用的基础系统提示词（定义 tool_call 格式与规则）。默认折叠，需解锁并确认警告后才能编辑；动态工具列表始终自动追加、不可编辑；留空则用内置默认。两者都带「恢复默认」。
 - **服务端兜底重试**：M365 Copilot 有原生「生成文件」功能，会把文件托管到自己的对象存储并返回下载链接，而不走 `tool_call`。当代理检测到响应「声称生成了文件（含托管附件链接或"已生成"等措辞）却没有任何 tool_call」时，会用纠正指令对同一会话自动重试一次，逼模型交出真正的 `tool_call`。命中兜底的调用在 Web「API 调用记录」中标记为 `retried`。
+- **散文兜底（内联输出救援）**：当模型不输出 ```` ```tool_call ```` fence、但正文里包含「反引号绝对路径（如 `` `C:/temp/file.bat` ``）+ 语言标签匹配的代码块（如 ````bat）」时，代理会自动合成 Write `tool_call`。服务端内建的提示词引导会推动模型往这个形态输出（明确禁止生成托管附件、指定内联输出的格式），以提高在 M365 拒绝 fence 时的救援率。此机制保持解析器的严格性（避免把示例代码块误识别为写文件指令），测试中 `.bat`/`.html` 等文件类型的成功率约 60%；`.py` 等部分类型因 M365 倾向用 markdown 链接展示文件名（而非反引号路径）仍可能失败。
 
 > 提示词只能降低模型幻觉概率，无法根除（底层模型指令遵循问题）。若工具调用仍不稳定，可尝试切换到深度思考（`Copilot_深度思考` / `Reasoning`）模式，或新开会话。
 
