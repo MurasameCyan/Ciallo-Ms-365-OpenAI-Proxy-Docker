@@ -33,7 +33,7 @@ from .tool_call_parser import (
     _looks_like_fake_file_claim,
     _strip_tool_call_blocks,
 )
-from .translator import flatten_content, translate_openai_request
+from .translator import effective_tools, flatten_content, normalize_tool_choice, translate_openai_request
 
 
 def register_chat_routes(
@@ -59,11 +59,17 @@ def register_chat_routes(
     ):
         _log = logging.getLogger("copilot_proxy")
         model_alias = request_model_alias(app, raw_request, settings)
-        _log.info("[/v1/chat/completions] stream=%s tools=%d messages=%d model=%s",
-                  request.stream, len(request.tools) if request.tools else 0,
-                  len(request.messages), request.model)
-        if request.tools:
-            for t in request.tools:
+        # Resolve tool_choice once. `tools` below is the effective list: empty for
+        # tool_choice="none" (so parsing, the prose fallback and the corrective
+        # retry are all disabled together), narrowed to one entry when a specific
+        # tool was demanded.
+        choice = normalize_tool_choice(request.tool_choice, getattr(request, "parallel_tool_calls", None))
+        tools = effective_tools(request.tools, choice)
+        _log.info("[/v1/chat/completions] stream=%s tools=%d messages=%d model=%s tool_choice=%s",
+                  request.stream, len(tools) if tools else 0,
+                  len(request.messages), request.model, choice[0])
+        if tools:
+            for t in tools:
                 _log.info("  tool: %s", t.function.name if t.function else "?")
         # Record call for web UI
         call_record = {
@@ -72,7 +78,8 @@ def register_chat_routes(
             "time": time.strftime("%H:%M:%S"),
             "ts": time.time(),
             "stream": request.stream,
-            "tools": [t.function.name for t in request.tools] if request.tools else [],
+            "tools": [t.function.name for t in tools] if tools else [],
+            "tool_choice": choice[0],
             "messages": len(request.messages),
             "model": request.model,
             "tool_calls_result": None,
@@ -114,7 +121,7 @@ def register_chat_routes(
                 # Save call record for streaming (tool_calls_result resolved later)
                 call_record["streaming"] = True
                 append_call_log(app.state, call_record)
-                if request.tools:
+                if tools:
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
                         _openai_stream_with_tools(
@@ -125,7 +132,7 @@ def register_chat_routes(
                             session,
                             call_log=app.state.call_log,
                             call_record=call_record,
-                            tool_names={t.function.name for t in request.tools if t.function},
+                            tool_names={t.function.name for t in tools if t.function},
                             read_only_guard=read_only_guard,
                             text_transform=media_rewriter,
                             images=translated.images,
@@ -158,28 +165,28 @@ def register_chat_routes(
             raise upstream_http_error(exc) from exc
 
         # If request included tools, parse model output for tool_call blocks
-        tool_calls = _extract_tool_calls(text) if request.tools else []
+        tool_calls = _extract_tool_calls(text) if tools else []
         if read_only_guard and tool_calls:
             blocked = len(tool_calls)
             tool_calls = _filter_read_only_tool_calls(tool_calls)
             if len(tool_calls) != blocked:
                 _log.info("  read-only guard filtered mutating tool_call(s)")
-        if not tool_calls and request.tools and not read_only_guard:
+        if not tool_calls and tools and not read_only_guard:
             # Prose fallback: model described "save as <path>" + code block
-            tool_names = {t.function.name for t in request.tools if t.function}
+            tool_names = {t.function.name for t in tools if t.function}
             tool_calls = _extract_prose_write(text, tool_names)
             if tool_calls:
                 _log.info("  prose fallback synthesized Write tool_call")
         # Corrective retry: M365 sometimes "creates" a file via its native
         # attachment feature (hosted URL) instead of a tool_call. If it claims a
         # file but emitted none, force one retry demanding a real tool_call.
-        if not tool_calls and request.tools and not read_only_guard and _looks_like_fake_file_claim(text):
+        if not tool_calls and tools and not read_only_guard and _looks_like_fake_file_claim(text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
                 retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
                 retry_calls = _extract_tool_calls(retry_text)
                 if not retry_calls:
-                    tool_names = {t.function.name for t in request.tools if t.function}
+                    tool_names = {t.function.name for t in tools if t.function}
                     retry_calls = _extract_prose_write(retry_text, tool_names)
                 if retry_calls:
                     _log.info("  retry produced %d tool_call(s)", len(retry_calls))

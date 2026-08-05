@@ -62,6 +62,10 @@ class OpenAIChatRequest(BaseModel):
     user: str | None = None
     tools: list[ToolDefinition] | None = None
     tool_choice: str | dict[str, Any] | None = None
+    # False asks for at most one tool call per turn. Anthropic spells the same
+    # thing as tool_choice.disable_parallel_tool_use; normalize_tool_choice()
+    # folds both into one flag.
+    parallel_tool_calls: bool | None = None
     max_tokens: int | None = None
     max_completion_tokens: int | None = None
     n: int | None = None

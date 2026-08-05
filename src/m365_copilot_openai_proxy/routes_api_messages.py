@@ -33,7 +33,7 @@ from .tool_call_parser import (
     _looks_like_fake_file_claim,
     _strip_tool_call_blocks,
 )
-from .translator import flatten_content, translate_anthropic_request
+from .translator import effective_tools, flatten_content, normalize_tool_choice, translate_anthropic_request
 
 
 def _tool_use_blocks(tool_calls: list[dict]) -> list[dict]:
@@ -74,7 +74,12 @@ def register_messages_routes(
     ):
         _log = logging.getLogger("copilot_proxy")
         model_alias = request_model_alias(app, raw_request, settings)
-        tool_names = {t.name for t in request.tools if getattr(t, "name", "")} if request.tools else set()
+        # Effective list, not the raw one: tool_choice={"type":"none"} empties it so
+        # parsing and the corrective retry are disabled along with the prompt
+        # injection, and {"type":"tool","name":X} narrows it to X.
+        choice = normalize_tool_choice(request.tool_choice)
+        _tools = effective_tools(request.tools, choice)
+        tool_names = {t.name for t in _tools if getattr(t, "name", "")} if _tools else set()
         try:
             # The requested model name selects the conversation tone (and its
             # persistent variant); override the client tone and normalize the
@@ -103,6 +108,7 @@ def register_messages_routes(
             "ts": time.time(),
             "stream": request.stream,
             "tools": sorted(tool_names),
+            "tool_choice": choice[0],
             "messages": len(request.messages),
             "model": request.model,
             "tone": resolved_tone,

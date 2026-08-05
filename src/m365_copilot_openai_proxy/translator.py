@@ -203,7 +203,98 @@ def default_tool_system_prompt() -> str:
     return _DEFAULT_TOOL_SYSTEM_PROMPT
 
 
-def _format_tools_prompt(tools, system_override: str | None = None) -> str | None:
+def normalize_tool_choice(tool_choice, parallel_tool_calls=None) -> tuple[str, str | None, bool]:
+    """Collapse both APIs' tool_choice shapes into ``(mode, name, allow_parallel)``.
+
+    ``mode`` is one of ``auto`` / ``none`` / ``required`` / ``tool``; ``name`` is
+    set only for ``tool``. OpenAI passes a bare string or ``{"type":"function",
+    "function":{"name":...}}``; Anthropic passes ``{"type":"auto|any|tool|none"}``
+    with the name flat on the object and parallelism as
+    ``disable_parallel_tool_use``. Unknown values fall back to ``auto`` -- the
+    API default -- so a client sending a shape we do not know still gets tools.
+    """
+    mode, name = "auto", None
+    allow_parallel = parallel_tool_calls is not False
+
+    if isinstance(tool_choice, str):
+        # OpenAI: "none" | "auto" | "required". Legacy clients also send a bare
+        # tool name, which the spec never allowed but is unambiguous.
+        lowered = tool_choice.strip().lower()
+        if lowered in ("none", "auto", "required"):
+            mode = lowered
+        elif lowered:
+            mode, name = "tool", tool_choice.strip()
+    elif isinstance(tool_choice, dict):
+        raw_type = str(tool_choice.get("type") or "").strip().lower()
+        function = tool_choice.get("function")
+        fn_name = function.get("name") if isinstance(function, dict) else None
+        # Anthropic keeps the name flat; OpenAI nests it under `function`.
+        picked = (fn_name or tool_choice.get("name") or "").strip() or None
+        if raw_type in ("function", "tool") or (not raw_type and picked):
+            mode, name = ("tool", picked) if picked else ("required", None)
+        elif raw_type == "any":  # Anthropic's "call some tool"
+            mode = "required"
+        elif raw_type in ("none", "auto", "required"):
+            mode = raw_type
+        if tool_choice.get("disable_parallel_tool_use") is True:
+            allow_parallel = False
+
+    return mode, name, allow_parallel
+
+
+def effective_tools(tools, choice: tuple[str, str | None, bool]):
+    """The tool list that actually applies, honouring ``tool_choice``.
+
+    ``none`` returns ``[]`` so every downstream consumer -- prompt injection,
+    response parsing, the prose-write fallback and the corrective retry -- sees a
+    request with no tools. Withholding the contract is a local decision and thus
+    the one part of tool_choice that is fully reliable; the forced modes only
+    nudge the upstream model, which may still ignore them.
+
+    ``tool`` narrows the list to the named tool when it exists, so a model that
+    complies cannot pick a different one. An unknown name is left alone rather
+    than emptying the list: the client asked for something we cannot see, and
+    silently dropping every tool would look like the request had none.
+    """
+    mode, name, _ = choice
+    if mode == "none":
+        return []
+    if mode == "tool" and name:
+        narrowed = [t for t in (tools or []) if _tool_name(t) == name]
+        if narrowed:
+            return narrowed
+    return tools
+
+
+def _tool_name(tool) -> str:
+    """Tool name from either API's shape (OpenAI nests it, Anthropic keeps it flat)."""
+    function = getattr(tool, "function", None)
+    return (getattr(function, "name", None) or getattr(tool, "name", "") or "").strip()
+
+
+def _tool_choice_instruction(mode: str, name: str | None, allow_parallel: bool) -> str | None:
+    """The extra instruction line a non-default tool_choice implies, if any."""
+    lines = []
+    if mode == "required":
+        lines.append(
+            "You MUST call one of the tools listed above for this turn. Emit a "
+            "tool_call block; do not answer in prose instead."
+        )
+    elif mode == "tool" and name:
+        lines.append(
+            f"You MUST call the tool named {name} for this turn, and no other "
+            f"tool. Emit a tool_call block for it; do not answer in prose instead."
+        )
+    if not allow_parallel:
+        lines.append("Emit at most ONE tool_call for this turn, never several.")
+    return "\n".join(lines) if lines else None
+
+
+def _format_tools_prompt(
+    tools,
+    system_override: str | None = None,
+    choice: tuple[str, str | None, bool] | None = None,
+) -> str | None:
     """Format tool definitions into a system-level prompt so the model knows about available tools.
 
     The static instruction block can be overridden by the user (system_override); the
@@ -228,10 +319,17 @@ def _format_tools_prompt(tools, system_override: str | None = None) -> str | Non
                 desc += "\n  Parameters:\n" + "\n".join(param_parts)
         tool_descriptions.append(desc)
     base = (system_override or "").strip() or _DEFAULT_TOOL_SYSTEM_PROMPT
-    return (
+    out = (
         base + "\n\n"
         "Available action types (tool_name and arguments):\n" + "\n".join(tool_descriptions)
     )
+    # A forced choice goes last so it sits closest to the prompt, matching where
+    # the [FORMAT] block puts the instructions the model follows most reliably.
+    if choice is not None:
+        extra = _tool_choice_instruction(*choice)
+        if extra:
+            out += "\n\n" + extra
+    return out
 
 
 def _anthropic_tools_as_openai(tools) -> list[ToolDefinition]:
@@ -318,8 +416,11 @@ def translate_openai_request(request: OpenAIChatRequest, incremental: bool = Fal
     prompt = ""
     images: list[ImageData] = []
 
-    # Inject tool definitions into system context
-    tools_prompt = _format_tools_prompt(request.tools, system_override)
+    # Inject tool definitions into system context. tool_choice="none" means the
+    # client forbids tool calls this turn, so the whole tool contract is withheld
+    # -- see effective_tools(), which the route uses to disable parsing to match.
+    choice = normalize_tool_choice(request.tool_choice, getattr(request, "parallel_tool_calls", None))
+    tools_prompt = _format_tools_prompt(effective_tools(request.tools, choice), system_override, choice)
     if tools_prompt:
         system_lines.append(tools_prompt)
 
@@ -474,7 +575,10 @@ def translate_anthropic_request(
 
     # Same tool instruction block the OpenAI path injects, so a Claude-style
     # client asking for a file write gets the ```tool_call``` contract too.
-    tools_prompt = _format_tools_prompt(_anthropic_tools_as_openai(request.tools), system_override)
+    choice = normalize_tool_choice(request.tool_choice)
+    tools_prompt = _format_tools_prompt(
+        _anthropic_tools_as_openai(effective_tools(request.tools, choice)), system_override, choice
+    )
     if tools_prompt:
         system_lines.append(tools_prompt)
 
