@@ -167,6 +167,61 @@ def test_clean_m365_citations_leaves_normal_text_and_urls():
     assert clean_m365_citations(raw) == raw
 
 
+# The two NON-PUA citation renderings, both seen in a single live turn against a
+# real deployment: the streamed deltas carried literal <cite> tags while the
+# cumulative snapshot of the same sentences carried bracket marks. Leaving either
+# form in place cost twice over -- the markers reached the client as visible
+# noise, and because _dedupe_signature is built on clean_m365_citations the same
+# sentence produced two different signatures, which drove coverage down and made
+# the final reconciliation append text the reader already had.
+
+def test_clean_m365_citations_strips_literal_cite_tags():
+    raw = "FastAPI 性能媲美 Node.js。<cite>turn1search7</cite> 它底层依赖 Starlette。"
+    cleaned = clean_m365_citations(raw)
+    assert "cite" not in cleaned.lower()
+    assert "FastAPI 性能媲美 Node.js。" in cleaned
+    assert "它底层依赖 Starlette。" in cleaned
+
+
+def test_clean_m365_citations_strips_bracket_cite_marks():
+    raw = "已被 Microsoft、Netflix 采用。【4-6f710b】 FastAPI 已被广泛使用。"
+    cleaned = clean_m365_citations(raw)
+    assert "【4-6f710b】" not in cleaned
+    assert "已被 Microsoft、Netflix 采用。" in cleaned
+    assert "FastAPI 已被广泛使用。" in cleaned
+
+
+def test_clean_m365_citations_keeps_bracket_emphasis_that_is_not_a_citation():
+    """【】 is ordinary CJK punctuation; only citation-shaped marks may go.
+
+    Stripping every 【...】 would delete real content from Chinese and Japanese
+    answers, where the brackets are used for emphasis and for titles.
+    """
+    raw = "【重要】请先阅读文档，【注意事项】见下。"
+    assert clean_m365_citations(raw) == raw
+
+
+def test_clean_m365_citations_keeps_html_cite_element_with_prose():
+    """HTML's <cite> marks the title of a work; that is real content.
+
+    Only citation-id payloads (``turn1search7``) are markers, so the pattern is
+    bounded to id characters and a real title with spaces survives.
+    """
+    raw = "The novel <cite>Moby Dick</cite> is referenced."
+    assert clean_m365_citations(raw) == raw
+
+
+def test_dedupe_signature_collapses_both_citation_renderings():
+    """The same sentence in either rendering must yield ONE signature.
+
+    This is the comparison that decides whether the final frame's restatement is
+    appended, so a mismatch here is what surfaced as a duplicated answer.
+    """
+    delta_form = "FastAPI 性能媲美 Node.js。<cite>turn1search7</cite>"
+    snapshot_form = "FastAPI 性能媲美 Node.js。【4-6f710b】"
+    assert _dedupe_signature(delta_form) == _dedupe_signature(snapshot_form)
+
+
 def test_message_content_strips_citations_from_text():
     entry = {"text": "音频 [x](\ue200cite\ue202turn1file1\ue201) 完成"}
     assert "\ue200" not in _message_content(entry)

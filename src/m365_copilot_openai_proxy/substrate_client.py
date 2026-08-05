@@ -13,6 +13,7 @@ from .session_store import PersistentSession
 from .substrate_parse import (
     _capture_suspicious_response_event,
     _combine_text,
+    _cumulative_catchup,
     _dedupe_repeated_delta,
     _dedupe_signature,
     _extract_image_urls,
@@ -20,6 +21,7 @@ from .substrate_parse import (
     _is_image_loading_placeholder,
     _message_content,
     _final_fallback_remainder,
+    _split_snapshot_lead,
     clean_m365_citations,
 )
 from .token_store import decode_jwt_payload, is_substrate_token_claims
@@ -33,6 +35,7 @@ __all__ = [
     "SubstrateCopilotError",
     "_capture_suspicious_response_event",
     "_combine_text",
+    "_cumulative_catchup",
     "_dedupe_repeated_delta",
     "_dedupe_signature",
     "_extract_image_urls",
@@ -40,6 +43,7 @@ __all__ = [
     "_is_image_loading_placeholder",
     "_message_content",
     "_final_fallback_remainder",
+    "_split_snapshot_lead",
     "clean_m365_citations",
 ]
 
@@ -434,6 +438,9 @@ class SubstrateCopilotClient:
                 await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session, annotations))
                 fallback_text = ""
                 streamed_text = ""
+                # Run that a cumulative snapshot delivered ahead of the deltas, kept
+                # so deltas replaying it are not shown to the reader a second time.
+                snapshot_lead = ""
                 yielded_images: set[str] = set()
                 yielded_any = False
                 # Non-empty once the completion frame says the turn failed; holds the
@@ -469,9 +476,27 @@ class SubstrateCopilotClient:
                                 delta = clean_m365_citations(delta)
                                 if not delta:
                                     continue
+                                # A snapshot that landed before any delta holds the
+                                # opening of the answer -- the deltas do not always
+                                # rewind to it. Deliver it now that a real delta
+                                # proves the turn is streaming (emitting it earlier
+                                # would defeat the refusal check below), and record
+                                # it so the delta it overlaps is not sent twice.
                                 if not yielded_any and fallback_text:
                                     yield fallback_text
                                     streamed_text += fallback_text
+                                    snapshot_lead = fallback_text
+                                    yielded_any = True
+                                # A snapshot may already have delivered the run this
+                                # delta is about to replay; emit only what is new.
+                                if snapshot_lead:
+                                    split = _split_snapshot_lead(snapshot_lead, delta)
+                                    if split is not None:
+                                        snapshot_lead, delta = split
+                                        if not delta:
+                                            continue
+                                    else:
+                                        snapshot_lead = ""
                                 yielded_any = True
                                 yield delta
                                 streamed_text += delta
@@ -482,6 +507,16 @@ class SubstrateCopilotClient:
                                     if entry.get("author") != "user":
                                         fallback_text = _message_content(entry)
                                         break
+                                # The snapshot is cumulative. When it runs ahead of
+                                # the deltas it holds the only copy of the skipped
+                                # run, so deliver that run NOW to keep the answer in
+                                # order -- the final frame would append it last.
+                                catchup = _cumulative_catchup(streamed_text, fallback_text)
+                                if catchup:
+                                    yield catchup
+                                    streamed_text += catchup
+                                    snapshot_lead += catchup
+                                    yielded_any = True
                         if t == 2:
                             item = msg.get("item") or {}
                             item_msgs = item.get("messages") or []

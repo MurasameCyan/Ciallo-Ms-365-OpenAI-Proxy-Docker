@@ -21,19 +21,40 @@ _BARE_PUA_CITE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Two further renderings, both seen within a SINGLE live turn: the streamed
+# deltas carried literal <cite> tags while the cumulative snapshot of the very
+# same sentences carried bracket marks.
+#
+#   deltas:   FastAPI 性能媲美 Node.js。<cite>turn1search7</cite>
+#   snapshot: FastAPI 性能媲美 Node.js。【4-6f710b】
+#
+# Both are bounded to citation-ID shapes rather than matching the delimiters
+# outright, because both delimiters have legitimate uses that must survive:
+# HTML's <cite> marks the title of a work, and 【】 is ordinary CJK punctuation
+# for emphasis. A citation id never contains spaces, and a bracket marker always
+# leads with "<digits>-", so real prose matches neither pattern.
+_LITERAL_CITE_TAG_RE = re.compile(r"<cite>[A-Za-z0-9_,\-]*</cite>", re.IGNORECASE)
+_BRACKET_CITE_RE = re.compile(r"【\d+-[0-9a-z]{3,}】", re.IGNORECASE)
+
 
 def clean_m365_citations(text: str) -> str:
-    """Strip M365 private-use citation markers from model text.
+    """Strip M365 citation markers from model text.
 
-    Safe on partial stream deltas: only complete cite patterns are removed.
+    Safe on partial stream deltas: every pattern requires its closing delimiter,
+    so a marker split across two deltas is left alone rather than half-stripped.
     """
     if not text:
         return ""
-    # Fast path: most chunks have neither the word "cite" nor private-use chars.
-    if "cite" not in text.lower() and not any("\ue000" <= c <= "\uf8ff" for c in text):
+    # Fast path: most chunks carry none of the marker shapes. "【" has to be part
+    # of this test -- a bracket marker contains neither the word "cite" nor a
+    # private-use character, so keying the fast path on those alone let every
+    # bracket marker through untouched.
+    if "cite" not in text.lower() and "【" not in text and not any("\ue000" <= c <= "\uf8ff" for c in text):
         return text
     cleaned = _MARKDOWN_CITE_RE.sub("", text)
     cleaned = _BARE_PUA_CITE_RE.sub("", cleaned)
+    cleaned = _LITERAL_CITE_TAG_RE.sub("", cleaned)
+    cleaned = _BRACKET_CITE_RE.sub("", cleaned)
     # Collapse whitespace left by removed markers (keep newlines).
     cleaned = re.sub(r"[^\S\n]{2,}", " ", cleaned)
     return cleaned
@@ -110,6 +131,141 @@ def _signature_coverage(streamed_sig: str, fallback_sig: str) -> float:
     return matched / len(fallback_sig)
 
 
+# Anchor sizes for locating the end of the delivered text inside the fallback.
+# Long enough that a match is not coincidence, short enough that a turn which
+# streamed only a few words can still be anchored.
+_TAIL_ANCHOR_MAX = 200
+_TAIL_ANCHOR_MIN = 24
+
+# Minimum size for a matching run to count as a trustworthy alignment point. Same
+# order as the exact anchor, for the same reason: shorter runs recur by chance (a
+# shared full stop, a markdown ``---``), and aligning on one either swallows real
+# content or appends text the reader already has.
+_ALIGN_BLOCK_MIN = 24
+
+# Share of the fallback the delivered text must account for before "the stream
+# already reached the end" is a plausible reading of an end-to-end alignment. A
+# stream missing most of the answer is a truncated one, whatever its last
+# character happens to match.
+_REACHED_END_MIN_SHARE = 0.5
+
+
+def _aligned_tail(streamed_text: str, fallback_text: str) -> str | None:
+    """Locate the delivered position by approximate alignment, or ``None`` when no
+    run is solid enough to align on.
+
+    Handles the one case the exact end anchor cannot: a stream that lost a run
+    NEAR ITS END. The delivered tail is then a splice of the text either side of
+    the gap -- a string that occurs nowhere in the authoritative answer -- so
+    ``rfind`` misses at every anchor length. Falling through to the common-prefix
+    trim then appended everything from the FIRST gap onward; measured on the shape
+    of the live capture, 288 characters appended against 125 lost, which is the
+    reader being shown the middle of the answer a second time.
+    """
+    blocks = [
+        block
+        for block in SequenceMatcher(
+            None, streamed_text, fallback_text, autojunk=False
+        ).get_matching_blocks()
+        if block.size
+    ]
+    if not blocks:
+        return None
+    # A final run that terminates BOTH texts means the stream reached the end of
+    # the answer. Whatever sits before that run is a hole, and the reader already
+    # has the text after it, so appending would duplicate -- and land out of order
+    # on top of it. Nothing to add.
+    final = blocks[-1]
+    if (
+        final.a + final.size == len(streamed_text)
+        and final.b + final.size == len(fallback_text)
+        and len(streamed_text) >= _REACHED_END_MIN_SHARE * len(fallback_text)
+    ):
+        return ""
+    solid = [block for block in blocks if block.size >= _ALIGN_BLOCK_MIN]
+    if not solid:
+        return None
+    last = solid[-1]
+    return fallback_text[last.b + last.size :]
+
+
+def _fallback_tail_after_delivered(streamed_text: str, fallback_text: str) -> str | None:
+    """Return the part of ``fallback_text`` that follows the END of what was
+    already delivered, or ``None`` when the end cannot be located.
+
+    Anchoring on the end is what keeps a stream that lost text in the MIDDLE from
+    having everything after the gap repeated. ``_common_prefix_len`` stops dead at
+    the first gap, so trimming by common prefix appended the whole rest of the
+    answer a second time -- observed live as an answer with holes punched through
+    its middle followed by a verbatim slab of everything from the first hole
+    onward. The already-delivered gap cannot be repaired (that text is long gone
+    to the client), but it must not cost the reader the answer twice.
+
+    ``rfind`` so a phrase that recurs earlier in the answer resolves to the most
+    recent occurrence, which is where the stream actually stands. When the gap
+    falls inside the anchor window itself no exact match exists at all, and
+    ``_aligned_tail`` takes over.
+    """
+    limit = min(len(streamed_text), _TAIL_ANCHOR_MAX)
+    for size in range(limit, _TAIL_ANCHOR_MIN - 1, -1):
+        anchor = streamed_text[-size:]
+        position = fallback_text.rfind(anchor)
+        if position >= 0:
+            return fallback_text[position + size:]
+    return _aligned_tail(streamed_text, fallback_text)
+
+
+def _cumulative_catchup(streamed_text: str, cumulative_text: str) -> str:
+    """Text to append so the stream catches up to a cumulative snapshot.
+
+    M365 sends two views of the same turn: ``writeAtCursor`` deltas, which are
+    incremental, and ``messages`` snapshots, which restate the whole answer so
+    far. When the deltas skip ahead the snapshot is the only place the skipped run
+    exists, and appending it AS SOON AS the snapshot lands keeps the answer in
+    order -- waiting for the final frame would append it after everything else.
+
+    Deliberately conservative: only an exact prefix relationship counts. The two
+    views do not always render citations the same way (one live capture had
+    ``【4-6f710b】`` in the snapshot against ``<cite>turn1search4</cite>`` in the
+    deltas), and guessing at an alignment across that difference risks emitting a
+    run the reader already has. Anything less certain is left to the final
+    reconciliation, which has the authoritative full text to work from.
+    """
+    if not cumulative_text or not streamed_text:
+        return ""
+    if cumulative_text.startswith(streamed_text):
+        return cumulative_text[len(streamed_text):]
+    return ""
+
+
+def _split_snapshot_lead(lead: str, delta: str) -> tuple[str, str] | None:
+    """Reconcile an incoming delta against text already delivered from a snapshot.
+
+    ``lead`` is the run a cumulative snapshot let us deliver BEFORE the deltas got
+    there. Deltas may then replay that same run from the top -- one live turn sent
+    a snapshot of the opening and then streamed that opening again as deltas -- and
+    forwarding them would tell the reader the same sentences twice.
+
+    Returns ``(remaining_lead, text_to_emit)``, or ``None`` when the delta is
+    unrelated to the lead and must be forwarded as-is:
+
+    * delta inside the lead   -> consumed, emit nothing, shrink the lead
+    * delta reaches past it   -> lead consumed, emit only the new remainder
+
+    Only exact matches count. This is safe against the "repeated fragment" trap
+    that ``_dedupe_repeated_delta`` warns about (a formula's ``2a_1``, a closing
+    ``}``) because the lead is non-empty only in the brief window after a snapshot
+    ran ahead of the deltas, and every character it covers has provably been sent.
+    """
+    if not lead or not delta:
+        return None
+    if lead.startswith(delta):
+        return lead[len(delta):], ""
+    if delta.startswith(lead):
+        return "", delta[len(lead):]
+    return None
+
+
 def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
     """Final (t==3) reconciliation ONLY: return the tail of the whole fallback
     answer that has not been streamed yet.
@@ -130,8 +286,9 @@ def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
     so emitting the fallback verbatim appended the WHOLE answer a second time --
     the "reply shows up twice" bug. Fall back to a coverage ratio instead: a
     fallback that is already ``_RESTATEMENT_COVERAGE`` covered by the stream adds
-    nothing, and a partially-covered one is trimmed to the tail after the shared
-    prefix so its already-streamed head is not repeated.
+    nothing, and a partially-covered one is trimmed to whatever follows the END of
+    the delivered text (see ``_fallback_tail_after_delivered``) so neither its
+    already-streamed head nor a run the stream skipped is sent twice.
     """
     if not fallback_text:
         return ""
@@ -147,8 +304,13 @@ def _final_fallback_remainder(streamed_text: str, fallback_text: str) -> str:
         return ""
     if _signature_coverage(streamed_sig, fallback_sig) >= _RESTATEMENT_COVERAGE:
         return ""
-    # Partially covered: drop the head the stream already delivered verbatim and
-    # emit only what follows, instead of re-sending the whole fallback.
+    # Partially covered: append only what follows the END of the delivered text.
+    # Trimming by common PREFIX was wrong whenever the stream lost a run from its
+    # middle -- the prefix stops at the gap, so everything after the gap came back
+    # as a duplicate.
+    tail = _fallback_tail_after_delivered(streamed_text, fallback_text)
+    if tail is not None:
+        return tail
     prefix = _common_prefix_len(streamed_text, fallback_text)
     return fallback_text[prefix:] if prefix else fallback_text
 
