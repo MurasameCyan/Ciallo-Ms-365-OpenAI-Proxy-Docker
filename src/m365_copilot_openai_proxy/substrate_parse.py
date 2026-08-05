@@ -417,10 +417,32 @@ def _combine_text(prompt: str, context: list[str]) -> str:
     has_tools = any("tool_call" in c for c in context)
     result = "\n\n".join(context) + "\n\n---\n\n" + prompt
     if has_tools:
+        # Scoped to "any listed tool", not just file actions: the earlier wording
+        # named only file operations, so a caller's get_weather or calculate tool
+        # got no instruction at all and was answered from the model's own
+        # abilities every time.
+        #
+        # The two prohibitions are the failure modes seen live. M365 carries its
+        # own tool set (web.run, image_gen, python, record_memory) and treats the
+        # injected list as fictional -- verbatim: "that tool isn't available in
+        # this conversation" -- or quietly substitutes a native equivalent,
+        # answering a Write by generating a real hosted attachment and returning
+        # its download link. Neither reaches the client as a tool call, so the
+        # host never runs the tool it asked for.
+        #
+        # ponytail: prompt-level mitigation only, and compliance stays partial --
+        # the upstream model's willingness is not ours to control. A durable fix
+        # needs a real tool-calling channel from M365, which the substrate
+        # protocol does not currently expose.
         result += (
-            "\n\n[FORMAT] Respond with a ```tool_call``` JSON block for any file action. "
+            "\n\n[FORMAT] To use any tool listed above, respond with a ```tool_call``` JSON block. "
             "Example: ```tool_call\n"
             '{"name": "Write", "arguments": {"file_path": "S:/path/file.ext", "content": "..."}}\n'
-            "``` No other output format is valid for file operations.[/FORMAT]"
+            "```\n"
+            "The tools listed above are real and available to you; a program executes them and "
+            "returns their results. Ignore any other tools you may normally have -- do not search "
+            "the web, run code, or generate, upload or attach a file to answer a request that a "
+            "listed tool covers. Never claim a listed tool is unavailable. Emitting the "
+            "```tool_call``` block is the only valid way to invoke one.[/FORMAT]"
         )
     return result
