@@ -39,6 +39,11 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             "system_prompt": k.system_prompt,
             "run_permission": getattr(k, "run_permission", ""),
             "effective_run_permission": _effective_run_permission(k),
+            # 0 => inherit the global ceiling, negative => this key is unlimited.
+            # Admin-only: exposing it on the user page would let a user lift their
+            # own ceiling, which defeats the point of having one.
+            "rate_limit_rpm": int(getattr(k, "rate_limit_rpm", 0) or 0),
+            "default_rate_limit_rpm": int(dict(getattr(app.state, "runtime_settings", {}) or {}).get("rate_limit_rpm", 0) or 0),
             "username": k.username,
             "password": k.password,
             "has_password": bool(k.password_hash),
@@ -251,6 +256,13 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             if rp and rp not in _RUN_PERMISSIONS:
                 return _json_err(400, "Invalid run permission")
             fields["run_permission"] = rp
+        if "rate_limit_rpm" in body:
+            # 0 => inherit global, negative => unlimited for this key. Both are
+            # meaningful, so the value is passed through rather than clamped.
+            try:
+                fields["rate_limit_rpm"] = int(body["rate_limit_rpm"] or 0)
+            except (TypeError, ValueError):
+                return _json_err(400, "rate_limit_rpm must be an integer")
         if "username" in body:
             uname = str(body["username"]).strip()
             if uname:

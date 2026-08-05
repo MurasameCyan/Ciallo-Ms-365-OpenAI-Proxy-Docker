@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import re
 import time
@@ -9,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import Settings
+from .ratelimit import RateLimiterRegistry
 from .session_helpers import _SESSION_ID_HEADER
 
 
@@ -16,6 +18,10 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
     _allowed_origins_raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
     _allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()] if _allowed_origins_raw else ["*"]
     _cors_is_wildcard = "*" in _allowed_origins
+    # Buckets must outlive the request, so the registry lives on app.state rather
+    # than in this closure -- the admin UI reads the effective limits from there.
+    if getattr(app.state, "rate_limiters", None) is None:
+        app.state.rate_limiters = RateLimiterRegistry()
 
     app.add_middleware(
         CORSMiddleware,
@@ -46,6 +52,37 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
         if path.startswith("/v1/"):
             app.state.last_request_time = time.time()
 
+        def rate_limited(identity: str, key_obj=None):
+            """429 once `identity` has spent its /v1/ budget, else None.
+
+            Checked before the on-demand token refresh below so a throttled
+            request never costs a Chromium round-trip.
+            """
+            if not path.startswith("/v1/"):
+                return None
+            override = int(getattr(key_obj, "rate_limit_rpm", 0) or 0)
+            if override < 0:
+                return None  # limiting explicitly waived for this key
+            runtime = getattr(app.state, "runtime_settings", None) or {}
+            rpm = float(override) if override > 0 else float(runtime.get("rate_limit_rpm") or 0)
+            burst = max(1, int(runtime.get("rate_limit_burst") or 15))
+            allowed, retry_after = app.state.rate_limiters.try_acquire(identity, rpm, burst)
+            if allowed:
+                return None
+            seconds = max(1, math.ceil(retry_after))
+            resp = JSONResponse(
+                status_code=429,
+                content={"error": {
+                    "message": f"Rate limit exceeded ({int(rpm)} requests/minute). Retry after {seconds}s.",
+                    "type": "rate_limit_error",
+                }},
+            )
+            resp.headers["Retry-After"] = str(seconds)
+            return resp
+
+        # Deliberately exempt from the rate limit: media is authenticated by the
+        # signed URL rather than a key, so there is no identity to meter, and a
+        # chat client loading a history full of images would trip any sane ceiling.
         if path == "/v1/m365-media":
             return await call_next(request)
 
@@ -69,6 +106,9 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
                     content={"error": {"message": "API key is disabled", "type": "auth_error"}},
                 ))
             account = app.state.account_store.get(key_obj.account_id) if key_obj.account_id else None
+            limited = rate_limited(key_obj.id, key_obj)
+            if limited is not None:
+                return with_cors(limited)
             if account is not None and path.startswith("/v1/"):
                 try:
                     ok = await app.state.refresh_scheduler.ensure_fresh(account.id)
@@ -88,11 +128,17 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
             return await call_next(request)
 
         if resolved_settings.api_key and raw_key == resolved_settings.api_key:
+            limited = rate_limited("__global_key__")
+            if limited is not None:
+                return with_cors(limited)
             request.state.api_key_obj = None
             request.state.account = None
             return await call_next(request)
 
         if not resolved_settings.api_key and not app.state.key_store.list():
+            limited = rate_limited("__open__")
+            if limited is not None:
+                return with_cors(limited)
             request.state.api_key_obj = None
             request.state.account = None
             return await call_next(request)

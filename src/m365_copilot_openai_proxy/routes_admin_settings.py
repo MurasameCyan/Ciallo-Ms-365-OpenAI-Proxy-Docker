@@ -80,6 +80,9 @@ def register_admin_settings_routes(
             "cookie_keepalive_before_hours": int_setting("cookie_keepalive_before_hours", 1),
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
+            # 0 is a valid value here (disables limiting), hence minimum 0.
+            "rate_limit_rpm": int_setting("rate_limit_rpm", 0),
+            "rate_limit_burst": int_setting("rate_limit_burst", 1),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],

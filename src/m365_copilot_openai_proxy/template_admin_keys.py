@@ -44,6 +44,7 @@ async function loadKeys(localOnly=false){
         +'<input id="ke-user-'+k.id+'" value="'+esc(k.username||'')+'" placeholder="'+t('kf_username_ph')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
         +'<input id="ke-pass-'+k.id+'" type="text" placeholder="'+t('key_prompt_password_opt')+'" style="flex:1;min-width:140px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
         +'<label class="role-toggle" title="role"><span class="role-a">A</span><input id="ke-role-'+k.id+'" type="checkbox" '+(k.role!=='admin'?'checked':'')+'><span class="role-track"></span><span class="role-u">U</span></label>'
+        +'<input id="ke-rpm-'+k.id+'" type="number" value="'+(k.rate_limit_rpm?k.rate_limit_rpm:'')+'" placeholder="'+t('kf_rpm_ph')+' ('+(k.default_rate_limit_rpm||0)+')" title="'+t('kf_rpm_title')+'" style="width:130px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
         +'<button onclick="submitKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('rebind_confirm')+'</button>'
         +'<button onclick="setKeyLogin(\\''+k.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
         +'</div><div id="ke-msg-'+k.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
@@ -119,6 +120,9 @@ async function submitKeyLogin(id){
   if(password&&!_PASS_RE.test(password)){m.textContent=t('cred_bad_pass');return}
   const body={username:username,role:role};
   if(password)body.password=password;
+  // Blank => 0 => inherit the global ceiling; a negative value waives it for this key.
+  const rl=document.getElementById('ke-rpm-'+id);
+  if(rl)body.rate_limit_rpm=rl.value===''?0:(Number(rl.value)||0);
   try{
     const r=await fetch('/admin/keys/'+id,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!r.ok){const d=await r.json().catch(()=>({}));m.textContent=(d.error&&d.error.message)||'error';return}

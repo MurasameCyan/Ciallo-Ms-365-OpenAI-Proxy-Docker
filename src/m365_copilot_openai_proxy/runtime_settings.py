@@ -37,6 +37,13 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "cookie_keepalive_before_hours": 2,
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
+    # Self-imposed per-key request ceiling for /v1/ endpoints. M365 publishes no
+    # rate-limit headers, so this is the only thing stopping one runaway client on
+    # a shared deployment from exhausting the account everyone else is bound to.
+    # rpm 0 disables limiting globally; burst is the bucket depth, i.e. how large
+    # a momentary spike is absorbed before the rpm average is enforced.
+    "rate_limit_rpm": 60,
+    "rate_limit_burst": 15,
     "log_level": "INFO",
     "call_log_limit": 100,
     "run_permission": "full",
@@ -161,6 +168,16 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["cookie_keepalive_before_hours"] = max(1, int(data.get("cookie_keepalive_before_hours") or _RUNTIME_SETTINGS_DEFAULTS["cookie_keepalive_before_hours"]))
     data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
     data["account_cdp_port_base"] = max(1, int(data.get("account_cdp_port_base") or _RUNTIME_SETTINGS_DEFAULTS["account_cdp_port_base"]))
+    # 0 is meaningful here (disables limiting), so it must not fall through to the
+    # default the way the `or`-guarded ints above do.
+    try:
+        data["rate_limit_rpm"] = max(0, int(data.get("rate_limit_rpm")))
+    except (TypeError, ValueError):
+        data["rate_limit_rpm"] = _RUNTIME_SETTINGS_DEFAULTS["rate_limit_rpm"]
+    try:
+        data["rate_limit_burst"] = max(1, int(data.get("rate_limit_burst")))
+    except (TypeError, ValueError):
+        data["rate_limit_burst"] = _RUNTIME_SETTINGS_DEFAULTS["rate_limit_burst"]
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
     if data["log_level"] not in _LOG_LEVELS:
         data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]
