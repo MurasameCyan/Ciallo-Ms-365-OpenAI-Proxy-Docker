@@ -39,7 +39,14 @@ def init_token_dir(token_dir: str) -> None:
 
 
 def decode_jwt_payload(token: str) -> dict[str, Any]:
-    payload = token.split(".")[1]
+    # Reject a non-JWT up front. Indexing [1] on the split raised IndexError for
+    # an empty or malformed token, which every caller surfaced verbatim as the
+    # opaque "list index out of range" -- reported from /healthz on a deployment
+    # whose global token is unset because each account carries its own.
+    parts = token.split(".")
+    if len(parts) < 2 or not parts[1]:
+        raise ValueError("not a JWT (expected header.payload.signature)")
+    payload = parts[1]
     payload += "=" * (-len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
@@ -63,6 +70,13 @@ class AccessTokenStore:
     def status(self) -> dict[str, Any]:
         token = self.get()
         now = time.time()
+        # An unset global token is the normal state of a multi-account deployment:
+        # every request resolves its token from the account behind the API key, so
+        # nothing populates this one. Say so plainly instead of reporting a decode
+        # failure for a token that was never meant to exist, matching
+        # Account.token_status().
+        if not token:
+            return {"valid": False, "error": "No token", "expires_at": None, "seconds_remaining": 0}
         try:
             claims = decode_jwt_payload(token)
             if not is_substrate_token_claims(claims):

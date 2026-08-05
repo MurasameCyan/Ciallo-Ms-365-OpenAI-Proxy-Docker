@@ -24,7 +24,19 @@ def register_web_routes(
 ) -> None:
     @app.get("/healthz")
     async def healthz() -> dict:
-        return {"status": "ok", "token": app.state.token_store.status()}
+        # Report the account pool when one is configured. Requests resolve their
+        # token from the account behind the API key, so on a multi-account
+        # deployment the global token is unset and reporting only it says nothing
+        # about whether the proxy can actually serve traffic.
+        accounts = app.state.account_store.list() if getattr(app.state, "account_store", None) else []
+        body = {"status": "ok", "token": app.state.token_store.status()}
+        if accounts:
+            statuses = [acc.token_status() for acc in accounts]
+            body["accounts"] = {
+                "total": len(statuses),
+                "valid": sum(1 for s in statuses if s["valid"]),
+            }
+        return body
 
     @app.post("/admin/login")
     async def admin_login(request: Request) -> Response:
