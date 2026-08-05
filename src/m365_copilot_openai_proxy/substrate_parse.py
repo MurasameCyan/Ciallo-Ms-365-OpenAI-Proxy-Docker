@@ -443,6 +443,18 @@ def _combine_text(prompt: str, context: list[str]) -> str:
             "returns their results. Ignore any other tools you may normally have -- do not search "
             "the web, run code, or generate, upload or attach a file to answer a request that a "
             "listed tool covers. Never claim a listed tool is unavailable. Emitting the "
-            "```tool_call``` block is the only valid way to invoke one.[/FORMAT]"
+            "```tool_call``` block is the only valid way to invoke one.\n"
+            # Second-best outcome, deliberately shaped to what _extract_prose_write
+            # keys on: a backticked ABSOLUTE path plus a fenced block whose language
+            # tag matches the extension. When the model will not emit the fence --
+            # the common case, since M365 prefers to answer a file request with a
+            # hosted attachment -- this at least lands in the shape the prose
+            # fallback can still synthesize a Write from. Anything looser is not
+            # worth having: the fallback's strictness is what stops a usage-example
+            # block from overwriting a real file.
+            "If you will not emit the block, write the answer inline instead: a backticked "
+            "absolute path (`S:/dir/name.ext`) on its own line, then the complete file body in a "
+            "fenced code block tagged with its language. Never attach a file in place of this."
+            "[/FORMAT]"
         )
     return result
