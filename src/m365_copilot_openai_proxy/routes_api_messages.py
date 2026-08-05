@@ -147,28 +147,34 @@ def register_messages_routes(
             )
 
         try:
-            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session, translated.images))
+            raw_text = await client.chat(translated.prompt, translated.additional_context, session, translated.images)
         except SubstrateCopilotError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-        tool_calls = _resolve_tool_calls(text, tool_names, read_only_guard)
-        if not tool_calls and tool_names and not read_only_guard and _looks_like_fake_file_claim(text):
+        # Parse the RAW model text, never the media-rewritten one. The rewriter
+        # base64-encodes the source URL into a ?u= parameter, which destroys the
+        # file extension _looks_like_fake_file_claim keys on -- so a natively
+        # generated file (hosted URL, no tool_call) slipped past the corrective
+        # retry. Rewriting is a delivery concern and is applied further down, to
+        # the prose only, so it can also never touch a Write's file content.
+        tool_calls = _resolve_tool_calls(raw_text, tool_names, read_only_guard)
+        if not tool_calls and tool_names and not read_only_guard and _looks_like_fake_file_claim(raw_text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
-                retry_text = media_rewriter(await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session))
+                retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
                 retry_calls = _resolve_tool_calls(retry_text, tool_names, read_only_guard)
                 if retry_calls:
-                    text, tool_calls = retry_text, retry_calls
+                    raw_text, tool_calls = retry_text, retry_calls
                     call_record["retried"] = True
             except SubstrateCopilotError:
                 pass  # Keep original response if retry fails
 
-        record_response_text(app.state, call_record, text)
+        record_response_text(app.state, call_record, raw_text)
         call_record["tool_calls_result"] = [b["name"] for b in _tool_use_blocks(tool_calls)] if tool_calls else []
         append_call_log(app.state, call_record)
 
         if tool_calls:
-            remaining = _strip_tool_call_blocks(text)
+            remaining = media_rewriter(_strip_tool_call_blocks(raw_text))
             content: list[dict] = []
             if remaining:
                 content.append({"type": "text", "text": remaining})
@@ -189,7 +195,7 @@ def register_messages_routes(
             "type": "message",
             "role": "assistant",
             "model": model_alias,
-            "content": [{"type": "text", "text": text}],
+            "content": [{"type": "text", "text": media_rewriter(raw_text)}],
             "stop_reason": "end_turn",
             "stop_sequence": None,
             "usage": {"input_tokens": 0, "output_tokens": 0},
@@ -242,9 +248,11 @@ async def _anthropic_stream_with_tools(
         chunks: list[str] = []
         async for delta in client.chat_stream(prompt, additional_context, session, images):
             chunks.append(delta)
+        # Parsing runs on the RAW text: the media rewriter base64-encodes the
+        # source URL into a ?u= parameter, erasing the file extension that
+        # _looks_like_fake_file_claim needs to spot a natively generated file.
+        # Rewriting happens at delivery time, over the prose only.
         full_text = "".join(chunks)
-        if text_transform is not None:
-            full_text = text_transform(full_text)
 
         tool_calls = _resolve_tool_calls(full_text, tool_names or set(), read_only_guard)
         if not tool_calls and tool_names and not read_only_guard and _looks_like_fake_file_claim(full_text):
@@ -253,8 +261,6 @@ async def _anthropic_stream_with_tools(
             async for delta in client.chat_stream(_RETRY_INSTRUCTION, additional_context, session):
                 retry_chunks.append(delta)
             retry_text = "".join(retry_chunks)
-            if text_transform is not None:
-                retry_text = text_transform(retry_text)
             retry_calls = _resolve_tool_calls(retry_text, tool_names or set(), read_only_guard)
             if retry_calls:
                 full_text, tool_calls = retry_text, retry_calls
@@ -269,6 +275,8 @@ async def _anthropic_stream_with_tools(
 
     blocks = _tool_use_blocks(tool_calls)
     text_out = _strip_tool_call_blocks(full_text) if tool_calls else full_text
+    if text_transform is not None:
+        text_out = text_transform(text_out)
     if call_record is not None:
         call_record["tool_calls_result"] = [b["name"] for b in blocks]
     if blocks:

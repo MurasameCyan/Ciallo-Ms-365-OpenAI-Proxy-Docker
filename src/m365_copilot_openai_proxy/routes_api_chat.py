@@ -144,7 +144,13 @@ def register_chat_routes(
                     ),
                     media_type="text/event-stream",
                 )
-            text = media_rewriter(await client.chat(translated.prompt, translated.additional_context, session, translated.images))
+            # Keep the RAW model text for parsing; the media rewriter is applied
+            # at delivery time below. Rewriting first base64-encodes the source
+            # URL into a ?u= parameter, erasing the file extension that
+            # _looks_like_fake_file_claim needs to detect a natively generated
+            # file, so the corrective retry never fired. Deferring it also keeps
+            # the rewriter away from a Write tool_call's file content.
+            text = await client.chat(translated.prompt, translated.additional_context, session, translated.images)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
@@ -169,7 +175,7 @@ def register_chat_routes(
         if not tool_calls and request.tools and not read_only_guard and _looks_like_fake_file_claim(text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
-                retry_text = media_rewriter(await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session))
+                retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
                 retry_calls = _extract_tool_calls(retry_text)
                 if not retry_calls:
                     tool_names = {t.function.name for t in request.tools if t.function}
@@ -190,7 +196,7 @@ def register_chat_routes(
         call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
         append_call_log(app.state, call_record)
         if tool_calls:
-            remaining = _strip_tool_call_blocks(text)
+            remaining = media_rewriter(_strip_tool_call_blocks(text))
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
             return JSONResponse({
                 "id": f"chatcmpl_{uuid.uuid4().hex}",
@@ -215,7 +221,7 @@ def register_chat_routes(
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": text},
+                    "message": {"role": "assistant", "content": media_rewriter(text)},
                     "finish_reason": "stop",
                 }
             ],
@@ -241,6 +247,9 @@ async def _openai_stream_with_tools(
     chunks: list[str] = []
     async for delta in client.chat_stream(prompt, additional_context, session, images):
         chunks.append(delta)
+    # Raw text for parsing; the media rewriter runs at delivery time below. This
+    # path previously never applied it at all, so media links reached streaming
+    # clients unrewritten.
     full_text = "".join(chunks)
 
     tool_calls = _extract_tool_calls(full_text)
@@ -262,8 +271,6 @@ async def _openai_stream_with_tools(
             async for delta in client.chat_stream(_RETRY_INSTRUCTION, additional_context, session):
                 retry_chunks.append(delta)
             retry_text = "".join(retry_chunks)
-            if text_transform is not None:
-                retry_text = text_transform(retry_text)
             retry_calls = _extract_tool_calls(retry_text)
             if not retry_calls:
                 retry_calls = _extract_prose_write(retry_text, tool_names)
@@ -288,6 +295,8 @@ async def _openai_stream_with_tools(
 
     if tool_calls:
         remaining = _strip_tool_call_blocks(full_text)
+        if text_transform is not None:
+            remaining = text_transform(remaining)
         # Emit role chunk
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         # Emit remaining text content if any
@@ -302,7 +311,8 @@ async def _openai_stream_with_tools(
         yield "data: [DONE]\n\n"
     else:
         # No tool calls found — re-stream as normal content
+        delivered = text_transform(full_text) if text_transform is not None else full_text
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': full_text}, 'finish_reason': None}]})}\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
         yield "data: [DONE]\n\n"
