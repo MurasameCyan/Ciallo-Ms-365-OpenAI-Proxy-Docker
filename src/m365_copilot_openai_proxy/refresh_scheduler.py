@@ -20,6 +20,7 @@ from .refresh_chromium import (
     _cleanup_profile_locks,
     _close_chromium_gracefully,
     _resolve_chromium_path,
+    chromium_proxy_args,
 )
 from .refresh_cookies import (
     _SESSION_COOKIE_PERSIST_SECONDS,
@@ -538,6 +539,7 @@ class RefreshScheduler:
                 _chromium_path(),
                 f"--remote-debugging-port={account.cdp_port}",
                 f"--user-data-dir={profile_dir}",
+                *chromium_proxy_args(),
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--no-sandbox",

@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .media_proxy import designer_object_fetch_url
+from .refresh_chromium import chromium_proxy_args
 from .refresh_cookies import _cdp_cookie_params
 from .refresh_media import (
     UpstreamMediaNotFound,
@@ -59,6 +60,7 @@ async def fetch_image_one(
             chrome_bin,
             f"--remote-debugging-port={cdp_port}",
             f"--user-data-dir={profile_dir}",
+            *chromium_proxy_args(),
             "--no-first-run",
             "--no-default-browser-check",
             "--no-sandbox",

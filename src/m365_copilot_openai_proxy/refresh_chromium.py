@@ -53,6 +53,31 @@ def _resolve_chromium_path() -> str:
     )
 
 
+def chromium_proxy_args() -> list[str]:
+    """Chromium proxy flags for the configured proxy, or [] when unset.
+
+    Read from the environment rather than app.state so the CLI and the refresh
+    paths behave identically; runtime_settings.apply_proxy_env() is what puts it
+    there. The bypass list must keep the CDP host direct -- routing Chromium's
+    own loopback traffic through a proxy breaks the debugging channel.
+    """
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+    if not proxy:
+        return []
+    # socks5h/socks4a are a curl/Python convention for "resolve DNS at the
+    # proxy". Chromium does not parse them and would reject the flag outright,
+    # so map them onto the schemes it knows -- its socks5:// already resolves
+    # remotely, making socks5h equivalent rather than a downgrade.
+    scheme, sep, rest = proxy.partition("://")
+    chromium_scheme = {"socks5h": "socks5", "socks4a": "socks4"}.get(scheme.lower())
+    if sep and chromium_scheme:
+        proxy = f"{chromium_scheme}://{rest}"
+    return [
+        f"--proxy-server={proxy}",
+        "--proxy-bypass-list=localhost;127.0.0.1;[::1]",
+    ]
+
+
 async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | None) -> None:
     if proc is None or proc.poll() is not None:
         return

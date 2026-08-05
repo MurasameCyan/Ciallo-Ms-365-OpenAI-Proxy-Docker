@@ -9,6 +9,7 @@ import time
 
 from .account_store import extract_identity
 from .refresh_browser_helpers import _identity_conflict, _is_login_url, _is_logged_out_shell
+from .refresh_chromium import chromium_proxy_args
 from .refresh_cookies import _SESSION_COOKIE_PERSIST_SECONDS, _cdp_cookie_params, _critical_cookie_report
 from .runtime_flags import elog, ulog
 
@@ -131,6 +132,7 @@ async def inject_cookies_one(
             chromium_path(),
             f"--remote-debugging-port={account.cdp_port}",
             f"--user-data-dir={profile_dir}",
+            *chromium_proxy_args(),
             "--no-first-run",
             "--no-default-browser-check",
             "--no-sandbox",

@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _RUN_PERMISSIONS = {"read_only", "full"}
+_PROXY_SCHEMES = {"http", "https", "socks5", "socks5h", "socks4", "socks4a"}
+# Hosts that must never be proxied: the CDP control channel to the local
+# Chromium. websockets>=15 and httpx both consult these env vars by default, so
+# without this pin an admin-set proxy would swallow every browser automation
+# call and break cookie refresh / token capture.
+_PROXY_NEVER = ("localhost", "127.0.0.1", "::1")
+_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 _MEDIA_SUFFIX_RE = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,39}$")
 _DEFAULT_MEDIA_PROXY_SUFFIXES = [
     "png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "tif", "tiff", "ico", "heic", "heif", "avif",
@@ -44,6 +53,12 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # a momentary spike is absorbed before the rpm average is enforced.
     "rate_limit_rpm": 60,
     "rate_limit_burst": 15,
+    # Outbound proxy for everything that leaves the container: the substrate chat
+    # WebSocket, media/token HTTP calls, and the refresh Chromium. Empty disables
+    # it and falls back to whatever HTTPS_PROXY the deployment set. Needed where
+    # M365 is not directly reachable (e.g. a mainland-China host). Applied by
+    # apply_proxy_env(); localhost is always exempt (see _PROXY_NEVER).
+    "proxy_url": "",
     "log_level": "INFO",
     "call_log_limit": 100,
     "run_permission": "full",
@@ -142,6 +157,75 @@ def normalize_media_proxy_suffixes(value) -> list[str]:
     return suffixes
 
 
+def normalize_proxy_url(value) -> str:
+    """Validate an admin-supplied proxy URL, returning "" when unusable.
+
+    Trust boundary: this string is handed to httpx/websockets and spliced into a
+    Chromium argv, so anything with whitespace or control characters is rejected
+    outright rather than normalised.
+    """
+    raw = str(value or "").strip()
+    if not raw or len(raw) > 200:
+        return ""
+    if any(c.isspace() or ord(c) < 0x20 for c in raw):
+        return ""
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in _PROXY_SCHEMES or not parts.hostname:
+        return ""
+    # A path/query on a proxy URL is meaningless and usually a typo (a pasted
+    # subscription link). Credentials and an explicit port are fine.
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        return ""
+    try:
+        if parts.port is None:
+            return ""
+    except ValueError:
+        return ""
+    return raw
+
+
+def _no_proxy_value(existing: str) -> str:
+    """NO_PROXY with the local CDP hosts pinned in, preserving admin entries."""
+    entries = [e.strip() for e in (existing or "").split(",") if e.strip()]
+    lowered = {e.lower() for e in entries}
+    entries.extend(h for h in _PROXY_NEVER if h not in lowered)
+    return ",".join(entries)
+
+
+# Environment as the process started, so clearing the setting restores the
+# deployment's own proxy vars instead of erasing them.
+_BASE_PROXY_ENV = {name: os.environ.get(name) for name in _PROXY_ENV_VARS}
+
+
+def apply_proxy_env(proxy_url: str) -> None:
+    """Publish the configured proxy through the standard env vars.
+
+    httpx (trust_env=True) and websockets>=15 (proxy=True) both read these by
+    default, so setting them here routes every outbound call -- including the
+    substrate chat WebSocket -- without touching the ~24 individual call sites.
+
+    ponytail: process-global by design, matching the global (not per-account)
+    proxy setting. Per-account proxies would need the URL threaded to each call
+    site as an explicit argument instead.
+    """
+    proxy_url = normalize_proxy_url(proxy_url)
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        value = proxy_url or _BASE_PROXY_ENV[name]
+        for key in (name, name.lower()):
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+    # Pin localhost even with no proxy configured: the deployment may set
+    # HTTPS_PROXY itself, and CDP must stay direct either way.
+    no_proxy = _no_proxy_value(_BASE_PROXY_ENV["NO_PROXY"] or "")
+    os.environ["NO_PROXY"] = no_proxy
+    os.environ["no_proxy"] = no_proxy
+
+
 def _runtime_settings_path(token_dir: str) -> Path:
     return Path(token_dir) / "runtime_settings.json"
 
@@ -178,6 +262,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
         data["rate_limit_burst"] = max(1, int(data.get("rate_limit_burst")))
     except (TypeError, ValueError):
         data["rate_limit_burst"] = _RUNTIME_SETTINGS_DEFAULTS["rate_limit_burst"]
+    data["proxy_url"] = normalize_proxy_url(data.get("proxy_url"))
     data["log_level"] = str(data.get("log_level") or _RUNTIME_SETTINGS_DEFAULTS["log_level"]).strip().upper()
     if data["log_level"] not in _LOG_LEVELS:
         data["log_level"] = _RUNTIME_SETTINGS_DEFAULTS["log_level"]

@@ -50,7 +50,7 @@ function renderRuntimeSettings(s){
   try{
     s=s||{};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-rate-limit-rpm',s.rate_limit_rpm);set('runtime-rate-limit-burst',s.rate_limit_burst);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
+    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-rate-limit-rpm',s.rate_limit_rpm);set('runtime-rate-limit-burst',s.rate_limit_burst);set('runtime-proxy-url',s.proxy_url);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
     const ms=document.getElementById('media-suffix-input');if(ms&&document.activeElement!==ms)ms.value=(s.media_proxy_suffixes||[]).join('\\n');
     const to=document.getElementById('tone-options-input');if(to&&document.activeElement!==to)to.value=_toneOptionsToText(s.tone_options||[]);
@@ -68,7 +68,7 @@ async function saveRuntimeSettings(btnId){
   if(btn){btn.disabled=true;btn.textContent='...'}
   const body={...__runtimeSettings};
   const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
-  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('rate_limit_rpm','runtime-rate-limit-rpm',v=>Number(v||0));put('rate_limit_burst','runtime-rate-limit-burst',v=>Number(v||15));put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
+  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('rate_limit_rpm','runtime-rate-limit-rpm',v=>Number(v||0));put('rate_limit_burst','runtime-rate-limit-burst',v=>Number(v||15));put('proxy_url','runtime-proxy-url');put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
   const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
   const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
   const uv=document.getElementById('runtime-user-log-verbose');if(uv)body.user_log_verbose=uv.value==='true';
@@ -77,7 +77,11 @@ async function saveRuntimeSettings(btnId){
   body.media_proxy_suffixes=_mediaSuffixListFromInput();
   const mt=document.getElementById('media-proxy-ttl-input');if(mt&&mt.value!=='')body.media_proxy_ttl_seconds=Math.max(1,Number(mt.value||1)||1)*86400;
   try{
-    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){if(btn){btn.disabled=false;btn.textContent=oldText}return;}
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    // Surface the server's rejection reason: a validation failure (e.g. a
+    // malformed proxy URL) is otherwise indistinguishable from a successful save.
+    if(!r.ok){const d=await r.json().catch(()=>({}));const sp=document.getElementById('runtime-settings-saved');if(sp){sp.style.display='';sp.style.color='#ef4444';sp.style.fontSize='.75rem';sp.textContent=(d.error&&d.error.message)||'error'}if(btn){btn.disabled=false;btn.textContent=oldText}return;}
+    const sp0=document.getElementById('runtime-settings-saved');if(sp0){sp0.textContent='';sp0.style.display='none'}
     const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
     if(btn){btn.textContent=t('tone_saved');setTimeout(()=>{btn.disabled=false;btn.textContent=oldText},1500)}
   }catch(e){if(btn){btn.disabled=false;btn.textContent=oldText}}

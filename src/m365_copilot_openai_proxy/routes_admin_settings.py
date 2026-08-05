@@ -14,7 +14,9 @@ from .runtime_settings import (
     _RUNTIME_SETTINGS_DEFAULTS,
     _RUN_PERMISSIONS,
     _write_runtime_settings,
+    apply_proxy_env,
     normalize_media_proxy_suffixes,
+    normalize_proxy_url,
     normalize_tone_options,
 )
 from .runtime_flags import set_flags as _set_log_flags
@@ -83,6 +85,7 @@ def register_admin_settings_routes(
             # 0 is a valid value here (disables limiting), hence minimum 0.
             "rate_limit_rpm": int_setting("rate_limit_rpm", 0),
             "rate_limit_burst": int_setting("rate_limit_burst", 1),
+            "proxy_url": normalize_proxy_url(body.get("proxy_url", current.get("proxy_url", ""))),
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
@@ -97,6 +100,11 @@ def register_admin_settings_routes(
             return _json_err(400, "Invalid log level")
         if data["run_permission"] not in _RUN_PERMISSIONS:
             return _json_err(400, "Invalid run permission")
+        # Reject rather than silently blank a typo'd proxy: a saved-but-ignored
+        # proxy looks identical to a working one in the UI while every upstream
+        # call still goes direct.
+        if str(body.get("proxy_url", "")).strip() and not data["proxy_url"]:
+            return _json_err(400, "Invalid proxy URL. Expected scheme://host:port with scheme one of http, https, socks5, socks5h, socks4, socks4a")
         app.state.runtime_settings = data
         app.state.time_zone = data["time_zone"]
         app.state.model_alias = data["model_alias"]
@@ -112,6 +120,10 @@ def register_admin_settings_routes(
                 check_interval_seconds=data["keepalive_check_minutes"] * 60,
                 cookie_before_seconds=data["cookie_keepalive_before_hours"] * 3600,
             )
+        # Clients are built per request, so the next upstream call picks this up
+        # with no restart. A Chromium already running keeps its old proxy until
+        # the next refresh launch.
+        apply_proxy_env(data["proxy_url"])
         app.state.cdp_port = data["cdp_port"]
         app.state.account_cdp_port_base = data["account_cdp_port_base"]
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)

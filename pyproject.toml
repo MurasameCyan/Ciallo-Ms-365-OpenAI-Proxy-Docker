@@ -7,10 +7,18 @@ requires-python = ">=3.11"
 dependencies = [
     "cryptography>=43.0.0,<47.0.0",
     "fastapi>=0.116.0,<1.0.0",
-    "httpx>=0.28.0,<1.0.0",
+    # [socks] pulls in socksio so an admin-configured socks5:// proxy works for
+    # the media/token HTTP calls, not just http:// proxies.
+    "httpx[socks]>=0.28.0,<1.0.0",
     "pydantic-settings>=2.10.0,<3.0.0",
+    # python-socks is what gives websockets its socks5 support; HTTP CONNECT
+    # tunnelling is built in.
+    "python-socks[asyncio]>=2.4.0,<3.0.0",
     "uvicorn>=0.35.0,<1.0.0",
-    "websockets>=12.0,<15.0",
+    # >=15.0 for the `proxy=` argument on connect() -- the substrate chat socket
+    # is the one connection that must traverse the proxy for a mainland-China
+    # deployment to work at all.
+    "websockets>=15.0,<16.0",
 ]
 
 [project.optional-dependencies]

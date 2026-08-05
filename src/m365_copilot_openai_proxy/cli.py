@@ -207,6 +207,13 @@ def main() -> None:
     serve_parser.set_defaults(func=serve_command)
 
     args = parser.parse_args()
+    # Pin localhost into NO_PROXY before any CDP call. websockets>=15 and httpx
+    # both honour the proxy env vars by default, so a developer with HTTPS_PROXY
+    # set would otherwise have every localhost CDP connection routed through it.
+    # serve re-applies this from the persisted setting via create_app().
+    from .runtime_settings import apply_proxy_env
+
+    apply_proxy_env("")
     args.func(args)
 
 
@@ -227,10 +234,13 @@ def _launch_debug_edge(cdp_port: int) -> None:
         import shutil
         edge_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("microsoft-edge") or shutil.which("microsoft-edge-stable") or "chromium"
 
+    from .refresh_chromium import chromium_proxy_args
+
     subprocess.Popen([
         edge_path,
         f"--remote-debugging-port={cdp_port}",
         f"--user-data-dir={profile_dir}",
+        *chromium_proxy_args(),
         "--no-first-run",
         "https://m365.cloud.microsoft/chat",
     ])

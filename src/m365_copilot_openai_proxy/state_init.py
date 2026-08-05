@@ -16,7 +16,7 @@ from .login_guard import LoginRateLimiter
 from .metrics_store import init_metrics_store
 from .refresh_scheduler import RefreshScheduler
 from .runtime_flags import set_flags as _set_log_flags
-from .runtime_settings import _read_runtime_settings
+from .runtime_settings import _read_runtime_settings, apply_proxy_env
 from .session_store import PersistentSessionStore
 from .substrate_client import SubstrateCopilotClient
 from .token_store import (
@@ -105,6 +105,10 @@ def init_app_state(
     init_media_proxy_events(app.state)
     init_metrics_store(app.state, Path(settings.token_dir) / "metrics_history.json")
     app.state.runtime_settings = runtime_settings
+    # Publish the proxy before anything opens an upstream connection. Also pins
+    # localhost into NO_PROXY when no proxy is set, so a deployment-level
+    # HTTPS_PROXY can never swallow the local CDP traffic.
+    apply_proxy_env(runtime_settings["proxy_url"])
     app.state.model_alias = runtime_settings["model_alias"]
     app.state.time_zone = runtime_settings["time_zone"]
     app.state.auto_refresh_enabled = runtime_settings["auto_refresh"]
