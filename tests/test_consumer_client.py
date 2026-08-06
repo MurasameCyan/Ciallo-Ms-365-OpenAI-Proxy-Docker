@@ -114,6 +114,21 @@ def test_ws_url_omits_auth_params_when_anonymous():
     assert "accessToken=" not in url and "X-UserIdentityType=" not in url
 
 
+def test_rest_headers_carry_the_bearer_token_but_the_socket_ones_do_not():
+    # Measured by replaying the page's own request: cookies alone answer 403 on
+    # /c/api/conversations, and the same headers plus Authorization answer 200.
+    # The socket must NOT get the header -- it authenticates by query param.
+    client = ConsumerCopilotClient(access_token="tok")
+    assert client._headers(authorize=True)["authorization"] == "Bearer tok"
+    assert "authorization" not in client._headers()
+
+
+def test_anonymous_rest_headers_omit_an_empty_bearer():
+    # "Bearer " with no token is worse than no header: it reads as a malformed
+    # credential rather than an absent one.
+    assert "authorization" not in ConsumerCopilotClient()._headers(authorize=True)
+
+
 def _jar_with(entries):
     cookies = httpx.Cookies()
     for name, value, domain in entries:
@@ -204,3 +219,94 @@ def test_chat_service_unavailable_is_a_typed_region_error():
     socket = _FakeSocket(['{"event":"error","errorCode":"chat-service-unavailable"}'])
     with pytest.raises(RegionBlocked, match="anonymous"):
         _collect(ConsumerCopilotClient(), socket)
+
+
+def test_apply_session_keeps_the_token_a_tokenless_harvest_did_not_carry():
+    # A harvest can earn fresh clearance without ever seeing a chat socket, so it
+    # comes back tokenless. Overwriting the live token would turn a solved gate
+    # into a 401 on the very next turn.
+    client = ConsumerCopilotClient(cookies={"_C_Auth": "live"}, access_token="tok")
+    client.apply_session({"cookies": {"cf_clearance": "fresh", "_C_Auth": ""}, "access_token": ""})
+    assert client._token == "tok"
+    assert client._cookies == {"_C_Auth": "live", "cf_clearance": "fresh"}
+
+
+def _scripted_client(attempts, session):
+    """Client whose ``_chat_once`` replays ``attempts`` (chunk list or exception).
+
+    Records what each attempt saw, so a test can assert the retry ran against the
+    refreshed session rather than the stale one.
+    """
+    seen = []
+    refreshed = []
+
+    async def _refresh():
+        refreshed.append(True)
+        return session
+
+    client = ConsumerCopilotClient(cookies={"a": "1"}, refresh_clearance=_refresh)
+
+    async def _fake_once(prompt, conversation_id=""):
+        seen.append((conversation_id, dict(client._cookies)))
+        step = attempts.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        for chunk in step:
+            yield chunk
+
+    client._chat_once = _fake_once
+    return client, seen, refreshed
+
+
+def _drain(client, prompt="hi", conversation_id="old-convo"):
+    async def _run():
+        return [chunk async for chunk in client.chat_stream(prompt, conversation_id)]
+    return asyncio.run(_run())
+
+
+def test_a_gated_turn_is_replayed_against_the_refreshed_session():
+    client, seen, refreshed = _scripted_client(
+        [ClearanceRequired("gated"), ["hi"]],
+        {"earned": True, "cookies": {"cf_clearance": "fresh"}},
+    )
+    assert _drain(client) == ["hi"]
+    assert refreshed == [True]
+    # The retry must start a new conversation: the old id belongs to the session
+    # that was refused, and it carries the clearance it just earned.
+    assert seen[1][0] == ""
+    assert seen[1][1]["cf_clearance"] == "fresh"
+
+
+def test_a_turn_that_already_streamed_is_not_replayed():
+    # The regression this guards: replaying a half-streamed turn emits the answer
+    # twice, which is exactly the duplicate-reply bug fixed on the M365 side.
+    async def _partial(prompt, conversation_id=""):
+        yield "half an answer"
+        raise ClearanceRequired("gated mid-turn")
+
+    client, _, refreshed = _scripted_client([], {"earned": True})
+    client._chat_once = _partial
+    with pytest.raises(ClearanceRequired):
+        _drain(client)
+    assert refreshed == []
+
+
+def test_an_unearned_harvest_raises_instead_of_retrying_into_the_same_wall():
+    client, seen, _ = _scripted_client(
+        [ClearanceRequired("gated")], {"earned": False, "cookies": {"a": "1"}}
+    )
+    with pytest.raises(ClearanceRequired, match="residential proxy"):
+        _drain(client)
+    assert len(seen) == 1
+
+
+def test_without_a_refresh_hook_the_gate_propagates_untouched():
+    client = ConsumerCopilotClient()
+
+    async def _gated(prompt, conversation_id=""):
+        raise ClearanceRequired("gated")
+        yield  # pragma: no cover - makes this an async generator
+
+    client._chat_once = _gated
+    with pytest.raises(ClearanceRequired, match="^gated$"):
+        _drain(client)

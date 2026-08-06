@@ -29,7 +29,7 @@ import hashlib
 import json
 import math
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from urllib.parse import quote
 
 import httpx
@@ -148,12 +148,16 @@ class ConsumerCopilotClient:
     are optional, but anonymous sessions are refused as ``chat-service-unavailable``
     in most regions, so in practice both are required.
 
-    Auth split mirrors the real web client:
-      * REST calls (conversation create) authenticate by COOKIE only — sending
-        the token as ``Authorization: Bearer`` there returns 401.
-      * the WebSocket carries identity in its ``?accessToken=`` query param, and
-        it must be the chat-scoped token (MSAL ``ChatAI.ReadWrite``); a
-        wrong-audience token 401s the upgrade.
+    Auth split mirrors the real web client, and the two halves carry the token
+    differently — measured by replaying the page's own captured request:
+      * REST calls (conversation create) need BOTH the cookies and
+        ``Authorization: Bearer <token>``. Cookies alone answer 403. Nothing else
+        matters: dropping the whole sec-ch-ua / sec-fetch / accept / x-* header
+        set still returns 200, and plain httpx is accepted, so neither header
+        shape nor the TLS fingerprint is part of the check.
+      * the WebSocket carries identity in its ``?accessToken=`` query param
+        instead, and it must be the chat-scoped token (MSAL ``ChatAI.ReadWrite``);
+        a wrong-audience token 401s the upgrade.
     """
 
     def __init__(
@@ -162,18 +166,40 @@ class ConsumerCopilotClient:
         access_token: str = "",
         identity_type: str = "",
         idle_timeout: float | None = None,
+        refresh_clearance: Callable[[], Awaitable[dict]] | None = None,
     ):
         self._cookies = dict(cookies or {})
         self._token = access_token or ""
         self._identity_type = identity_type or ""
         self._idle_timeout = idle_timeout or _IDLE_TIMEOUT
+        self._refresh_clearance = refresh_clearance
 
-    def _headers(self) -> dict[str, str]:
-        return {
+    def apply_session(self, session: dict) -> None:
+        """Adopt cookies/token from a browser harvest (see :mod:`consumer_clearance`).
+
+        Merges rather than replaces: a harvest can come back with fresh clearance
+        but no readable token (the page mints the chat token lazily), and dropping
+        the token we already hold would turn a solved gate into a 401.
+        """
+        self._cookies.update({k: v for k, v in (session.get("cookies") or {}).items() if v})
+        self._token = session.get("access_token") or self._token
+        self._identity_type = session.get("identity_type") or self._identity_type
+
+    def _headers(self, *, authorize: bool = False) -> dict[str, str]:
+        """Browser-shaped headers; ``authorize`` adds the REST Bearer token.
+
+        Off by default because the same headers dress the WebSocket upgrade,
+        which authenticates by query param — the token belongs in exactly one of
+        the two places per call.
+        """
+        headers = {
             "user-agent": BROWSER_USER_AGENT,
             "origin": BASE_URL,
             "referer": f"{BASE_URL}/",
         }
+        if authorize and self._token:
+            headers["authorization"] = f"Bearer {self._token}"
+        return headers
 
     def _ws_url(self) -> str:
         """Mirror the real client's param order: api-version, session id, token.
@@ -193,14 +219,19 @@ class ConsumerCopilotClient:
     async def create_conversation(self) -> str:
         """Create a conversation and return its id, seeding cookies from the landing page."""
         async with httpx.AsyncClient(
-            headers=self._headers(), cookies=self._cookies, timeout=30, follow_redirects=True
+            headers=self._headers(authorize=True), cookies=self._cookies, timeout=30,
+            follow_redirects=True,
         ) as http:
             await http.get(f"{BASE_URL}/")  # establishes __cf_bm / Cloudflare clearance
             response = await http.post(CONVERSATION_URL)
             if response.status_code != 200:
+                hint = ""
+                if response.status_code == 403 and not self._token:
+                    hint = (" No access token was supplied; this endpoint answers 403"
+                            " without an Authorization: Bearer header.")
                 raise ConsumerCopilotError(
                     f"Could not create a Copilot conversation (HTTP {response.status_code}): "
-                    f"{response.text[:200]}"
+                    f"{response.text[:200]}{hint}"
                 )
             conversation_id = (response.json() or {}).get("id")
             if not conversation_id:
@@ -228,11 +259,40 @@ class ConsumerCopilotClient:
                 self._cookies[cookie.name] = cookie.value
 
     async def chat_stream(self, prompt: str, conversation_id: str = "") -> AsyncIterator[str]:
-        """Yield reply text chunks for ``prompt``.
+        """Yield reply text chunks for ``prompt``, refreshing clearance once if gated.
 
         The consumer protocol has no separate system/role channel, so callers
         must fold any system prompt into ``prompt`` themselves.
+
+        On :class:`ClearanceRequired` the turn is retried once against a freshly
+        harvested session, but ONLY if nothing was yielded yet -- replaying a turn
+        that already streamed text would emit the answer twice.
         """
+        emitted = False
+        try:
+            async for chunk in self._chat_once(prompt, conversation_id):
+                emitted = True
+                yield chunk
+            return
+        except ClearanceRequired:
+            if emitted or self._refresh_clearance is None:
+                raise
+        session = await self._refresh_clearance()
+        if not (session or {}).get("earned"):
+            raise ClearanceRequired(
+                "Copilot demanded a Cloudflare Turnstile token and the browser could "
+                "not earn fresh clearance. Cloudflare escalates to an interactive "
+                "puzzle on low-trust egress (datacenter IPs, VPNs); solve it once in a "
+                "visible browser on this profile, or route egress through a residential "
+                "proxy, then retry."
+            )
+        self.apply_session(session)
+        # A new conversation: the old id belongs to the pre-clearance session.
+        async for chunk in self._chat_once(prompt, ""):
+            yield chunk
+
+    async def _chat_once(self, prompt: str, conversation_id: str = "") -> AsyncIterator[str]:
+        """One attempt at a turn: handshake, send, stream. Raises on any gate."""
         conversation_id = conversation_id or await self.create_conversation()
         send_frame = json.dumps({
             "event": "send",
