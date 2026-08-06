@@ -14,4 +14,6 @@ media_proxy_secret
 setup.json
 *.rt.json
 poc_refresh_token_exchange.py
+# Protocol probes: throwaway scripts + the browser profile they sign in with
+.probe/
 get_rt.console.js
