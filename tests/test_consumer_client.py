@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 
+import httpx
 import pytest
 
 from m365_copilot_openai_proxy.consumer_client import (
@@ -111,6 +112,34 @@ def test_ws_url_carries_session_id_and_encodes_the_token():
 def test_ws_url_omits_auth_params_when_anonymous():
     url = ConsumerCopilotClient()._ws_url()
     assert "accessToken=" not in url and "X-UserIdentityType=" not in url
+
+
+def _jar_with(entries):
+    cookies = httpx.Cookies()
+    for name, value, domain in entries:
+        cookies.set(name, value, domain=domain, path="/")
+    return cookies
+
+
+def test_absorb_cookies_survives_one_name_on_two_domains():
+    # The regression this guards: dict(httpx.Cookies) raises CookieConflict, and
+    # every signed-in turn hits it -- injected cookies go in domain-less while
+    # the server's Set-Cookie carries a domain.
+    client = ConsumerCopilotClient(cookies={"_C_Auth": "live"})
+    client._absorb_cookies(_jar_with([
+        ("_C_Auth", "live", ""),
+        ("_C_Auth", "fresh", "copilot.microsoft.com"),
+        ("__cf_bm", "clearance", ".copilot.microsoft.com"),
+    ]))
+    assert client._cookies["__cf_bm"] == "clearance"  # the point of the merge
+
+
+def test_absorb_cookies_does_not_let_a_cleared_value_wipe_a_live_one():
+    # The landing page answers anonymous requests with a blank _C_Auth; adopting
+    # it would log the session out mid-turn.
+    client = ConsumerCopilotClient(cookies={"_C_Auth": "live"})
+    client._absorb_cookies(_jar_with([("_C_Auth", "", "copilot.microsoft.com")]))
+    assert client._cookies["_C_Auth"] == "live"
 
 
 class _FakeSocket:

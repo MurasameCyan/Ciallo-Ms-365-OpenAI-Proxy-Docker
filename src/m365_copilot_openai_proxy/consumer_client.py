@@ -206,8 +206,26 @@ class ConsumerCopilotClient:
             if not conversation_id:
                 raise ConsumerCopilotError("Copilot returned a conversation with no id.")
             # Keep the freshly-issued cookies for the socket.
-            self._cookies.update(dict(http.cookies))
+            self._absorb_cookies(http.cookies)
             return conversation_id
+
+    def _absorb_cookies(self, cookies: httpx.Cookies) -> None:
+        """Merge server-issued cookies (notably ``__cf_bm``) into the session.
+
+        Read the jar rather than ``dict(cookies)``: httpx raises
+        ``CookieConflict`` when one name lives on several domains, which is the
+        normal case here -- cookies we inject go in domain-less while the
+        server's ``Set-Cookie`` carries a real domain, so every signed-in turn
+        would crash on ``_C_Auth``.
+
+        Empty values are skipped. The landing page answers with a blank
+        ``_C_Auth``, and adopting it would wipe the signed-in cookie the caller
+        supplied. The trade-off is that a genuinely cleared cookie lingers for
+        the rest of the turn, which is the better failure of the two.
+        """
+        for cookie in cookies.jar:
+            if cookie.value:
+                self._cookies[cookie.name] = cookie.value
 
     async def chat_stream(self, prompt: str, conversation_id: str = "") -> AsyncIterator[str]:
         """Yield reply text chunks for ``prompt``.
@@ -271,9 +289,11 @@ class ConsumerCopilotClient:
                     # than a silent idle timeout.
                     if msg.get("method") in (None, "cloudflare"):
                         raise ClearanceRequired(
-                            "Copilot chat is gated behind a Cloudflare Turnstile "
-                            f"(challenge method={msg.get('method')!r}); cf_clearance is "
-                            "stale or missing. Refresh it in a browser and retry."
+                            "Copilot chat demands a Cloudflare Turnstile token "
+                            f"(challenge method={msg.get('method')!r}). Minting that token "
+                            "requires executing Cloudflare's challenge JS in a real browser — "
+                            "the consumer chat backend gates some sessions this way, especially "
+                            "during high load or from certain regions."
                         )
                     if answered:
                         continue  # echo of the challenge we already answered
