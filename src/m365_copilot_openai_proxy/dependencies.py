@@ -48,6 +48,29 @@ def create_api_dependencies(
             global_idle_min = int(getattr(app.state, "ws_idle_timeout_minutes", 0) or 0)
             idle_min = key_idle_min or global_idle_min
             idle_timeout = idle_min * 60 if idle_min > 0 else None
+            # Consumer (personal-account) Copilot is a different protocol with a
+            # different error type. Dispatch here -- the single point every /v1
+            # route funnels through -- so no route needs per-provider branching.
+            # The adapter presents the Substrate contract and translates errors;
+            # the client rides the same HTTPS_PROXY egress as everything else
+            # (curl_cffi honours the proxy env by default). No browser gate is
+            # attached server-side: consumer refresh is a userscript re-push to
+            # /user/account/consumer, since reviving a signed-in tab needs a human.
+            if account is not None and getattr(account, "provider", "m365") == "consumer":
+                from .consumer_adapter import ConsumerClientAdapter
+                from .consumer_client import ConsumerCopilotClient
+                from .consumer_gate import _pick_cookies
+
+                factory = getattr(app.state, "consumer_client_factory", None) or (
+                    lambda **kwargs: ConsumerCopilotClient(**kwargs)
+                )
+                consumer = factory(
+                    cookies=_pick_cookies(account.cookies or []),
+                    access_token=getattr(account, "consumer_token", ""),
+                    identity_type=getattr(account, "consumer_identity_type", ""),
+                    idle_timeout=idle_timeout,
+                )
+                return ConsumerClientAdapter(consumer)
             client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
             _attach_response_debug_sink(app, client)
             return client
