@@ -106,14 +106,54 @@ def test_curl_transport_uses_one_impersonated_session_for_rest_and_websocket():
     )
 
     assert asyncio.run(_collect(client)) == "CURL-OK"
-    assert made == [{"impersonate": "chrome", "cookies": {"_C_Auth": "live"}, "timeout": 90}]
+    assert made == [
+        {"impersonate": "firefox147", "cookies": {"_C_Auth": "live"}, "timeout": 90}
+    ]
     session = sessions[0]
     assert session.gets == ["https://copilot.microsoft.com/"]
     assert session.posts[0][1]["headers"]["authorization"] == "Bearer tok"
-    assert session.ws_calls[0][1]["impersonate"] == "chrome"
+    assert session.ws_calls[0][1]["impersonate"] == "firefox147"
     assert [frame["event"] for frame in session.socket.sent] == [
         "setOptions", "reportLocalConsents", "send",
     ]
+
+
+def test_websocket_avoids_the_tls_profiles_copilot_challenges():
+    # Copilot fingerprints the TLS client when `send` arrives: every Chrome,
+    # Edge and Safari profile draws {"event":"challenge","method":null} while
+    # firefox147 gets a normal reply (measured 4/4 vs 0/4, alternating, on one
+    # set of credentials). A Chrome-family profile here is a silent outage --
+    # the transport connects, then every turn dies on the challenge.
+    sessions = []
+
+    def factory(**kwargs):
+        session = _FakeSession()
+        sessions.append(session)
+        return session
+
+    client = ConsumerCopilotClient(access_token="tok", session_factory=factory)
+    asyncio.run(_collect(client))
+
+    profile = sessions[0].ws_calls[0][1]["impersonate"]
+    assert not profile.startswith(("chrome", "edge", "safari")), profile
+
+
+def test_websocket_handshake_sends_the_origin_curl_omits():
+    # Browsers always put Origin on the chat-ws upgrade and the server echoes it
+    # in Access-Control-Allow-Origin, but curl_cffi's WebSocket handshake leaves
+    # it out entirely.
+    sessions = []
+
+    def factory(**kwargs):
+        session = _FakeSession()
+        sessions.append(session)
+        return session
+
+    client = ConsumerCopilotClient(access_token="tok", session_factory=factory)
+    asyncio.run(_collect(client))
+
+    headers = sessions[0].ws_calls[0][1]["headers"]
+    assert headers["Origin"] == "https://copilot.microsoft.com"
 
 
 def test_explicit_proxy_is_used_for_the_session_and_websocket():

@@ -43,6 +43,21 @@ SET_OPTIONS_FRAME = {
 }
 CONSENTS_FRAME = {"event": "reportLocalConsents", "grantedConsents": []}
 
+# Copilot fingerprints the TLS client when a `send` frame arrives, and every
+# Chrome/Edge/Safari profile curl_cffi offers answers with
+# {"event":"challenge","method":null} -- a verdict, not a solvable puzzle. Under
+# firefox147 the identical turn is answered normally. Measured on one set of
+# credentials, alternating profiles: firefox147 4/4 replied, chrome146 0/4.
+# Nothing above the TLS layer distinguishes the two: handshake headers, cookies,
+# conversation provenance, and frame payloads were all matched against a real
+# browser's capture first, and a bare WebSocket opened from page JS -- no SPA
+# logic, our own frames -- replies fine, so this is the stack, not the protocol.
+_IMPERSONATE = "firefox147"
+
+# curl_cffi's WebSocket handshake omits Origin; browsers always send it, and the
+# server echoes it back in Access-Control-Allow-Origin.
+_WS_HEADERS = {"Origin": BASE_URL}
+
 _IDLE_TIMEOUT = 60.0
 _REQUEST_TIMEOUT = 90.0
 _MAX_HASHCASH_DIFFICULTY = 22
@@ -117,7 +132,7 @@ def drain_json(raw: str | bytes) -> list[dict]:
 
 
 class ConsumerCopilotClient:
-    """Stream consumer-Copilot replies through Chrome-impersonated curl_cffi.
+    """Stream consumer-Copilot replies through browser-impersonated curl_cffi.
 
     ``cookies`` and ``access_token`` are exported from a signed-in Edge profile.
     Federated accounts may additionally require ``identity_type``. One curl
@@ -186,7 +201,7 @@ class ConsumerCopilotClient:
         self, prompt: str, conversation_id: str = ""
     ) -> AsyncIterator[str]:
         session_kwargs = {
-            "impersonate": "chrome",
+            "impersonate": _IMPERSONATE,
             "cookies": self._cookies,
             "timeout": self._timeout,
         }
@@ -231,7 +246,11 @@ class ConsumerCopilotClient:
                 "mode": "smart",
                 "context": {},
             }
-            ws_kwargs = {"impersonate": "chrome", "timeout": self._timeout}
+            ws_kwargs = {
+                "impersonate": _IMPERSONATE,
+                "timeout": self._timeout,
+                "headers": dict(_WS_HEADERS),
+            }
             if self._proxy:
                 ws_kwargs["proxy"] = self._proxy
             try:
