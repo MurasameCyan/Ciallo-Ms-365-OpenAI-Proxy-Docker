@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [multi]
+    branches: [multi, fox]
     paths:
       - "src/**"
       - "Dockerfile"
@@ -44,8 +44,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=multi
-            type=sha,prefix=multi-
+            type=ref,event=branch
+            type=sha,prefix=${{ github.ref_name }}-
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
