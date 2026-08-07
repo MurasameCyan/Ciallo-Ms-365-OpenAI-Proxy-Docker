@@ -57,6 +57,7 @@ SENSITIVE_FIELDS = (
     "designer_auth_token",
     "refresh_token",
     "media_seed_url",
+    "consumer_token",
 )
 
 

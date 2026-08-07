@@ -326,6 +326,14 @@ class RefreshScheduler:
         if account is None:
             elog(f"Refresh skipped: account {account_id} not found")
             return False
+        # Consumer (personal-account) Copilot has no substrate token and no
+        # refresh_token grant, so every path below -- RT exchange, cookie replay,
+        # CDP capture -- is meaningless for it. Guarding here rather than in the
+        # keepalive predicates covers the admin "Refresh" button too, since this
+        # is the single entry point all of them share. Consumer credentials are
+        # recovered by ConsumerBrowserGate instead.
+        if getattr(account, "provider", "m365") != "m365":
+            return bool(getattr(account, "consumer_token", ""))
         # Fast path: if the account carries an OAuth2 refresh_token, try the
         # plain-HTTP substrate exchange first (no headless Chromium, no Copilot
         # quota spend). Only runs when a refresh is actually due (or forced).

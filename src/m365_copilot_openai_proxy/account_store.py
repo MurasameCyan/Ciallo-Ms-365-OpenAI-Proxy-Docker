@@ -79,6 +79,17 @@ class Account:
     # captured. Never exposed via public serializers (only has_media_seed bool).
     media_seed_url: str = ""
     cdp_port: int = _CDP_PORT_BASE
+    # "m365" = enterprise Substrate account (everything above applies).
+    # "consumer" = personal-account Copilot, authenticated by the ChatAI access
+    # token + browser cookies below instead of a substrate JWT. None of the M365
+    # refresh machinery applies; ensure_fresh short-circuits on this field.
+    provider: str = "m365"
+    # Opaque ChatAI access token lifted from the consumer chat WebSocket URL (or
+    # the MSAL localStorage cache). Never exposed via public serializers (only
+    # has_consumer_token bool).
+    consumer_token: str = ""
+    consumer_identity_type: str = ""
+    consumer_updated_at: float = 0.0
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
     created_at: float = field(default_factory=time.time)
@@ -86,6 +97,13 @@ class Account:
 
     def token_status(self) -> dict[str, Any]:
         """Decode the JWT and report validity / expiry, mirroring AccessTokenStore.status()."""
+        if self.provider == "consumer":
+            # The ChatAI token is opaque to us -- no verifiable exp claim -- so
+            # "valid" only means one is stored. Real expiry surfaces upstream as
+            # a ClearanceRequired, which ConsumerBrowserGate recovers from.
+            if not self.consumer_token:
+                return {"valid": False, "error": "No consumer token", "expires_at": None, "seconds_remaining": 0}
+            return {"valid": True, "expires_at": None, "seconds_remaining": 0}
         token = self.token
         now = time.time()
         if not token:
@@ -177,6 +195,10 @@ class AccountStore:
                     media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
+                    provider=str(raw.get("provider", "m365") or "m365"),
+                    consumer_token=str(raw.get("consumer_token", "") or ""),
+                    consumer_identity_type=str(raw.get("consumer_identity_type", "") or ""),
+                    consumer_updated_at=float(raw.get("consumer_updated_at", 0.0) or 0.0),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
                 )
@@ -340,6 +362,37 @@ class AccountStore:
             if isinstance(local_storage, dict) and local_storage:
                 acc.local_storage = {str(k): str(v) for k, v in local_storage.items()}
             acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def set_consumer_auth(
+        self,
+        acc_id: str,
+        cookies: list[dict],
+        access_token: str,
+        identity_type: str = "",
+    ) -> Account | None:
+        """Store a consumer-Copilot credential snapshot exported from a browser.
+
+        Flips the account to the consumer provider, which permanently excludes it
+        from the M365 refresh scheduler (see RefreshScheduler.ensure_fresh).
+        """
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.provider = "consumer"
+            acc.cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
+            acc.consumer_token = access_token.strip()
+            acc.consumer_identity_type = (identity_type or "").strip()
+            now = time.time()
+            acc.consumer_updated_at = now
+            # Consumer login cookies are session cookies with no useful expiry of
+            # their own, so cookie_expires_at stays 0 and the UI's binding state
+            # rests on presence alone.
+            acc.cookie_valid = bool(acc.cookies)
+            acc.cookie_updated_at = now
+            acc.updated_at = now
             self._save()
             return acc
 

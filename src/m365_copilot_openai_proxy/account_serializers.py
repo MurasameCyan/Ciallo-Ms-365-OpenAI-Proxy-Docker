@@ -14,6 +14,15 @@ def account_binding_state(acc: Account | None) -> str:
     return "none"
 
 
+def _provider_fields(acc: Account) -> dict:
+    """Provider tag plus presence-only flags for the consumer credential pair."""
+    return {
+        "provider": getattr(acc, "provider", "m365"),
+        "has_consumer_token": bool(getattr(acc, "consumer_token", "")),
+        "consumer_updated_at": getattr(acc, "consumer_updated_at", 0.0),
+    }
+
+
 def user_account_public(acc: Account | None) -> dict | None:
     if acc is None:
         return None
@@ -37,6 +46,7 @@ def user_account_public(acc: Account | None) -> dict | None:
         "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
         "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
         "token_status": acc.token_status(),
+        **_provider_fields(acc),
     }
 
 
@@ -66,4 +76,5 @@ def account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict
         "bound_names": [k.name or k.username or k.id for k in keys],
         "created_at": acc.created_at,
         "updated_at": acc.updated_at,
+        **_provider_fields(acc),
     }

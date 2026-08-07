@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.66" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.66';" in SCRIPT
+    assert "// @version      1.0.67" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.67';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
@@ -179,3 +179,36 @@ def test_userscript_one_click_reports_token_and_cookie_status_separately():
     assert "const tokenLine = tr('token_push_status')" in SCRIPT
     assert "const cookieLine = tr('cookie_push_status')" in SCRIPT
     assert "alert(tokenLine + '\\n' + cookieLine" in SCRIPT
+
+
+def test_userscript_captures_consumer_chat_token_from_copilot_socket():
+    # Consumer Copilot carries its ChatAI token in the chat socket URL exactly
+    # like Substrate, so the SAME WebSocket hook captures both -- no second
+    # script, and copilot.microsoft.com is already inside the *.microsoft.com
+    # @match. The token is URL-encoded, so it must be decoded before push.
+    assert "CONSUMER_WS_RE" in SCRIPT
+    assert "copilot\\.microsoft\\.com" in SCRIPT
+    assert "accessToken=([^&]+)" in SCRIPT
+    assert "CONSUMER_IDENTITY_RE" in SCRIPT
+    assert "latestConsumerToken = decodeURIComponent" in SCRIPT
+
+
+def test_userscript_collects_consumer_copilot_cookie_domains():
+    # The consumer jar must match consumer_gate._pick_cookies: copilot/bing/live
+    # alongside the shared microsoft.com. Without these the server replays a jar
+    # that Cloudflare has never seen.
+    assert "https://copilot.microsoft.com/" in SCRIPT
+    assert "{ domain: '.copilot.microsoft.com' }" in SCRIPT
+    assert "{ domain: '.bing.com' }" in SCRIPT
+    assert "{ domain: '.live.com' }" in SCRIPT
+
+
+def test_userscript_pushes_consumer_snapshot_to_dedicated_endpoint():
+    # Distinct endpoint from /cookies: the server must not inject or refresh a
+    # consumer snapshot, so it cannot ride the M365 cookie path.
+    assert "pushUserConsumer" in SCRIPT
+    assert "'/user/account/consumer'" in SCRIPT
+    assert "access_token: latestConsumerToken" in SCRIPT
+    assert "identity_type: latestConsumerIdentity" in SCRIPT
+    assert "id=\"m365-push-consumer\"" in SCRIPT
+    assert "pushConsumer" in SCRIPT

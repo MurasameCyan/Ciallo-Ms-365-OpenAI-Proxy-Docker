@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.66
+// @version      1.0.67
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,8 +30,14 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.66';
+    const SCRIPT_VERSION = '1.0.67';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
+    // Consumer (personal-account) Copilot puts its ChatAI token in the chat
+    // socket URL exactly like Substrate does, so the same WebSocket hook below
+    // captures both. copilot.microsoft.com is already covered by the
+    // https://*.microsoft.com/* @match, so no new @match is needed.
+    const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
+    const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
 
@@ -47,6 +53,11 @@
         'https://designerapp.officeapps.live.com/',
         'https://teams.microsoft.com/',
         'https://jp-prod.asyncgw.teams.microsoft.com/',
+        // Consumer Copilot session domains. Mirrors the keep-list in
+        // consumer_gate._pick_cookies so a userscript push and a browser-gate
+        // export carry the same jar.
+        'https://copilot.microsoft.com/',
+        'https://www.bing.com/',
     ];
 
     // Store the latest token
@@ -59,6 +70,10 @@
     // refresh the substrate token over plain HTTP (no headless browser).
     let latestRefreshToken = '';
     let refreshTokenPushInFlight = false;
+    // Consumer (personal-account) Copilot ChatAI token + identity type, captured
+    // from the copilot.microsoft.com chat socket URL.
+    let latestConsumerToken = '';
+    let latestConsumerIdentity = '';
 
     // Store the latest captured chat payloads (for mode-field comparison)
     // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
@@ -91,6 +106,12 @@
             push_media_auth: '推送媒体鉴权',
             media_auth_pushed: '媒体鉴权已推送',
             no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
+            push_consumer: '推送个人版 Copilot',
+            consumer_status: '个人版 Copilot',
+            consumer_captured: '✓ ChatAI Token 可用',
+            consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
+            no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
+            consumer_pushed: '个人版 Copilot 已推送，Cookie 数：',
             quick_setup: ' 一键推送',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
@@ -159,6 +180,12 @@
             push_media_auth: 'Push Media Auth',
             media_auth_pushed: 'Media auth pushed',
             no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
+            push_consumer: 'Push Personal Copilot',
+            consumer_status: 'Personal Copilot',
+            consumer_captured: '✓ ChatAI token captured',
+            consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
+            no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
+            consumer_pushed: 'Personal Copilot pushed, cookies: ',
             quick_setup: 'One-Click Push',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
@@ -559,7 +586,20 @@
     const OrigWebSocket = pageWindow.WebSocket;
     pageWindow.WebSocket = function(url, protocols) {
         const match = url.match(SUBSTRATE_WS_RE);
+        const consumerMatch = url.match(CONSUMER_WS_RE);
         const ws = new OrigWebSocket(url, protocols);
+        if (consumerMatch) {
+            // The token is URL-encoded in the query string; decodeURIComponent
+            // reverses the quote() the client applied when building the URL.
+            try { latestConsumerToken = decodeURIComponent(consumerMatch[1]); }
+            catch (e) { latestConsumerToken = consumerMatch[1]; }
+            const idMatch = url.match(CONSUMER_IDENTITY_RE);
+            if (idMatch) {
+                try { latestConsumerIdentity = decodeURIComponent(idMatch[1]); }
+                catch (e) { latestConsumerIdentity = idMatch[1]; }
+            }
+            showPanel();
+        }
         if (match) {
             latestToken = match[1];
             showPanel();
@@ -764,6 +804,11 @@
             { domain: '.officeapps.live.com' },
             { domain: '.teams.microsoft.com' },
             { domain: '.asyncgw.teams.microsoft.com' },
+            { url: 'https://copilot.microsoft.com/' },
+            { url: 'https://www.bing.com/' },
+            { domain: '.copilot.microsoft.com' },
+            { domain: '.bing.com' },
+            { domain: '.live.com' },
         ];
 
         // Run all queries in parallel
@@ -840,6 +885,26 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
             body: JSON.stringify({ cookies, username, local_storage: getMsalLocalStorage(), media_seed_url: getCurrentChatUrl() })
+        });
+        return { response: r, data: await r.json() };
+    }
+
+    // Push a consumer (personal-account) Copilot snapshot: cookies + the ChatAI
+    // token captured off the copilot.microsoft.com chat socket. Distinct endpoint
+    // from /cookies because the server must NOT try to inject or refresh it.
+    async function pushUserConsumer(base, cookies) {
+        const key = getUserApiKey();
+        if (!key) throw new Error(tr('no_user_key'));
+        const username = getUsername();
+        const r = await gmFetch(base + '/user/account/consumer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({
+                cookies,
+                username,
+                access_token: latestConsumerToken,
+                identity_type: latestConsumerIdentity,
+            })
         });
         return { response: r, data: await r.json() };
     }
@@ -958,9 +1023,32 @@
         }
     }
 
+    // Push a consumer (personal-account) Copilot session. Requires the ChatAI
+    // token, which only appears after the copilot.microsoft.com chat socket has
+    // opened -- i.e. after at least one turn on the page.
+    async function pushConsumer() {
+        const base = getProxyBase();
+        if (!base) { alert(tr('enter_proxy_first')); return; }
+        if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
+        if (!latestConsumerToken) { alert(tr('no_consumer_token')); return; }
+        const btn = document.getElementById('m365-push-consumer');
+        if (btn) { btn.disabled = true; btn.textContent = tr('fetching'); }
+        try {
+            const cookies = await getAllCookies();
+            if (!cookies.length) { alert(tr('no_cookies')); return; }
+            const cr = await pushUserConsumer(base, cookies);
+            alert(cr.response.ok
+                ? tr('consumer_pushed') + (cr.data.cookies || cookies.length)
+                : tr('failed') + (cr.data.error?.message || cr.data.error));
+        } catch (e) {
+            alert(tr('error') + e);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = tr('push_consumer'); }
+        }
+    }
+
     // Copy token to clipboard
-    function copyToken() {
-        if (!latestToken) { alert(tr('no_token_copy')); return; }
+    function copyToken() {        if (!latestToken) { alert(tr('no_token_copy')); return; }
         navigator.clipboard.writeText(latestToken).then(() => alert(tr('token_copied'))).catch(() => alert(tr('copy_failed')));
     }
 
@@ -1157,6 +1245,14 @@
                             transition:opacity 0.2s;">
                         &#128228; ${tr('push_media_auth')}
                     </button>
+
+                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('consumer_status')}</span><span style="margin-left:auto; color:${latestConsumerToken ? '#22c55e' : '#f59e0b'};">${latestConsumerToken ? tr('consumer_captured') : tr('consumer_not_captured')}</span></div>
+                    <button id="m365-push-consumer" style="width:100%; padding:8px 0; border:none;
+                            border-radius:8px; background:linear-gradient(135deg,#10b981,#0d9488); color:#fff;
+                            cursor:pointer; font-weight:600; font-size:12px;
+                            transition:opacity 0.2s;">
+                        &#129302; ${tr('push_consumer')}
+                    </button>
                 </details>
 
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
@@ -1192,6 +1288,8 @@
         document.getElementById('m365-push-token').onclick = () => pushToken();
         document.getElementById('m365-push-cookies').onclick = () => pushCookies();
         document.getElementById('m365-push-media-auth').onclick = pushMediaAuth;
+        const pushConsumerBtn = document.getElementById('m365-push-consumer');
+        if (pushConsumerBtn) pushConsumerBtn.onclick = () => pushConsumer();
         document.getElementById('m365-one-click').onclick = () => oneClickSetup();
         const resetProxyBtn = document.getElementById('m365-reset-proxy-url');
         if (resetProxyBtn) resetProxyBtn.onclick = () => resetSavedProxyBase();

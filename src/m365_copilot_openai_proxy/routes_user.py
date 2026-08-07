@@ -369,6 +369,45 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             result["warning"] = warning
         return result
 
+    @app.post("/user/account/consumer")
+    async def user_set_account_consumer(request: Request) -> dict:
+        """Ingest a consumer (personal-account) Copilot credential snapshot.
+
+        Deliberately unlike /user/account/cookies: no Chromium injection and no
+        post-push token capture, because a consumer account has no substrate
+        token to capture. set_consumer_auth flips the provider, which takes the
+        account out of the refresh scheduler entirely.
+        """
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        body = await request.json()
+        cookies = body.get("cookies", [])
+        if not isinstance(cookies, list) or not cookies:
+            return _json_err(400, "No cookies provided")
+        if len(cookies) > 500:
+            return _json_err(400, "Too many cookies in one push")
+        # The ChatAI token is opaque (not a JWT we can validate), so only sanity
+        # bounds apply -- same treatment as the OAuth2 refresh_token above.
+        token = str(body.get("access_token", "") or "").strip()
+        if len(token) < 20:
+            return _json_err(400, "Consumer access token is empty or too short")
+        if len(token) > 8192:
+            return _json_err(400, "Consumer access token is implausibly long")
+        identity_type = str(body.get("identity_type", "") or "").strip()[:64]
+        username = body.get("username")
+        account_name = username.strip() if isinstance(username, str) else ""
+        if not k.account_id or app.state.account_store.get(k.account_id) is None:
+            acc = app.state.account_store.add(name=account_name or k.name or k.username or "user")
+            app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
+            k = app.state.key_store.get(k.id) or k
+        acc = app.state.account_store.set_consumer_auth(k.account_id, cookies, token, identity_type)
+        if acc is None:
+            return _json_err(400, "No bound account")
+        if account_name and acc.name != account_name:
+            app.state.account_store.rename(k.account_id, account_name)
+        return {"status": "ok", "provider": "consumer", "cookies": len(acc.cookies)}
+
     @app.post("/user/regenerate-key")
     async def user_regenerate_key(request: Request) -> dict:
         """Let a user rotate their own API key. The key id (and thus account
