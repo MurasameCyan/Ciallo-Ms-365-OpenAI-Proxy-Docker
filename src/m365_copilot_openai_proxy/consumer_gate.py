@@ -325,6 +325,10 @@ def _launch_edge(
 ) -> subprocess.Popen:
     """Launch the configured Edge/Chromium with a persistent consumer profile."""
     profile_dir.mkdir(parents=True, exist_ok=True)
+    # A relative --user-data-dir makes Edge start and stay alive while never
+    # binding the debugging port, so the caller only sees "no CDP page appeared"
+    # after the full timeout. Resolve before it reaches the command line.
+    profile_dir = profile_dir.resolve()
     _cleanup_profile_locks(profile_dir)
     command = [
         _chromium_path(),

@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
+import m365_copilot_openai_proxy.consumer_gate as cg
 from m365_copilot_openai_proxy.consumer_client import (
     ClearanceRequired,
     ConsumerCopilotError,
@@ -483,3 +485,31 @@ def test_browser_gate_launches_and_closes_only_the_edge_it_owns(tmp_path):
     assert asyncio.run(gate())["access_token"] == "token"
     assert launched == [(tmp_path, 9444, False)]
     assert closed == [(9444, proc)]
+
+
+def test_launch_passes_edge_an_absolute_profile_path(tmp_path, monkeypatch):
+    # Edge given a relative --user-data-dir starts, stays alive, and never binds
+    # the debugging port -- so the gate waits out its whole timeout and reports
+    # "no CDP page appeared", pointing at the profile instead of the flag.
+    # Measured on Windows/Edge 151: relative never bound, absolute bound in ~1s.
+    monkeypatch.chdir(tmp_path)
+    captured = []
+
+    class _Proc:
+        pid = 1234
+
+    def fake_popen(command, **kwargs):
+        captured.append(command)
+        return _Proc()
+
+    monkeypatch.setattr(cg.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(cg, "_cleanup_profile_locks", lambda _profile: None)
+    monkeypatch.setattr(cg, "_chromium_path", lambda: "msedge")
+    monkeypatch.setattr(cg, "chromium_proxy_args", lambda: [])
+
+    cg._launch_edge(Path("relative_profile"), 9445, False)
+
+    flag = next(
+        arg for arg in captured[0] if arg.startswith("--user-data-dir=")
+    )
+    assert Path(flag.split("=", 1)[1]).is_absolute(), flag
