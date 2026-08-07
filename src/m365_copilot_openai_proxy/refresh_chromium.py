@@ -102,11 +102,67 @@ async def _close_chromium_gracefully(cdp_port: int, proc: subprocess.Popen | Non
                 pass
 
 
+def _windows_profile_pids(profile: str, profile_arg: str) -> list[int]:
+    """PIDs of Chromium processes launched with this exact --user-data-dir.
+
+    Windows has no /proc, so command lines come from CIM. Matching is on the
+    profile path and never on the image name alone: one browser launch spawns a
+    dozen helper processes that all carry the same --user-data-dir, while an
+    unrelated Edge (the user's own browsing session) carries a different one and
+    must never be touched.
+    """
+    script = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.CommandLine -like '*--user-data-dir=*' } | "
+        "ForEach-Object { \"$($_.ProcessId)|$($_.CommandLine)\" }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception:
+        return []
+    pids: list[int] = []
+    for line in completed.stdout.splitlines():
+        pid_text, _, command = line.partition("|")
+        if not command or not pid_text.strip().isdigit():
+            continue
+        if profile not in command and profile_arg not in command:
+            continue
+        pid = int(pid_text.strip())
+        if pid != os.getpid():
+            pids.append(pid)
+    return pids
+
+
+def _windows_kill(pid: int, force: bool) -> None:
+    command = ["taskkill", "/PID", str(pid)]
+    if force:
+        command.append("/F")
+    try:
+        subprocess.run(command, capture_output=True, timeout=10)
+    except Exception:
+        pass
+
+
 def _cleanup_profile_locks(profile_dir: Path) -> None:
     """Stop stale Chromium processes for this profile and remove Singleton locks."""
     profile = str(profile_dir.resolve())
     profile_arg = str(profile_dir)
-    if platform.system() != "Windows":
+    if platform.system() == "Windows":
+        # Same two-step as the POSIX branch: ask politely, then force whatever
+        # is still holding the profile.
+        pids = _windows_profile_pids(profile, profile_arg)
+        for pid in pids:
+            _windows_kill(pid, force=False)
+        if pids:
+            time.sleep(0.3)
+            for pid in _windows_profile_pids(profile, profile_arg):
+                _windows_kill(pid, force=True)
+    else:
         proc_root = Path("/proc")
         if proc_root.exists():
             for entry in proc_root.iterdir():
