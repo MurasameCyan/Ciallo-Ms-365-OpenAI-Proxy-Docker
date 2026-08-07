@@ -1,25 +1,10 @@
 """Consumer (personal-account) Copilot chat client.
 
-Speaks the copilot.microsoft.com chat protocol, which shares nothing with the
-M365 Substrate protocol in :mod:`substrate_client` — different endpoint, a
-mandatory two-frame handshake, cookie+accessToken auth instead of a Bearer JWT,
-and a proof-of-work challenge per turn.
-
-Protocol shape (captured from the live web client):
-
-    POST /c/api/conversations                     -> {"id": ...}
-    wss://copilot.microsoft.com/c/api/chat?api-version=2
-        &clientSessionId=<uuid>[&accessToken=<tok>]
-    -> setOptions -> reportLocalConsents -> send
-    -> connected, challenge (answer it, then re-send), appendText*, done
-
-Ordering is enforced by the backend: a ``send`` before the handshake is rejected
-with ``error: invalid-event``.
-
-Wire constants and the PoW solvers are ported from the MIT-licensed
-windows-copilot-api project; the transport is this repo's own httpx/websockets
-stack rather than curl_cffi, which a live probe confirmed is unnecessary —
-Cloudflare admits a plain httpx session with a browser User-Agent.
+Consumer Copilot uses a different protocol from M365 Substrate: it creates a
+conversation over REST, then sends a two-frame handshake and the turn over a
+WebSocket. Cloudflare fingerprints both connections, so they must share one
+curl_cffi session impersonating Chrome; plain httpx/websockets are rejected even
+when they replay the same browser cookies and ChatAI access token.
 """
 
 from __future__ import annotations
@@ -32,26 +17,22 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from urllib.parse import quote
 
-import httpx
-import websockets
+from curl_cffi.curl import CurlError
+from curl_cffi.requests import (
+    AsyncSession,
+    CurlWsFlag,
+    WebSocketClosed,
+    WebSocketError,
+    WebSocketTimeout,
+)
+from curl_cffi.requests.exceptions import RequestException
 
 BASE_URL = "https://copilot.microsoft.com"
 CHAT_WEBSOCKET_URL = f"{BASE_URL.replace('https', 'wss')}/c/api/chat?api-version=2"
 CONVERSATION_URL = f"{BASE_URL}/c/api/conversations"
 
-# A current Chrome UA. Cloudflare rejects httpx's default UA outright, and the
-# chat backend keys some behaviour off it; keep this in step with the Chromium
-# we ship for token refresh.
-BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
-
-# First handshake frame. The lists advertise what a *UI* could render; a text
-# prompt still streams back as plain appendText, so sending empty lists is
-# enough for a bridge. ponytail: kept minimal deliberately — if Microsoft starts
-# gating replies on advertised features, port the full list from solo's
-# protocol.py SET_OPTIONS_FRAME.
+# The lists advertise what a UI could render. Text-only bridge traffic does not
+# need them; port the full browser list only if Microsoft starts gating features.
 SET_OPTIONS_FRAME = {
     "event": "setOptions",
     "supportedFeatures": [],
@@ -60,10 +41,12 @@ SET_OPTIONS_FRAME = {
     "ads": {"supportedTypes": []},
     "supportedActions": [],
 }
-# Second handshake frame: declare no locally-granted consents.
 CONSENTS_FRAME = {"event": "reportLocalConsents", "grantedConsents": []}
 
 _IDLE_TIMEOUT = 60.0
+_REQUEST_TIMEOUT = 90.0
+_MAX_HASHCASH_DIFFICULTY = 22
+_MAX_HASHCASH_NONCE = 1 << 25
 _DECODER = json.JSONDecoder()
 
 
@@ -72,92 +55,74 @@ class ConsumerCopilotError(RuntimeError):
 
 
 class ClearanceRequired(ConsumerCopilotError):
-    """Copilot demanded a Cloudflare Turnstile token we can't mint here.
-
-    A ``challenge`` frame with ``method`` null or ``"cloudflare"`` means the
-    session's ``cf_clearance`` is stale or missing. Minting that token requires
-    executing Cloudflare's challenge JS in a real browser, so the caller must
-    refresh clearance out-of-band and retry the turn.
-    """
+    """Copilot demanded an interactive Cloudflare verification."""
 
 
 class RegionBlocked(ConsumerCopilotError):
-    """The chat backend refused the session as anonymous/out-of-region.
-
-    Surfaces as ``chat-service-unavailable``. Confirmed reproducible for
-    anonymous sessions: a signed-in ``accessToken`` (MSAL scope
-    ``ChatAI.ReadWrite``) is required, or an egress proxy in a supported region.
-    """
+    """The consumer backend refused this account or egress region."""
 
 
 def solve_hashcash(parameter: str) -> str:
-    """Smallest nonce ``n`` with ``difficulty`` leading zero bits in sha256(seed+n)."""
+    """Return the smallest nonce satisfying the requested SHA-256 difficulty."""
     seed, diff = parameter.rsplit(":", 1)
     difficulty = int(diff)
+    if not 0 <= difficulty <= _MAX_HASHCASH_DIFFICULTY:
+        raise ValueError(
+            f"Hashcash difficulty must be between 0 and "
+            f"{_MAX_HASHCASH_DIFFICULTY}."
+        )
     full, rem = difficulty // 8, difficulty % 8
     mask = (255 << (8 - rem)) & 0xFF if rem else 0
-    n = 0
-    while True:
-        digest = hashlib.sha256(f"{seed}{n}".encode()).digest()
+    for nonce in range(_MAX_HASHCASH_NONCE):
+        digest = hashlib.sha256(f"{seed}{nonce}".encode()).digest()
         if not any(digest[:full]) and (not rem or not digest[full] & mask):
-            return str(n)
-        n += 1
+            return str(nonce)
+    raise ValueError("Hashcash nonce search exceeded its safety budget.")
 
 
 def solve_copilot_challenge(parameter: str) -> str:
-    """The arithmetic ``copilot`` variant: round((a^3/100 + a*25) % 22)."""
-    a = float(parameter)
-    return str(int(math.floor(((a**3 / 100 + a * 25) % 22) + 0.5)))
+    """Solve Copilot's arithmetic proof-of-work variant."""
+    value = float(parameter)
+    return str(int(math.floor(((value**3 / 100 + value * 25) % 22) + 0.5)))
 
 
-def solve_challenge(msg: dict) -> str | None:
-    """Return the challenge token, or ``None`` when only a browser can mint it."""
-    method, parameter = msg.get("method"), msg.get("parameter")
+def solve_challenge(message: dict) -> str | None:
+    """Return a proof-of-work token, or ``None`` for browser-only challenges."""
+    method, parameter = message.get("method"), message.get("parameter")
     if method == "hashcash" and parameter:
         return solve_hashcash(parameter)
     if method == "copilot" and parameter:
         return solve_copilot_challenge(parameter)
-    # method null / "cloudflare" / an unknown PoW: browser-only Turnstile token.
-    # An *empty* challenge is not a no-op — the real client answers it with a
-    # Turnstile token, so acking it with an empty one just stalls the socket.
     return None
 
 
 def drain_json(raw: str | bytes) -> list[dict]:
-    """Split one WS frame into its JSON objects (Copilot packs several per frame)."""
+    """Split one WebSocket message into its concatenated JSON objects."""
     if isinstance(raw, (bytes, bytearray)):
         raw = raw.decode("utf-8", "replace")
-    out: list[dict] = []
-    idx, length = 0, len(raw)
-    while idx < length:
-        while idx < length and raw[idx] in " \r\n\t\x1e":
-            idx += 1
-        if idx >= length:
+    messages: list[dict] = []
+    index, length = 0, len(raw)
+    while index < length:
+        while index < length and raw[index] in " \r\n\t\x1e":
+            index += 1
+        if index >= length:
             break
         try:
-            obj, idx = _DECODER.raw_decode(raw, idx)
+            value, index = _DECODER.raw_decode(raw, index)
         except ValueError:
-            break  # trailing partial object; the next frame completes it
-        if isinstance(obj, dict):
-            out.append(obj)
-    return out
+            break
+        if isinstance(value, dict):
+            messages.append(value)
+    return messages
+
+
 class ConsumerCopilotClient:
-    """Stream consumer-Copilot replies over its chat WebSocket.
+    """Stream consumer-Copilot replies through Chrome-impersonated curl_cffi.
 
-    ``cookies`` and ``access_token`` come from a signed-in browser session. Both
-    are optional, but anonymous sessions are refused as ``chat-service-unavailable``
-    in most regions, so in practice both are required.
-
-    Auth split mirrors the real web client, and the two halves carry the token
-    differently — measured by replaying the page's own captured request:
-      * REST calls (conversation create) need BOTH the cookies and
-        ``Authorization: Bearer <token>``. Cookies alone answer 403. Nothing else
-        matters: dropping the whole sec-ch-ua / sec-fetch / accept / x-* header
-        set still returns 200, and plain httpx is accepted, so neither header
-        shape nor the TLS fingerprint is part of the check.
-      * the WebSocket carries identity in its ``?accessToken=`` query param
-        instead, and it must be the chat-scoped token (MSAL ``ChatAI.ReadWrite``);
-        a wrong-audience token 401s the upgrade.
+    ``cookies`` and ``access_token`` are exported from a signed-in Edge profile.
+    Federated accounts may additionally require ``identity_type``. One curl
+    session performs the landing-page request, conversation creation, and chat
+    WebSocket so Cloudflare sees one coherent browser fingerprint.
     """
 
     def __init__(
@@ -166,226 +131,198 @@ class ConsumerCopilotClient:
         access_token: str = "",
         identity_type: str = "",
         idle_timeout: float | None = None,
-        refresh_clearance: Callable[[], Awaitable[dict]] | None = None,
+        timeout: float = _REQUEST_TIMEOUT,
+        proxy: str | None = None,
+        gate: Callable[[], Awaitable[dict]] | None = None,
+        session_factory: Callable[..., AsyncSession] = AsyncSession,
     ):
         self._cookies = dict(cookies or {})
         self._token = access_token or ""
         self._identity_type = identity_type or ""
         self._idle_timeout = idle_timeout or _IDLE_TIMEOUT
-        self._refresh_clearance = refresh_clearance
-
-    def apply_session(self, session: dict) -> None:
-        """Adopt cookies/token from a browser harvest (see :mod:`consumer_clearance`).
-
-        Merges rather than replaces: a harvest can come back with fresh clearance
-        but no readable token (the page mints the chat token lazily), and dropping
-        the token we already hold would turn a solved gate into a 401.
-        """
-        self._cookies.update({k: v for k, v in (session.get("cookies") or {}).items() if v})
-        self._token = session.get("access_token") or self._token
-        self._identity_type = session.get("identity_type") or self._identity_type
-
-    def _headers(self, *, authorize: bool = False) -> dict[str, str]:
-        """Browser-shaped headers; ``authorize`` adds the REST Bearer token.
-
-        Off by default because the same headers dress the WebSocket upgrade,
-        which authenticates by query param — the token belongs in exactly one of
-        the two places per call.
-        """
-        headers = {
-            "user-agent": BROWSER_USER_AGENT,
-            "origin": BASE_URL,
-            "referer": f"{BASE_URL}/",
-        }
-        if authorize and self._token:
-            headers["authorization"] = f"Bearer {self._token}"
-        return headers
+        self._timeout = timeout
+        self._proxy = proxy
+        self._gate = gate
+        self._session_factory = session_factory
 
     def _ws_url(self) -> str:
-        """Mirror the real client's param order: api-version, session id, token.
-
-        ``clientSessionId`` is not optional — omitting it is one trigger for an
-        ``invalid-event`` rejection.
-        """
+        """Build the authenticated v2 chat URL used by the current web client."""
         url = f"{CHAT_WEBSOCKET_URL}&clientSessionId={uuid.uuid4()}"
         if self._token:
             url += f"&accessToken={quote(self._token)}"
-            # Federated (Google) tokens ride an extra identity marker; replay it
-            # or the upgrade is rejected.
             if self._identity_type:
                 url += f"&X-UserIdentityType={quote(self._identity_type)}"
-        return url
+        return url + "&features=anonymous-block-page&setflight=anonymous-block-page"
 
-    async def create_conversation(self) -> str:
-        """Create a conversation and return its id, seeding cookies from the landing page."""
-        async with httpx.AsyncClient(
-            headers=self._headers(authorize=True), cookies=self._cookies, timeout=30,
-            follow_redirects=True,
-        ) as http:
-            await http.get(f"{BASE_URL}/")  # establishes __cf_bm / Cloudflare clearance
-            response = await http.post(CONVERSATION_URL)
-            if response.status_code != 200:
-                hint = ""
-                if response.status_code == 403 and not self._token:
-                    hint = (" No access token was supplied; this endpoint answers 403"
-                            " without an Authorization: Bearer header.")
-                raise ConsumerCopilotError(
-                    f"Could not create a Copilot conversation (HTTP {response.status_code}): "
-                    f"{response.text[:200]}{hint}"
-                )
-            conversation_id = (response.json() or {}).get("id")
-            if not conversation_id:
-                raise ConsumerCopilotError("Copilot returned a conversation with no id.")
-            # Keep the freshly-issued cookies for the socket.
-            self._absorb_cookies(http.cookies)
-            return conversation_id
-
-    def _absorb_cookies(self, cookies: httpx.Cookies) -> None:
-        """Merge server-issued cookies (notably ``__cf_bm``) into the session.
-
-        Read the jar rather than ``dict(cookies)``: httpx raises
-        ``CookieConflict`` when one name lives on several domains, which is the
-        normal case here -- cookies we inject go in domain-less while the
-        server's ``Set-Cookie`` carries a real domain, so every signed-in turn
-        would crash on ``_C_Auth``.
-
-        Empty values are skipped. The landing page answers with a blank
-        ``_C_Auth``, and adopting it would wipe the signed-in cookie the caller
-        supplied. The trade-off is that a genuinely cleared cookie lingers for
-        the rest of the turn, which is the better failure of the two.
-        """
-        for cookie in cookies.jar:
-            if cookie.value:
-                self._cookies[cookie.name] = cookie.value
-
-    async def chat_stream(self, prompt: str, conversation_id: str = "") -> AsyncIterator[str]:
-        """Yield reply text chunks for ``prompt``, refreshing clearance once if gated.
-
-        The consumer protocol has no separate system/role channel, so callers
-        must fold any system prompt into ``prompt`` themselves.
-
-        On :class:`ClearanceRequired` the turn is retried once against a freshly
-        harvested session, but ONLY if nothing was yielded yet -- replaying a turn
-        that already streamed text would emit the answer twice.
-        """
-        emitted = False
-        try:
-            async for chunk in self._chat_once(prompt, conversation_id):
-                emitted = True
-                yield chunk
-            return
-        except ClearanceRequired:
-            if emitted or self._refresh_clearance is None:
-                raise
-        session = await self._refresh_clearance()
-        if not (session or {}).get("earned"):
-            raise ClearanceRequired(
-                "Copilot demanded a Cloudflare Turnstile token and the browser could "
-                "not earn fresh clearance. Cloudflare escalates to an interactive "
-                "puzzle on low-trust egress (datacenter IPs, VPNs); solve it once in a "
-                "visible browser on this profile, or route egress through a residential "
-                "proxy, then retry."
-            )
-        self.apply_session(session)
-        # A new conversation: the old id belongs to the pre-clearance session.
-        async for chunk in self._chat_once(prompt, ""):
-            yield chunk
-
-    async def _chat_once(self, prompt: str, conversation_id: str = "") -> AsyncIterator[str]:
-        """One attempt at a turn: handshake, send, stream. Raises on any gate."""
-        conversation_id = conversation_id or await self.create_conversation()
-        send_frame = json.dumps({
-            "event": "send",
-            "conversationId": conversation_id,
-            "content": [{"type": "text", "text": prompt}],
-            "mode": "smart",
-            "context": {},
-        })
-        cookie_header = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
-        try:
-            ws = await websockets.connect(
-                self._ws_url(),
-                additional_headers={**self._headers(), "cookie": cookie_header},
-                open_timeout=30,
-                max_size=None,
-            )
-        except Exception as exc:  # noqa: BLE001 - upgrade failures vary by cause
-            raise ConsumerCopilotError(f"Copilot chat socket refused the connection: {exc}") from exc
-
-        async with ws:
-            await ws.send(json.dumps(SET_OPTIONS_FRAME))
-            await ws.send(json.dumps(CONSENTS_FRAME))
-            await ws.send(send_frame)
-            async for chunk in self._read_stream(ws, send_frame):
-                yield chunk
-
-    async def _read_stream(self, ws, send_frame: str) -> AsyncIterator[str]:
-        """Consume chat frames, answering the PoW challenge, yielding reply text."""
-        started = answered = False
-        last_msg: dict | None = None
+    async def chat_stream(
+        self, prompt: str, conversation_id: str = ""
+    ) -> AsyncIterator[str]:
+        """Yield one turn, refreshing the browser gate once before any output."""
+        emitted = retried = False
         while True:
             try:
-                raw = await asyncio.wait_for(ws.recv(), timeout=self._idle_timeout)
-            except asyncio.TimeoutError as exc:
+                async for chunk in self._chat_stream_once(prompt, conversation_id):
+                    emitted = True
+                    yield chunk
+                return
+            except ClearanceRequired:
+                if emitted or retried or self._gate is None:
+                    raise
+                auth = await self._gate()
+                if not isinstance(auth, dict):
+                    raise ConsumerCopilotError(
+                        "Consumer browser gate returned no authentication snapshot."
+                    )
+                if "cookies" in auth:
+                    self._cookies = dict(auth.get("cookies") or {})
+                if "access_token" in auth:
+                    self._token = str(auth.get("access_token") or "")
+                if "identity_type" in auth:
+                    self._identity_type = str(auth.get("identity_type") or "")
+                conversation_id = ""
+                retried = True
+
+    async def _chat_stream_once(
+        self, prompt: str, conversation_id: str = ""
+    ) -> AsyncIterator[str]:
+        session_kwargs = {
+            "impersonate": "chrome",
+            "cookies": self._cookies,
+            "timeout": self._timeout,
+        }
+        if self._proxy:
+            session_kwargs["proxy"] = self._proxy
+
+        async with self._session_factory(**session_kwargs) as session:
+            try:
+                await session.get(f"{BASE_URL}/")
+            except RequestException as exc:
+                raise ConsumerCopilotError(
+                    f"Consumer Copilot HTTP transport failed: {exc}"
+                ) from exc
+            if not conversation_id:
+                headers = (
+                    {"authorization": f"Bearer {self._token}"} if self._token else {}
+                )
+                try:
+                    response = await session.post(CONVERSATION_URL, headers=headers)
+                except RequestException as exc:
+                    raise ConsumerCopilotError(
+                        f"Consumer Copilot HTTP transport failed: {exc}"
+                    ) from exc
+                if response.status_code != 200:
+                    error = (
+                        "Could not create a Copilot conversation "
+                        f"(HTTP {response.status_code}): {response.text[:200]}"
+                    )
+                    if response.status_code == 403:
+                        raise ClearanceRequired(error)
+                    raise ConsumerCopilotError(error)
+                conversation_id = (response.json() or {}).get("id")
+                if not conversation_id:
+                    raise ConsumerCopilotError(
+                        "Copilot returned a conversation with no id."
+                    )
+
+            send_frame = {
+                "event": "send",
+                "conversationId": conversation_id,
+                "content": [{"type": "text", "text": prompt}],
+                "mode": "smart",
+                "context": {},
+            }
+            ws_kwargs = {"impersonate": "chrome", "timeout": self._timeout}
+            if self._proxy:
+                ws_kwargs["proxy"] = self._proxy
+            try:
+                async with session.ws_connect(self._ws_url(), **ws_kwargs) as ws:
+                    for frame in (SET_OPTIONS_FRAME, CONSENTS_FRAME, send_frame):
+                        await ws.send(json.dumps(frame), CurlWsFlag.TEXT)
+                    async for chunk in self._read_stream(ws, send_frame):
+                        yield chunk
+            except (WebSocketTimeout, WebSocketClosed, WebSocketError, CurlError) as exc:
+                raise ConsumerCopilotError(
+                    f"Copilot chat socket refused or interrupted the connection: {exc}"
+                ) from exc
+
+    async def _read_stream(self, ws, send_frame: dict) -> AsyncIterator[str]:
+        """Answer proof-of-work frames and yield reply text until ``done``."""
+        answered = started = False
+        last_message = None
+        while True:
+            try:
+                raw, _flags = await ws.recv(timeout=self._idle_timeout)
+            except WebSocketTimeout as exc:
                 raise ConsumerCopilotError(
                     f"Copilot chat socket went silent for {self._idle_timeout:.0f}s; "
-                    f"last frame was {last_msg!r}."
+                    f"last frame was {last_message!r}."
                 ) from exc
-            except websockets.ConnectionClosed:
-                break
+            except WebSocketClosed as exc:
+                stage = (
+                    "after reply streaming started"
+                    if started
+                    else "without replying"
+                )
+                raise ConsumerCopilotError(
+                    f"Copilot chat socket closed {stage}; last frame was "
+                    f"{last_message!r}."
+                ) from exc
+            except WebSocketError as exc:
+                stage = " after reply streaming started" if started else ""
+                raise ConsumerCopilotError(
+                    f"Copilot chat socket failed{stage}: {exc}"
+                ) from exc
 
-            for msg in drain_json(raw):
-                last_msg = msg
-                event = msg.get("event")
+            for message in drain_json(raw):
+                last_message = message
+                event = message.get("event")
                 if event == "appendText":
                     started = True
-                    yield msg.get("text") or ""
+                    yield message.get("text") or ""
                 elif event == "done":
                     return
                 elif event == "challenge":
-                    # A Turnstile can arrive at any point, including after a PoW
-                    # was already answered this turn. Surface it regardless of
-                    # `answered`, so a stale cf_clearance is a clean error rather
-                    # than a silent idle timeout.
-                    if msg.get("method") in (None, "cloudflare"):
+                    method = message.get("method")
+                    if method in (None, "cloudflare"):
                         raise ClearanceRequired(
-                            "Copilot chat demands a Cloudflare Turnstile token "
-                            f"(challenge method={msg.get('method')!r}). Minting that token "
-                            "requires executing Cloudflare's challenge JS in a real browser — "
-                            "the consumer chat backend gates some sessions this way, especially "
-                            "during high load or from certain regions."
+                            "Copilot demands an interactive Cloudflare verification "
+                            f"(challenge method={method!r}). Open the account profile "
+                            "in Edge, pass it once, then retry."
                         )
-                    if answered:
-                        continue  # echo of the challenge we already answered
-                    token = solve_challenge(msg)
+                    try:
+                        token = await asyncio.to_thread(solve_challenge, message)
+                    except (TypeError, ValueError) as exc:
+                        raise ClearanceRequired(
+                            f"Unsafe Copilot challenge (method={method!r}): {exc}"
+                        ) from exc
                     if token is None:
                         raise ClearanceRequired(
-                            f"Unsolvable Copilot challenge (method={msg.get('method')!r}); "
-                            "Microsoft may have escalated to a browser-only challenge."
+                            f"Unsolvable Copilot challenge (method={method!r})."
                         )
-                    await ws.send(json.dumps({
-                        "event": "challengeResponse",
-                        "token": token,
-                        "method": msg.get("method"),
-                        "id": msg.get("id"),
-                    }))
+                    if answered:
+                        continue
+                    await ws.send(
+                        json.dumps({
+                            "event": "challengeResponse",
+                            "token": token,
+                            "method": method,
+                            "id": message.get("id"),
+                        }),
+                        CurlWsFlag.TEXT,
+                    )
                     answered = True
-                    await ws.send(send_frame)  # the client re-sends the held message
+                    await ws.send(json.dumps(send_frame), CurlWsFlag.TEXT)
                 elif event == "error":
-                    code = msg.get("errorCode") or msg
+                    code = message.get("errorCode") or message
                     if code == "chat-service-unavailable":
                         raise RegionBlocked(
-                            "Copilot refused the session (chat-service-unavailable). The "
-                            "consumer chat backend rejects anonymous sessions and is "
-                            "geo-restricted: sign in to supply an accessToken, or route "
-                            "egress through a proxy in a supported region."
+                            "Copilot refused the anonymous or out-of-region consumer "
+                            "session; sign in and use a supported egress region."
                         )
                     raise ConsumerCopilotError(f"Copilot error: {code}")
 
-        if not started:
-            raise ConsumerCopilotError(f"Copilot closed the socket without replying: {last_msg!r}")
-
     async def chat(self, prompt: str, conversation_id: str = "") -> str:
-        """Non-streaming convenience wrapper: the whole reply as one string."""
-        return "".join([chunk async for chunk in self.chat_stream(prompt, conversation_id)])
-
+        """Return one complete non-streaming reply."""
+        return "".join([
+            chunk async for chunk in self.chat_stream(prompt, conversation_id)
+        ])

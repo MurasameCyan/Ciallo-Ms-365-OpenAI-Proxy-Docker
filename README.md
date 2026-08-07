@@ -522,17 +522,17 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 |---|---|---|
 | 上游 | `wss://substrate.office.com/m365Copilot/Chathub`（SignalR） | `wss://copilot.microsoft.com/c/api/chat` |
 | 账号模型 | **多租户**：账号池 + 每个 API Key 绑定账号 | 单个已登录账号 |
-| 鉴权 | substrate JWT（RT 纯 HTTP 交换，或 CDP 抓取） | Cookie + Cloudflare `cf_clearance` |
-| Cloudflare | 上游无 Turnstile | **必须过 Turnstile**，`cf_clearance` 约 30 分钟过期，且绑定精确 UA；容器内无法拉起可视浏览器，需在宿主机重新登录 |
+| 鉴权 | substrate JWT（RT 纯 HTTP 交换，或 CDP 抓取） | 登录 Cookie + ChatAI access token（WebSocket query 参数） |
+| Cloudflare | 上游无 Turnstile | 风控按会话动态触发 Turnstile；Cookie/token 本身不能把浏览器信任转移给普通 HTTP 客户端，REST 与 WebSocket 都必须保持可接受的 TLS/HTTP 指纹 |
 | 提示词长度 | 实测 147k 字符仍完整（在首轮埋标记、末轮追问，标记可复述） | 默认截断到 8000 字符，需要压缩历史 |
-| 并发 | **支持**。每轮开独立 WebSocket（各自 conv/session id），实测 4 路并发同账号答案互不干扰 | 单 socket，必须串行化（源码注释：并发会报错或挂起） |
+| 并发 | **支持**。每轮开独立 WebSocket（各自 conv/session id），实测 4 路并发同账号答案互不干扰 | 取决于具体代理实现；复用单 socket 的实现必须串行化 |
 | 模型/模式 | 多模式（可在管理页编辑列表），每个模式另有「-持续」变体 | 单一模型，无选择器 |
-| 浏览器依赖 | Chromium + 裸 CDP（仅刷新时按需拉起） | Playwright + curl_cffi（TLS 指纹伪装） |
+| 浏览器依赖 | Chromium + 裸 CDP（仅刷新时按需拉起） | 生产聊天通常需 curl_cffi（TLS 指纹）；交互验证需真实浏览器。`fox` 分支复用现有 Edge + CDP，不额外引入 Playwright/Camoufox |
 | 速率限制 | 令牌桶，默认 60 次/分 | 默认 12 次/分（其文档称单账号约 15 rpm 起开始限流） |
 
 **共同的短板**：两边都没有原生 tool-calling 通道，都靠提示词约定 + 解析文本实现，因此都受模型依从性限制。这不是实现选择，而是两个上游协议都没提供该能力。
 
-**对使用者的实际影响**：个人版不需要 M365 订阅，但要忍受 `cf_clearance` 过期后回宿主机重新登录、8000 字符的历史上限、以及请求排队。本项目需要 M365 账号，换来多租户、长上下文和真并发。
+**对使用者的实际影响**：个人版不需要 M365 订阅，但需要维护浏览器登录态，并在风控升级时完成一次交互验证；普通 HTTP/WebSocket 重放同一组 Cookie 仍可能被拒。个人版代理常见的 8000 字符历史上限和串行限制属于具体实现约束，不是消费者协议本身的保证。本项目需要 M365 账号，换来已经验证的多租户、长上下文和真并发。
 
 ## 架构
 
