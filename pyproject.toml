@@ -6,8 +6,10 @@ license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "cryptography>=43.0.0,<47.0.0",
-    # Consumer Copilot is Cloudflare-fingerprinted: the same cookies/token fail via
-    # httpx + websockets but pass when curl_cffi impersonates Chrome end to end.
+    # Consumer Copilot fingerprints the TLS client: the same cookies/token are
+    # challenged under httpx + websockets and under every Chrome/Edge/Safari
+    # profile, and answered under curl_cffi's firefox147. Any floor here must
+    # still ship that profile -- see consumer_client._IMPERSONATE.
     "curl-cffi>=0.16.0,<1.0.0",
     "fastapi>=0.116.0,<1.0.0",
     # [socks] pulls in socksio so an admin-configured socks5:// proxy works for
