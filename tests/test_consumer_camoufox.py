@@ -122,7 +122,11 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
             return _FakePage()
 
         async def cookies(self):
-            return [{"name": "WLSSC", "value": "v", "domain": ".live.com"}]
+            return [
+                {"name": "WLSSC", "value": "v", "domain": ".live.com"},
+                # Earned by this browser; must not travel to the HTTP client.
+                {"name": "__cf_bm", "value": "x", "domain": ".copilot.microsoft.com"},
+            ]
 
     class _FakePage:
         async def goto(self, url, **kw):
@@ -146,6 +150,14 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
     assert auth["cookies"] == {"WLSSC": "v"}
     # MSAL mints without an X-UserIdentityType, so the caller keeps what it holds.
     assert auth["identity_type"] == ""
+
+
+def test_cloudflare_cookies_are_dropped_before_changing_hands():
+    """The consumer HTTP client impersonates firefox147 while this browser is
+    Firefox 152, so a __cf_bm minted here would be replayed under a UA that did
+    not earn it. _pick_cookies filters by domain alone and lets these through."""
+    jar = {"WLSSC": "v", "__cf_bm": "x", "__cflb": "y", "cf_clearance": "z"}
+    assert cc._drop_cloudflare_cookies(jar) == {"WLSSC": "v"}
 
 
 def test_run_raises_when_no_token_is_minted(tmp_path):

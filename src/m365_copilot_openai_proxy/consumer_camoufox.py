@@ -16,9 +16,12 @@ Two settings are load-bearing, both established by measurement:
    falls back to the sign-in wall and no token is ever minted. Chromium has no
    equivalent behaviour, which is why this only bites the Firefox path.
 
-2. Cloudflare cookies must not be carried in. `__cf_bm` is bound to the UA and
-   IP that earned it, so a Chromium-issued one replayed under Firefox is a
-   mismatch rather than a help. The browser earns its own.
+2. Cloudflare cookies must not cross between clients, in either direction.
+   `__cf_bm` is bound to the UA that earned it, so a Chromium-issued one replayed
+   under Firefox is a mismatch rather than a help -- and by the same rule the one
+   this browser earns must not be handed to the curl_cffi client, which
+   impersonates a different Firefox version and earns its own on the warmup GET
+   that opens every turn.
 
 A cold launch against a warm profile re-mints in ~6.7s end to end, and it is a
 real mint rather than a cache read: wiping the MSAL cache out of localStorage and
@@ -78,6 +81,25 @@ _FIND_CHAT_TOKEN_JS = """
 _GATE_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 _LOCK_FILES = (".parentlock", "lock", "parent.lock")
+
+# Cloudflare's bot-management cookies are bound to the client that earned them.
+# _pick_cookies filters by domain alone, so they survive it; drop them by name.
+_CLOUDFLARE_COOKIE_PREFIXES = ("__cf", "cf_clearance")
+
+
+def _drop_cloudflare_cookies(cookies: dict[str, str]) -> dict[str, str]:
+    """Strip Cloudflare cookies from a jar about to change hands.
+
+    The consumer HTTP client impersonates firefox147 while this browser is
+    Firefox 152, so handing over a `__cf_bm` minted here means replaying it under
+    a UA that did not earn it -- the same mismatch that makes injecting Edge's
+    copy actively harmful. The client's per-turn warmup GET earns its own.
+    """
+    return {
+        name: value
+        for name, value in cookies.items()
+        if not name.startswith(_CLOUDFLARE_COOKIE_PREFIXES)
+    }
 
 
 class CamoufoxUnavailable(ConsumerCopilotError):
@@ -219,7 +241,7 @@ class CamoufoxConsumerGate:
                     f"{self._profile_dir.name} has most likely lapsed and needs one "
                     "interactive sign-in."
                 )
-            cookies = _pick_cookies(await browser.cookies())
+            cookies = _drop_cloudflare_cookies(_pick_cookies(await browser.cookies()))
         return {
             "cookies": cookies,
             "access_token": token,
