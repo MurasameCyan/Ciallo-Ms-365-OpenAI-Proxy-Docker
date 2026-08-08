@@ -22,7 +22,8 @@
 - [媒体 / Designer 授权抓取](#媒体--designer-授权抓取)
 - [持久会话与上下文优化](#持久会话与上下文优化)
 - [提示词增强与兜底重试](#提示词增强与兜底重试)
-- [与个人版（消费者版 Copilot）代理的区别](#与个人版消费者版-copilot代理的区别)
+- [个人版（消费者版 Copilot）账户](#个人版消费者版-copilot账户)
+- [企业版与个人版的差异](#企业版与个人版的差异)
 - [架构](#架构)
 - [License](#license)
 - [致谢](#致谢)
@@ -246,6 +247,7 @@ Web 页面显示 Token 有效性与刷新相关状态。
 | `POST /user/system-prompt` | 设置自己的系统提示词 |
 | `POST /user/account/token` | 推送/更新绑定账户的 Token（无则自动创建） |
 | `POST /user/account/cookies` | 推送绑定账户的 Cookie（供 CDP 刷新） |
+| `POST /user/account/consumer` | 推送个人版（消费者版 Copilot）凭据，把账户切到 consumer provider |
 | `POST /user/account/refresh-token` | 立即刷新绑定账户的 Token |
 | `POST /user/account/media-auth` | 推送媒体（图片）访问凭据 |
 | `POST /user/account/designer-auth` | 推送 Designer 访问凭据 |
@@ -514,7 +516,52 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 指定工具名时会把工具列表**收窄到那一个**，因此模型即使照做也无法挑错工具。名字不存在时保留完整列表而非清空——客户端要的东西我们看不到，清空会让请求看起来像压根没带工具。
 
-## 与个人版（消费者版 Copilot）代理的区别
+## 个人版（消费者版 Copilot）账户
+
+除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)），且凭据过期只能靠手动重推。
+
+一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定：推送个人版凭据会把它**永久切到 `consumer`**，同时把该账户**移出刷新调度**（个人版没有可刷新的 substrate token）。`/admin` 账户表会给这类账户打上标记。
+
+### 1. 配置出站代理（仅在服务器直连不到 Copilot 时）
+
+`copilot.microsoft.com` 在部分网络下会被 SNI 阻断。按[出站代理](#出站代理)一节在 `/admin` → 运行设置里填一个能连通的地址即可，个人版链路和其它出站流量共用同一出口。
+
+> **写 `socks5h://` 而不是 `socks5://`。** 两者的差别是 DNS 在哪解析：`socks5` 在本地解析域名，解析结果又会撞回被阻断的路径；`socks5h` 把域名交给代理远端解析。实测同一个代理端口，`socks5://` 失败、`socks5h://` 成功。`http://` 同样可用。
+
+### 2. 推送凭据
+
+1. 安装同一个[油猴脚本](#方式一油猴脚本推荐)（`@match` 已覆盖 `copilot.microsoft.com`，无需另装）
+2. 在 `/` 用户自助页拿到自己的 **API Key**，填进油猴面板的「用户 API Key」框；「代理地址」填**本代理服务**的地址（如 `http://localhost:8000`）
+3. 打开 [copilot.microsoft.com](https://copilot.microsoft.com) 并登录个人微软账号
+4. **发送一条消息** —— ChatAI token 只出现在聊天 WebSocket 的 URL 里，不发消息就抓不到
+5. 面板「个人版 Copilot」一栏变绿显示 `✓ ChatAI Token 可用` 后，点 **推送个人版 Copilot**
+
+> 面板里的 `Token` / `Media Bearer` 两栏是**企业版**用的，个人版账户不需要它们，显示「尚未捕获」属正常。
+
+### 3. 凭据过期后重推
+
+个人版的 ChatAI token 对本服务是**不透明**的（不是可解码的 JWT），因此管理页只能显示「有没有存」，无法显示剩余有效期。过期的表现是 `/v1/` 请求返回 **502**，消息体里带上游的失败原因。
+
+**恢复方式就是重复上面第 2 步**：回到 copilot.microsoft.com 发一条消息，再点一次推送按钮。服务端不会自动救活个人版凭据 —— 这是有意的设计，因为救活一个登录态标签页需要人参与。
+
+### 限制
+
+个人版走的是另一套上游协议，以下能力**不生效**，且都是协议/实现层面的硬限制，不是配置问题：
+
+| 能力 | 个人版 | 说明 |
+|---|---|---|
+| 对话模式（tone） | ❌ | 上游无模式选择器，`/v1/models` 里的模式 ID 对个人版账户无意义 |
+| 提示词增强 | ❌ | 该文本在 M365 客户端内部注入（`substrate_client.py`），个人版客户端不经过那条路径 |
+| 系统提示词 | ✅ | 在路由层拼进对话正文，两种 provider 都生效 |
+| 工具调用（提示词模拟） | ✅ | 客户端声明的 tools 随对话正文下发，与企业版同源 |
+| 图片输入 | ❌ | 适配器丢弃图片，带图请求会得到**纯文本回复**而不是报错 |
+| 图片生成 | ✅ | 让它画图会返回 Markdown 图片链接。个人版不需要企业版那套「媒体授权」——链接是匿名可取的（实测无 Cookie、无 token 直接 200） |
+| 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
+| Token 自动刷新 | ❌ | 账户被移出刷新调度，RT / CDP 两条链路都不适用 |
+
+> **TLS 指纹是硬约束。** 个人版上游按 TLS 指纹判客户端：curl_cffi 的 chrome / edge / safari 全系会被拒（表现为收到 `challenge` 帧后连接被掐断），当前固定使用 `firefox147`。这是实测得到的经验事实，微软调整策略后可能失效。
+
+## 企业版与个人版的差异
 
 社区里另有一类项目桥接的是 **`copilot.microsoft.com`（个人微软账号）**，本项目桥接的是 **`substrate.office.com`（M365 企业版）**。两者上游协议不同，因此约束差别很大——下表中「个人版」一列的数字来自那类项目的源码与文档，「本项目」一列是在本部署上实测的：
 
@@ -523,7 +570,7 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 | 上游 | `wss://substrate.office.com/m365Copilot/Chathub`（SignalR） | `wss://copilot.microsoft.com/c/api/chat` |
 | 账号模型 | **多租户**：账号池 + 每个 API Key 绑定账号 | 单个已登录账号 |
 | 鉴权 | substrate JWT（RT 纯 HTTP 交换，或 CDP 抓取） | 登录 Cookie + ChatAI access token（WebSocket query 参数） |
-| Cloudflare | 上游无 Turnstile | 风控按会话动态触发 Turnstile；Cookie/token 本身不能把浏览器信任转移给普通 HTTP 客户端，REST 与 WebSocket 都必须保持可接受的 TLS/HTTP 指纹 |
+| Cloudflare | 上游无 Turnstile | 该站**不签发 `cf_clearance`**（实测：全新 profile 加载后只有 `__cf_bm` / `__cflb`，无 Turnstile iframe）。验证发生在**应用层**——`challenge` 帧的 `method` 为 `null` 时要的是页内 JS 现场铸的 Turnstile token，不在任何 Cookie 里，因此「浏览器过验证、HTTP 客户端重放 Cookie」这条路不存在；能否通过只取决于 TLS/HTTP 指纹与出口信誉 |
 | 提示词长度 | 实测 147k 字符仍完整（在首轮埋标记、末轮追问，标记可复述） | 默认截断到 8000 字符，需要压缩历史 |
 | 并发 | **支持**。每轮开独立 WebSocket（各自 conv/session id），实测 4 路并发同账号答案互不干扰 | 取决于具体代理实现；复用单 socket 的实现必须串行化 |
 | 模型/模式 | 多模式（可在管理页编辑列表），每个模式另有「-持续」变体 | 单一模型，无选择器 |
