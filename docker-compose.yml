@@ -1,5 +1,8 @@
 services:
   ciallo-proxy-multi:
+    # 默认镜像不含 Camoufox：个人版（consumer）账户凭据过期后只能靠油猴脚本重推。
+    # 想让服务端自己续凭据，换成带 -camoufox 后缀的镜像（约 +936 MB）：
+    # image: ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:multi-camoufox
     image: ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:multi
     container_name: ciallo-ms365-proxy-multi
     ports:
@@ -8,9 +11,15 @@ services:
       - .env
     volumes:
       - chrome-profile:/chrome-profile
+      # 必须是持久卷，不能换成 tmpfs：个人版续期依赖的微软账号会话就存在
+      # /home/app/token/profiles/<account-id>-consumer 里，丢了要人工重登一次。
       - token-data:/home/app/token
     restart: unless-stopped
     shm_size: "1gb"
+    # 与同一台机器上的其它 AI 服务走内部网络互通，不必经宿主端口。
+    # 取消注释前先建好这个外部网络：docker network create ai-internal
+    # networks:
+    #   - ai-internal
     deploy:
       resources:
         limits:
@@ -23,3 +32,10 @@ services:
 volumes:
   chrome-profile:
   token-data:
+
+# 配合上面 services 里的 networks 一起启用。external: true 表示这个网络由外部
+# 预先创建、生命周期不归本 compose 管，docker compose down 不会删掉它，
+# 同网络里的其它服务也不会被牵连。
+# networks:
+#   ai-internal:
+#     external: true

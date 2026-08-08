@@ -49,8 +49,16 @@ RUN if [ "$WITH_CAMOUFOX" = "true" ]; then \
 # Fetch the browser at build time, as the app user so it lands somewhere that
 # user can read. Doing it here rather than on first use keeps a ~936 MB download
 # out of the first request's latency, and off the runtime network path entirely.
+#
+# The path is asserted because it has to agree with what the app user resolves at
+# runtime, and nothing in this file states it: the cache dir comes from $HOME,
+# which BuildKit derives from the passwd entry on USER and gosu derives again on
+# the entrypoint's re-exec. They agree today (both /home/app). If a change to the
+# user or HOME ever breaks that, this fails the build instead of surfacing as a
+# surprise re-download during the first refresh.
 RUN if [ "$WITH_CAMOUFOX" = "true" ]; then \
       uv run --no-sync python -m camoufox fetch && \
+      test -d /home/app/.cache/camoufox/browsers && \
       echo "Camoufox fetched"; \
     fi
 USER root
