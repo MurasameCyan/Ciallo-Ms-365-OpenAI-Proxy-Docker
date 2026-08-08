@@ -100,7 +100,9 @@ class Account:
         if self.provider == "consumer":
             # The ChatAI token is opaque to us -- no verifiable exp claim -- so
             # "valid" only means one is stored. Real expiry surfaces upstream as
-            # a ClearanceRequired, which ConsumerBrowserGate recovers from.
+            # a ClearanceRequired, which the unattended re-mint recovers from
+            # (RefreshScheduler.refresh_consumer); age since capture is what
+            # keepalive schedules on, since there is no exp to read.
             if not self.consumer_token:
                 return {"valid": False, "error": "No consumer token", "expires_at": None, "seconds_remaining": 0}
             return {"valid": True, "expires_at": None, "seconds_remaining": 0}
@@ -374,8 +376,10 @@ class AccountStore:
     ) -> Account | None:
         """Store a consumer-Copilot credential snapshot exported from a browser.
 
-        Flips the account to the consumer provider, which permanently excludes it
-        from the M365 refresh scheduler (see RefreshScheduler.ensure_fresh).
+        Flips the account to the consumer provider, which excludes it from every
+        M365 refresh path -- RT exchange, cookie replay, CDP capture are all
+        meaningless for it (see RefreshScheduler.ensure_fresh). It is still
+        scheduled, just through refresh_consumer instead.
         """
         with self._lock:
             acc = self._accounts.get(acc_id)

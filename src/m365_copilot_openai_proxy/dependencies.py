@@ -26,6 +26,49 @@ def _attach_response_debug_sink(app: FastAPI, client: SubstrateCopilotClient) ->
         return
 
 
+def _consumer_gate_for(app: FastAPI, account_id: str):
+    """Build the mid-request credential re-mint for one consumer account.
+
+    ConsumerCopilotClient calls this at most once per turn, and only on a
+    ClearanceRequired raised before any output. Routing it through the scheduler
+    rather than straight at CamoufoxConsumerGate buys three things: the re-minted
+    credential is persisted, so the next request starts fresh; the single-browser
+    lock is respected, so this cannot run alongside a Chromium refresh; and the
+    identity type the userscript captured survives, which a raw gate would blank
+    out (MSAL mints no X-UserIdentityType).
+
+    Returns None when there is no scheduler to route through, which leaves the
+    client's gate unset and its original error intact.
+    """
+    scheduler = getattr(app.state, "refresh_scheduler", None)
+    if scheduler is None:
+        return None
+
+    async def gate() -> dict:
+        from .consumer_client import ClearanceRequired
+
+        if not await scheduler.refresh_consumer(account_id):
+            # Every failure mode here -- browser absent, launch broken, MSA
+            # session lapsed -- needs the same human step, so say that rather
+            # than leaking which one it was.
+            raise ClearanceRequired(
+                "Consumer credentials expired and the unattended refresh could "
+                "not renew them. Re-push them from the userscript."
+            )
+        account = app.state.account_store.get(account_id)
+        if account is None:
+            raise ClearanceRequired("Consumer account disappeared mid-refresh.")
+        from .consumer_gate import _pick_cookies
+
+        return {
+            "cookies": _pick_cookies(account.cookies or []),
+            "access_token": getattr(account, "consumer_token", ""),
+            "identity_type": getattr(account, "consumer_identity_type", ""),
+        }
+
+    return gate
+
+
 def create_api_dependencies(
     app: FastAPI,
 ) -> tuple[Callable[[], Settings], Callable[[Request], SubstrateCopilotClient]]:
@@ -53,9 +96,10 @@ def create_api_dependencies(
             # route funnels through -- so no route needs per-provider branching.
             # The adapter presents the Substrate contract and translates errors;
             # the client rides the same HTTPS_PROXY egress as everything else
-            # (curl_cffi honours the proxy env by default). No browser gate is
-            # attached server-side: consumer refresh is a userscript re-push to
-            # /user/account/consumer, since reviving a signed-in tab needs a human.
+            # (curl_cffi honours the proxy env by default). A gate is attached so
+            # an expired credential re-mints itself once mid-request instead of
+            # failing the turn; it degrades to the userscript re-push when the
+            # optional browser is absent.
             if account is not None and getattr(account, "provider", "m365") == "consumer":
                 from .consumer_adapter import ConsumerClientAdapter
                 from .consumer_client import ConsumerCopilotClient
@@ -69,6 +113,7 @@ def create_api_dependencies(
                     access_token=getattr(account, "consumer_token", ""),
                     identity_type=getattr(account, "consumer_identity_type", ""),
                     idle_timeout=idle_timeout,
+                    gate=_consumer_gate_for(app, account.id),
                 )
                 return ConsumerClientAdapter(consumer)
             client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)

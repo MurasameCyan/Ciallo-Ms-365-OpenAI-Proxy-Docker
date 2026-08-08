@@ -83,3 +83,56 @@ def test_recovery_backoff_blocks_immediate_retry(tmp_path):
     acct = _acct(cookie_valid=False, cookies=[{"name": "ESTSAUTH", "value": "x"}])
     sched._recovery_attempted_at[acct.id] = time.time()
     assert sched._recovery_due(acct) is False
+
+
+# ------------------------------------------- _consumer_keepalive_due (Camoufox re-mint)
+
+def _consumer(**kw) -> Account:
+    """A consumer account whose credential was captured `age` seconds ago."""
+    age = kw.pop("age", 0.0)
+    base = dict(
+        provider="consumer",
+        consumer_token="tok",
+        consumer_updated_at=time.time() - age,
+    )
+    base.update(kw)
+    return _acct(**base)
+
+
+def test_consumer_keepalive_due_once_the_credential_is_stale(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(age=rs._CONSUMER_KEEPALIVE_AGE_SECONDS + 60)
+    assert sched._consumer_keepalive_due(acct) is True
+
+
+def test_consumer_keepalive_not_due_while_the_credential_is_fresh(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(age=60)
+    assert sched._consumer_keepalive_due(acct) is False
+
+
+def test_consumer_keepalive_skips_m365_accounts(tmp_path):
+    """The age predicate must not touch M365 accounts, which have a real exp."""
+    sched = _make_scheduler(tmp_path)
+    acct = _acct(provider="m365", consumer_token="tok", consumer_updated_at=0.0)
+    assert sched._consumer_keepalive_due(acct) is False
+
+
+def test_consumer_keepalive_not_due_without_a_captured_credential(tmp_path):
+    """No token means no MSA session to renew from -- the first push must be human."""
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(consumer_token="", age=99_999)
+    assert sched._consumer_keepalive_due(acct) is False
+
+
+def test_consumer_keepalive_backoff_blocks_immediate_retry(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(age=rs._CONSUMER_KEEPALIVE_AGE_SECONDS + 60)
+    sched._consumer_attempted_at[acct.id] = time.time()
+    assert sched._consumer_keepalive_due(acct) is False
+
+
+def test_consumer_profile_dir_is_separate_from_the_chromium_one(tmp_path):
+    """A Firefox profile and a Chromium profile cannot share a directory."""
+    sched = _make_scheduler(tmp_path)
+    assert sched._consumer_profile_dir("acct1") == tmp_path / "acct1-consumer"

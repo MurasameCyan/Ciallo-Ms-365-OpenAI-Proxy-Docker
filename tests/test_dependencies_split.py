@@ -72,6 +72,7 @@ def test_get_copilot_client_dispatches_consumer_account_through_adapter(tmp_path
     _, get_copilot_client = create_api_dependencies(app)
 
     account = SimpleNamespace(
+        id="acct-1",
         provider="consumer",
         token=None,
         cookies=[
@@ -91,4 +92,7 @@ def test_get_copilot_client_dispatches_consumer_account_through_adapter(tmp_path
     assert captured["cookies"] == {"_C_Auth": "abc"}
     assert captured["access_token"] == "chatai-token"
     assert captured["identity_type"] == "MSA"
+    # No scheduler on app.state here, so no gate is attached and the client's own
+    # ClearanceRequired reaches the caller unchanged.
+    assert captured["gate"] is None
     assert captured["idle_timeout"] is None
