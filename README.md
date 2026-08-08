@@ -571,7 +571,7 @@ docker compose exec ciallo-proxy-multi \
 
 > 为什么是 Firefox 而不是镜像里已有的 Chromium：consumer 端点会**按 TLS 指纹判决**，Chromium 指纹拿到的是 `method: null` 的 `challenge`（只能由页内 JS 现场解），Firefox 指纹则根本不触发 challenge。这也是 HTTP 客户端那一侧必须用 curl_cffi 的 `firefox147` 的同一个原因。
 >
-> 代价：镜像大约 **+936 MB**，每个账户的 profile 再占约 97 MB（落在 `/chrome-profile` 卷上）。续期那 6.7 秒内峰值内存约 417 MB。这也是它没进默认镜像的原因。本地自建：`docker build --build-arg WITH_CAMOUFOX=true ...`
+> 代价：镜像大约 **+936 MB**，每个账户的 profile 再占约 97 MB（落在 `token-data` 卷上，与上面的 profile 路径同一处）。这也是它没进默认镜像的原因。本地自建：`docker build --build-arg WITH_CAMOUFOX=true ...`
 
 ### 限制
 
