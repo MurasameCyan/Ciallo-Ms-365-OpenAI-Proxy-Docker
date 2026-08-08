@@ -122,4 +122,8 @@ else
 fi
 
 echo "Starting copilot-openai-proxy serve $SERVE_ARGS"
-exec uv run copilot-openai-proxy serve $SERVE_ARGS
+# --no-sync: the image already synced at build time, and a re-sync here would
+# reconcile the venv against the lock *without* extras -- which strips camoufox
+# out of the -camoufox image on every start. It also drops a network round-trip
+# from startup.
+exec uv run --no-sync copilot-openai-proxy serve $SERVE_ARGS

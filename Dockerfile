@@ -29,10 +29,40 @@ WORKDIR /app
 COPY --chown=app:app pyproject.toml .
 COPY --chown=app:app uv.lock .
 
+# Unattended refresh for consumer (personal-account) Copilot needs Camoufox, a
+# Firefox fork -- the consumer endpoint challenges Chromium TLS fingerprints and
+# answers Firefox ones, so the Chromium already installed above cannot do this
+# job. Off by default: it adds ~936 MB, which an M365-only deployment should not
+# carry. Without it consumer accounts still work; they just need the user to
+# re-push credentials from the userscript instead of renewing on their own.
+#   docker build --build-arg WITH_CAMOUFOX=true ...
+ARG WITH_CAMOUFOX=false
+
 # Install Python dependencies as app user (avoids chown -R producing extra layer)
 USER app
-RUN uv sync --frozen --no-dev
+RUN if [ "$WITH_CAMOUFOX" = "true" ]; then \
+      uv sync --frozen --no-dev --extra camoufox; \
+    else \
+      uv sync --frozen --no-dev; \
+    fi
+
+# Fetch the browser at build time, as the app user so it lands somewhere that
+# user can read. Doing it here rather than on first use keeps a ~936 MB download
+# out of the first request's latency, and off the runtime network path entirely.
+RUN if [ "$WITH_CAMOUFOX" = "true" ]; then \
+      uv run --no-sync python -m camoufox fetch && \
+      echo "Camoufox fetched"; \
+    fi
 USER root
+
+# Camoufox runs under a virtual display rather than true headless: headless
+# Firefox is itself a detectable signal, and not being detected is the entire
+# reason this path uses Firefox. xvfb is only needed for that.
+RUN if [ "$WITH_CAMOUFOX" = "true" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends xvfb libgtk-3-0 libasound2 && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Build-time commit for the admin sidebar GitHub badge.
 # CI passes github.sha; local: docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) ...
@@ -52,9 +82,14 @@ RUN chmod +x /entrypoint.sh
 # Persist Chrome user data (login state)
 VOLUME /chrome-profile
 
-# NOTE: /home/app/token is managed as tmpfs via docker-compose (not VOLUME here).
-# Declaring VOLUME would conflict with tmpfs, causing Docker to mount a named volume
-# owned by root:root that shadows the tmpfs mount and breaks app-user write access.
+# NOTE: /home/app/token is mounted by docker-compose (a named volume in the
+# shipped file), deliberately not VOLUME here. Declaring VOLUME would shadow a
+# tmpfs mount with a root:root named volume and break app-user writes, so the
+# choice is left to compose.
+#
+# It must be durable, not tmpfs: TOKEN_DIR/profiles holds the per-account browser
+# profiles, and the consumer one carries the Microsoft account session that the
+# unattended refresh renews from. Losing it costs an interactive sign-in.
 
 # Environment variables (do NOT set M365_ACCESS_TOKEN or ADMIN_PASSWORD here — they may leak into image layers)
 ENV M365_TIME_ZONE="Asia/Shanghai"

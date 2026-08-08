@@ -30,6 +30,16 @@ dependencies = [
 dev = [
     "pytest>=8.4.0,<9.0.0",
 ]
+# Unattended consumer-credential refresh. Kept optional because the browser it
+# downloads is ~936 MB on disk, which is not a cost an M365-only deployment
+# should pay; without it consumer accounts simply fall back to a userscript
+# re-push. Camoufox is a Firefox fork, and Firefox is what the consumer path
+# needs -- Chromium fingerprints are challenged where Firefox ones are not.
+# [geoip] is what lets the browser's reported timezone/locale match the exit IP,
+# which matters here because the egress is usually a proxy in another country.
+camoufox = [
+    "camoufox[geoip]>=0.5.4,<1.0.0",
+]
 
 [project.scripts]
 copilot-openai-proxy = "m365_copilot_openai_proxy.cli:main"
