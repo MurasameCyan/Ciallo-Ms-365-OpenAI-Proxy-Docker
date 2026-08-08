@@ -205,6 +205,49 @@ def test_turnstile_after_a_solved_pow_still_raises():
         _collect(ConsumerCopilotClient(), socket)
 
 
+def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():
+    # Frame order and payload keys are a capture from a real consumer turn
+    # (generatingImage carries the prompt, imageGenerated the finished url;
+    # partialImageGenerated is progress noise and must not reach the client).
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red circle"}',
+        '{"event":"partialImageGenerated","url":"https://example.invalid/partial.png"}',
+        '{"event":"imageGenerated","url":"https://example.invalid/final.png",'
+        '"thumbnailUrl":"https://example.invalid/thumb.png"}',
+        '{"event":"appendText","text":"Here it is."}{"event":"done"}',
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert "![a red circle](https://example.invalid/final.png)" in reply
+    assert "Here it is." in reply
+    assert "partial.png" not in reply
+
+
+def test_generated_image_without_a_preceding_prompt_still_renders():
+    socket = _FakeSocket([
+        '{"event":"imageGenerated","url":"https://example.invalid/final.png"}',
+        '{"event":"done"}',
+    ])
+
+    assert "![image](https://example.invalid/final.png)" in _collect(
+        ConsumerCopilotClient(), socket
+    )
+
+
+def test_image_only_reply_is_not_treated_as_an_interrupted_turn():
+    # An image with no accompanying text still counts as output: if the socket
+    # then drops, the error must say the stream was interrupted, not that
+    # Copilot never replied.
+    socket = _FakeSocket([
+        '{"event":"imageGenerated","url":"https://example.invalid/final.png"}',
+        WebSocketClosed("closed"),
+    ])
+
+    with pytest.raises(ConsumerCopilotError, match="after reply streaming started"):
+        _collect(ConsumerCopilotClient(), socket)
+
+
 def test_chat_service_unavailable_is_a_typed_region_error():
     socket = _FakeSocket(['{"event":"error","errorCode":"chat-service-unavailable"}'])
     with pytest.raises(RegionBlocked, match="anonymous"):

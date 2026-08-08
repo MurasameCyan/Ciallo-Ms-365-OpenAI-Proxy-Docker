@@ -268,6 +268,7 @@ class ConsumerCopilotClient:
         """Answer proof-of-work frames and yield reply text until ``done``."""
         answered = started = False
         last_message = None
+        image_prompt = ""
         while True:
             try:
                 raw, _flags = await ws.recv(timeout=self._idle_timeout)
@@ -298,6 +299,19 @@ class ConsumerCopilotClient:
                 if event == "appendText":
                     started = True
                     yield message.get("text") or ""
+                elif event == "imageGenerated":
+                    # Consumer image generation needs no media bearer: the URL
+                    # here is anonymously fetchable (measured: HTTP 200 with no
+                    # cookies or token). Emitting it as Markdown is the only way
+                    # an OpenAI-compatible client can surface it, and dropping
+                    # the frame -- as we used to -- silently lost the whole
+                    # image. `prompt` from generatingImage is the alt text.
+                    url = message.get("url") or ""
+                    if url:
+                        started = True
+                        yield f"\n\n![{image_prompt or 'image'}]({url})\n\n"
+                elif event == "generatingImage":
+                    image_prompt = message.get("prompt") or ""
                 elif event == "done":
                     return
                 elif event == "challenge":
