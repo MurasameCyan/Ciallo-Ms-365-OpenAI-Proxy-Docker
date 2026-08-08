@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.67" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.67';" in SCRIPT
+    assert "// @version      1.0.68" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.68';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
@@ -212,3 +212,52 @@ def test_userscript_pushes_consumer_snapshot_to_dedicated_endpoint():
     assert "identity_type: latestConsumerIdentity" in SCRIPT
     assert "id=\"m365-push-consumer\"" in SCRIPT
     assert "pushConsumer" in SCRIPT
+
+
+def test_userscript_splits_panel_into_m365_and_consumer_sections():
+    # The two Copilots need different pushes, so the panel must render them as
+    # two separate blocks instead of burying the consumer button inside the
+    # M365 "manual config" drawer.
+    assert "function m365Section()" in SCRIPT
+    assert "function consumerSection()" in SCRIPT
+    assert "section_m365:" in SCRIPT
+    assert "section_consumer:" in SCRIPT
+
+
+def test_userscript_orders_sections_by_current_site():
+    # Credentials can only be captured on their own host, so whichever product
+    # the tab belongs to is the one the user can act on -- put it first.
+    assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';" in SCRIPT
+    assert "IS_CONSUMER_SITE ? consumerSection() + m365Section() : m365Section() + consumerSection()" in SCRIPT
+
+
+def test_userscript_badges_which_section_is_usable_here():
+    # Both sections always render (so the user sees the full picture), which
+    # makes it essential to label which one this page can actually feed.
+    assert "function siteBadge(" in SCRIPT
+    assert "siteBadge(!IS_CONSUMER_SITE, 'other_site_m365')" in SCRIPT
+    assert "siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')" in SCRIPT
+    assert "here_now:" in SCRIPT
+
+
+def test_userscript_wrong_site_push_names_the_page_to_open():
+    # Pushing from the wrong host previously said "not captured yet", which
+    # reads as a capture bug. Name the page to open instead.
+    assert "m365_needs_site:" in SCRIPT
+    assert "consumer_needs_site:" in SCRIPT
+    assert "alert(IS_CONSUMER_SITE ? tr('m365_needs_site') : tr('no_token_ws'))" in SCRIPT
+    assert "alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site'))" in SCRIPT
+
+
+def test_userscript_consumer_button_label_writes_span_not_button_text():
+    # The consumer button holds an icon plus a label span; writing
+    # btn.textContent during the push would delete the icon.
+    assert "id=\"m365-push-consumer-text\"" in SCRIPT
+    assert "const btnText = document.getElementById('m365-push-consumer-text');" in SCRIPT
+
+
+def test_userscript_shared_capture_section_is_labelled_shared():
+    # Mode capture hooks the same WebSocket wrapper for both products, so it
+    # stays one section -- but it must say so, or it looks M365-only.
+    assert "section_shared:" in SCRIPT
+    assert "tr('section_shared')" in SCRIPT

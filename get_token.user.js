@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.67
+// @version      1.0.68
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.67';
+    const SCRIPT_VERSION = '1.0.68';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
@@ -38,6 +38,10 @@
     // https://*.microsoft.com/* @match, so no new @match is needed.
     const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
+    // Which product the current tab belongs to. The two Copilots live on
+    // different hosts and need different pushes, so the panel shows only the
+    // section that can actually work here instead of both at once.
+    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
 
@@ -112,6 +116,18 @@
             consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
             no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
             consumer_pushed: '个人版 Copilot 已推送，Cookie 数：',
+            // ---- 两个产品分区 ----
+            section_m365: ' M365 商业版',
+            section_consumer: ' 个人版 Copilot',
+            section_shared: ' 通用',
+            here_now: '当前页面',
+            other_site_m365: '需在 m365.cloud.microsoft 操作',
+            other_site_consumer: '需在 copilot.microsoft.com 操作',
+            consumer_desc: '推送 Cookie + ChatAI Token 到当前账户',
+            consumer_one_click: '一键推送个人版',
+            consumer_manual: '手动推送',
+            m365_needs_site: '请先打开 m365.cloud.microsoft 并登录，本页无法采集 M365 凭据。',
+            consumer_needs_site: '请先打开 copilot.microsoft.com 并发送一条消息，本页无法采集个人版凭据。',
             quick_setup: ' 一键推送',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
@@ -186,6 +202,18 @@
             consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
             no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
             consumer_pushed: 'Personal Copilot pushed, cookies: ',
+            // ---- the two product sections ----
+            section_m365: 'M365 Business',
+            section_consumer: 'Personal Copilot',
+            section_shared: 'Shared',
+            here_now: 'this page',
+            other_site_m365: 'open m365.cloud.microsoft to use',
+            other_site_consumer: 'open copilot.microsoft.com to use',
+            consumer_desc: 'Push cookies + ChatAI token to the current account.',
+            consumer_one_click: 'Push Personal',
+            consumer_manual: 'Manual push',
+            m365_needs_site: 'Open m365.cloud.microsoft and sign in first; M365 credentials cannot be collected from this page.',
+            consumer_needs_site: 'Open copilot.microsoft.com and send one message first; personal credentials cannot be collected from this page.',
             quick_setup: 'One-Click Push',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
@@ -248,6 +276,8 @@
             spark: '<svg viewBox="0 0 24 24" width="17" height="17" fill="#60f2ff"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2z"/></svg>',
             // rocket — One-Click Push (colorful: cyan body, purple fins, orange flame)
             rocket: '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M14.5 2c2 0 4 0 5.5 1.5S21.5 8 21.5 10c-1.2 2.6-3 4.7-5 6.3l.2 3.2-3.5-1.8-3.1 1.6-1.6-3.1L4.7 12.5C6.3 10.5 8.4 8.7 11 7.5c1.4-2 3-3.5 3.5-3.5z" fill="#60f2ff"/><path d="M11 7.5C8.4 8.7 6.3 10.5 4.7 12.5l3.8 1.6 3.1-1.6c1-2.2 2.3-4.2 3.9-6.1-2.6.4-4.5 1.1-4.5 1.1z" fill="#8c6bff"/><circle cx="15" cy="6" r="2" fill="#050815"/><path d="M9 16l1.6 3.1 3.1-1.6-.3 4.1s-2.4-.2-4.1-1.9c-1.2-1.2-.6-3.6-.6-3.6z" fill="#ff8c42"/><path d="M9 16l1.6 3.1 3.1-1.6-.5 2.4-3.7-1.8z" fill="#ffd76f"/></svg>',
+            // fox head — Personal Copilot (the consumer path runs on Firefox/Camoufox)
+            fox: '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M3 3l3.5 2.5L12 4l5.5 1.5L21 3l-1 6c0 5-3.5 9-8 9s-8-4-8-9L3 3z" fill="#f97316"/><path d="M12 4L6.5 5.5 3 3l1 6c0 2.2.7 4.2 1.9 5.8C5.3 12.6 5 10.4 5 8l6-2.5 1-1.5z" fill="#fb923c"/><circle cx="9" cy="10" r="1.2" fill="#050815"/><circle cx="15" cy="10" r="1.2" fill="#050815"/><path d="M12 13l-1.8 1.4c.5.5 1.1.8 1.8.8s1.3-.3 1.8-.8L12 13z" fill="#050815"/></svg>',
         };
         return '<span style="display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; vertical-align:middle;">' + (svgs[name] || '') + '</span>';
     }
@@ -984,7 +1014,9 @@
     async function pushToken() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
-        if (!latestToken) { alert(tr('no_token_ws')); return; }
+        // The substrate token only ever appears on an M365 host, so on the
+        // consumer site say which page to open instead of "not captured yet".
+        if (!latestToken) { alert(IS_CONSUMER_SITE ? tr('m365_needs_site') : tr('no_token_ws')); return; }
         try {
             const ur = await pushUserToken(base, latestToken);
             if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
@@ -1030,9 +1062,15 @@
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
         if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
-        if (!latestConsumerToken) { alert(tr('no_consumer_token')); return; }
+        // The ChatAI token only appears on the consumer host, so from an M365 tab
+        // name the page to open rather than repeating "not captured yet".
+        if (!latestConsumerToken) { alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site')); return; }
         const btn = document.getElementById('m365-push-consumer');
-        if (btn) { btn.disabled = true; btn.textContent = tr('fetching'); }
+        // The label lives in a child span (icon + text), so write the span and
+        // never btn.textContent -- that would wipe the icon out of the button.
+        const btnText = document.getElementById('m365-push-consumer-text');
+        const setBtnText = (t) => { if (btnText) { btnText.textContent = t; } else if (btn) { btn.textContent = t; } };
+        if (btn) { btn.disabled = true; setBtnText(tr('fetching')); }
         try {
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
@@ -1043,7 +1081,7 @@
         } catch (e) {
             alert(tr('error') + e);
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = tr('push_consumer'); }
+            if (btn) { btn.disabled = false; setBtnText(tr('consumer_one_click')); }
         }
     }
 
@@ -1056,7 +1094,7 @@
     async function oneClickSetup() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
-        if (!latestToken) { alert(tr('no_token_ws')); return; }
+        if (!latestToken) { alert(IS_CONSUMER_SITE ? tr('m365_needs_site') : tr('no_token_ws')); return; }
         if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
         const btn = document.getElementById('m365-one-click');
         const btnText = document.getElementById('m365-one-click-text');
@@ -1144,6 +1182,98 @@
         showPanel();
     }
 
+    // ---- Panel sections, one per product ----------------------------------
+    // The two Copilots are separate products with separate credentials, so each
+    // gets its own block with its own one-click push and its own manual drawer.
+    // Both blocks always render (the wiring below expects every id to exist);
+    // only their ORDER changes, so whichever product the current tab belongs to
+    // comes first. The badge says whether a block is usable right here.
+    function siteBadge(isHere, otherKey) {
+        const color = isHere ? '#22c55e' : '#475569';
+        const text = isHere ? tr('here_now') : tr(otherKey);
+        return `<span style="margin-left:auto; font-weight:500; font-size:10px; color:${color};">${text}</span>`;
+    }
+
+    function m365Section() {
+        return `
+                <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
+                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('section_m365')}</span>
+                        ${siteBadge(!IS_CONSUMER_SITE, 'other_site_m365')}
+                    </div>
+                    <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
+                        <span>${tr('quick_setup_desc')}</span>
+                        <span style="margin-left:auto; display:flex; gap:8px;">
+                            <span style="color:${latestToken ? '#22c55e' : '#f59e0b'};">${tr('token')} ${latestToken ? '&#10003;' : '&#9888;'}</span>
+                            <span style="color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">Cookie ${hasGMCookie() ? '&#10003;' : '&#9888;'}</span>
+                        </span>
+                    </div>
+                    <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
+                            border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#fff;
+                            cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
+                            transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
+                        ${ic('rocket')}<span id="m365-one-click-text">${tr('one_click')}</span>
+                    </button>
+
+                    <details style="margin-top:10px;">
+                        <summary style="font-size:11px; color:#60f2ff; font-weight:600; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
+
+                        <div style="font-size:11px; color:#94a3b8; margin:10px 0 5px; font-weight:500; display:flex; align-items:center;"><span>${tr('token')}</span><span style="margin-left:auto; color:${latestToken ? '#22c55e' : '#f59e0b'};">${latestToken ? tr('token_captured') : tr('token_not_captured')}</span></div>
+                        <div style="display:flex; gap:8px;">
+                            <button id="m365-copy-token" style="flex:1; padding:8px 0; border:none;
+                                    border-radius:8px; background:#0ea5e9; color:#fff;
+                                    cursor:pointer; font-weight:600; font-size:12px;
+                                    transition:opacity 0.2s;">
+                                &#128203; ${tr('copy_token')}
+                            </button>
+                            <button id="m365-push-token" style="flex:1; padding:8px 0; border:none;
+                                    border-radius:8px; background:#22c55e; color:#fff;
+                                    cursor:pointer; font-weight:600; font-size:12px;
+                                    transition:opacity 0.2s;">
+                                &#128228; ${tr('push_token')}
+                            </button>
+                        </div>
+
+                        <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('cookie_login')}</span><span style="margin-left:auto; color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">${hasGMCookie() ? tr('gm_available') : tr('gm_unavailable')}</span></div>
+                        <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
+                                border-radius:8px; background:linear-gradient(135deg,#8c6bff,#7c3aed); color:#fff;
+                                cursor:pointer; font-weight:600; font-size:12px;
+                                transition:opacity 0.2s;">
+                            &#127850; ${tr('push_cookies')}
+                        </button>
+
+                        <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('media_auth')}</span><span style="margin-left:auto; color:${latestMediaAuth ? '#22c55e' : '#f59e0b'};">${latestMediaAuth ? tr('media_auth_captured') : tr('media_auth_not_captured')}</span></div>
+                        <button id="m365-push-media-auth" style="width:100%; padding:8px 0; border:none;
+                                border-radius:8px; background:linear-gradient(135deg,#0ea5e9,#2563eb); color:#fff;
+                                cursor:pointer; font-weight:600; font-size:12px;
+                                transition:opacity 0.2s;">
+                            &#128228; ${tr('push_media_auth')}
+                        </button>
+                    </details>
+                </div>`;
+    }
+
+    function consumerSection() {
+        return `
+                <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <div style="font-size:12px; color:#10b981; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
+                        <span style="display:flex; align-items:center;">${ic('fox')}${tr('section_consumer')}</span>
+                        ${siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')}
+                    </div>
+                    <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
+                        <span>${tr('consumer_desc')}</span>
+                        <span style="margin-left:auto; color:${latestConsumerToken ? '#22c55e' : '#f59e0b'};">${latestConsumerToken ? tr('consumer_captured') : '&#9888;'}</span>
+                    </div>
+                    <button id="m365-push-consumer" style="width:100%; padding:10px 0; border:none;
+                            border-radius:10px; background:linear-gradient(135deg,#10b981,#0d9488); color:#fff;
+                            cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
+                            transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
+                        &#129302; <span id="m365-push-consumer-text">${tr('consumer_one_click')}</span>
+                    </button>
+                    <div style="font-size:10px; color:#475569; margin-top:6px;">${latestConsumerToken ? '' : tr('consumer_not_captured')}</div>
+                </div>`;
+    }
+
     function showPanel() {
         if (document.getElementById('m365-token-panel')) {
             document.getElementById('m365-token-panel').remove();
@@ -1195,68 +1325,10 @@
                     </div>
                 </div>
 
-                <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:8px; display:flex; align-items:center;">
-                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('quick_setup')} <span style="color:#475569; font-weight:400; margin-left:4px;">${tr('quick_setup_desc')}</span></span>
-                        <span style="margin-left:auto; font-weight:500; font-size:10px; display:flex; gap:8px;">
-                            <span style="color:${latestToken ? '#22c55e' : '#f59e0b'};">${tr('token')} ${latestToken ? '&#10003;' : '&#9888;'}</span>
-                            <span style="color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">Cookie ${hasGMCookie() ? '&#10003;' : '&#9888;'}</span>
-                        </span>
-                    </div>
-                    <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
-                            border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#fff;
-                            cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
-                            transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
-                        ${ic('rocket')}<span id="m365-one-click-text">${tr('one_click')}</span>
-                    </button>
-                </div>
+                ${IS_CONSUMER_SITE ? consumerSection() + m365Section() : m365Section() + consumerSection()}
 
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
-
-                    <div style="font-size:11px; color:#94a3b8; margin:10px 0 5px; font-weight:500; display:flex; align-items:center;"><span>${tr('token')}</span><span style="margin-left:auto; color:${latestToken ? '#22c55e' : '#f59e0b'};">${latestToken ? tr('token_captured') : tr('token_not_captured')}</span></div>
-                    <div style="display:flex; gap:8px;">
-                        <button id="m365-copy-token" style="flex:1; padding:8px 0; border:none;
-                                border-radius:8px; background:#0ea5e9; color:#fff;
-                                cursor:pointer; font-weight:600; font-size:12px;
-                                transition:opacity 0.2s;">
-                            &#128203; ${tr('copy_token')}
-                        </button>
-                        <button id="m365-push-token" style="flex:1; padding:8px 0; border:none;
-                                border-radius:8px; background:#22c55e; color:#fff;
-                                cursor:pointer; font-weight:600; font-size:12px;
-                                transition:opacity 0.2s;">
-                            &#128228; ${tr('push_token')}
-                        </button>
-                    </div>
-
-                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('cookie_login')}</span><span style="margin-left:auto; color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">${hasGMCookie() ? tr('gm_available') : tr('gm_unavailable')}</span></div>
-                    <button id="m365-push-cookies" style="width:100%; padding:8px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#8c6bff,#7c3aed); color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;">
-                        &#127850; ${tr('push_cookies')}
-                    </button>
-
-                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('media_auth')}</span><span style="margin-left:auto; color:${latestMediaAuth ? '#22c55e' : '#f59e0b'};">${latestMediaAuth ? tr('media_auth_captured') : tr('media_auth_not_captured')}</span></div>
-                    <button id="m365-push-media-auth" style="width:100%; padding:8px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#0ea5e9,#2563eb); color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;">
-                        &#128228; ${tr('push_media_auth')}
-                    </button>
-
-                    <div style="font-size:11px; color:#94a3b8; margin:12px 0 8px; font-weight:500; display:flex; align-items:center;"><span>${tr('consumer_status')}</span><span style="margin-left:auto; color:${latestConsumerToken ? '#22c55e' : '#f59e0b'};">${latestConsumerToken ? tr('consumer_captured') : tr('consumer_not_captured')}</span></div>
-                    <button id="m365-push-consumer" style="width:100%; padding:8px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#10b981,#0d9488); color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;">
-                        &#129302; ${tr('push_consumer')}
-                    </button>
-                </details>
-
-                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
+                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')} — ${tr('section_shared')}</span></summary>
                     <div style="font-size:10px; color:#64748b; margin:8px 0;">${tr('mode_capture_desc')}</div>
                     <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
                         <span style="color:#475569">${tr('no_capture')}</span>
