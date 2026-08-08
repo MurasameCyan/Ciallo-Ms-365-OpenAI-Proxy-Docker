@@ -454,6 +454,19 @@ class AccountStore:
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
             acc.cookie_expires_at = 0.0
+            # A consumer account authenticates by its ChatAI token + cookies, not
+            # the substrate token/refresh_token cleared above. Leaving provider and
+            # consumer_token in place would keep request dispatch routing through
+            # the consumer client on stale credentials -- a logout that never logs
+            # out -- while binding_state reads "none". Reset it to a blank m365
+            # account so routing, binding_state and token_status all agree it is
+            # signed out.
+            if acc.provider == "consumer":
+                acc.provider = "m365"
+                acc.consumer_token = ""
+                acc.consumer_identity_type = ""
+                acc.consumer_updated_at = 0.0
+                acc.cookies = []
             acc.updated_at = time.time()
             self._save()
             return acc

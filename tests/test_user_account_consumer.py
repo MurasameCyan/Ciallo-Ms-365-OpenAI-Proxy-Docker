@@ -56,6 +56,40 @@ def test_consumer_push_creates_account_flips_provider_and_binds_key(tmp_path):
     assert account.name == "Personal User"
 
 
+def test_consumer_logout_fully_signs_out_a_consumer_account(tmp_path):
+    """logout promises to wipe credential state, but a consumer account is not
+    signed out until provider/consumer_token are cleared too: leaving them makes
+    request dispatch keep streaming through the consumer client on stale cookies
+    while binding_state reads 'none'. After logout the account must look like a
+    blank m365 account -- no consumer routing, no stored token."""
+    app = make_test_app(tmp_path)
+    client = TestClient(app)
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+
+    push = client.post(
+        "/user/account/consumer",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"cookies": COOKIES, "access_token": TOKEN, "identity_type": "MSA"},
+    )
+    assert push.status_code == 200
+    account_id = app.state.key_store.get(key.id).account_id
+    assert app.state.account_store.get(account_id).provider == "consumer"
+
+    logout = client.post(
+        "/user/account/logout",
+        headers={"Authorization": f"Bearer {key.key}"},
+    )
+    assert logout.status_code == 200
+
+    account = app.state.account_store.get(account_id)
+    assert account.provider == "m365"
+    assert account.consumer_token == ""
+    assert account.consumer_identity_type == ""
+    assert account.cookies == []
+    assert account.cookie_valid is False
+    assert account.token_status()["valid"] is False
+
+
 def test_consumer_push_rejects_short_token(tmp_path):
     app = make_test_app(tmp_path)
     key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
