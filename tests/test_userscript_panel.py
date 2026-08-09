@@ -274,8 +274,13 @@ def test_userscript_badges_which_section_is_usable_here():
     # The off-site product stays in the DOM (collapsed), and on login hosts both
     # render, so each block still has to label whether this page can feed it.
     assert "function siteBadge(" in SCRIPT
-    assert "siteBadge(!IS_CONSUMER_SITE, 'other_site_m365')" in SCRIPT
+    # Each badge asks "is this host the one that can capture my token", so both
+    # test a positive predicate. Negating the sibling would be wrong: a login
+    # page is neither product, and !IS_CONSUMER_SITE would badge it "here now"
+    # for M365 even though no substrate token can ever appear there.
+    assert "siteBadge(IS_M365_SITE, 'other_site_m365')" in SCRIPT
     assert "siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')" in SCRIPT
+    assert "siteBadge(!IS_CONSUMER_SITE" not in SCRIPT
     assert "here_now:" in SCRIPT
 
 
@@ -284,8 +289,11 @@ def test_userscript_wrong_site_push_names_the_page_to_open():
     # reads as a capture bug. Name the page to open instead.
     assert "m365_needs_site:" in SCRIPT
     assert "consumer_needs_site:" in SCRIPT
-    assert "alert(IS_CONSUMER_SITE ? tr('m365_needs_site') : tr('no_token_ws'))" in SCRIPT
+    # Keyed on "am I on the host that can capture this token", not on the other
+    # product: login pages are neither, and they cannot produce either token.
+    assert "alert(IS_M365_SITE ? tr('no_token_ws') : tr('m365_needs_site'))" in SCRIPT
     assert "alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site'))" in SCRIPT
+    assert "alert(IS_CONSUMER_SITE ? tr('m365_needs_site')" not in SCRIPT
 
 
 def test_userscript_consumer_button_label_writes_span_not_button_text():

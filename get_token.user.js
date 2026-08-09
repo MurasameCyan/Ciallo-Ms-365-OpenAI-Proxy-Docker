@@ -1033,9 +1033,11 @@
     async function pushToken() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
-        // The substrate token only ever appears on an M365 host, so on the
-        // consumer site say which page to open instead of "not captured yet".
-        if (!latestToken) { alert(IS_CONSUMER_SITE ? tr('m365_needs_site') : tr('no_token_ws')); return; }
+        // The substrate token only ever appears on an M365 host, so anywhere else
+        // -- the consumer site AND the login pages -- say which page to open
+        // instead of "not captured yet", which would tell the user to keep
+        // waiting on a page that can never produce one.
+        if (!latestToken) { alert(IS_M365_SITE ? tr('no_token_ws') : tr('m365_needs_site')); return; }
         try {
             const ur = await pushUserToken(base, latestToken);
             if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
@@ -1113,7 +1115,7 @@
     async function oneClickSetup() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
-        if (!latestToken) { alert(IS_CONSUMER_SITE ? tr('m365_needs_site') : tr('no_token_ws')); return; }
+        if (!latestToken) { alert(IS_M365_SITE ? tr('no_token_ws') : tr('m365_needs_site')); return; }
         if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
         const btn = document.getElementById('m365-one-click');
         const btnText = document.getElementById('m365-one-click-text');
@@ -1221,7 +1223,7 @@
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
                         <span style="display:flex; align-items:center;">${ic('bolt')}${tr('section_m365')}</span>
-                        ${siteBadge(!IS_CONSUMER_SITE, 'other_site_m365')}
+                        ${siteBadge(IS_M365_SITE, 'other_site_m365')}
                     </div>
                     <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
                         <span>${tr('quick_setup_desc')}</span>
