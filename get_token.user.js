@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.69
+// @version      1.0.70
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.69';
+    const SCRIPT_VERSION = '1.0.70';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
@@ -40,9 +40,16 @@
     const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
     // Which product the current tab belongs to. The two Copilots live on
-    // different hosts and need different pushes, so the panel shows only the
-    // section that can actually work here instead of both at once.
+    // different hosts and need different pushes, so the panel leads with the
+    // section that can actually work here and tucks the other one away.
     const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';
+    // Hosts that belong to the M365 (work/school) Copilot. The login domains are
+    // deliberately on NEITHER list: mid-login we cannot tell which product the
+    // user is heading for, so the panel falls back to showing both sections.
+    const M365_SITE_HOSTS = ['m365.cloud.microsoft', 'microsoft365.com', 'office.com', 'teams.microsoft.com'];
+    const IS_M365_SITE = M365_SITE_HOSTS.some(
+        (h) => location.hostname === h || location.hostname.endsWith('.' + h)
+    );
     const PROXY_BASE = ''; // 留空则从面板输入框读取，或填入你的代理地址如 http://192.168.1.100:8000
     const USER_API_KEY = ''; // 留空则从面板输入框读取，或填入常驻的 /user API Key 如 sk-xxxx（写死后无需每次输入）
 
@@ -122,6 +129,10 @@
             // 个人版 socket 不抓帧，所以这一节只对 M365 有效。
             section_capture_scope: '仅 M365',
             here_now: '当前页面',
+            // 折叠抽屉的标题：当前站点用不到的那个产品收进这里，不直接展示。
+            // M365 的 Cookie 推送查的是绝对域名，跨站也能用，所以只折叠、不移除。
+            other_product: '其他产品',
+            other_product_hint: '（当前页面用不到，展开可用跨站功能）',
             other_site_m365: '需在 m365.cloud.microsoft 操作',
             other_site_consumer: '需在 copilot.microsoft.com 操作',
             consumer_desc: '推送 Cookie + ChatAI Token 到当前账户',
@@ -207,6 +218,11 @@
             // in the WebSocket wrapper); the consumer socket is not tapped.
             section_capture_scope: 'M365 only',
             here_now: 'this page',
+            // Drawer title for the product this host cannot feed. M365 cookie
+            // push queries absolute domains and works cross-site, so the block is
+            // collapsed rather than removed.
+            other_product: 'Other product',
+            other_product_hint: '(not usable on this page; expand for cross-site actions)',
             other_site_m365: 'open m365.cloud.microsoft to use',
             other_site_consumer: 'open copilot.microsoft.com to use',
             consumer_desc: 'Push cookies + ChatAI token to the current account.',
@@ -1188,9 +1204,12 @@
     // ---- Panel sections, one per product ----------------------------------
     // The two Copilots are separate products with separate credentials, so each
     // gets its own block with its own one-click push and its own manual drawer.
-    // Both blocks always render (the wiring below expects every id to exist);
-    // only their ORDER changes, so whichever product the current tab belongs to
-    // comes first. The badge says whether a block is usable right here.
+    // The host decides which block leads: on a known product site the other
+    // product is collapsed into a drawer so the panel shows only what this page
+    // can feed. It is collapsed rather than dropped because M365's cookie push
+    // queries absolute domains (see getAllCookies) and therefore works from any
+    // tab -- dropping the block would make a working feature unreachable. Every
+    // id stays in the DOM either way, which keeps the wiring below safe.
     function siteBadge(isHere, otherKey) {
         const color = isHere ? '#22c55e' : '#475569';
         const text = isHere ? tr('here_now') : tr(otherKey);
@@ -1277,6 +1296,47 @@
                 </div>`;
     }
 
+    // Mode capture belongs to M365: the outgoing-frame tap is installed inside
+    // the Substrate branch only, so this section can never fill up on the
+    // consumer site. It travels with the M365 block instead of standing alone.
+    function captureSection() {
+        return `
+                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')} — ${tr('section_capture_scope')}</span></summary>
+                    <div style="font-size:10px; color:#64748b; margin:8px 0;">${tr('mode_capture_desc')}</div>
+                    <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
+                        <span style="color:#475569">${tr('no_capture')}</span>
+                    </div>
+                    <button id="m365-push-payload" style="width:100%; padding:8px 0; border:none;
+                            border-radius:8px; background:linear-gradient(135deg,#f59e0b,#ef4444); color:#fff;
+                            cursor:pointer; font-weight:600; font-size:12px;
+                            transition:opacity 0.2s;">
+                        &#128228; ${tr('push_payloads')}
+                    </button>
+                </details>`;
+    }
+
+    // Collapsed wrapper for the product the current tab cannot feed.
+    function otherProductDrawer(inner) {
+        return `
+                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
+                    <summary style="font-size:11px; color:#64748b; font-weight:600; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('other_product')} <span style="color:#475569; font-weight:400;">${tr('other_product_hint')}</span></summary>
+                    ${inner}
+                </details>`;
+    }
+
+    function panelBody() {
+        if (IS_CONSUMER_SITE) {
+            return consumerSection() + otherProductDrawer(m365Section() + captureSection());
+        }
+        if (IS_M365_SITE) {
+            return m365Section() + captureSection() + otherProductDrawer(consumerSection());
+        }
+        // Neither product host (login pages, other Microsoft domains): we cannot
+        // tell where the user is headed, so show both and let them choose.
+        return m365Section() + consumerSection() + captureSection();
+    }
+
     function showPanel() {
         if (document.getElementById('m365-token-panel')) {
             document.getElementById('m365-token-panel').remove();
@@ -1328,21 +1388,7 @@
                     </div>
                 </div>
 
-                ${IS_CONSUMER_SITE ? consumerSection() + m365Section() : m365Section() + consumerSection()}
-
-                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')} — ${tr('section_capture_scope')}</span></summary>
-                    <div style="font-size:10px; color:#64748b; margin:8px 0;">${tr('mode_capture_desc')}</div>
-                    <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
-                        <span style="color:#475569">${tr('no_capture')}</span>
-                    </div>
-                    <button id="m365-push-payload" style="width:100%; padding:8px 0; border:none;
-                            border-radius:8px; background:linear-gradient(135deg,#f59e0b,#ef4444); color:#fff;
-                            cursor:pointer; font-weight:600; font-size:12px;
-                            transition:opacity 0.2s;">
-                        &#128228; ${tr('push_payloads')}
-                    </button>
-                </details>
+                ${panelBody()}
 
                 <div style="border-top:1px solid #1e293b; margin:0; padding-top:12px; display:flex; justify-content:space-between; align-items:center;">
                     <span style="font-size:10px; color:#475569">${tr('toggle_hint')}</span>
@@ -1359,20 +1405,23 @@
 
         const langBtn = document.getElementById('m365-lang-toggle');
         if (langBtn) langBtn.onclick = () => toggleLang();
-        document.getElementById('m365-copy-token').onclick = () => copyToken();
-        document.getElementById('m365-push-token').onclick = () => pushToken();
-        document.getElementById('m365-push-cookies').onclick = () => pushCookies();
-        document.getElementById('m365-push-media-auth').onclick = pushMediaAuth;
-        const pushConsumerBtn = document.getElementById('m365-push-consumer');
-        if (pushConsumerBtn) pushConsumerBtn.onclick = () => pushConsumer();
-        document.getElementById('m365-one-click').onclick = () => oneClickSetup();
-        const resetProxyBtn = document.getElementById('m365-reset-proxy-url');
-        if (resetProxyBtn) resetProxyBtn.onclick = () => resetSavedProxyBase();
-        const resetKeyBtn = document.getElementById('m365-reset-user-key');
-        if (resetKeyBtn) resetKeyBtn.onclick = () => resetSavedUserKey();
-        const pushPayloadBtn = document.getElementById('m365-push-payload');
-        if (pushPayloadBtn) pushPayloadBtn.onclick = () => pushPayload();
-        document.getElementById('m365-close-panel').onclick = () => panel.remove();
+        // Every button is wired defensively: the sections are host-dependent, and
+        // one throw here would abort the rest of the wiring -- including the close
+        // button, leaving a panel that cannot be dismissed.
+        const on = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.onclick = handler;
+        };
+        on('m365-copy-token', () => copyToken());
+        on('m365-push-token', () => pushToken());
+        on('m365-push-cookies', () => pushCookies());
+        on('m365-push-media-auth', pushMediaAuth);
+        on('m365-push-consumer', () => pushConsumer());
+        on('m365-one-click', () => oneClickSetup());
+        on('m365-reset-proxy-url', () => resetSavedProxyBase());
+        on('m365-reset-user-key', () => resetSavedUserKey());
+        on('m365-push-payload', () => pushPayload());
+        on('m365-close-panel', () => panel.remove());
         renderCaptured();
     }
 

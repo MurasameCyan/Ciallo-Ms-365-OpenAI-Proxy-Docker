@@ -536,7 +536,9 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 4. **发送一条消息** —— ChatAI token 只出现在聊天 WebSocket 的 URL 里，不发消息就抓不到
 5. 面板「个人版 Copilot」一栏变绿显示 `✓ ChatAI Token 可用` 后，点 **推送个人版 Copilot**
 
-> 面板里的 `Token` / `Media Bearer` 两栏是**企业版**用的，个人版账户不需要它们，显示「尚未捕获」属正常。
+> 脚本按域名自动切换面板内容：在 copilot.microsoft.com 上只显示「个人版 Copilot」，企业版那套（`Token` / `Media Bearer` / 模式抓包）收进底部的「其他产品」折叠抽屉里 —— 它们是企业版专用的，个人版账户不需要。反过来在 m365.cloud.microsoft 上，个人版一栏同样收进抽屉。登录域（`login.live.com` 等）两栏都显示，因为登录中途无法判断你要用哪个产品。
+>
+> 抽屉只是折叠、没有移除，因为 M365 的 **Cookie 推送**查的是绝对域名，在任何标签页都能用；其余按钮仍需在各自的站点上才能抓到凭据。
 
 ### 3. 凭据过期后重推
 
