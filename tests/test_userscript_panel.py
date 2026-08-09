@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.68" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.68';" in SCRIPT
+    assert "// @version      1.0.69" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.69';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
@@ -256,8 +256,32 @@ def test_userscript_consumer_button_label_writes_span_not_button_text():
     assert "const btnText = document.getElementById('m365-push-consumer-text');" in SCRIPT
 
 
-def test_userscript_shared_capture_section_is_labelled_shared():
-    # Mode capture hooks the same WebSocket wrapper for both products, so it
-    # stays one section -- but it must say so, or it looks M365-only.
-    assert "section_shared:" in SCRIPT
-    assert "tr('section_shared')" in SCRIPT
+def test_userscript_treats_non_json_body_as_failure_even_on_http_200():
+    # A reverse proxy fronting the container can answer 200 with an HTML login
+    # page. Callers branch on .ok before reading .data, so parsing has to happen
+    # before .ok is decided -- otherwise the success branch prints
+    # "Token updated, remaining: undefineds" and hides the real cause.
+    assert "bad_response:" in SCRIPT
+    assert "let parseError = null;" in SCRIPT
+    assert "ok: !parseError && resp.status >= 200 && resp.status < 300," in SCRIPT
+    # the status has to reach the user, so the placeholder must be substituted
+    assert ".replace('{status}', resp.status)" in SCRIPT
+    # parsing must precede the resolve() that publishes .ok
+    parse = SCRIPT.index("let parseError = null;")
+    ok_decision = SCRIPT.index("ok: !parseError &&")
+    assert parse < ok_decision
+
+
+def test_userscript_labels_mode_capture_as_m365_only():
+    # The WebSocket wrapper runs for both products, but the outgoing-frame tap
+    # that feeds this section is installed inside the Substrate branch only --
+    # the consumer socket is never tapped. Labelling it "shared" told the user
+    # that capturing works on copilot.microsoft.com, which it does not.
+    assert "section_capture_scope:" in SCRIPT
+    assert "tr('section_capture_scope')" in SCRIPT
+    assert "section_shared" not in SCRIPT
+    # the tap must stay inside the Substrate branch for that label to hold
+    tap = SCRIPT.index("ws.send = function(data)")
+    substrate_branch = SCRIPT.index("if (match) {")
+    consumer_branch = SCRIPT.index("if (consumerMatch) {")
+    assert consumer_branch < substrate_branch < tap

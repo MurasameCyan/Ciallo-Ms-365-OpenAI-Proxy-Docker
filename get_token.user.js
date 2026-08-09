@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.68
+// @version      1.0.69
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,11 +30,12 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.68';
+    const SCRIPT_VERSION = '1.0.69';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
-    // captures both. copilot.microsoft.com is already covered by the
+    // captures both tokens (the outgoing-frame tap stays Substrate-only).
+    // copilot.microsoft.com is already covered by the
     // https://*.microsoft.com/* @match, so no new @match is needed.
     const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
@@ -110,8 +111,6 @@
             push_media_auth: '推送媒体鉴权',
             media_auth_pushed: '媒体鉴权已推送',
             no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
-            push_consumer: '推送个人版 Copilot',
-            consumer_status: '个人版 Copilot',
             consumer_captured: '✓ ChatAI Token 可用',
             consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
             no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
@@ -119,16 +118,16 @@
             // ---- 两个产品分区 ----
             section_m365: ' M365 商业版',
             section_consumer: ' 个人版 Copilot',
-            section_shared: ' 通用',
+            // 抓帧钩子只装在 Substrate 分支（见 WebSocket 包装里的 if (match)），
+            // 个人版 socket 不抓帧，所以这一节只对 M365 有效。
+            section_capture_scope: '仅 M365',
             here_now: '当前页面',
             other_site_m365: '需在 m365.cloud.microsoft 操作',
             other_site_consumer: '需在 copilot.microsoft.com 操作',
             consumer_desc: '推送 Cookie + ChatAI Token 到当前账户',
             consumer_one_click: '一键推送个人版',
-            consumer_manual: '手动推送',
             m365_needs_site: '请先打开 m365.cloud.microsoft 并登录，本页无法采集 M365 凭据。',
             consumer_needs_site: '请先打开 copilot.microsoft.com 并发送一条消息，本页无法采集个人版凭据。',
-            quick_setup: ' 一键推送',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
             manual_config: ' 手动配置',
@@ -147,6 +146,7 @@
             token_pushed: 'Token 已更新，剩余：',
             failed: '失败：',
             network_error: '网络错误：',
+            bad_response: '代理返回了非 JSON 响应（HTTP {status}）。请检查代理地址，可能打开的是登录页或错误页。',
             gm_unavailable_alert: 'GM_cookie API 不可用。\n\n请使用 Tampermonkey Beta，或在 Tampermonkey 设置中启用「允许脚本访问 HttpOnly cookie」：\n设置 > 安全 > 「允许脚本访问 cookie」',
             fetching: '获取中...',
             pushing: '推送中...',
@@ -196,8 +196,6 @@
             push_media_auth: 'Push Media Auth',
             media_auth_pushed: 'Media auth pushed',
             no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
-            push_consumer: 'Push Personal Copilot',
-            consumer_status: 'Personal Copilot',
             consumer_captured: '✓ ChatAI token captured',
             consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
             no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
@@ -205,16 +203,16 @@
             // ---- the two product sections ----
             section_m365: 'M365 Business',
             section_consumer: 'Personal Copilot',
-            section_shared: 'Shared',
+            // The frame hook lives in the Substrate branch only (see if (match)
+            // in the WebSocket wrapper); the consumer socket is not tapped.
+            section_capture_scope: 'M365 only',
             here_now: 'this page',
             other_site_m365: 'open m365.cloud.microsoft to use',
             other_site_consumer: 'open copilot.microsoft.com to use',
             consumer_desc: 'Push cookies + ChatAI token to the current account.',
             consumer_one_click: 'Push Personal',
-            consumer_manual: 'Manual push',
             m365_needs_site: 'Open m365.cloud.microsoft and sign in first; M365 credentials cannot be collected from this page.',
             consumer_needs_site: 'Open copilot.microsoft.com and send one message first; personal credentials cannot be collected from this page.',
-            quick_setup: 'One-Click Push',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
             manual_config: 'Manual Config',
@@ -747,31 +745,36 @@
                 headers: options.headers || {},
                 data: options.body || null,
                 onload: (resp) => {
+                    // Parse eagerly: a reverse proxy can answer HTTP 200 with an HTML
+                    // login page, and callers branch on .ok before reading .data. If the
+                    // body is not JSON the request did not reach the proxy API, so .ok
+                    // must be false or the success branch prints "undefined".
+                    let body = null;
+                    let parseError = null;
+                    if (typeof resp.response === 'object' && resp.response !== null) {
+                        // responseType 'json' — already parsed for us
+                        body = resp.response;
+                    } else {
+                        const raw = resp.responseText || '';
+                        try {
+                            body = JSON.parse(raw || '{}');
+                        } catch (e) {
+                            // Surface status + snippet instead of a raw
+                            // "Unexpected token '<'" JSON error.
+                            const snippet = raw.replace(/\s+/g, ' ').trim().slice(0, 120);
+                            parseError = {
+                                error: {
+                                    message: tr('bad_response')
+                                        .replace('{status}', resp.status)
+                                        + (snippet ? ' — ' + snippet : ''),
+                                },
+                            };
+                        }
+                    }
                     resolve({
-                        ok: resp.status >= 200 && resp.status < 300,
+                        ok: !parseError && resp.status >= 200 && resp.status < 300,
                         status: resp.status,
-                        json: () => {
-                            // If responseType is 'json', resp.response is already parsed
-                            if (typeof resp.response === 'object' && resp.response !== null) {
-                                return Promise.resolve(resp.response);
-                            }
-                            const raw = resp.responseText || '';
-                            try {
-                                return Promise.resolve(JSON.parse(raw || '{}'));
-                            } catch (e) {
-                                // Server returned non-JSON (HTML error/login page, wrong proxy URL,
-                                // reverse-proxy/CDN page). Surface status + snippet instead of a raw
-                                // "Unexpected token '<'" JSON error.
-                                const snippet = raw.replace(/\s+/g, ' ').trim().slice(0, 120);
-                                return Promise.resolve({
-                                    error: {
-                                        message: tr('bad_response')
-                                            .replace('{status}', resp.status)
-                                            + (snippet ? ' — ' + snippet : ''),
-                                    },
-                                });
-                            }
-                        },
+                        json: () => Promise.resolve(parseError || body),
                     });
                 },
                 onerror: (err) => reject(new Error('GM_xmlhttpRequest error: ' + err)),
@@ -1328,7 +1331,7 @@
                 ${IS_CONSUMER_SITE ? consumerSection() + m365Section() : m365Section() + consumerSection()}
 
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')} — ${tr('section_shared')}</span></summary>
+                    <summary style="font-size:12px; color:#60f2ff; font-weight:700; cursor:pointer; list-style:none; outline:none;">${ic('scope')}${tr('mode_capture')} <span style="color:#475569; font-weight:400;">${tr('click_expand')} — ${tr('section_capture_scope')}</span></summary>
                     <div style="font-size:10px; color:#64748b; margin:8px 0;">${tr('mode_capture_desc')}</div>
                     <div id="m365-captured" style="background:#0f172a; padding:8px 12px; border-radius:8px; border:1px solid #334155; max-height:160px; overflow-y:auto; margin-bottom:8px;">
                         <span style="color:#475569">${tr('no_capture')}</span>
