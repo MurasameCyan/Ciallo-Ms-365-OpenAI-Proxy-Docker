@@ -159,8 +159,17 @@ model | mode
 - `model` 转为小写；请求模型也执行 `trim + lowercase` 后精确查表。
 - `status` 转为小写，并限制为 `stable` 或 `experimental`。
 - `mode` 不进行语义映射，标准化后原样进入 `send.mode`。
-- 保留现有条目数量和字段长度上限，超限属于配置错误，不静默截断或丢弃。
-- 空列表表示「恢复内置默认列表」，与现有恢复默认操作保持一致；它不表示禁用所有 Consumer 模型。
+- 最多允许 40 个条目；`model`、`mode` 和 `status` 每个字段最多 80 个字符。超限属于配置错误，不静默截断或丢弃。
+- 空列表 `[]` 是唯一表示「恢复内置默认列表」的 JSON 输入，与现有恢复默认操作保持一致；它不表示禁用所有 Consumer 模型。
+
+接受的输入边界如下：
+
+- 顶层只接受字符串或列表。`null`、数字、对象及其他类型均为错误，不能按空列表处理。
+- 文本输入忽略全空白行；每个非空行必须恰好包含 2 列或 3 列。
+- 列表中的每一项必须是对象，并包含 `model` 与 `mode`；`status` 可省略并按两列兼容规则补齐。
+- 对象字段值必须是字符串，不自动把数字、布尔值或复合值字符串化。
+- 为兼容持久化结构可忽略对象中的未知额外键，但标准化输出只保留 `model`、`mode` 和 `status`。
+- 文本空字符串不等同于恢复默认；除空列表 `[]` 外，没有有效条目的输入属于错误。
 
 ## 7. 严格保存与原子性
 
@@ -174,16 +183,16 @@ Consumer 配置采用严格、整单校验。以下任一情况都使整个 `/ad
 - 标准化后出现重复 `model`。
 - 条目数或字段长度超过上限。
 
-错误响应应指出具体行或条目及原因，便于后台把错误定位到对应行。失败时必须满足：
+错误响应应指出具体行或条目及原因，便于后台把错误定位到对应行。**如果 Consumer 配置校验返回 HTTP 400**，必须满足：
 
 1. 不写入 `runtime_settings.json`。
 2. 不替换 `app.state.runtime_settings`。
 3. 不替换 `app.state.consumer_mode_options`。
-4. 同一请求中其他运行设置也不部分生效。
+4. 同一请求中其他运行设置也不生效。
 
-也就是说，必须先完成整份请求的解析和校验，再执行任何 live state 修改和磁盘写入。不得静默过滤错误条目，也不得保存剩余的「有效子集」。
+也就是说，必须先完成整份请求（包括 Consumer 列表及其他已有字段）的解析和校验，再执行现有的 live state 修改与磁盘写入。这里的原子性保证专指「校验失败不产生副作用」；本功能不把整个运行设置系统改造成可回滚的事务，也不承诺在写盘 I/O 失败或后续运行时副作用异常时回滚所有既有设置。不得静默过滤错误条目，也不得保存剩余的「有效子集」。
 
-从磁盘读取历史配置时，仍执行兼容迁移与标准化；两列合法条目可自动补齐 `status`。如果持久化数据损坏，应沿用运行设置层现有的安全恢复策略并记录诊断信息，不让请求 resolver 获得半有效目录。
+从磁盘读取历史配置时，仍执行兼容迁移与标准化；两列合法条目可自动补齐 `status`。如果 `consumer_mode_options` 顶层类型错误或任一条目无效，则整字段回退到内置 11 项默认目录并记录警告；不得只保留其中的有效子集。运行设置文件中其他可正常读取的字段继续按现有策略加载，应用不因 Consumer 目录损坏而拒绝启动。
 
 ## 8. 管理后台
 
@@ -232,7 +241,7 @@ API Key 绑定的 account.provider == consumer
 
 Chat Completions、Messages 和 Responses 三条路由必须调用同一个共享 resolver。Consumer 路径不得执行 M365 的持续会话模型解析，也不得因为 model 后缀创建 M365 persistent session。
 
-`model_alias` 仅控制兼容 API 响应中显示的模型名称，继续按现有优先级处理；它不参与 model → tone 或 model → mode 的上游选择。
+`model_alias` 仅控制 Chat Completions、Messages 和 Responses 推理响应对象中的 `model` 显示值，继续按现有优先级处理；它不参与请求查表、上游 model → tone / mode 选择，也不改写 `/v1/models` 中配置的模型 ID。
 
 ## 10. `/v1/models` 行为
 
@@ -262,20 +271,27 @@ Consumer 目录：
 - 不静默回退到 `smart`。
 - 不根据同名 M365 tone 改走 M365 协议。
 
-### 11.2 实验 mode 被上游拒绝
+### 11.2 上游拒绝与 status
 
-如果已配置的实验 mode 被 Consumer 上游拒绝：
+`status` 不控制请求执行策略。无论条目标记为 `stable` 还是 `experimental`，只要 model 已在 live 配置中命中，就只按配置的 mode 发起该次调用；任何上游失败都不得改用 `smart` 或另一个 mode。`experimental` 只决定错误文案是否附加 rollout 风险提示。
 
-- 返回明确的上游错误，并补充该 mode 可能受账户、地区或 rollout 限制的提示。
-- 不重试同一请求。
-- 不切换到 `smart`。
-- 不修改保存的配置或 status。
+当前 Consumer 协议和已有抓包没有提供可稳定识别的「mode 不受支持」专用 error code。因此，本次实现不新增基于错误字符串猜测 mode 拒绝的分类器，也不把普通 `event:error`、WebSocket 关闭、超时、HTTP 失败或 Cloudflare challenge 改写成 mode 不可用。
 
-该策略保证请求语义可预测，也避免一次失败请求意外产生另一模型的回答。
+当调用已配置的 mode 失败时：
+
+- 保留 Consumer 路径现有的 HTTP 状态映射和兼容 API 错误体，并在错误详情中保留上游 error code / 消息。
+- 如果条目为 `experimental`，在详情后补充：「该实验 mode 可能受账户、地区或 Microsoft rollout 限制」；该提示是诊断建议，不断言失败原因。
+- 如果条目为 `stable`，不追加实验提示。
+- 不进行 mode fallback，不修改保存的配置或 status。
+- 「不重试」专指不因 mode 失败再次发送同一 turn，也不换 mode 重发；它不禁用 Consumer client 既有的、发生在输出开始前且仅用于恢复 Cloudflare / 鉴权状态的一次 browser-gate 刷新。既有刷新重试必须保持同一 mode。
+
+若未来抓到 Microsoft 可稳定识别的专用 mode-rejection signal，应另行补充协议证据、分类函数和测试后再把它映射为专门错误，不能在本功能中预先猜测。
+
+对于流式请求，上游失败可能发生在 HTTP 流响应已经开始之后，此时无法再把外层状态码改为 HTTP 4xx / 5xx。各路由继续使用现有流内错误表达；本功能只要求错误详情遵守上述原样保留和实验提示规则。对于尚未开始输出的流式请求及非流式请求，继续走各路由现有的 `upstream_http_error` 映射。
 
 ### 11.3 传输或鉴权故障
 
-普通 WebSocket 断开、超时、Cookie / token 失效等故障继续使用 Consumer 路径现有的错误映射。本设计不把所有上游错误都解释为 mode 不可用；只有上游明确拒绝或能够可靠分类为 mode 不可用时才添加 rollout 提示。
+普通 WebSocket 断开、超时、Cookie / token 失效、HTTP conversation 创建失败和 challenge 等故障继续使用 Consumer 路径现有的错误映射。它们不得仅因所选条目是 `experimental` 就被断言为 mode 拒绝；实验提示始终以「可能」表述。
 
 ## 12. 兼容与迁移
 
@@ -310,16 +326,18 @@ Consumer 目录：
 - 两列输入按 `smart → stable`、其他 mode → `experimental` 补齐 status。
 - model 大小写与两端空白正确标准化。
 - 同一 mode 的多个 model 合法。
-- 空 model、空 mode、未知 status、重复 model、无效条目、字段过长和条目过多分别返回可定位错误。
+- 空 model、空 mode、未知 status、重复 model、无效顶层类型、无效条目 / 字段类型、字段超过 80 个字符和条目超过 40 个分别返回可定位错误。
 - 任一错误不会返回部分列表。
-- 空列表恢复内置默认值。
+- 只有空列表 `[]` 恢复内置默认值；空文本和其他非法容器不会恢复默认。
 
 ### 14.2 Admin API 与持久化
 
 - GET 返回标准化后的 `consumer_mode_options`。
 - POST 成功时响应返回完整三字段列表，并更新 `app.state.runtime_settings` 与 `app.state.consumer_mode_options`。
 - 新建应用读取同一个 token dir 后恢复相同列表。
-- POST 失败时文件、live Consumer 列表及同请求中的其他设置都不改变。
+- POST 因 Consumer 配置校验返回 HTTP 400 时，文件、live Consumer 列表及同请求中的其他设置都不改变。
+- 写盘 I/O 或已有运行时副作用失败不在本功能的事务回滚保证内。
+- 持久化 Consumer 字段顶层或任一条目损坏时，整字段回退到 11 项默认目录并记录警告，不保留有效子集；其他合法运行设置仍加载。
 - 恢复 Consumer 默认不改变 M365 tone 配置，反向亦然。
 
 ### 14.3 Provider-aware API 路由
@@ -338,6 +356,10 @@ Consumer 目录：
 - Consumer model 不触发 M365 persistent session helper。
 - M365 Key 继续把 model 解析为 tone。
 - Provider 不由 model 名猜测。
+- 已配置 mode 的失败不触发 mode fallback 或 turn 重发；既有的 browser-gate 鉴权恢复仍可在输出前按原策略执行一次，并保持同一 mode。
+- `experimental` 失败保留原错误并追加非断言式 rollout 提示，`stable` 失败保留原错误且不追加该提示。
+- 普通 transport / challenge / HTTP / WebSocket 错误不被猜测为专用 mode 拒绝。
+- 流式响应开始前与非流式响应沿用现有 HTTP 错误映射；开始后的错误沿用各路由现有流内错误表达。
 
 ### 14.4 Wire payload
 
@@ -371,6 +393,6 @@ Consumer 目录：
 3. Consumer 使用 `send.mode`，M365 使用 `tone`，任何路径都不引入 `toneId`。
 4. 后台可独立编辑并恢复 Consumer 默认列表，保存后立即生效且重启后保留。
 5. 配置错误整单拒绝，未知 Consumer model 返回 HTTP 400。
-6. 实验 mode 被上游拒绝时不重试、不回退 `smart`。
+6. 已配置 mode 的失败不触发 turn 重发或回退 `smart`；实验条目追加非断言式 rollout 提示，同时保留既有鉴权恢复语义。
 7. Consumer `/v1/models` 不包含 M365 模型或持续变体，M365 行为无回归。
 8. 本文测试矩阵对应的自动化测试全部通过。
