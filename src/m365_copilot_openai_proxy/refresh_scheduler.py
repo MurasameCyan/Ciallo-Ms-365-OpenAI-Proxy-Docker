@@ -262,6 +262,7 @@ class RefreshScheduler:
             return False
         from .consumer_camoufox import CamoufoxUnavailable, reset_consumer_profile
 
+        ulog(f"Consumer refresh requested for {account_id}; waiting for browser slot")
         self._consumer_attempted_at[account_id] = time.time()
         # The global lock keeps this from running alongside a Chromium refresh --
         # two browsers at once is what the single-browser invariant exists to
@@ -288,6 +289,7 @@ class RefreshScheduler:
             )
             gate = self._build_consumer_gate(account_id, account)
             async with self._lock:
+                ulog(f"Consumer refresh starting Camoufox for {account_id}")
                 try:
                     auth = await gate()
                 except CamoufoxUnavailable as exc:

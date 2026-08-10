@@ -70,7 +70,9 @@ process.stdout.write(JSON.stringify({{email, account_id: getConsumerAccountId()}
     return json.loads(completed.stdout)
 
 
-def _account(home_id: str, local_id: str, email: str | None) -> str:
+def _account(
+    home_id: str, local_id: str, email: str | None, name: str | None = None
+) -> str:
     record = {
         "homeAccountId": home_id,
         "localAccountId": local_id,
@@ -78,6 +80,8 @@ def _account(home_id: str, local_id: str, email: str | None) -> str:
     }
     if email is not None:
         record["username"] = email
+    if name is not None:
+        record["name"] = name
     return json.dumps(record)
 
 
@@ -178,6 +182,38 @@ def test_userscript_uses_explicit_identity_cookie_email_as_secondary_fallback(co
     ]
 
 
+def test_userscript_cookie_email_fallback_preserves_the_matching_msal_name():
+    storage = {
+        "msal.account.keys": json.dumps(["account-a"]),
+        "account-a": _account("home-a", "local-a", None, "Soon"),
+        "msal.client.active-account-filters": json.dumps({"homeAccountId": "home-a"}),
+    }
+    cookies = [{"name": "MSPPre", "value": "login%3Dperson%40example.com"}]
+    source = _email_resolution_source()
+    program = f"""
+const storageValues = {json.dumps(storage)};
+const localStorage = {{
+    get length() {{ return Object.keys(storageValues).length; }},
+    key(index) {{ return Object.keys(storageValues)[index] ?? null; }},
+    getItem(key) {{ return Object.prototype.hasOwnProperty.call(storageValues, key) ? storageValues[key] : null; }},
+}};
+{source}
+const email = getConsumerAccountEmail({json.dumps(cookies)});
+process.stdout.write(JSON.stringify({{email, name: getConsumerAccountName()}}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "email": "person@example.com",
+        "name": "Soon",
+    }
+
+
 def test_userscript_consumer_push_includes_email_without_dom_or_tailwind_scraping():
     source = _email_resolution_source()
 
@@ -221,6 +257,49 @@ def test_userscript_accepts_a_token_matching_the_active_account():
         "email": "a@example.com",
         "account_id": "home:home-a",
     }
+
+
+def test_userscript_uses_the_matching_msal_display_name_for_consumer_push():
+    storage = {
+        "msal.account.keys": json.dumps(["account-a"]),
+        "account-a": _account(
+            "home-a", "local-a", "ouyouakira@hotmail.com", "Soon"
+        ),
+        "token-a": _access_token("home-a", "local-a", "token-from-socket-a"),
+        "msal.client.active-account-filters": json.dumps(
+            {"homeAccountId": "home-a", "localAccountId": "local-a"}
+        ),
+    }
+    source = _email_resolution_source()
+    program = f"""
+const storageValues = {json.dumps(storage)};
+const localStorage = {{
+    get length() {{ return Object.keys(storageValues).length; }},
+    key(index) {{ return Object.keys(storageValues)[index] ?? null; }},
+    getItem(key) {{ return Object.prototype.hasOwnProperty.call(storageValues, key) ? storageValues[key] : null; }},
+}};
+{source}
+getConsumerAccountEmail([], "token-from-socket-a");
+const name = typeof getConsumerAccountName === 'function' ? getConsumerAccountName() : '';
+process.stdout.write(JSON.stringify(name));
+"""
+    completed = subprocess.run(
+        ["node", "-e", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == "Soon"
+
+
+def test_userscript_consumer_push_never_uses_unrelated_page_text_as_the_name():
+    push_source = SCRIPT.split("async function pushUserConsumer", 1)[1].split(
+        "async function pushUserMediaAuth", 1
+    )[0]
+
+    assert "getUsername()" not in push_source
+    assert "getConsumerAccountName()" in push_source
 
 
 def test_userscript_rejects_a_token_without_one_matching_msal_subject():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 _ADMIN_ACCOUNTS_JS = """let __accounts=[];
 let __selectedAccountIds=new Set();
+let __refreshingAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
 function renderSelectedStatus(){
   const card=document.getElementById('status-card');
@@ -56,7 +57,7 @@ async function loadAccounts(localOnly=false){
       const badge='<span style="width:134px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+countdown+'</span>';
       const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="width:76px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
-      const cookieMeta='<div style="display:grid;grid-template-columns:76px auto;column-gap:.55rem;row-gap:2px;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" style="width:76px;font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
+      const cookieMeta='<div style="display:grid;grid-template-columns:76px auto;column-gap:.55rem;row-gap:2px;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" data-refresh-id="'+esc(a.id)+'" style="width:76px;font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
       const boundNames=Array.isArray(a.bound_names)?a.bound_names.filter(Boolean):[];
       const boundMain=boundNames[0]||a.name||'name';
       const boundTitle=boundNames.length?boundNames.join(String.fromCharCode(10)):boundMain;
@@ -73,7 +74,7 @@ async function loadAccounts(localOnly=false){
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span>'+provBadge+'<div title="'+esc(boundTitle)+'" style="color:var(--faint);font-size:.7rem">'+esc(boundMain)+esc(boundMore)+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
-        +'<td style="padding:.4rem;white-space:nowrap"><div>'+badge+'</div><div class="acct-token-actions" style="margin-top:2px;display:flex;gap:4px;align-items:center;width:134px"><button onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="width:46px;font-size:.7rem;padding:3px 2px;white-space:nowrap">'+t('btn_token_refresh')+'</button><button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="width:42px;font-size:.72rem;padding:3px 0;background:var(--chip)">'+t('btn_push_token')+'</button><button onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')" style="width:42px;font-size:.72rem;padding:3px 0;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></div></td>'
+        +'<td style="padding:.4rem;white-space:nowrap"><div>'+badge+'</div><div class="acct-token-actions" style="margin-top:2px;display:flex;gap:4px;align-items:center;width:134px"><button data-refresh-id="'+esc(a.id)+'" onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')" style="width:46px;font-size:.7rem;padding:3px 2px;white-space:nowrap">'+t('btn_token_refresh')+'</button><button onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')" style="width:42px;font-size:.72rem;padding:3px 0;background:var(--chip)">'+t('btn_push_token')+'</button><button onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')" style="width:42px;font-size:.72rem;padding:3px 0;background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)">'+t('btn_remove_token')+'</button></div></td>'
         +'<td style="padding:.4rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+mediaCell+'</td>'
         +'<td style="padding:.4rem">'+refreshBadge+'</td>'
@@ -91,6 +92,7 @@ async function loadAccounts(localOnly=false){
     h+='</tbody></table></div>'+_pageFoot('accounts',__pg);
     box.innerHTML=h;
     box.querySelectorAll('.cookie-refresh-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();refreshAccountCookie(btn.dataset.id)});
+    __refreshingAccountIds.forEach(id=>setAccountRefreshBusy(id,true));
     initGlassSelect(box);
     renderSelectedStatus();
     renderDashboard();
@@ -129,22 +131,44 @@ async function requestAccountRefresh(id){
   if(!r.ok)return refreshResponseError(r,d,t('auto_capture_failed'));
   return d.refreshed===true?'':t('auto_capture_failed');
 }
+function setAccountRefreshBusy(id,busy){
+  document.querySelectorAll('[data-refresh-id]').forEach(btn=>{
+    if(btn.dataset.refreshId!==id)return;
+    if(busy){
+      if(!btn.dataset.refreshLabel)btn.dataset.refreshLabel=btn.textContent;
+      btn.disabled=true;btn.textContent=t('refreshing');
+    }else{
+      btn.disabled=false;
+      if(btn.dataset.refreshLabel){btn.textContent=btn.dataset.refreshLabel;delete btn.dataset.refreshLabel}
+    }
+  });
+}
+function beginAccountRefresh(id){
+  if(__refreshingAccountIds.has(id))return false;
+  __refreshingAccountIds.add(id);setAccountRefreshBusy(id,true);return true;
+}
+function endAccountRefresh(id,reload=true){
+  __refreshingAccountIds.delete(id);setAccountRefreshBusy(id,false);if(reload)loadAccounts();
+}
 async function refreshAccount(id){
+  if(!beginAccountRefresh(id))return;
   try{
     const message=await requestAccountRefresh(id);
-    if(message)await adminAlert(message);
-    loadAccounts();
+    await adminAlert(message||t('refresh_ok'));
   }catch(e){await adminAlert(t('network_error'))}
+  finally{endAccountRefresh(id)}
 }
 async function refreshAccountCookie(id){
+  if(!beginAccountRefresh(id))return;
   try{
     const r=await fetch('/admin/accounts/'+id+'/cookie-refresh',{method:'POST',credentials:'include'});
     const d=await r.json().catch(()=>({}));
     const fallback=t('btn_cookie_refresh')+': '+t('cookie_invalid_short');
     if(!r.ok)await adminAlert(refreshResponseError(r,d,fallback));
     else if(d.cookie_valid!==true)await adminAlert(fallback);
-    loadAccounts();
+    else await adminAlert(t('refresh_ok'));
   }catch(e){await adminAlert(t('network_error'))}
+  finally{endAccountRefresh(id)}
 }
 async function clearAccountToken(id){
   if(!await adminConfirm(t('confirm_remove_token')))return;
@@ -179,5 +203,5 @@ async function delAccount(id){
 }
 function toggleAccountSelected(id,on){on?__selectedAccountIds.add(id):__selectedAccountIds.delete(id)}
 function selectAllAccounts(on){__selectedAccountIds=new Set(on?__accounts.map(a=>a.id):[]);document.querySelectorAll('.acct-check').forEach(cb=>{cb.checked=!!on})}
-async function batchRefreshAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return await adminAlert(t('batch_none'));for(const id of ids){try{const message=await requestAccountRefresh(id);if(message){await adminAlert(message);break}}catch(e){await adminAlert(t('network_error'));break}}loadAccounts()}
+async function batchRefreshAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return await adminAlert(t('batch_none'));for(const id of ids){if(!beginAccountRefresh(id))continue;let stop=false;try{const message=await requestAccountRefresh(id);if(message){await adminAlert(message);stop=true}}catch(e){await adminAlert(t('network_error'));stop=true}finally{endAccountRefresh(id,false)}if(stop)break}loadAccounts()}
 async function batchDeleteAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return await adminAlert(t('batch_none'));if(!await adminConfirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/accounts/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedAccountIds.clear();loadAccounts();loadKeys()}"""

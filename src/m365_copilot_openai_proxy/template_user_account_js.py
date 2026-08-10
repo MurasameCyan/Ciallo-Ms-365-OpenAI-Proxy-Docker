@@ -133,7 +133,7 @@ function renderAccountInfo(d){
     const st=d.account.token_status||{};
     const valid=st.valid;
     const rem=valid&&st.expires_at?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(_userRemainSec>0?_userRemainSec:st.seconds_remaining)+'</span>'):'';
-    acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+boundAccountName(d.account)+'</span>'
+    acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+esc(boundAccountName(d.account))+'</span>'
       +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
   }else{
     acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';

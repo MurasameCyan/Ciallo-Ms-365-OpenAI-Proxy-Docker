@@ -58,14 +58,16 @@ logging.getLogger("uvicorn.error").addFilter(_SuppressCtrlC())
 # container health check, favicon, the bare landing page and the media proxy all
 # emit one INFO line each and drown out real traffic. When SUPPRESS_ACCESS_LOG is
 # on (default), drop the SUCCESSFUL ones so the log stays readable. Real API
-# traffic (POST /v1/chat/completions) and any non-2xx/3xx response (auth
-# failures, expired media signatures, 404s) are always kept so problems surface.
+# traffic, state-changing requests and any non-2xx/3xx response (auth failures,
+# expired media signatures, 404s) are always kept so problems surface.
 # The toggle is read live from runtime_flags so the admin UI can flip it without
 # a restart (this filter is registered at import, before app.state exists).
 _NOISY_EXACT_PATHS = frozenset({"/", "/favicon.ico", "/healthz"})
 _NOISY_PATH_PREFIXES = ("/admin", "/user", "/v1/m365-media")
 # uvicorn access format: '1.2.3.4:5 - "GET /admin/tone HTTP/1.1" 200 OK'
-_ACCESS_LINE_RE = re.compile(r'"[A-Z]+\s+(?P<path>\S+)\s+HTTP/[\d.]+"\s+(?P<status>\d{3})')
+_ACCESS_LINE_RE = re.compile(
+    r'"(?P<method>[A-Z]+)\s+(?P<path>\S+)\s+HTTP/[\d.]+"\s+(?P<status>\d{3})'
+)
 
 
 def _is_noisy_access_path(path: str) -> bool:
@@ -84,6 +86,10 @@ class _SuppressPollingAccess(logging.Filter):
             return True
         # Keep 4xx/5xx so failures stay visible; only suppress noisy 2xx/3xx.
         if m.group("status")[0] not in ("2", "3"):
+            return True
+        # POST/PUT/PATCH/DELETE are user actions, not polling. Their completion
+        # line is useful evidence even when successful.
+        if m.group("method") not in ("GET", "HEAD"):
             return True
         return not _is_noisy_access_path(m.group("path"))
 

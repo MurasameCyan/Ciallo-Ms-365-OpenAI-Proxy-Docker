@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.71
+// @version      1.0.72
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.71';
+    const SCRIPT_VERSION = '1.0.72';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
@@ -352,12 +352,18 @@
     // account identity must come from structured MSAL state, never page text.
     const CONSUMER_EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
     const CONSUMER_EMAIL_SCAN_RE = /[a-z0-9.!#$%&'*+/?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/gi;
-    let cachedConsumerEmail = { accountId: '', email: '' };
+    let cachedConsumerEmail = { accountId: '', email: '', name: '' };
 
     function normalizeConsumerEmail(value) {
         if (typeof value !== 'string') return '';
         const email = value.trim().toLowerCase();
         return email.length <= 320 && CONSUMER_EMAIL_RE.test(email) ? email : '';
+    }
+
+    function normalizeConsumerName(value) {
+        if (typeof value !== 'string') return '';
+        const name = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+        return name.length > 0 && name.length <= 120 ? name : '';
     }
 
     function parseConsumerStorageJson(raw) {
@@ -416,8 +422,20 @@
             const email = normalizeConsumerEmail(consumerRecordValue(record, [
                 'username', 'email', 'mail', 'upn', 'preferred_username', 'loginHint', 'login_hint',
             ]));
+            const name = normalizeConsumerName(consumerRecordValue(record, [
+                'name', 'displayName', 'display_name',
+            ]));
             const previous = byId.get(id);
-            if (!previous || (!previous.email && email)) byId.set(id, { id, email, record });
+            if (!previous) {
+                byId.set(id, { id, email, name, record });
+            } else if ((!previous.email && email) || (!previous.name && name)) {
+                byId.set(id, {
+                    id,
+                    email: previous.email || email,
+                    name: previous.name || name,
+                    record: previous.record,
+                });
+            }
         }
         return Array.from(byId.values());
     }
@@ -514,7 +532,7 @@
         const accounts = getStructuredConsumerAccounts(entries);
         const tokenAccountId = getConsumerTokenAccountId(entries, accessToken);
         if (accessToken && !tokenAccountId) {
-            cachedConsumerEmail = { accountId: '', email: '' };
+            cachedConsumerEmail = { accountId: '', email: '', name: '' };
             return '';
         }
         const filters = getActiveConsumerFilters(entries);
@@ -522,7 +540,7 @@
         if (accessToken && activeFilterIds.size && (
             activeFilterIds.size !== 1 || !activeFilterIds.has(tokenAccountId)
         )) {
-            cachedConsumerEmail = { accountId: '', email: '' };
+            cachedConsumerEmail = { accountId: '', email: '', name: '' };
             return '';
         }
         const matched = new Map();
@@ -543,17 +561,18 @@
             if (filterIds.size === 1) activeAccountId = Array.from(filterIds)[0];
         }
         if (cachedConsumerEmail.accountId !== activeAccountId) {
-            cachedConsumerEmail = { accountId: activeAccountId, email: '' };
+            cachedConsumerEmail = { accountId: activeAccountId, email: '', name: '' };
         }
+        if (selected && selected.name) cachedConsumerEmail.name = selected.name;
         if (selected && selected.email) {
-            cachedConsumerEmail = { accountId: activeAccountId, email: selected.email };
+            cachedConsumerEmail.email = selected.email;
             return selected.email;
         }
         if (activeAccountId && cachedConsumerEmail.email) return cachedConsumerEmail.email;
 
         const cookieEmail = getIdentityCookieEmail(cookies);
         if (cookieEmail && activeAccountId) {
-            cachedConsumerEmail = { accountId: activeAccountId, email: cookieEmail };
+            cachedConsumerEmail.email = cookieEmail;
         }
         return cookieEmail;
     }
@@ -561,6 +580,10 @@
     function getConsumerAccountId() {
         const accountId = String(cachedConsumerEmail.accountId || '').toLowerCase();
         return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : '';
+    }
+
+    function getConsumerAccountName() {
+        return normalizeConsumerName(cachedConsumerEmail.name);
     }
     // ---- End consumer account email resolution -----------------------------
 
@@ -1163,8 +1186,8 @@
     async function pushUserConsumer(base, cookies) {
         const key = getUserApiKey();
         if (!key) throw new Error(tr('no_user_key'));
-        const username = getUsername();
         const email = getConsumerAccountEmail(cookies, latestConsumerToken);
+        const username = getConsumerAccountName() || email;
         const consumerAccountId = getConsumerAccountId();
         if (!consumerAccountId) throw new Error(tr('no_consumer_identity'));
         const r = await gmFetch(base + '/user/account/consumer', {

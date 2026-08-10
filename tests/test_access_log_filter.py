@@ -64,6 +64,20 @@ def test_filter_keeps_real_api_and_errors_when_flag_on():
         runtime_flags.set_flags(suppress_access_log=True)
 
 
+def test_filter_keeps_successful_admin_mutations_when_flag_on():
+    runtime_flags.set_flags(suppress_access_log=True)
+    f = cli._SuppressPollingAccess()
+    try:
+        assert f.filter(
+            _record(_line("POST", "/admin/accounts/acct_x/refresh", 200))
+        ) is True
+        assert f.filter(
+            _record(_line("DELETE", "/admin/accounts/acct_x", 200))
+        ) is True
+    finally:
+        runtime_flags.set_flags(suppress_access_log=True)
+
+
 def test_filter_disabled_keeps_everything():
     runtime_flags.set_flags(suppress_access_log=False)
     f = cli._SuppressPollingAccess()

@@ -196,6 +196,7 @@ def _admin_refresh_script(fetch_impl: str, call: str, expected: str) -> str:
         [
             "const assert=require('assert');",
             "const localStorage={getItem(){return ''},setItem(){}};",
+            "const document={querySelectorAll(){return []}};",
             "const alerts=[];",
             "const labels={network_error:'Network error',auto_capture_failed:'Refresh failed',btn_cookie_refresh:'Cookie refresh',cookie_invalid_short:'Invalid'};",
             "function t(key){return labels[key]||key}",
@@ -241,6 +242,74 @@ def test_admin_refresh_surfaces_failures(
     expected: str,
 ):
     _run_node(tmp_path, _admin_refresh_script(fetch_impl, call, expected))
+
+
+def test_admin_refresh_buttons_show_pending_state_and_success(tmp_path: Path):
+    script = "\n".join(
+        [
+            "const assert=require('assert');",
+            "const localStorage={getItem(){return ''},setItem(){}};",
+            "const alerts=[];",
+            "const buttons=[",
+            "  {dataset:{refreshId:'acct_consumer'},disabled:false,textContent:'Token refresh'},",
+            "  {dataset:{refreshId:'acct_consumer'},disabled:false,textContent:'Cookie refresh'},",
+            "];",
+            "const document={querySelectorAll(selector){return selector==='[data-refresh-id]'?buttons:[]}};",
+            "const labels={network_error:'Network error',auto_capture_failed:'Refresh failed',btn_cookie_refresh:'Cookie refresh',cookie_invalid_short:'Invalid',refreshing:'Refreshing...',refresh_ok:'Refresh succeeded'};",
+            "function t(key){return labels[key]||key}",
+            "async function adminAlert(message){alerts.push(message)}",
+            "let finishFetch;",
+            "async function fetch(){return await new Promise(resolve=>{finishFetch=resolve})}",
+            _ADMIN_ACCOUNTS_JS,
+            "loadAccounts=()=>{};",
+            "(async()=>{",
+            "  const pending=refreshAccount('acct_consumer');",
+            "  await Promise.resolve();",
+            "  assert.ok(buttons.every(button=>button.disabled),JSON.stringify(buttons));",
+            "  assert.ok(buttons.every(button=>button.textContent==='Refreshing...'),JSON.stringify(buttons));",
+            "  finishFetch({ok:true,status:200,json:async()=>({status:'ok',refreshed:true,account:{}})});",
+            "  await pending;",
+            "  assert.ok(buttons.every(button=>!button.disabled),JSON.stringify(buttons));",
+            "  assert.deepStrictEqual(alerts,['Refresh succeeded']);",
+            "})().catch(e=>{console.error(e);process.exit(1)});",
+        ]
+    )
+
+    _run_node(tmp_path, script)
+
+
+def test_admin_account_rerender_restores_pending_refresh_state():
+    assert "__refreshingAccountIds.forEach(id=>setAccountRefreshBusy(id,true));" in _ADMIN_ACCOUNTS_JS
+
+
+def test_batch_refresh_does_not_duplicate_an_inflight_row_refresh(tmp_path: Path):
+    script = "\n".join(
+        [
+            "const assert=require('assert');",
+            "const localStorage={getItem(){return ''},setItem(){}};",
+            "const buttons=[{dataset:{refreshId:'acct_consumer'},disabled:false,textContent:'Refresh'}];",
+            "const document={querySelectorAll(selector){return selector==='[data-refresh-id]'?buttons:[]}};",
+            "const labels={network_error:'Network error',auto_capture_failed:'Refresh failed',refreshing:'Refreshing...',refresh_ok:'Refresh succeeded'};",
+            "function t(key){return labels[key]||key}",
+            "async function adminAlert(){}",
+            "let calls=0,finishFetch;",
+            "async function fetch(){calls++;return await new Promise(resolve=>{finishFetch=resolve})}",
+            _ADMIN_ACCOUNTS_JS,
+            "loadAccounts=()=>{};",
+            "__selectedAccountIds.add('acct_consumer');",
+            "(async()=>{",
+            "  const rowRefresh=refreshAccount('acct_consumer');",
+            "  await Promise.resolve();",
+            "  const batchRefresh=batchRefreshAccounts();",
+            "  await Promise.resolve();",
+            "  assert.strictEqual(calls,1);",
+            "  finishFetch({ok:true,status:200,json:async()=>({status:'ok',refreshed:true,account:{}})});",
+            "  await Promise.all([rowRefresh,batchRefresh]);",
+            "})().catch(e=>{console.error(e);process.exit(1)});",
+        ]
+    )
+
+    _run_node(tmp_path, script)
 
 
 def test_admin_stats_excludes_unknown_consumer_expiry(tmp_path: Path):

@@ -16,6 +16,7 @@ import pytest
 from m365_copilot_openai_proxy.account_store import AccountStore
 from m365_copilot_openai_proxy.consumer_camoufox import CamoufoxUnavailable
 from m365_copilot_openai_proxy.consumer_gate import _pick_cookies
+from m365_copilot_openai_proxy import refresh_scheduler as refresh_scheduler_module
 from m365_copilot_openai_proxy.refresh_scheduler import RefreshScheduler
 
 
@@ -103,6 +104,40 @@ def test_refresh_consumer_stores_the_reminted_credential(tmp_path):
     assert all(cookie.get("domain") == ".live.com" for cookie in acc.cookies)
     assert _pick_cookies(acc.cookies) == {"__Host-MSAAUTHP": "new", "WLSSC": "fresh"}
     assert acc.cookie_valid is True
+
+
+def test_refresh_consumer_logs_before_waiting_for_the_browser_gate(
+    tmp_path, monkeypatch
+):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    logs: list[str] = []
+
+    async def gate():
+        entered.set()
+        await release.wait()
+        return {
+            "cookies": [
+                {"name": "WLSSC", "value": "new", "domain": ".live.com", "path": "/"}
+            ],
+            "access_token": "new-token",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
+
+    monkeypatch.setattr(refresh_scheduler_module, "ulog", logs.append)
+    sched = _sched(store, tmp_path, gate)
+
+    async def scenario():
+        task = asyncio.create_task(sched.refresh_consumer(acct_id))
+        await entered.wait()
+        assert any("Consumer refresh requested" in line for line in logs)
+        release.set()
+        assert await task is True
+
+    asyncio.run(scenario())
 
 
 def test_refresh_consumer_keeps_the_known_identity_type(tmp_path):

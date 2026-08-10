@@ -80,6 +80,29 @@ def test_consumer_push_normalizes_and_stores_email_without_changing_response(tmp
     assert app.state.account_store.get(account_id).email == "person.account@example.com"
 
 
+def test_consumer_push_replaces_a_stale_name_with_valid_email_when_name_is_blank(tmp_path):
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(name="deng")
+    key = app.state.key_store.add(name="Proxy User", account_id=account.id)
+
+    response = TestClient(app).post(
+        "/user/account/consumer",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={
+            "username": "",
+            "email": "ouyouakira@hotmail.com",
+            "cookies": COOKIES,
+            "access_token": TOKEN,
+            "consumer_account_id": "home:account-a",
+        },
+    )
+
+    assert response.status_code == 200
+    updated = app.state.account_store.get(account.id)
+    assert updated.email == "ouyouakira@hotmail.com"
+    assert updated.name == "ouyouakira@hotmail.com"
+
+
 def test_consumer_push_blank_email_does_not_overwrite_stored_email(tmp_path):
     app = make_test_app(tmp_path)
     account = app.state.account_store.add(name="Personal User")

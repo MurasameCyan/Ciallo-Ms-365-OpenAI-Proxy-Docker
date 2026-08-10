@@ -46,7 +46,8 @@ def test_token_only_account_is_displayed_as_unbound_token_state():
 
 def test_bound_account_pill_uses_token_only_display_name():
     assert "boundAccountName(d.account)" in _USER_HTML
-    assert "t('bound_account')+': '+boundAccountName(d.account)" in _USER_HTML
+    assert "t('bound_account')+': '+esc(boundAccountName(d.account))" in _USER_HTML
+    assert "t('bound_account')+': '+boundAccountName(d.account)" not in _USER_HTML
     assert "t('bound_account')+': '+(d.account.name||d.account.id)" not in _USER_HTML
 
 

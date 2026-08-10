@@ -444,8 +444,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         )
         if acc is None:
             return _json_err(400, "No bound account")
-        if account_name and acc.name != account_name:
-            app.state.account_store.rename(k.account_id, account_name)
+        resolved_name = account_name or acc.email
+        if resolved_name and acc.name != resolved_name:
+            app.state.account_store.rename(k.account_id, resolved_name)
         return {"status": "ok", "provider": "consumer", "cookies": len(acc.cookies)}
 
     @app.post("/user/regenerate-key")
