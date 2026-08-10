@@ -12,6 +12,12 @@ from .account_store import _normalize_consumer_account_id, extract_identity
 from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
+from .refresh_via_rt import (
+    M365_REFRESH_CLIENT_ID,
+    account_matches_refresh_subject,
+    normalize_m365_authority,
+    normalize_microsoft_id,
+)
 from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 from .translator import default_tool_system_prompt
@@ -313,16 +319,36 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             return _json_err(401, "Invalid API key", "auth_error")
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
             return _json_err(400, "No bound account")
+        account = app.state.account_store.get(k.account_id)
+        if getattr(account, "provider", "m365") != "m365":
+            return _json_err(400, "Refresh tokens only apply to M365 accounts")
         body = await request.json()
-        # The OAuth2 refresh_token is an opaque string (not a JWT), so we only do
-        # sanity checks: non-empty and a plausible length. It lets the scheduler
-        # refresh the substrate token over plain HTTP (no headless browser).
         rt = str(body.get("refresh_token", "") or "").strip()
         if len(rt) < 20:
             return _json_err(400, "Refresh token is empty or too short")
         if len(rt) > 8192:
             return _json_err(400, "Refresh token is implausibly long")
-        app.state.account_store.set_refresh_token(k.account_id, rt)
+        client_id = str(body.get("client_id", "") or "").strip().lower()
+        if client_id != M365_REFRESH_CLIENT_ID:
+            return _json_err(400, "Refresh token was not issued to the M365 Copilot client")
+        authority = normalize_m365_authority(body.get("authority"))
+        tenant_id = normalize_microsoft_id(body.get("tenant_id"))
+        object_id = normalize_microsoft_id(body.get("object_id"))
+        if not authority or not tenant_id or not object_id:
+            return _json_err(400, "Refresh token capture binding is incomplete")
+        if not account_matches_refresh_subject(account, tenant_id, object_id):
+            return _json_err(
+                409,
+                "Refresh token subject does not match the bound M365 account",
+            )
+        app.state.account_store.set_refresh_token(
+            k.account_id,
+            rt,
+            client_id=client_id,
+            authority=authority,
+            tenant_id=tenant_id,
+            object_id=object_id,
+        )
         return {"status": "ok", "has_refresh_token": True}
 
     @app.post("/user/account/cookies")

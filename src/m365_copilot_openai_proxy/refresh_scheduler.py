@@ -105,6 +105,8 @@ class RefreshScheduler:
         # Per-account locks avoid piling up duplicate refreshes for one account
         # while still letting the global lock serialise across accounts.
         self._account_locks: dict[str, asyncio.Lock] = {}
+        self._cdp_refresh_generation: dict[str, int] = {}
+        self._cdp_refresh_result: dict[str, bool] = {}
         # Background keepalive task handle + stop flag (set on app shutdown).
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_stop: asyncio.Event | None = None
@@ -385,7 +387,9 @@ class RefreshScheduler:
                         try:
                             # force=True so a still-valid-but-soon-to-expire token is
                             # refreshed now. ensure_fresh serialises via the global lock.
-                            await self.ensure_fresh(account.id, force=True)
+                            await self.ensure_fresh(
+                                account.id, force=True, allow_rt=False
+                            )
                         except Exception as exc:
                             elog(f"Keepalive refresh error for {account.id}: {exc}")
                     elif self._recovery_due(account):
@@ -398,7 +402,9 @@ class RefreshScheduler:
                         self._recovery_attempted_at[account.id] = time.time()
                         ulog(f"Keepalive: self-heal refreshing {account.id} (cookie invalid)")
                         try:
-                            ok = await self.ensure_fresh(account.id, force=True)
+                            ok = await self.ensure_fresh(
+                                account.id, force=True, allow_rt=False
+                            )
                             ulog(f"Keepalive self-heal for {account.id}: {'recovered' if ok else 'still failing'}")
                         except Exception as exc:
                             elog(f"Keepalive self-heal error for {account.id}: {exc}")
@@ -509,7 +515,7 @@ class RefreshScheduler:
                 except Exception as exc:
                     elog(f"Lazy media keepalive failed for {account_id}: {exc}")
 
-    async def _try_rt_refresh(self, account_id: str) -> bool:
+    async def _try_rt_refresh(self, account_id: str, *, force: bool = False) -> bool:
         """Attempt the fast HTTP refresh_token exchange (no browser).
 
         Serialised per-account (not through the global Chromium lock, since this
@@ -521,10 +527,76 @@ class RefreshScheduler:
         account = self._accounts.get(account_id)
         if account is None or not (getattr(account, "refresh_token", "") or "").strip():
             return False
+        refresh_token_snapshot = account.refresh_token
+        access_token_snapshot = account.token
+        if float(getattr(account, "refresh_token_retry_after", 0.0) or 0.0) > time.time():
+            return False
         async with self._account_lock(account_id):
+            current = self._accounts.get(account_id)
+            if current is None:
+                return False
+            # A concurrent refresh or userscript push already changed the
+            # credential snapshot while we waited. Reuse its fresh result rather
+            # than exchanging the old RT a second time.
+            if (
+                current.refresh_token != refresh_token_snapshot
+                or current.token != access_token_snapshot
+            ):
+                return bool(current.token) and not self._needs_refresh(current.token)
+            if float(
+                getattr(current, "refresh_token_retry_after", 0.0) or 0.0
+            ) > time.time():
+                return False
+            if not force and not self._needs_refresh(current.token):
+                return True
             return await refresh_via_rt(self._accounts, account_id)
 
-    async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
+    @staticmethod
+    def _cdp_refresh_state(account) -> tuple[str, bool, float, float]:
+        return (
+            account.token,
+            bool(account.cookie_valid),
+            float(account.cookie_updated_at),
+            float(account.cookie_expires_at),
+        )
+
+    async def _run_cdp_refresh(
+        self,
+        account_id: str,
+        *,
+        force: bool,
+        expected_state: tuple[str, bool, float, float],
+    ) -> bool:
+        """Run one CDP fallback and coalesce concurrent waiters."""
+        attempt_generation = self._cdp_refresh_generation.get(account_id, 0)
+        async with self._account_lock(account_id):
+            current = self._accounts.get(account_id)
+            if current is None:
+                return False
+            if self._cdp_refresh_generation.get(account_id, 0) != attempt_generation:
+                if (
+                    current.token != expected_state[0]
+                    and bool(current.token)
+                    and not self._needs_refresh(current.token)
+                ):
+                    return True
+                return self._cdp_refresh_result.get(account_id, False)
+            if self._cdp_refresh_state(current) != expected_state:
+                return bool(current.token) and not self._needs_refresh(current.token)
+            if not force and not self._needs_refresh(current.token):
+                return True
+            result = False
+            try:
+                async with self._lock:
+                    result = await self._refresh_one(account_id)
+                return result
+            finally:
+                self._cdp_refresh_generation[account_id] = attempt_generation + 1
+                self._cdp_refresh_result[account_id] = result
+
+    async def ensure_fresh(
+        self, account_id: str, force: bool = False, *, allow_rt: bool = True
+    ) -> bool:
         """Ensure the account's token is valid, refreshing on demand if needed.
 
         Returns True if the token is usable afterwards, False otherwise. Safe to
@@ -549,12 +621,17 @@ class RefreshScheduler:
             if force and await self.refresh_consumer(account_id):
                 return True
             return bool(getattr(account, "consumer_token", ""))
+        cdp_refresh_state = self._cdp_refresh_state(account)
         # Fast path: if the account carries an OAuth2 refresh_token, try the
         # plain-HTTP substrate exchange first (no headless Chromium, no Copilot
         # quota spend). Only runs when a refresh is actually due (or forced).
         # On success we're done; on failure we fall through to the CDP path.
-        if (getattr(account, "refresh_token", "") or "").strip() and (force or self._needs_refresh(account.token)):
-            if await self._try_rt_refresh(account_id):
+        if (
+            allow_rt
+            and (getattr(account, "refresh_token", "") or "").strip()
+            and (force or self._needs_refresh(account.token))
+        ):
+            if await self._try_rt_refresh(account_id, force=force):
                 return True
         if account.token_source != "cdp":
             # Manual accounts have no auto-refresh profile of their own. On the
@@ -571,20 +648,19 @@ class RefreshScheduler:
                     return False
                 return bool(account.token)
             ulog(f"Forced refresh on manual account {account_id}: attempting CDP capture from its profile")
-            async with self._account_lock(account_id):
-                async with self._lock:
-                    return await self._refresh_one(account_id)
+            return await self._run_cdp_refresh(
+                account_id,
+                force=force,
+                expected_state=cdp_refresh_state,
+            )
         if not force and not self._needs_refresh(account.token):
             return True
 
-        # Coalesce concurrent refreshes for the same account.
-        async with self._account_lock(account_id):
-            account = self._accounts.get(account_id) or account
-            if not force and not self._needs_refresh(account.token):
-                return True
-            # Global serialisation: only one Chromium alive at a time.
-            async with self._lock:
-                return await self._refresh_one(account_id)
+        return await self._run_cdp_refresh(
+            account_id,
+            force=force,
+            expected_state=cdp_refresh_state,
+        )
 
     async def inject_cookies(self, account_id: str, cookies: list[dict], *, allow_nudge: bool = False) -> tuple[int, int]:
         # allow_nudge=True drives a full token capture (substrate + media/designer

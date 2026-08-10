@@ -271,8 +271,8 @@ Web 页面显示 Token 有效性与刷新相关状态。
 
 刷新到期（或强制刷新）时，按以下顺序取新 Token：
 
-1. **RT 快速刷新（首选，无浏览器）** — 账户若持有 OAuth2 `refresh_token`，直接向 AAD `oauth2/v2.0/token` 端点做纯 HTTP 交换，换回新的 substrate access token。**不拉起 Chromium、不消耗 Copilot 配额**，速度快、开销低。交换同时会轮换 `refresh_token` 并持久化，使刷新链持续续期；并带身份守卫（换回的身份与账户 email 不符则拒绝）。RT 由油猴脚本从 M365 token 响应中捕获后推送（`/user/account/token`、`/user/account/cookies`）。
-2. **CDP 刷新（回退）** — 当账户没有 RT、RT 链已失效（AAD 返回 `invalid_grant` 等）或 HTTP 交换出错时，才回退到拉起该账户专属 Chromium profile（独立 CDP 端口 9322+）抓取新 Token。
+1. **RT 快速刷新（首选，无浏览器）** — 账户若持有已验证签发上下文的 OAuth2 `refresh_token`，直接向原 AAD authority 做纯 HTTP 交换，换回新的 substrate access token。**不拉起 Chromium、不消耗 Copilot 配额**，速度快、开销低。油猴脚本只接收目标 M365 client + substrate scope 的响应，并把 authority、tenant、object id 一并推送；服务端与当前账户主体匹配后才入库。
+2. **CDP 刷新（长期保活与回退）** — SPA refresh token 通常有约 24 小时绝对寿命，轮换不会延长原始到期时间，因此 RT 只是短期快速路径。RT 明确过期/撤销时会停用；`AADSTS40016`、HTTP 失败等会进入退避。两者都立即回退到该账户专属 Chromium profile（独立 CDP 端口 9322+），由顶层登录会话续期 Token 与 Cookie。
 
 > media / designer（图片、Designer）Token 不经 RT 产生，由 CDP 媒体捕获路径按需懒保活。
 

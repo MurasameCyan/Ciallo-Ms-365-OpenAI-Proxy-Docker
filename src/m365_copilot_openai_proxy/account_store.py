@@ -85,6 +85,15 @@ class Account:
     # public serializers (only has_refresh_token bool).
     refresh_token: str = ""
     refresh_token_updated_at: float = 0.0
+    # Binding captured from the exact AAD token request/response that issued the
+    # RT. A refresh token is opaque, so these fields are the only way to prevent
+    # a token from another Microsoft client, tenant, or browser account from
+    # being attached to this pool account.
+    refresh_token_client_id: str = ""
+    refresh_token_authority: str = ""
+    refresh_token_tenant_id: str = ""
+    refresh_token_object_id: str = ""
+    refresh_token_retry_after: float = 0.0
     # A specific chat conversation URL (m365.cloud.microsoft/chat/conversation/..)
     # that contains media. The refresh flow navigates here to re-trigger the
     # asyncgw/teams/designer media fetches so their Authorization headers can be
@@ -209,6 +218,11 @@ class AccountStore:
                     designer_auth_updated_at=float(raw.get("designer_auth_updated_at", 0.0) or 0.0),
                     refresh_token=str(raw.get("refresh_token", "") or ""),
                     refresh_token_updated_at=float(raw.get("refresh_token_updated_at", 0.0) or 0.0),
+                    refresh_token_client_id=str(raw.get("refresh_token_client_id", "") or ""),
+                    refresh_token_authority=str(raw.get("refresh_token_authority", "") or ""),
+                    refresh_token_tenant_id=str(raw.get("refresh_token_tenant_id", "") or ""),
+                    refresh_token_object_id=str(raw.get("refresh_token_object_id", "") or ""),
+                    refresh_token_retry_after=float(raw.get("refresh_token_retry_after", 0.0) or 0.0),
                     media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
                     token_source=raw.get("token_source", "manual"),
@@ -480,13 +494,92 @@ class AccountStore:
             self._save()
             return acc
 
-    def set_refresh_token(self, acc_id: str, token: str) -> Account | None:
+    def set_refresh_token(
+        self,
+        acc_id: str,
+        token: str,
+        *,
+        client_id: str | None = None,
+        authority: str | None = None,
+        tenant_id: str | None = None,
+        object_id: str | None = None,
+        expected_refresh_token: str | None = None,
+    ) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
+            if (
+                expected_refresh_token is not None
+                and acc.refresh_token != expected_refresh_token
+            ):
+                return None
             acc.refresh_token = token.strip()
             acc.refresh_token_updated_at = time.time() if acc.refresh_token else 0.0
+            acc.refresh_token_retry_after = 0.0
+            if not acc.refresh_token:
+                acc.refresh_token_client_id = ""
+                acc.refresh_token_authority = ""
+                acc.refresh_token_tenant_id = ""
+                acc.refresh_token_object_id = ""
+            else:
+                # None preserves the verified binding when AAD rotates the RT.
+                if client_id is not None:
+                    acc.refresh_token_client_id = client_id.strip()
+                if authority is not None:
+                    acc.refresh_token_authority = authority.strip()
+                if tenant_id is not None:
+                    acc.refresh_token_tenant_id = tenant_id.strip()
+                if object_id is not None:
+                    acc.refresh_token_object_id = object_id.strip()
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def defer_refresh_token(
+        self, acc_id: str, expected_refresh_token: str, retry_after: float
+    ) -> bool:
+        """Back off a failed RT without touching a newer userscript push."""
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None or acc.refresh_token != expected_refresh_token:
+                return False
+            acc.refresh_token_retry_after = max(
+                acc.refresh_token_retry_after, float(retry_after)
+            )
+            acc.updated_at = time.time()
+            self._save()
+            return True
+
+    def apply_refresh_token_result(
+        self,
+        acc_id: str,
+        *,
+        expected_refresh_token: str,
+        expected_access_token: str,
+        access_token: str,
+        rotated_refresh_token: str = "",
+    ) -> Account | None:
+        """Atomically apply an RT response unless newer credentials won the race."""
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if (
+                acc is None
+                or acc.refresh_token != expected_refresh_token
+                or acc.token != expected_access_token
+            ):
+                return None
+            rotated = rotated_refresh_token.strip()
+            if rotated and rotated != expected_refresh_token:
+                acc.refresh_token = rotated
+                acc.refresh_token_updated_at = time.time()
+            acc.refresh_token_retry_after = 0.0
+            acc.token = access_token
+            ident_name, email = extract_identity(access_token)
+            if email:
+                acc.email = email
+            if ident_name:
+                acc.name = ident_name
             acc.updated_at = time.time()
             self._save()
             return acc
@@ -503,6 +596,11 @@ class AccountStore:
             acc.designer_auth_updated_at = 0.0
             acc.refresh_token = ""
             acc.refresh_token_updated_at = 0.0
+            acc.refresh_token_client_id = ""
+            acc.refresh_token_authority = ""
+            acc.refresh_token_tenant_id = ""
+            acc.refresh_token_object_id = ""
+            acc.refresh_token_retry_after = 0.0
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
             acc.cookie_expires_at = 0.0

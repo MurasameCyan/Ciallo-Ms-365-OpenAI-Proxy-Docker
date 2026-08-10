@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.72
+// @version      1.0.73
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,8 +30,10 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.72';
+    const SCRIPT_VERSION = '1.0.73';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
+    const M365_RT_CLIENT_ID = '4765445b-32c6-49b0-83e6-1d93765276ca';
+    const M365_RT_SCOPE = 'https://substrate.office.com/sydney/.default';
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
@@ -81,7 +83,9 @@
     // OAuth2 refresh_token captured from the AAD token response. Lets the proxy
     // refresh the substrate token over plain HTTP (no headless browser).
     let latestRefreshToken = '';
-    let refreshTokenPushInFlight = false;
+    let latestRefreshTokenBinding = null;
+    let refreshTokenGeneration = 0;
+    let refreshTokenPushPromise = null;
     // Consumer (personal-account) Copilot ChatAI token + identity type, captured
     // from the copilot.microsoft.com chat socket URL.
     let latestConsumerToken = '';
@@ -587,6 +591,86 @@
     }
     // ---- End consumer account email resolution -----------------------------
 
+    // ---- M365 refresh-token capture helpers -------------------------------
+    function m365RefreshAuthority(requestUrl) {
+        try {
+            const url = new URL(String(requestUrl || ''), location.href);
+            if (url.hostname !== 'login.microsoftonline.com') return '';
+            const match = url.pathname.match(/^\/([^/]+)\/oauth2\/v2\.0\/token\/?$/i);
+            if (!match) return '';
+            const authority = match[1].toLowerCase();
+            if (authority === 'consumers' || !/^[a-z0-9](?:[a-z0-9.-]{0,126}[a-z0-9])?$/i.test(authority)) return '';
+            return authority;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function m365RequestBodyText(body) {
+        try {
+            if (typeof body === 'string') return body;
+            if (!body) return '';
+            if (Object.prototype.toString.call(body) === '[object URLSearchParams]') return body.toString();
+            if (typeof ArrayBuffer !== 'undefined' && (body instanceof ArrayBuffer || ArrayBuffer.isView(body))) {
+                return new TextDecoder().decode(body);
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    async function m365FetchRequestBodyText(input, init) {
+        const direct = m365RequestBodyText(init && init.body);
+        if (direct) return direct;
+        try {
+            if (input && typeof input.clone === 'function') return await input.clone().text();
+        } catch (e) {}
+        return '';
+    }
+
+    function decodeM365JwtClaims(token) {
+        try {
+            const parts = String(token || '').split('.');
+            if (parts.length < 2 || !parts[1]) return null;
+            const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            return JSON.parse(atob(payload + '='.repeat((4 - payload.length % 4) % 4)));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function captureM365RefreshToken(requestUrl, requestBody, responseData) {
+        const authority = m365RefreshAuthority(requestUrl);
+        if (!authority || !responseData || typeof responseData !== 'object') return false;
+        let params;
+        try { params = new URLSearchParams(String(requestBody || '')); }
+        catch (e) { return false; }
+        const clientId = String(params.get('client_id') || '').toLowerCase();
+        const scopes = String(params.get('scope') || '').split(/\s+/).filter(Boolean);
+        if (clientId !== M365_RT_CLIENT_ID || !scopes.includes(M365_RT_SCOPE)) return false;
+        const refreshToken = typeof responseData.refresh_token === 'string' ? responseData.refresh_token.trim() : '';
+        const claims = decodeM365JwtClaims(responseData.access_token);
+        if (!refreshToken || !claims) return false;
+        if (!String(claims.aud || '').startsWith('https://substrate.office.com/')) return false;
+        const issuedClient = String(claims.azp || claims.appid || '').toLowerCase();
+        if (issuedClient && issuedClient !== M365_RT_CLIENT_ID) return false;
+        const tenantId = String(claims.tid || '').toLowerCase();
+        const objectId = String(claims.oid || '').toLowerCase();
+        const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+        if (!guid.test(tenantId) || !guid.test(objectId)) return false;
+        latestToken = String(responseData.access_token || '').trim();
+        latestRefreshToken = refreshToken;
+        latestRefreshTokenBinding = {
+            client_id: M365_RT_CLIENT_ID,
+            authority,
+            tenant_id: tenantId,
+            object_id: objectId,
+        };
+        refreshTokenGeneration++;
+        pushLatestRefreshTokenSilently();
+        return true;
+    }
+    // ---- End M365 refresh-token capture helpers ---------------------------
+
     // Intercept browser APIs on the real page (not in sandbox)
     const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const MEDIA_AUTH_HOST_RE = /(^|\.)(asyncgw\.teams\.microsoft\.com|teams\.microsoft\.com|officeapps\.live\.com)$/i;
@@ -794,11 +878,13 @@
         pageWindow.fetch = function(input, init) {
             let reqUrl = '';
             let reqMethod = 'GET';
+            let rtRequestBodyPromise = null;
             try {
                 captureMediaAuthProbe(input, init && init.headers, 'fetch-init');
                 if (input && typeof input === 'object' && input.headers) captureMediaAuthProbe(input, input.headers, 'fetch-request');
                 reqUrl = (input && typeof input === 'object' && typeof input.url === 'string') ? input.url : String(input || '');
                 reqMethod = (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET';
+                if (m365RefreshAuthority(reqUrl)) rtRequestBodyPromise = m365FetchRequestBodyText(input, init);
                 if (mediaAuthHostFromUrl(reqUrl)) {
                     const reqHeaders = (init && init.headers) || (input && typeof input === 'object' && input.headers) || null;
                     captureMediaRequestHeaders(reqMethod, reqUrl, reqHeaders, 'fetch-request');
@@ -813,21 +899,14 @@
                         } catch (e) {}
                     }, () => {});
                 }
-                // Capture the OAuth2 refresh_token from the AAD token response so
-                // the proxy can refresh the substrate token over plain HTTP. Clone
-                // the response (reading the body once would consume it for the SPA).
-                if (p && typeof p.then === 'function' && reqUrl.indexOf('oauth2/v2.0/token') !== -1) {
+                if (p && typeof p.then === 'function' && rtRequestBodyPromise) {
                     p.then((tokenResp) => {
                         try {
                             if (!tokenResp || !tokenResp.clone) return;
-                            tokenResp.clone().json().then((data) => {
-                                try {
-                                    if (data && typeof data.refresh_token === 'string' && data.refresh_token) {
-                                        latestRefreshToken = data.refresh_token;
-                                        pushLatestRefreshTokenSilently();
-                                    }
-                                } catch (e) {}
-                            }, () => {});
+                            Promise.all([rtRequestBodyPromise, tokenResp.clone().json()]).then(
+                                ([body, data]) => { captureM365RefreshToken(reqUrl, body, data); },
+                                () => {}
+                            );
                         } catch (e) {}
                     }, () => {});
                 }
@@ -843,8 +922,10 @@
             let probeUrl = '';
             const probeHeaders = {};
             let probeMethod = 'GET';
+            let rtRequestBody = '';
             const origOpen = xhr.open;
             const origSetRequestHeader = xhr.setRequestHeader;
+            const origSend = xhr.send;
             xhr.open = function(method, url) {
                 probeUrl = url;
                 probeMethod = method || 'GET';
@@ -855,12 +936,21 @@
                 captureMediaAuthProbe(probeUrl, probeHeaders, 'xhr');
                 return origSetRequestHeader.apply(xhr, arguments);
             };
+            xhr.send = function(body) {
+                rtRequestBody = m365RequestBodyText(body);
+                return origSend.apply(xhr, arguments);
+            };
             xhr.addEventListener('load', function() {
                 try {
                     const finalUrl = xhr.responseURL || probeUrl;
                     if (mediaAuthHostFromUrl(finalUrl)) {
                         captureMediaRequestHeaders(probeMethod, probeUrl, probeHeaders, 'xhr-request');
                         captureMediaResponse(probeMethod, finalUrl, xhr.status, xhr.getAllResponseHeaders(), 'xhr-response');
+                    }
+                    if (m365RefreshAuthority(finalUrl)) {
+                        let data = xhr.responseType === 'json' ? xhr.response : null;
+                        if (!data) data = JSON.parse(xhr.responseText || xhr.response || '{}');
+                        captureM365RefreshToken(finalUrl, rtRequestBody, data);
                     }
                 } catch (e) {}
             });
@@ -1258,22 +1348,35 @@
 
     async function pushUserRefreshToken(base) {
         const key = getUserApiKey();
-        if (!key || !latestRefreshToken) return null;
+        if (!key || !latestRefreshToken || !latestRefreshTokenBinding) return null;
         const r = await gmFetch(base + '/user/account/refresh-token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-            body: JSON.stringify({ refresh_token: latestRefreshToken })
+            body: JSON.stringify({ refresh_token: latestRefreshToken, ...latestRefreshTokenBinding })
         });
         return { response: r, data: await r.json() };
     }
 
-    async function pushLatestRefreshTokenSilently() {
-        if (refreshTokenPushInFlight || !latestRefreshToken) return;
+    async function pushLatestRefreshTokenSilently(forceReplay = false) {
+        if (!latestRefreshToken || !latestRefreshTokenBinding) return null;
         const base = getProxyBase();
-        if (!base || !getUserApiKey()) return;
-        refreshTokenPushInFlight = true;
-        try { await pushUserRefreshToken(base); } catch (e) {}
-        finally { refreshTokenPushInFlight = false; }
+        if (!base || !getUserApiKey()) return null;
+        if (forceReplay) refreshTokenGeneration++;
+        if (refreshTokenPushPromise) return refreshTokenPushPromise;
+        refreshTokenPushPromise = (async () => {
+            let result = null;
+            let pushedGeneration = -1;
+            try {
+                while (pushedGeneration !== refreshTokenGeneration && latestRefreshToken && latestRefreshTokenBinding) {
+                    pushedGeneration = refreshTokenGeneration;
+                    try { result = await pushUserRefreshToken(base); } catch (e) { result = null; }
+                }
+                return result;
+            } finally {
+                refreshTokenPushPromise = null;
+            }
+        })();
+        return refreshTokenPushPromise;
     }
 
     // Push Token to proxy
@@ -1289,7 +1392,7 @@
             const ur = await pushUserToken(base, latestToken);
             if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
             if (ur.response.ok && latestDesignerAuth) { try { await pushUserDesignerAuth(base); } catch (e) {} }
-            if (ur.response.ok && latestRefreshToken) { try { await pushUserRefreshToken(base); } catch (e) {} }
+            if (ur.response.ok && latestRefreshToken) await pushLatestRefreshTokenSilently(true);
             alert(ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
         } catch (e) { alert(tr('network_error') + e); }
     }
@@ -1305,6 +1408,9 @@
         const btn = document.getElementById('m365-push-cookies');
         if (btn) { btn.disabled = true; btn.textContent = tr('fetching'); }
         try {
+            if (latestToken) {
+                try { await pushUserToken(base, latestToken); } catch (e) {}
+            }
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
             const cr = await pushUserCookies(base, cookies);
@@ -1313,6 +1419,9 @@
             }
             if (cr.response.ok && latestDesignerAuth) {
                 try { await pushUserDesignerAuth(base); } catch (e) {}
+            }
+            if (cr.response.ok && latestRefreshToken) {
+                await pushLatestRefreshTokenSilently(true);
             }
             const warning = cr.data.warning ? '\n' + cr.data.warning : '';
             alert(cr.response.ok ? tr('cookies_pushed') + cr.data.injected + '/' + cr.data.total + '\n' + tr('httponly_included') + cookies.filter(c => c.httpOnly).length + ')' + warning : tr('failed') + (cr.data.error?.message || cr.data.error));
@@ -1376,6 +1485,9 @@
                 const cookieLine = tr('cookie_push_status') + tr('status_skipped');
                 alert(tokenLine + '\n' + cookieLine);
                 return;
+            }
+            if (latestRefreshToken) {
+                await pushLatestRefreshTokenSilently(true);
             }
             setBtnText(tr('pushing_cookies'));
             const cookies = await getAllCookies();
