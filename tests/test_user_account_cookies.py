@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
+import time
 
 from fastapi.testclient import TestClient
 
@@ -46,6 +49,57 @@ def make_test_app(tmp_path):
     app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
     app.state.refresh_scheduler = FakeRefreshScheduler(app.state.account_store)
     return app
+
+
+def _substrate_jwt(*, name: str, email: str) -> str:
+    claims = {
+        "aud": "https://substrate.office.com/",
+        "exp": int(time.time()) + 3600,
+        "name": name,
+        "preferred_username": email,
+    }
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJub25lIn0.{payload}.sig"
+
+
+def test_token_push_uses_the_microsoft_identity_instead_of_the_key_name(tmp_path):
+    app = make_test_app(tmp_path)
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/token",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"token": _substrate_jwt(name="Microsoft User", email="microsoft@example.com")},
+    )
+
+    assert response.status_code == 200
+    account = app.state.account_store.get(app.state.key_store.get(key.id).account_id)
+    assert account.name == "Microsoft User"
+    assert account.email == "microsoft@example.com"
+
+
+def test_cookie_push_does_not_replace_token_identity_with_a_page_guess(tmp_path):
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(
+        name="Proxy User",
+        token=_substrate_jwt(name="Microsoft User", email="microsoft@example.com"),
+        token_source="cdp",
+    )
+    key = app.state.key_store.add(name="Proxy User", account_id=account.id, username="proxyuser", password="password1")
+
+    response = TestClient(app).post(
+        "/user/account/cookies",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={
+            "username": "Copilot",
+            "cookies": [{"name": "x", "value": "y", "domain": ".microsoft.com"}],
+        },
+    )
+
+    assert response.status_code == 200
+    account = app.state.account_store.get(account.id)
+    assert account.name == "Microsoft User"
+    assert account.email == "microsoft@example.com"
 
 
 def test_cookie_push_uses_microsoft_username_when_creating_account(tmp_path):

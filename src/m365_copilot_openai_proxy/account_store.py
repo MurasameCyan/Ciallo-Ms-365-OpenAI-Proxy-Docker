@@ -318,7 +318,7 @@ class AccountStore:
         with self._lock:
             ident_name, email = extract_identity(token)
             acc = Account(
-                name=name or ident_name,
+                name=ident_name or name,
                 email=email,
                 token=token,
                 cdp_port=self._next_cdp_port(),

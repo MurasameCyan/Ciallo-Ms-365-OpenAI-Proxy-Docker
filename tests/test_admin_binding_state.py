@@ -48,3 +48,16 @@ def test_admin_accounts_survive_cookie_persistence_reload(tmp_path):
     accounts = {account["id"]: account for account in response.json()["accounts"]}
     assert account.id in accounts
     assert reloaded_app.state.account_store.get(account.id).cookies == cookies
+
+
+def test_admin_keys_expose_the_bound_account_provider(tmp_path):
+    app, client = make_admin_client(tmp_path)
+    account = app.state.account_store.add(name="Personal", token="")
+    account.provider = "consumer"
+    key = app.state.key_store.add(name="user", account_id=account.id)
+
+    response = client.get("/admin/keys")
+
+    assert response.status_code == 200
+    keys = {item["id"]: item for item in response.json()["keys"]}
+    assert keys[key.id]["account_provider"] == "consumer"

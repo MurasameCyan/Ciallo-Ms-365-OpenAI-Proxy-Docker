@@ -393,7 +393,10 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             # a token in the background so a real token + 12h expiry land now,
             # which is what arms keepalive auto-refresh (see _spawn helper).
             _spawn_post_push_refresh(app.state.refresh_scheduler, k.account_id)
-        if account_name and acc and acc.name != account_name:
+        # A signed Substrate claim is authoritative. Page scraping is only a
+        # fallback for cookie-only accounts because generic M365 controls can be
+        # mistaken for the display name.
+        if account_name and acc and not acc.email and acc.name != account_name:
             app.state.account_store.rename(k.account_id, account_name)
         result = {"status": "ok", "injected": injected, "total": total}
         if warning:

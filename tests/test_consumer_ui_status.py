@@ -170,8 +170,8 @@ def test_user_consumer_refresh_capability_uses_provider(tmp_path: Path):
     )
 
 
-def test_manual_source_key_keeps_bound_account_name(tmp_path: Path):
-    script = "\n".join(
+def _admin_keys_render_script(key: str, assertions: str) -> str:
+    return "\n".join(
         [
             "const assert=require('assert');",
             "const box={innerHTML:''};",
@@ -184,11 +184,43 @@ def test_manual_source_key_keeps_bound_account_name(tmp_path: Path):
             "function initGlassSelect(){}",
             "function renderDashboard(){}",
             _ADMIN_KEYS_JS,
-            "__keys=[{id:'key_1',key:'sk-1234567890',name:'Alice',account_id:'acct_consumer',account_name:'Personal Alice',account_source:'manual',enabled:true,role:'user',username:'',password:'',rate_limit_rpm:0,default_rate_limit_rpm:0}];",
-            "(async()=>{await loadKeys(true);assert.ok(box.innerHTML.includes('Personal Alice'),box.innerHTML)})().catch(e=>{console.error(e);process.exit(1)});",
+            f"__keys=[{key}];",
+            "(async()=>{await loadKeys(true);" + assertions + "})().catch(e=>{console.error(e);process.exit(1)});",
         ]
     )
-    _run_node(tmp_path, script)
+
+
+def test_manual_source_key_keeps_bound_account_name(tmp_path: Path):
+    key = "{id:'key_1',key:'sk-1234567890',name:'Alice',account_id:'acct_consumer',account_name:'Personal Alice',account_provider:'consumer',account_source:'manual',enabled:true,role:'user',username:'',password:'',rate_limit_rpm:0,default_rate_limit_rpm:0}"
+    _run_node(
+        tmp_path,
+        _admin_keys_render_script(
+            key,
+            "assert.ok(box.innerHTML.includes('Personal Alice'),box.innerHTML);",
+        ),
+    )
+
+
+def test_consumer_key_omits_the_m365_token_only_badge(tmp_path: Path):
+    key = "{id:'key_1',key:'sk-1234567890',name:'Alice',account_id:'acct_consumer',account_name:'Personal Alice',account_provider:'consumer',account_source:'manual',enabled:true,role:'user',username:'',password:'',rate_limit_rpm:0,default_rate_limit_rpm:0}"
+    _run_node(
+        tmp_path,
+        _admin_keys_render_script(
+            key,
+            "assert.ok(!box.innerHTML.includes('>Token</span>'),box.innerHTML);",
+        ),
+    )
+
+
+def test_m365_manual_key_keeps_the_token_only_badge(tmp_path: Path):
+    key = "{id:'key_1',key:'sk-1234567890',name:'Alice',account_id:'acct_m365',account_name:'Work Alice',account_provider:'m365',account_source:'manual',enabled:true,role:'user',username:'',password:'',rate_limit_rpm:0,default_rate_limit_rpm:0}"
+    _run_node(
+        tmp_path,
+        _admin_keys_render_script(
+            key,
+            "assert.ok(box.innerHTML.includes('>Token</span>'),box.innerHTML);",
+        ),
+    )
 
 
 def _admin_refresh_script(fetch_impl: str, call: str, expected: str) -> str:

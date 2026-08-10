@@ -32,6 +32,7 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             "name": k.name,
             "account_id": k.account_id,
             "account_name": acc.name if acc is not None else "",
+            "account_provider": getattr(acc, "provider", "m365") if acc is not None else "",
             "account_source": acc.token_source if acc is not None else "",
             "enabled": k.enabled,
             "tone": k.tone,
