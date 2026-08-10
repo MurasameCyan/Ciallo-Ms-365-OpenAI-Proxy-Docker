@@ -109,7 +109,7 @@ def test_partitioning_prefs_disable_total_cookie_protection():
 def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
     """Guards the launch contract without a browser: a fake factory records what
     it was handed."""
-    seen = {}
+    seen = {"events": []}
 
     class _FakeBrowser:
         async def __aenter__(self):
@@ -121,33 +121,109 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
         async def new_page(self):
             return _FakePage()
 
+        async def add_cookies(self, cookies):
+            seen["events"].append("add_cookies")
+            seen["seed_cookies"] = cookies
+
         async def cookies(self):
             return [
-                {"name": "WLSSC", "value": "v", "domain": ".live.com"},
+                {
+                    "name": "WLSSC",
+                    "value": "v",
+                    "domain": ".live.com",
+                    "path": "/",
+                    "secure": True,
+                    "httpOnly": True,
+                    "sameSite": "None",
+                    "expires": 2_000_000_000,
+                },
                 # Earned by this browser; must not travel to the HTTP client.
-                {"name": "__cf_bm", "value": "x", "domain": ".copilot.microsoft.com"},
+                {
+                    "name": "__cf_bm",
+                    "value": "x",
+                    "domain": ".copilot.microsoft.com",
+                    "path": "/",
+                },
             ]
 
     class _FakePage:
         async def goto(self, url, **kw):
+            seen["events"].append("goto")
             seen["url"] = url
 
         async def evaluate(self, script):
-            return "minted-token"
+            if "consumer:clear-chat-token" in script:
+                seen["events"].append("clear_token")
+                return 1
+            return {
+                "access_token": "minted-token",
+                "account_id": "home:account-a",
+            }
+
+        async def reload(self, **kw):
+            seen["events"].append("reload")
 
     def factory(**kwargs):
         seen.update(kwargs)
         return _FakeBrowser()
 
-    gate = cc.CamoufoxConsumerGate(tmp_path / "profile")
+    gate = cc.CamoufoxConsumerGate(
+        tmp_path / "profile",
+        seed_cookies=[
+            {
+                "name": "__Host-MSAAUTHP",
+                "value": "seed",
+                "domain": ".live.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "None",
+                "expires": 2_000_000_000,
+            },
+            {
+                "name": "__cf_bm",
+                "value": "bad-seed",
+                "domain": ".copilot.microsoft.com",
+                "path": "/",
+            },
+            {
+                "name": "ESTSAUTH",
+                "value": "login-seed",
+                "domain": ".login.microsoftonline.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "None",
+            },
+        ],
+        previous_token="old-token",
+    )
     auth = asyncio.run(gate._run(factory))
 
     assert seen["firefox_user_prefs"]["network.cookie.cookieBehavior"] == 0
     assert seen["persistent_context"] is True
     assert seen["user_data_dir"].endswith("profile")
     assert seen["url"] == cc.COPILOT_URL
+    assert seen["events"][:2] == ["add_cookies", "goto"]
+    assert seen["events"][2:4] == ["clear_token", "reload"]
+    assert [cookie["name"] for cookie in seen["seed_cookies"]] == [
+        "__Host-MSAAUTHP",
+        "ESTSAUTH",
+    ]
     assert auth["access_token"] == "minted-token"
-    assert auth["cookies"] == {"WLSSC": "v"}
+    assert auth["account_id"] == "home:account-a"
+    assert auth["cookies"] == [
+        {
+            "name": "WLSSC",
+            "value": "v",
+            "domain": ".live.com",
+            "path": "/",
+            "secure": True,
+            "httpOnly": True,
+            "sameSite": "None",
+            "expires": 2_000_000_000,
+        }
+    ]
     # MSAL mints without an X-UserIdentityType, so the caller keeps what it holds.
     assert auth["identity_type"] == ""
 
@@ -156,8 +232,55 @@ def test_cloudflare_cookies_are_dropped_before_changing_hands():
     """The consumer HTTP client impersonates firefox147 while this browser is
     Firefox 152, so a __cf_bm minted here would be replayed under a UA that did
     not earn it. _pick_cookies filters by domain alone and lets these through."""
-    jar = {"WLSSC": "v", "__cf_bm": "x", "__cflb": "y", "cf_clearance": "z"}
-    assert cc._drop_cloudflare_cookies(jar) == {"WLSSC": "v"}
+    jar = [
+        {"name": "WLSSC", "value": "v", "domain": ".live.com", "path": "/"},
+        {"name": "__cf_bm", "value": "x", "domain": ".copilot.microsoft.com", "path": "/"},
+        {"name": "__cflb", "value": "y", "domain": ".copilot.microsoft.com", "path": "/"},
+        {"name": "cf_clearance", "value": "z", "domain": ".copilot.microsoft.com", "path": "/"},
+    ]
+    assert cc._drop_cloudflare_cookies(jar) == [jar[0]]
+
+
+def test_cookie_records_map_userscript_no_restriction_to_playwright_none():
+    records = cc._consumer_cookie_records(
+        [
+            {
+                "name": "__Host-MSAAUTHP",
+                "value": "seed",
+                "domain": ".live.com",
+                "path": "/",
+                "secure": True,
+                "sameSite": "No_restriction",
+            }
+        ]
+    )
+
+    assert records[0]["sameSite"] == "None"
+
+
+def test_await_token_ignores_the_previous_cached_value(tmp_path):
+    values = iter(
+        [
+            {"access_token": "old-token", "account_id": "home:account-a"},
+            {"access_token": "new-token", "account_id": "home:account-a"},
+        ]
+    )
+
+    class _FakePage:
+        async def evaluate(self, script):
+            return next(values)
+
+    gate = cc.CamoufoxConsumerGate(
+        tmp_path / "profile",
+        previous_token="old-token",
+        token_timeout=0.1,
+        poll_interval=0,
+    )
+
+    assert asyncio.run(gate._await_token(_FakePage())) == (
+        "new-token",
+        "home:account-a",
+    )
 
 
 def test_run_raises_when_no_token_is_minted(tmp_path):
@@ -183,6 +306,9 @@ def test_run_raises_when_no_token_is_minted(tmp_path):
 
         async def evaluate(self, script):
             return ""
+
+        async def reload(self, **kw):
+            return None
 
     gate = cc.CamoufoxConsumerGate(tmp_path / "p", token_timeout=0.01, poll_interval=0.01)
     with pytest.raises(ConsumerCopilotError, match="interactive sign-in"):

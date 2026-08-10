@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import uuid
@@ -17,6 +18,17 @@ from .token_store import decode_jwt_payload, is_substrate_token_claims
 # browser profile.
 _CDP_PORT_BASE = 9322
 _RESERVED_CDP_PORTS = {9222}
+_EMAIL_RE = re.compile(
+    r"^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?"
+    r"(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
+    re.IGNORECASE,
+)
+_CONSUMER_ACCOUNT_ID_RE = re.compile(r"^(?:home|local):[a-z0-9._-]{1,512}$")
+
+
+def _normalize_consumer_account_id(value: object) -> str:
+    account_id = str(value or "").strip().lower()
+    return account_id if _CONSUMER_ACCOUNT_ID_RE.fullmatch(account_id) else ""
 
 
 def extract_identity(token: str) -> tuple[str, str]:
@@ -89,6 +101,9 @@ class Account:
     # has_consumer_token bool).
     consumer_token: str = ""
     consumer_identity_type: str = ""
+    # Stable MSAL subject (normally home:<homeAccountId>) used to keep one
+    # proxy account pinned to the same personal Microsoft identity.
+    consumer_account_id: str = ""
     consumer_updated_at: float = 0.0
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
@@ -200,6 +215,9 @@ class AccountStore:
                     provider=str(raw.get("provider", "m365") or "m365"),
                     consumer_token=str(raw.get("consumer_token", "") or ""),
                     consumer_identity_type=str(raw.get("consumer_identity_type", "") or ""),
+                    consumer_account_id=_normalize_consumer_account_id(
+                        raw.get("consumer_account_id", "")
+                    ),
                     consumer_updated_at=float(raw.get("consumer_updated_at", 0.0) or 0.0),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
@@ -373,6 +391,9 @@ class AccountStore:
         cookies: list[dict],
         access_token: str,
         identity_type: str = "",
+        email: str = "",
+        consumer_account_id: str | None = None,
+        expected_snapshot: tuple[float, str, str] | None = None,
     ) -> Account | None:
         """Store a consumer-Copilot credential snapshot exported from a browser.
 
@@ -385,15 +406,42 @@ class AccountStore:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
+            if expected_snapshot is not None:
+                current_snapshot = (
+                    acc.consumer_updated_at,
+                    acc.consumer_token,
+                    acc.consumer_account_id,
+                )
+                if current_snapshot != expected_snapshot:
+                    return None
+            previous_account_id = acc.consumer_account_id
+            normalized_account_id = None
+            if consumer_account_id is not None:
+                normalized_account_id = _normalize_consumer_account_id(
+                    consumer_account_id
+                )
             acc.provider = "consumer"
             acc.cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
             acc.consumer_token = access_token.strip()
             acc.consumer_identity_type = (identity_type or "").strip()
+            if normalized_account_id is not None:
+                acc.consumer_account_id = normalized_account_id
+            normalized_email = email.strip().lower() if isinstance(email, str) else ""
+            if len(normalized_email) <= 254 and _EMAIL_RE.fullmatch(normalized_email):
+                acc.email = normalized_email
+            elif (
+                normalized_account_id is not None
+                and normalized_account_id != previous_account_id
+            ):
+                # A new/unknown Microsoft subject must never inherit the prior
+                # account's display email.
+                acc.email = ""
             now = time.time()
             acc.consumer_updated_at = now
             # Consumer login cookies are session cookies with no useful expiry of
             # their own, so cookie_expires_at stays 0 and the UI's binding state
             # rests on presence alone.
+            acc.cookie_expires_at = 0.0
             acc.cookie_valid = bool(acc.cookies)
             acc.cookie_updated_at = now
             acc.updated_at = now
@@ -469,6 +517,7 @@ class AccountStore:
                 acc.provider = "m365"
                 acc.consumer_token = ""
                 acc.consumer_identity_type = ""
+                acc.consumer_account_id = ""
                 acc.consumer_updated_at = 0.0
                 acc.cookies = []
             acc.updated_at = time.time()

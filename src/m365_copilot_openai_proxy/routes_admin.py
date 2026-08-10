@@ -127,12 +127,18 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
     async def refresh_account(acc_id: str, request: Request) -> dict:
         err = require_admin(request)
         if err: return err
-        if app.state.account_store.get(acc_id) is None:
+        acc = app.state.account_store.get(acc_id)
+        if acc is None:
             return _json_err(404, "Account not found")
         try:
-            ok = await app.state.refresh_scheduler.ensure_fresh(acc_id, force=True)
+            if getattr(acc, "provider", "m365") == "consumer":
+                ok = await app.state.refresh_scheduler.refresh_consumer(acc_id)
+            else:
+                ok = await app.state.refresh_scheduler.ensure_fresh(acc_id, force=True)
         except Exception as exc:
             return _json_err(502, f"Refresh failed: {exc}")
+        if not ok and getattr(acc, "provider", "m365") == "consumer":
+            return _json_err(502, "Consumer refresh failed; check the server log")
         acc = app.state.account_store.get(acc_id)
         return {"status": "ok", "refreshed": ok, "account": _account_public(acc) if acc else None}
 
@@ -143,6 +149,23 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
         acc = app.state.account_store.get(acc_id)
         if acc is None:
             return _json_err(404, "Account not found")
+        if getattr(acc, "provider", "m365") == "consumer":
+            try:
+                ok = await app.state.refresh_scheduler.refresh_consumer(acc_id)
+            except Exception as exc:
+                return _json_err(502, f"Consumer refresh failed: {exc}")
+            if not ok:
+                return _json_err(502, "Consumer refresh failed; check the server log")
+            acc = app.state.account_store.get(acc_id)
+            total = len(list(getattr(acc, "cookies", []) or [])) if acc else 0
+            return {
+                "status": "ok",
+                "provider": "consumer",
+                "injected": total,
+                "total": total,
+                "cookie_valid": bool(acc.cookie_valid) if acc else False,
+                "account": _account_public(acc) if acc else None,
+            }
         # Re-inject the LAST pushed cookies. ensure_fresh() no-ops for manual
         # accounts (it only drives the CDP token-refresh path), so the cookie
         # button must replay the stored cookie set through inject_cookies to
@@ -170,7 +193,7 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
     async def remove_account(acc_id: str, request: Request) -> dict:
         err = require_admin(request)
         if err: return err
-        if not app.state.account_store.remove(acc_id):
+        if not await app.state.refresh_scheduler.remove_account(acc_id):
             return _json_err(404, "Account not found")
         app.state.key_store.detach_account(acc_id)  # unbind keys that pointed here
         return {"status": "ok"}

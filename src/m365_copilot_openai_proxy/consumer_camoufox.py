@@ -2,10 +2,10 @@
 
 The Edge/CDP gate in consumer_gate.py drives a real chat turn through interactive
 Cloudflare verification, which needs a human to click. This gate does something
-narrower and unattended: it launches a Firefox-based browser against a persisted
-profile, lets MSAL's silent SSO re-mint the ChatAI access token, exports the
-cookie jar, and shuts the browser down. Nothing is clicked and no chat turn is
-sent, so there is nothing for Turnstile to gate.
+narrower and unattended: it launches a Firefox-based browser seeded from the
+latest stored cookie snapshot, lets MSAL's silent SSO re-mint the ChatAI access
+token, exports the refreshed cookie jar, and shuts the browser down. Nothing is
+clicked and no chat turn is sent, so there is nothing for Turnstile to gate.
 
 Two settings are load-bearing, both established by measurement:
 
@@ -23,11 +23,11 @@ Two settings are load-bearing, both established by measurement:
    impersonates a different Firefox version and earns its own on the warmup GET
    that opens every turn.
 
-A cold launch against a warm profile re-mints in ~6.7s end to end, and it is a
-real mint rather than a cache read: wiping the MSAL cache out of localStorage and
-reloading produces a new token value without any redirect to a login page. That
-is what makes this viable as a refresh -- it keeps working after the cached token
-expires, for as long as the MSA session in the profile stays alive.
+A cold launch re-mints in ~6.7s end to end, and it is a real mint rather than a
+cache read: wiping the ChatAI token from MSAL localStorage and reloading produces
+a new token value without any redirect to a login page. The scheduler keys each
+profile by a hash of the MSAL account id and rejects a mint from any other id,
+so one proxy binding cannot silently cross into another personal account.
 
 Camoufox is an optional dependency (a ~936 MB browser). When it is not installed
 this module raises CamoufoxUnavailable and callers fall back to the existing
@@ -44,6 +44,7 @@ import time
 import weakref
 from pathlib import Path
 
+from .account_store import _normalize_consumer_account_id
 from .consumer_client import ConsumerCopilotError
 from .consumer_gate import _pick_cookies
 from .runtime_flags import elog, ulog
@@ -68,12 +69,36 @@ _FIND_CHAT_TOKEN_JS = """
     if (!value || !value.includes('"credentialType":"AccessToken"')) continue;
     try {
       const token = JSON.parse(value);
-      if (token && token.secret && token.target && token.target.includes('ChatAI'))
-        return token.secret;
+      if (token && token.secret && token.target && token.target.includes('ChatAI')) {
+        const home = String(token.homeAccountId || token.home_account_id || '').toLowerCase();
+        const local = String(token.localAccountId || token.local_account_id || '').toLowerCase();
+        return {
+          access_token: token.secret,
+          account_id: home ? 'home:' + home : (local ? 'local:' + local : ''),
+        };
+      }
     } catch (error) {}
   }
-  return '';
+  return {access_token: '', account_id: ''};
 })() /* consumer:chat-token */
+"""
+
+_CLEAR_CHAT_TOKEN_JS = """
+(() => {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    const value = localStorage.getItem(key);
+    if (!value || !value.includes('"credentialType":"AccessToken"')) continue;
+    try {
+      const token = JSON.parse(value);
+      if (token && token.credentialType === 'AccessToken' &&
+          token.target && token.target.includes('ChatAI')) keys.push(key);
+    } catch (error) {}
+  }
+  for (const key of keys) localStorage.removeItem(key);
+  return keys.length;
+})() /* consumer:clear-chat-token */
 """
 
 # Firefox allows one process per profile and enforces it with an on-disk lock, so
@@ -85,9 +110,16 @@ _LOCK_FILES = (".parentlock", "lock", "parent.lock")
 # Cloudflare's bot-management cookies are bound to the client that earned them.
 # _pick_cookies filters by domain alone, so they survive it; drop them by name.
 _CLOUDFLARE_COOKIE_PREFIXES = ("__cf", "cf_clearance")
+_CONSUMER_COOKIE_DOMAINS = (
+    "copilot.microsoft.com",
+    "microsoft.com",
+    "microsoftonline.com",
+    "bing.com",
+    "live.com",
+)
 
 
-def _drop_cloudflare_cookies(cookies: dict[str, str]) -> dict[str, str]:
+def _drop_cloudflare_cookies(cookies: list[dict]) -> list[dict]:
     """Strip Cloudflare cookies from a jar about to change hands.
 
     The consumer HTTP client impersonates firefox147 while this browser is
@@ -95,11 +127,50 @@ def _drop_cloudflare_cookies(cookies: dict[str, str]) -> dict[str, str]:
     a UA that did not earn it -- the same mismatch that makes injecting Edge's
     copy actively harmful. The client's per-turn warmup GET earns its own.
     """
-    return {
-        name: value
-        for name, value in cookies.items()
-        if not name.startswith(_CLOUDFLARE_COOKIE_PREFIXES)
-    }
+    return [
+        dict(cookie)
+        for cookie in cookies
+        if not str(cookie.get("name") or "").startswith(_CLOUDFLARE_COOKIE_PREFIXES)
+    ]
+
+
+def _consumer_cookie_records(cookies: list[dict]) -> list[dict]:
+    """Return Playwright-compatible consumer cookies without losing replay metadata."""
+    records: list[dict] = []
+    for raw in _drop_cloudflare_cookies(cookies):
+        name = str(raw.get("name") or "")
+        value = str(raw.get("value") or "")
+        domain = str(raw.get("domain") or "").lower()
+        bare_domain = domain.lstrip(".")
+        if not name or not value or not domain:
+            continue
+        if not any(
+            bare_domain == suffix or bare_domain.endswith(f".{suffix}")
+            for suffix in _CONSUMER_COOKIE_DOMAINS
+        ):
+            continue
+        record: dict[str, object] = {
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": str(raw.get("path") or "/"),
+        }
+        for field in ("secure", "httpOnly"):
+            if field in raw:
+                record[field] = bool(raw[field])
+        same_site = {
+            "strict": "Strict",
+            "lax": "Lax",
+            "none": "None",
+            "no_restriction": "None",
+        }.get(str(raw.get("sameSite") or "").strip().lower().replace("-", "_"))
+        if same_site:
+            record["sameSite"] = same_site
+        expires = raw.get("expires")
+        if isinstance(expires, (int, float)):
+            record["expires"] = expires
+        records.append(record)
+    return records
 
 
 class CamoufoxUnavailable(ConsumerCopilotError):
@@ -167,8 +238,8 @@ def _proxy_option() -> dict | None:
 class CamoufoxConsumerGate:
     """Unattended consumer-credential refresh, shaped like ConsumerBrowserGate.
 
-    Returns the same ``{cookies, access_token, identity_type}`` mapping so it can
-    stand in wherever that gate is accepted.
+    Returns ``{cookies, access_token, identity_type}``, keeping cookies as full
+    browser records so a later refresh can seed a fresh profile again.
     """
 
     def __init__(
@@ -179,12 +250,16 @@ class CamoufoxConsumerGate:
         timeout: float = 60.0,
         token_timeout: float = 45.0,
         poll_interval: float = 0.25,
+        seed_cookies: list[dict] | None = None,
+        previous_token: str = "",
     ):
         self._profile_dir = Path(profile_dir)
         self._headless = _default_headless() if headless is None else headless
         self._timeout = timeout
         self._token_timeout = token_timeout
         self._poll_interval = poll_interval
+        self._seed_cookies = [dict(cookie) for cookie in (seed_cookies or [])]
+        self._previous_token = str(previous_token or "")
 
     async def __call__(self) -> dict:
         async with _gate_lock(self._profile_dir):
@@ -231,9 +306,14 @@ class CamoufoxConsumerGate:
             firefox_user_prefs=dict(_UNPARTITIONED_PREFS),
             proxy=_proxy_option(),
         ) as browser:
+            seed_cookies = _consumer_cookie_records(self._seed_cookies)
+            if seed_cookies:
+                await browser.add_cookies(seed_cookies)
             page = await browser.new_page()
             await page.goto(COPILOT_URL, wait_until="domcontentloaded", timeout=60_000)
-            token = await self._await_token(page)
+            await page.evaluate(_CLEAR_CHAT_TOKEN_JS)
+            await page.reload(wait_until="domcontentloaded", timeout=60_000)
+            token, account_id = await self._await_token(page)
             if not token:
                 raise ConsumerCopilotError(
                     "Camoufox loaded Copilot but MSAL minted no ChatAI token within "
@@ -241,28 +321,39 @@ class CamoufoxConsumerGate:
                     f"{self._profile_dir.name} has most likely lapsed and needs one "
                     "interactive sign-in."
                 )
-            cookies = _drop_cloudflare_cookies(_pick_cookies(await browser.cookies()))
+            cookies = _consumer_cookie_records(await browser.cookies())
+            if not _pick_cookies(cookies):
+                raise ConsumerCopilotError(
+                    "Camoufox minted a token but returned no reusable consumer cookies."
+                )
         return {
             "cookies": cookies,
             "access_token": token,
+            "account_id": account_id,
             # The token is minted by MSAL rather than lifted from a chat socket
             # URL, so no X-UserIdentityType is observed here. Callers keep the
             # value they already hold.
             "identity_type": "",
         }
 
-    async def _await_token(self, page) -> str:
+    async def _await_token(self, page) -> tuple[str, str]:
         deadline = asyncio.get_running_loop().time() + self._token_timeout
         while True:
             try:
-                token = await page.evaluate(_FIND_CHAT_TOKEN_JS)
+                auth = await page.evaluate(_FIND_CHAT_TOKEN_JS)
             except Exception as exc:  # noqa: BLE001 - navigation can race evaluate
                 elog(f"Camoufox token read failed, retrying: {exc}")
-                token = ""
-            if token:
-                return str(token)
+                auth = {}
+            if isinstance(auth, dict):
+                token = str(auth.get("access_token") or "")
+                account_id = _normalize_consumer_account_id(auth.get("account_id"))
+            else:
+                token = str(auth or "")
+                account_id = ""
+            if token and str(token) != self._previous_token:
+                return token, account_id
             if asyncio.get_running_loop().time() >= deadline:
-                return ""
+                return "", ""
             await asyncio.sleep(self._poll_interval)
 
 
@@ -270,4 +361,4 @@ def reset_consumer_profile(profile_dir: Path | str) -> None:
     """Delete a consumer automation profile so the next sign-in starts clean."""
     path = Path(profile_dir)
     if path.exists():
-        shutil.rmtree(path, ignore_errors=True)
+        shutil.rmtree(path)

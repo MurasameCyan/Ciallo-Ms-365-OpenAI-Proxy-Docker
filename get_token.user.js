@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.70
+// @version      1.0.71
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.70';
+    const SCRIPT_VERSION = '1.0.71';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
@@ -121,6 +121,7 @@
             consumer_captured: '✓ ChatAI Token 可用',
             consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
             no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
+            no_consumer_identity: '无法把 ChatAI Token 对应到唯一的微软账户。请在当前个人版账户中重新发送一条消息后再推送。',
             consumer_pushed: '个人版 Copilot 已推送，Cookie 数：',
             // ---- 两个产品分区 ----
             section_m365: ' M365 商业版',
@@ -210,6 +211,7 @@
             consumer_captured: '✓ ChatAI token captured',
             consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
             no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
+            no_consumer_identity: 'The ChatAI token could not be matched to one Microsoft account. Send a new message from the current personal account, then push again.',
             consumer_pushed: 'Personal Copilot pushed, cookies: ',
             // ---- the two product sections ----
             section_m365: 'M365 Business',
@@ -344,6 +346,223 @@
         } catch {}
         return '';
     }
+
+    // ---- Consumer account email resolution --------------------------------
+    // Personal Copilot can render arbitrary email addresses inside chat, so the
+    // account identity must come from structured MSAL state, never page text.
+    const CONSUMER_EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+    const CONSUMER_EMAIL_SCAN_RE = /[a-z0-9.!#$%&'*+/?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/gi;
+    let cachedConsumerEmail = { accountId: '', email: '' };
+
+    function normalizeConsumerEmail(value) {
+        if (typeof value !== 'string') return '';
+        const email = value.trim().toLowerCase();
+        return email.length <= 320 && CONSUMER_EMAIL_RE.test(email) ? email : '';
+    }
+
+    function parseConsumerStorageJson(raw) {
+        let value = raw;
+        for (let i = 0; i < 2 && typeof value === 'string'; i++) {
+            try { value = JSON.parse(value); }
+            catch (e) { return null; }
+        }
+        return value;
+    }
+
+    function getConsumerStorageEntries() {
+        const entries = [];
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (typeof key === 'string') entries.push([key, localStorage.getItem(key)]);
+            }
+        } catch (e) {}
+        return entries;
+    }
+
+    function consumerRecordValue(record, names) {
+        for (const name of names) {
+            const value = record && record[name];
+            if (typeof value === 'string' && value.trim()) return value.trim();
+        }
+        return '';
+    }
+
+    function consumerAccountId(record, storageKey) {
+        const homeId = consumerRecordValue(record, ['homeAccountId', 'home_account_id']);
+        if (homeId) return 'home:' + homeId.toLowerCase();
+        const localId = consumerRecordValue(record, ['localAccountId', 'local_account_id']);
+        if (localId) return 'local:' + localId.toLowerCase();
+        return storageKey ? 'key:' + storageKey.toLowerCase() : '';
+    }
+
+    function getStructuredConsumerAccounts(entries) {
+        const values = new Map(entries);
+        const accountKeys = new Set();
+        for (const [key, raw] of entries) {
+            if (!key.toLowerCase().includes('account.keys')) continue;
+            const parsed = parseConsumerStorageJson(raw);
+            if (!Array.isArray(parsed)) continue;
+            for (const accountKey of parsed) {
+                if (typeof accountKey === 'string' && accountKey) accountKeys.add(accountKey);
+            }
+        }
+        const byId = new Map();
+        for (const accountKey of accountKeys) {
+            const record = parseConsumerStorageJson(values.get(accountKey));
+            if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+            const id = consumerAccountId(record, accountKey);
+            if (!id) continue;
+            const email = normalizeConsumerEmail(consumerRecordValue(record, [
+                'username', 'email', 'mail', 'upn', 'preferred_username', 'loginHint', 'login_hint',
+            ]));
+            const previous = byId.get(id);
+            if (!previous || (!previous.email && email)) byId.set(id, { id, email, record });
+        }
+        return Array.from(byId.values());
+    }
+
+    function getConsumerTokenAccountId(entries, accessToken) {
+        if (!accessToken) return '';
+        const matches = new Set();
+        for (const [, raw] of entries) {
+            const record = parseConsumerStorageJson(raw);
+            if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+            const credentialType = consumerRecordValue(record, ['credentialType', 'credential_type']);
+            const target = consumerRecordValue(record, ['target', 'scope', 'scopes']);
+            const secret = consumerRecordValue(record, ['secret', 'accessToken', 'access_token']);
+            if (credentialType.toLowerCase() !== 'accesstoken') continue;
+            if (!/chatai/i.test(target) || secret !== accessToken) continue;
+            const id = consumerAccountId(record, '');
+            if (/^(home|local):/.test(id)) matches.add(id);
+        }
+        return matches.size === 1 ? Array.from(matches)[0] : '';
+    }
+
+    function getActiveConsumerFilters(entries) {
+        const filters = [];
+        const addFilter = (value) => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+            const homeId = consumerRecordValue(value, ['homeAccountId', 'home_account_id']);
+            const localId = consumerRecordValue(value, ['localAccountId', 'local_account_id']);
+            if (homeId || localId) filters.push(value);
+        };
+        for (const [key, raw] of entries) {
+            if (!key.toLowerCase().includes('active-account-filters')) continue;
+            const parsed = parseConsumerStorageJson(raw);
+            if (Array.isArray(parsed)) {
+                for (const item of parsed) addFilter(item);
+            } else {
+                addFilter(parsed);
+                if (parsed && typeof parsed === 'object') {
+                    for (const item of Object.values(parsed)) addFilter(item);
+                }
+            }
+        }
+        return filters;
+    }
+
+    function consumerFilterId(filter) {
+        const homeId = consumerRecordValue(filter, ['homeAccountId', 'home_account_id']);
+        if (homeId) return 'home:' + homeId.toLowerCase();
+        const localId = consumerRecordValue(filter, ['localAccountId', 'local_account_id']);
+        return localId ? 'local:' + localId.toLowerCase() : '';
+    }
+
+    function consumerFilterMatchesAccount(filter, account) {
+        const fields = [
+            ['homeAccountId', 'home_account_id'],
+            ['localAccountId', 'local_account_id'],
+            ['tenantId', 'tenant_id'],
+            ['environment'],
+        ];
+        let compared = false;
+        for (const names of fields) {
+            const expected = consumerRecordValue(filter, names);
+            if (!expected) continue;
+            compared = true;
+            const actual = consumerRecordValue(account.record, names);
+            if (!actual || actual.toLowerCase() !== expected.toLowerCase()) return false;
+        }
+        return compared;
+    }
+
+    function getIdentityCookieEmail(cookies) {
+        const emails = new Set();
+        for (const cookie of (Array.isArray(cookies) ? cookies : [])) {
+            const name = String(cookie && cookie.name || '').toLowerCase();
+            if (name !== 'msppre' && name !== 'jshp') continue;
+            let text = String(cookie && cookie.value || '');
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const matches = text.match(CONSUMER_EMAIL_SCAN_RE) || [];
+                for (const match of matches) {
+                    const email = normalizeConsumerEmail(match);
+                    if (email) emails.add(email);
+                }
+                try {
+                    const decoded = decodeURIComponent(text.replace(/\+/g, '%20'));
+                    if (decoded === text) break;
+                    text = decoded;
+                } catch (e) { break; }
+            }
+        }
+        return emails.size === 1 ? Array.from(emails)[0] : '';
+    }
+
+    function getConsumerAccountEmail(cookies, accessToken = '') {
+        const entries = getConsumerStorageEntries();
+        const accounts = getStructuredConsumerAccounts(entries);
+        const tokenAccountId = getConsumerTokenAccountId(entries, accessToken);
+        if (accessToken && !tokenAccountId) {
+            cachedConsumerEmail = { accountId: '', email: '' };
+            return '';
+        }
+        const filters = getActiveConsumerFilters(entries);
+        const activeFilterIds = new Set(filters.map(consumerFilterId).filter(Boolean));
+        if (accessToken && activeFilterIds.size && (
+            activeFilterIds.size !== 1 || !activeFilterIds.has(tokenAccountId)
+        )) {
+            cachedConsumerEmail = { accountId: '', email: '' };
+            return '';
+        }
+        const matched = new Map();
+        for (const filter of filters) {
+            for (const account of accounts) {
+                if (consumerFilterMatchesAccount(filter, account)) matched.set(account.id, account);
+            }
+        }
+
+        let selected = tokenAccountId
+            ? (accounts.find((account) => account.id === tokenAccountId) || null)
+            : (matched.size === 1 ? Array.from(matched.values())[0] : null);
+        if (!accessToken && !selected && matched.size === 0 && accounts.length === 1) selected = accounts[0];
+
+        let activeAccountId = tokenAccountId || (selected ? selected.id : '');
+        if (!accessToken && !activeAccountId) {
+            const filterIds = new Set(filters.map(consumerFilterId).filter(Boolean));
+            if (filterIds.size === 1) activeAccountId = Array.from(filterIds)[0];
+        }
+        if (cachedConsumerEmail.accountId !== activeAccountId) {
+            cachedConsumerEmail = { accountId: activeAccountId, email: '' };
+        }
+        if (selected && selected.email) {
+            cachedConsumerEmail = { accountId: activeAccountId, email: selected.email };
+            return selected.email;
+        }
+        if (activeAccountId && cachedConsumerEmail.email) return cachedConsumerEmail.email;
+
+        const cookieEmail = getIdentityCookieEmail(cookies);
+        if (cookieEmail && activeAccountId) {
+            cachedConsumerEmail = { accountId: activeAccountId, email: cookieEmail };
+        }
+        return cookieEmail;
+    }
+
+    function getConsumerAccountId() {
+        const accountId = String(cachedConsumerEmail.accountId || '').toLowerCase();
+        return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : '';
+    }
+    // ---- End consumer account email resolution -----------------------------
 
     // Intercept browser APIs on the real page (not in sandbox)
     const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
@@ -945,12 +1164,17 @@
         const key = getUserApiKey();
         if (!key) throw new Error(tr('no_user_key'));
         const username = getUsername();
+        const email = getConsumerAccountEmail(cookies, latestConsumerToken);
+        const consumerAccountId = getConsumerAccountId();
+        if (!consumerAccountId) throw new Error(tr('no_consumer_identity'));
         const r = await gmFetch(base + '/user/account/consumer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
             body: JSON.stringify({
                 cookies,
                 username,
+                email,
+                consumer_account_id: consumerAccountId,
                 access_token: latestConsumerToken,
                 identity_type: latestConsumerIdentity,
             })

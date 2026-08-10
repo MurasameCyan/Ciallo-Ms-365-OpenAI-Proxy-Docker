@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 import time
 
+import pytest
+
 from m365_copilot_openai_proxy.account_store import AccountStore
 from m365_copilot_openai_proxy.consumer_camoufox import CamoufoxUnavailable
+from m365_copilot_openai_proxy.consumer_gate import _pick_cookies
 from m365_copilot_openai_proxy.refresh_scheduler import RefreshScheduler
 
 
@@ -25,9 +28,20 @@ def _consumer_account(store: AccountStore) -> str:
     acc = store.add(name="personal", token="")
     store.set_consumer_auth(
         acc.id,
-        [{"name": "__Host-MSAAUTHP", "value": "old"}],
+        [
+            {
+                "name": "__Host-MSAAUTHP",
+                "value": "old",
+                "domain": ".live.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "None",
+            }
+        ],
         "old-token",
         "MSA",
+        consumer_account_id="home:account-a",
     )
     return acc.id
 
@@ -38,15 +52,46 @@ def _sched(store: AccountStore, tmp_path, gate) -> RefreshScheduler:
     return sched
 
 
+def test_default_gate_is_seeded_from_the_pushed_account_snapshot(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    scheduler = RefreshScheduler(account_store=store, profile_root=tmp_path / "profiles")
+
+    gate = scheduler._build_consumer_gate(acct_id)
+
+    assert gate._seed_cookies == store.get(acct_id).cookies
+    assert gate._previous_token == "old-token"
+    assert gate._profile_dir == scheduler._consumer_profile_dir(
+        acct_id, "home:account-a"
+    )
+
+
 def test_refresh_consumer_stores_the_reminted_credential(tmp_path):
     store = _store(tmp_path)
     acct_id = _consumer_account(store)
 
     async def gate():
         return {
-            "cookies": {"__Host-MSAAUTHP": "new", "WLSSC": "fresh"},
+            "cookies": [
+                {
+                    "name": "__Host-MSAAUTHP",
+                    "value": "new",
+                    "domain": ".live.com",
+                    "path": "/",
+                    "secure": True,
+                    "httpOnly": True,
+                    "sameSite": "None",
+                },
+                {
+                    "name": "WLSSC",
+                    "value": "fresh",
+                    "domain": ".live.com",
+                    "path": "/",
+                },
+            ],
             "access_token": "new-token",
             "identity_type": "",
+            "account_id": "home:account-a",
         }
 
     sched = _sched(store, tmp_path, gate)
@@ -54,9 +99,9 @@ def test_refresh_consumer_stores_the_reminted_credential(tmp_path):
 
     acc = store.get(acct_id)
     assert acc.consumer_token == "new-token"
-    # The gate hands back a name->value mapping; the store wants the userscript's
-    # list-of-dicts shape.
     assert {c["name"] for c in acc.cookies} == {"__Host-MSAAUTHP", "WLSSC"}
+    assert all(cookie.get("domain") == ".live.com" for cookie in acc.cookies)
+    assert _pick_cookies(acc.cookies) == {"__Host-MSAAUTHP": "new", "WLSSC": "fresh"}
     assert acc.cookie_valid is True
 
 
@@ -67,7 +112,12 @@ def test_refresh_consumer_keeps_the_known_identity_type(tmp_path):
     acct_id = _consumer_account(store)
 
     async def gate():
-        return {"cookies": {"WLSSC": "x"}, "access_token": "new", "identity_type": ""}
+        return {
+            "cookies": [{"name": "WLSSC", "value": "x", "domain": ".live.com", "path": "/"}],
+            "access_token": "new",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
 
     sched = _sched(store, tmp_path, gate)
     assert asyncio.run(sched.refresh_consumer(acct_id)) is True
@@ -107,7 +157,12 @@ def test_refresh_consumer_rejects_an_empty_token(tmp_path):
     acct_id = _consumer_account(store)
 
     async def gate():
-        return {"cookies": {"WLSSC": "x"}, "access_token": "", "identity_type": ""}
+        return {
+            "cookies": [{"name": "WLSSC", "value": "x", "domain": ".live.com", "path": "/"}],
+            "access_token": "",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
 
     sched = _sched(store, tmp_path, gate)
     assert asyncio.run(sched.refresh_consumer(acct_id)) is False
@@ -150,7 +205,12 @@ def test_forced_ensure_fresh_remints_a_consumer_account(tmp_path):
     acct_id = _consumer_account(store)
 
     async def gate():
-        return {"cookies": {"WLSSC": "x"}, "access_token": "forced", "identity_type": ""}
+        return {
+            "cookies": [{"name": "WLSSC", "value": "x", "domain": ".live.com", "path": "/"}],
+            "access_token": "forced",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
 
     sched = _sched(store, tmp_path, gate)
     assert asyncio.run(sched.ensure_fresh(acct_id, force=True)) is True
@@ -184,3 +244,163 @@ def test_forced_ensure_fresh_still_reports_true_on_a_failed_remint(tmp_path):
 
     sched = _sched(store, tmp_path, gate)
     assert asyncio.run(sched.ensure_fresh(acct_id, force=True)) is True
+
+
+def test_refresh_consumer_rejects_the_previous_token(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    captured_at = store.get(acct_id).consumer_updated_at
+
+    async def gate():
+        return {
+            "cookies": [{"name": "WLSSC", "value": "x", "domain": ".live.com", "path": "/"}],
+            "access_token": "old-token",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is False
+    account = store.get(acct_id)
+    assert account.consumer_token == "old-token"
+    assert account.consumer_updated_at == captured_at
+
+
+def test_refresh_consumer_rejects_cookies_without_replay_metadata(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+
+    async def gate():
+        return {
+            "cookies": [{"name": "WLSSC", "value": "x"}],
+            "access_token": "new-token",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is False
+    assert _pick_cookies(store.get(acct_id).cookies) == {"__Host-MSAAUTHP": "old"}
+
+
+def test_refresh_consumer_rejects_a_different_microsoft_subject(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    store.get(acct_id).consumer_account_id = "home:account-a"
+
+    async def gate():
+        return {
+            "cookies": [{"name": "WLSSC", "value": "b", "domain": ".live.com", "path": "/"}],
+            "access_token": "token-b",
+            "identity_type": "",
+            "account_id": "home:account-b",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    profile = sched._consumer_profile_dir(acct_id, "home:account-a")
+    profile.mkdir(parents=True)
+    (profile / "cookies.sqlite").write_text("wrong account")
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is False
+    assert store.get(acct_id).consumer_token == "old-token"
+    assert not profile.exists()
+
+
+def test_refresh_consumer_rejects_an_unidentified_mint_for_a_pinned_account(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    store.get(acct_id).consumer_account_id = "home:account-a"
+
+    async def gate():
+        return {
+            "cookies": [{"name": "WLSSC", "value": "a", "domain": ".live.com", "path": "/"}],
+            "access_token": "new-token",
+            "identity_type": "",
+            "account_id": "",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is False
+    assert store.get(acct_id).consumer_token == "old-token"
+
+
+def test_refresh_consumer_discards_a_result_after_a_new_push(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    account = store.get(acct_id)
+    account.consumer_account_id = "home:account-a"
+
+    async def gate():
+        store.set_consumer_auth(
+            acct_id,
+            [{"name": "WLSSC", "value": "b", "domain": ".live.com", "path": "/"}],
+            "token-b",
+            "MSA",
+            "b@example.com",
+        )
+        store.get(acct_id).consumer_account_id = "home:account-b"
+        return {
+            "cookies": [{"name": "WLSSC", "value": "a2", "domain": ".live.com", "path": "/"}],
+            "access_token": "token-a-new",
+            "identity_type": "",
+            "account_id": "home:account-a",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is False
+    current = store.get(acct_id)
+    assert current.consumer_account_id == "home:account-b"
+    assert current.consumer_token == "token-b"
+    assert _pick_cookies(current.cookies) == {"WLSSC": "b"}
+    assert current.email == "b@example.com"
+
+
+def test_remove_account_rechecks_the_unbound_predicate_after_waiting_for_lock(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    sched = RefreshScheduler(store, tmp_path / "profiles")
+
+    async def scenario():
+        lock = sched._account_lock(acct_id)
+        await lock.acquire()
+        unbound = True
+        task = asyncio.create_task(
+            sched.remove_account(acct_id, can_remove=lambda: unbound)
+        )
+        await asyncio.sleep(0)
+        unbound = False
+        lock.release()
+        return await task
+
+    assert asyncio.run(scenario()) is False
+    assert store.get(acct_id) is not None
+
+
+def test_remove_account_keeps_the_record_when_profile_cleanup_fails(
+    tmp_path, monkeypatch
+):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    sched = RefreshScheduler(store, tmp_path / "profiles")
+
+    def fail_cleanup(_account_id):
+        raise OSError("profile is busy")
+
+    monkeypatch.setattr(sched, "_clear_consumer_profiles", fail_cleanup)
+
+    with pytest.raises(OSError, match="profile is busy"):
+        asyncio.run(sched.remove_account(acct_id))
+    assert store.get(acct_id) is not None
+
+
+def test_clear_credentials_retries_stale_profile_cleanup_after_provider_reset(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    sched = RefreshScheduler(store, tmp_path / "profiles")
+    profile = sched._consumer_profile_dir(acct_id, "home:account-a")
+    profile.mkdir(parents=True)
+    (profile / "session-state").write_text("secret", encoding="utf-8")
+    store.clear_credentials(acct_id)
+    assert store.get(acct_id).provider == "m365"
+
+    assert asyncio.run(sched.clear_account_credentials(acct_id)) is True
+    assert not profile.exists()

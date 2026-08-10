@@ -19,7 +19,9 @@ function renderSelectedStatus(){
   html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
-  html+=row(t('col_refresh_mode'),a.token_source==='cdp'?(cv?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual'),a.token_source==='cdp'&&cv?'valid':'warn');
+  const refreshAutomatic=a.provider==='consumer'||(a.token_source==='cdp'&&cv);
+  const refreshAvailable=a.provider==='consumer'||a.token_source==='cdp';
+  html+=row(t('col_refresh_mode'),refreshAutomatic?t('refresh_auto'):(refreshAvailable?t('refresh_unavailable'):t('refresh_manual')),refreshAutomatic?'valid':'warn');
   html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
   html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),'');
   if(st.error)html+=row(t('error'),esc(st.error),'invalid');
@@ -49,8 +51,9 @@ async function loadAccounts(localOnly=false){
     __pg.items.forEach(a=>{
       const st=liveTokenStatus(a.token_status||{});
       const valid=st.valid;
-      const rem=valid?(' '+fmtHMS(st.seconds_remaining||0)):'';
-      const badge='<span style="width:134px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+'<span data-token-rem="'+esc(a.id)+'">'+rem+'</span></span>';
+      const rem=valid&&st.expiry_known?(' '+fmtHMS(st.seconds_remaining||0)):'';
+      const countdown=valid&&st.expiry_known?'<span data-token-rem="'+esc(a.id)+'">'+rem+'</span>':'';
+      const badge='<span style="width:134px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(valid?'rgba(63,185,112,.16)':'rgba(224,138,138,.16)')+';color:'+(valid?'#3fb970':'#e08a8a')+';border:1px solid '+(valid?'rgba(63,185,112,.4)':'rgba(224,138,138,.4)')+'">'+(valid?t('valid_short'):t('invalid_short'))+countdown+'</span>';
       const cookieValid=liveCookieValid(a);
       const cookieBadge='<span style="width:76px;display:inline-flex;justify-content:center;padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:'+(cookieValid?'rgba(96,242,255,.15)':'rgba(148,163,184,.12)')+';color:'+(cookieValid?'#60f2ff':'#94a3b8')+';border:1px solid '+(cookieValid?'rgba(96,242,255,.4)':'rgba(148,163,184,.25)')+'">'+(cookieValid?t('cookie_valid_short'):t('cookie_invalid_short'))+'</span>';
       const cookieMeta='<div style="display:grid;grid-template-columns:76px auto;column-gap:.55rem;row-gap:2px;align-items:center;white-space:nowrap"><div>'+cookieBadge+'</div><div style="color:var(--faint);font-size:.68rem">'+t('cookie_updated_label')+': '+fmtTs(a.cookie_updated_at)+'</div><button class="cookie-refresh-btn" data-id="'+esc(a.id)+'" style="width:76px;font-size:.72rem;padding:3px 8px">'+t('btn_cookie_refresh')+'</button><div style="color:var(--faint);font-size:.68rem">'+t('cookie_expires_label')+': '+fmtTs(a.cookie_expires_at)+'</div></div>';
@@ -58,8 +61,10 @@ async function loadAccounts(localOnly=false){
       const boundMain=boundNames[0]||a.name||'name';
       const boundTitle=boundNames.length?boundNames.join(String.fromCharCode(10)):boundMain;
       const boundMore=boundNames.length>1?' +'+(boundNames.length-1):'';
-      const refreshMode=a.token_source==='cdp'?(cookieValid?t('refresh_auto'):t('refresh_unavailable')):t('refresh_manual');
-      const refreshColor=a.token_source==='cdp'&&cookieValid?'#a78bfa':(a.token_source==='cdp'?'#f59e0b':'var(--faint)');
+      const refreshAutomatic=a.provider==='consumer'||(a.token_source==='cdp'&&cookieValid);
+      const refreshAvailable=a.provider==='consumer'||a.token_source==='cdp';
+      const refreshMode=refreshAutomatic?t('refresh_auto'):(refreshAvailable?t('refresh_unavailable'):t('refresh_manual'));
+      const refreshColor=refreshAutomatic?'#a78bfa':(refreshAvailable?'#f59e0b':'var(--faint)');
       const refreshBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
       const mkMedia=(label,ok)=>'<div style="display:flex;align-items:center;gap:.35rem;white-space:nowrap"><span style="color:var(--faint);font-size:.68rem;width:26px">'+label+'</span><span style="display:inline-flex;justify-content:center;width:44px;padding:.1rem .4rem;border-radius:99px;font-size:.68rem;background:'+(ok?'rgba(63,185,112,.16)':'rgba(148,163,184,.12)')+';color:'+(ok?'#3fb970':'#94a3b8')+';border:1px solid '+(ok?'rgba(63,185,112,.4)':'rgba(148,163,184,.25)')+'">'+(ok?t('valid_short'):t('invalid_short'))+'</span></div>';
       const mediaCell='<div style="display:flex;flex-direction:column;gap:2px">'+mkMedia(t('media_image'),!!a.has_designer_auth)+mkMedia(t('media_attach'),!!a.has_media_auth)+'</div>';
@@ -113,21 +118,33 @@ async function submitAccount(){
     loadAccounts();loadKeys();
   }catch(e){m.textContent=t('network_error')}
 }
+function refreshResponseError(r,d,fallback){
+  const detail=d&&d.error;
+  const message=(detail&&typeof detail==='object'&&detail.message)||(typeof detail==='string'?detail:'');
+  return message||fallback+' (HTTP '+r.status+')';
+}
+async function requestAccountRefresh(id){
+  const r=await fetch('/admin/accounts/'+id+'/refresh',{method:'POST',credentials:'include'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)return refreshResponseError(r,d,t('auto_capture_failed'));
+  return d.refreshed===true?'':t('auto_capture_failed');
+}
 async function refreshAccount(id){
   try{
-    const r=await fetch('/admin/accounts/'+id+'/refresh',{method:'POST',credentials:'include'});
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok)await adminAlert((d.error&&d.error.message)||'error');
+    const message=await requestAccountRefresh(id);
+    if(message)await adminAlert(message);
     loadAccounts();
-  }catch(e){}
+  }catch(e){await adminAlert(t('network_error'))}
 }
 async function refreshAccountCookie(id){
   try{
     const r=await fetch('/admin/accounts/'+id+'/cookie-refresh',{method:'POST',credentials:'include'});
     const d=await r.json().catch(()=>({}));
-    if(!r.ok)await adminAlert((d.error&&d.error.message)||'error');
+    const fallback=t('btn_cookie_refresh')+': '+t('cookie_invalid_short');
+    if(!r.ok)await adminAlert(refreshResponseError(r,d,fallback));
+    else if(d.cookie_valid!==true)await adminAlert(fallback);
     loadAccounts();
-  }catch(e){}
+  }catch(e){await adminAlert(t('network_error'))}
 }
 async function clearAccountToken(id){
   if(!await adminConfirm(t('confirm_remove_token')))return;
@@ -162,5 +179,5 @@ async function delAccount(id){
 }
 function toggleAccountSelected(id,on){on?__selectedAccountIds.add(id):__selectedAccountIds.delete(id)}
 function selectAllAccounts(on){__selectedAccountIds=new Set(on?__accounts.map(a=>a.id):[]);document.querySelectorAll('.acct-check').forEach(cb=>{cb.checked=!!on})}
-async function batchRefreshAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return await adminAlert(t('batch_none'));for(const id of ids){await fetch('/admin/accounts/'+id+'/refresh',{method:'POST',credentials:'include'}).catch(()=>{})}loadAccounts()}
+async function batchRefreshAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return await adminAlert(t('batch_none'));for(const id of ids){try{const message=await requestAccountRefresh(id);if(message){await adminAlert(message);break}}catch(e){await adminAlert(t('network_error'));break}}loadAccounts()}
 async function batchDeleteAccounts(){const ids=[...__selectedAccountIds];if(!ids.length)return await adminAlert(t('batch_none'));if(!await adminConfirm(t('batch_confirm_delete')))return;for(const id of ids){await fetch('/admin/accounts/'+id,{method:'DELETE',credentials:'include'}).catch(()=>{})}__selectedAccountIds.clear();loadAccounts();loadKeys()}"""

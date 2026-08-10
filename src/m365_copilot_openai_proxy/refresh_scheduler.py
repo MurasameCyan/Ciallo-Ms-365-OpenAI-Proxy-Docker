@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .account_store import AccountStore, extract_identity
+from .account_store import (
+    AccountStore,
+    _normalize_consumer_account_id,
+    extract_identity,
+)
+from .consumer_gate import _pick_cookies
 from .media_proxy import asyncgw_object_fetch_url, designer_file_token, designer_object_fetch_url
 from .refresh_browser_helpers import (
     _identity_conflict,
@@ -159,14 +166,56 @@ class RefreshScheduler:
             return False
         return account.cookie_expires_at - time.time() < self._cookie_keepalive_before_seconds
 
-    def _consumer_profile_dir(self, account_id: str) -> Path:
-        """Per-account Camoufox profile, kept apart from the Chromium ones.
+    def _consumer_profile_dir(
+        self, account_id: str, consumer_account_id: str = ""
+    ) -> Path:
+        """Per-Microsoft-subject Camoufox profile, apart from Chromium ones.
 
-        Same root so it lands on the same persisted volume, but a distinct
-        subdirectory: a Firefox profile and a Chromium profile cannot share a
-        directory, and the M365 paths take profile_root/<id> for their own.
+        Hashing keeps the private MSAL subject out of the filesystem while a
+        subject change naturally selects a clean profile instead of reusing the
+        previous personal account's cookies/localStorage.
         """
-        return self._profile_root / f"{account_id}-consumer"
+        subject = _normalize_consumer_account_id(consumer_account_id)
+        digest = hashlib.sha256(subject.encode("utf-8")).hexdigest()[:24]
+        return self._profile_root / f"{account_id}-consumer-{digest}"
+
+    def _clear_consumer_profiles(self, account_id: str) -> None:
+        """Remove current and legacy Camoufox profiles for one proxy account."""
+        from .consumer_camoufox import reset_consumer_profile
+
+        if not self._profile_root.exists():
+            return
+        prefix = f"{account_id}-consumer"
+        for candidate in self._profile_root.iterdir():
+            if candidate.name == prefix or candidate.name.startswith(f"{prefix}-"):
+                reset_consumer_profile(candidate)
+
+    async def clear_account_credentials(self, account_id: str) -> bool:
+        """Clear stored credentials and any persisted consumer browser session."""
+        async with self._account_lock(account_id):
+            account = self._accounts.get(account_id)
+            if account is None:
+                return False
+            self._clear_consumer_profiles(account_id)
+            cleared = self._accounts.clear_credentials(account_id) is not None
+            return cleared
+
+    async def remove_account(
+        self,
+        account_id: str,
+        *,
+        can_remove: Callable[[], bool] | None = None,
+    ) -> bool:
+        """Remove an account without leaving its Microsoft session on disk."""
+        async with self._account_lock(account_id):
+            account = self._accounts.get(account_id)
+            if account is None:
+                return False
+            if can_remove is not None and not can_remove():
+                return False
+            self._clear_consumer_profiles(account_id)
+            removed = self._accounts.remove(account_id)
+            return removed
 
     def _consumer_keepalive_due(self, account) -> bool:
         """True if a consumer account's credential is stale enough to re-mint."""
@@ -176,18 +225,30 @@ class RefreshScheduler:
         # first credential has to arrive from the userscript push.
         if not getattr(account, "consumer_token", ""):
             return False
+        if not _normalize_consumer_account_id(
+            getattr(account, "consumer_account_id", "")
+        ):
+            return False
         last_attempt = self._consumer_attempted_at.get(account.id, 0.0)
         if time.time() - last_attempt < _CONSUMER_RETRY_SECONDS:
             return False
         captured = getattr(account, "consumer_updated_at", 0.0) or 0.0
         return time.time() - captured >= _CONSUMER_KEEPALIVE_AGE_SECONDS
 
-    def _build_consumer_gate(self, account_id: str):
+    def _build_consumer_gate(self, account_id: str, account=None):
         if self._consumer_gate_factory is not None:
             return self._consumer_gate_factory(account_id)
         from .consumer_camoufox import CamoufoxConsumerGate
 
-        return CamoufoxConsumerGate(self._consumer_profile_dir(account_id))
+        account = account or self._accounts.get(account_id)
+        consumer_account_id = _normalize_consumer_account_id(
+            getattr(account, "consumer_account_id", "")
+        )
+        return CamoufoxConsumerGate(
+            self._consumer_profile_dir(account_id, consumer_account_id),
+            seed_cookies=list(getattr(account, "cookies", []) or []),
+            previous_token=str(getattr(account, "consumer_token", "") or ""),
+        )
 
     async def refresh_consumer(self, account_id: str) -> bool:
         """Re-mint one consumer account's credentials with an unattended browser.
@@ -199,14 +260,33 @@ class RefreshScheduler:
         account = self._accounts.get(account_id)
         if account is None or getattr(account, "provider", "m365") != "consumer":
             return False
-        from .consumer_camoufox import CamoufoxUnavailable
+        from .consumer_camoufox import CamoufoxUnavailable, reset_consumer_profile
 
         self._consumer_attempted_at[account_id] = time.time()
-        gate = self._build_consumer_gate(account_id)
         # The global lock keeps this from running alongside a Chromium refresh --
         # two browsers at once is what the single-browser invariant exists to
         # avoid, and the box may not have RAM for both.
         async with self._account_lock(account_id):
+            account = self._accounts.get(account_id)
+            if account is None or getattr(account, "provider", "m365") != "consumer":
+                return False
+            expected_account_id = _normalize_consumer_account_id(
+                getattr(account, "consumer_account_id", "")
+            )
+            if not expected_account_id:
+                elog(
+                    f"Consumer refresh skipped for {account_id}: no pinned Microsoft account id; re-push from the userscript"
+                )
+                return False
+            snapshot = (
+                account.consumer_updated_at,
+                account.consumer_token,
+                expected_account_id,
+            )
+            previous_identity_type = getattr(
+                account, "consumer_identity_type", ""
+            )
+            gate = self._build_consumer_gate(account_id, account)
             async with self._lock:
                 try:
                     auth = await gate()
@@ -216,23 +296,50 @@ class RefreshScheduler:
                 except Exception as exc:  # noqa: BLE001 - browser failures vary
                     elog(f"Consumer refresh failed for {account_id}: {exc}")
                     return False
-        token = str(auth.get("access_token") or "")
-        if not token:
-            elog(f"Consumer refresh for {account_id} returned no token")
-            return False
-        cookies = auth.get("cookies") or {}
-        # set_consumer_auth takes the userscript's list-of-dicts shape, while the
-        # gate returns the flattened name->value mapping the client uses.
-        cookie_list = [{"name": name, "value": value} for name, value in cookies.items()]
-        self._accounts.set_consumer_auth(
-            account_id,
-            cookie_list,
-            token,
-            str(auth.get("identity_type") or "")
-            or getattr(account, "consumer_identity_type", ""),
-        )
-        ulog(f"Consumer refresh for {account_id}: re-minted {len(cookie_list)} cookies")
-        return True
+            token = str(auth.get("access_token") or "").strip()
+            if not token:
+                elog(f"Consumer refresh for {account_id} returned no token")
+                return False
+            if token == snapshot[1]:
+                elog(f"Consumer refresh for {account_id} returned the previous token")
+                return False
+            actual_account_id = _normalize_consumer_account_id(
+                auth.get("account_id")
+            )
+            if actual_account_id != expected_account_id:
+                reset_consumer_profile(
+                    self._consumer_profile_dir(account_id, expected_account_id)
+                )
+                elog(
+                    f"Consumer refresh rejected for {account_id}: Microsoft account mismatch or missing identity"
+                )
+                return False
+            cookies = auth.get("cookies") or []
+            cookie_list = [
+                dict(cookie) for cookie in cookies if isinstance(cookie, dict)
+            ]
+            if not _pick_cookies(cookie_list):
+                elog(
+                    f"Consumer refresh for {account_id} returned no reusable cookies"
+                )
+                return False
+            stored = self._accounts.set_consumer_auth(
+                account_id,
+                cookie_list,
+                token,
+                str(auth.get("identity_type") or "") or previous_identity_type,
+                consumer_account_id=expected_account_id,
+                expected_snapshot=snapshot,
+            )
+            if stored is None:
+                elog(
+                    f"Consumer refresh discarded for {account_id}: credentials changed while the browser was running"
+                )
+                return False
+            ulog(
+                f"Consumer refresh for {account_id}: re-minted {len(cookie_list)} cookies"
+            )
+            return True
 
     def _recovery_due(self, account) -> bool:
         """True for a cdp account stuck at cookie_valid=False that still holds

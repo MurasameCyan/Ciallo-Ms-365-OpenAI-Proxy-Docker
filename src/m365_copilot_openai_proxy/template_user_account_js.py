@@ -103,7 +103,8 @@ function renderAccountStatus(d){
   const a=d.account||null,st=a?(a.token_status||{}):{};
   const valid=!!st.valid;
   const login=!!(a&&a.cookie_valid);
-  const refresh=!!(a&&a.token_source==='cdp');
+  const refresh=!!(a&&(a.provider==='consumer'||a.token_source==='cdp'));
+  const expiryKnown=!!st.expires_at;
   const name=boundAccountName(a);
   const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';
   box.innerHTML='<h3 style="margin:0;color:var(--strong);font-size:1rem;display:none">'+t('status_panel_title')+'</h3>'
@@ -112,7 +113,7 @@ function renderAccountStatus(d){
     +'<div class="status-line"><span>'+t('status_login')+'</span><b>'+mark(login)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_refresh')+'</span><b>'+mark(refresh)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+mark(valid)+'</b></div>'
-    +'<div class="status-line"><span>'+t('status_remaining')+'</span><b data-user-remaining>'+fmtRemaining(st.seconds_remaining)+'</b></div>'
+    +'<div class="status-line"><span>'+t('status_remaining')+'</span><b'+(expiryKnown?' data-user-remaining':'')+'>'+(expiryKnown?fmtRemaining(st.seconds_remaining):t('status_unknown'))+'</b></div>'
     +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
     +'</div>';
 }
@@ -131,7 +132,7 @@ function renderAccountInfo(d){
   if(d.account){
     const st=d.account.token_status||{};
     const valid=st.valid;
-    const rem=valid?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(_userRemainSec>0?_userRemainSec:st.seconds_remaining)+'</span>'):'';
+    const rem=valid&&st.expires_at?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(_userRemainSec>0?_userRemainSec:st.seconds_remaining)+'</span>'):'';
     acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+boundAccountName(d.account)+'</span>'
       +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
   }else{

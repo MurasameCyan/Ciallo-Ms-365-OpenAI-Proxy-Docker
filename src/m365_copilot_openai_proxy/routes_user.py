@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 
 from .account_serializers import account_binding_state, user_account_public
 from .auth_helpers import _validate_password
-from .account_store import extract_identity
+from .account_store import _normalize_consumer_account_id, extract_identity
 from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
@@ -250,8 +250,13 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             old_acc_id = k.account_id
             app.state.key_store.update(k.id, account_id=reused.id, displaced_at=0.0)
             # Drop the caller's previous account if it is now orphaned (no keys).
-            if old_acc_id and old_acc_id != reused.id and not app.state.key_store.list_for_account(old_acc_id):
-                app.state.account_store.remove(old_acc_id)
+            if old_acc_id and old_acc_id != reused.id:
+                await app.state.refresh_scheduler.remove_account(
+                    old_acc_id,
+                    can_remove=lambda: not app.state.key_store.list_for_account(
+                        old_acc_id
+                    ),
+                )
         else:
             acc_id = k.account_id
             if not acc_id or app.state.account_store.get(acc_id) is None:
@@ -375,8 +380,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
 
         Deliberately unlike /user/account/cookies: no Chromium injection and no
         post-push token capture, because a consumer account has no substrate
-        token to capture. set_consumer_auth flips the provider, which takes the
-        account out of the refresh scheduler entirely.
+        token to capture. set_consumer_auth flips the provider so later refreshes
+        use the dedicated Camoufox path instead of the M365 Chromium path.
         """
         k = _resolve_user_key(request)
         if k is None:
@@ -395,13 +400,48 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         if len(token) > 8192:
             return _json_err(400, "Consumer access token is implausibly long")
         identity_type = str(body.get("identity_type", "") or "").strip()[:64]
+        email = body.get("email", "")
+        email = email if isinstance(email, str) else ""
+        consumer_account_id = body.get("consumer_account_id", "")
+        consumer_account_id = (
+            consumer_account_id if isinstance(consumer_account_id, str) else ""
+        )
+        consumer_account_id = _normalize_consumer_account_id(consumer_account_id)
+        if not consumer_account_id:
+            return _json_err(
+                400,
+                "Consumer Microsoft account identity was not captured; send a new Copilot message and push again",
+            )
+        existing_account = (
+            app.state.account_store.get(k.account_id) if k.account_id else None
+        )
+        existing_consumer_account_id = _normalize_consumer_account_id(
+            getattr(existing_account, "consumer_account_id", "")
+        )
+        if (
+            existing_account is not None
+            and getattr(existing_account, "provider", "m365") == "consumer"
+            and existing_consumer_account_id
+            and existing_consumer_account_id != consumer_account_id
+        ):
+            return _json_err(
+                409,
+                "A different Microsoft account is already bound; log out or unbind it before switching accounts",
+            )
         username = body.get("username")
         account_name = username.strip() if isinstance(username, str) else ""
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
             acc = app.state.account_store.add(name=account_name or k.name or k.username or "user")
             app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             k = app.state.key_store.get(k.id) or k
-        acc = app.state.account_store.set_consumer_auth(k.account_id, cookies, token, identity_type)
+        acc = app.state.account_store.set_consumer_auth(
+            k.account_id,
+            cookies,
+            token,
+            identity_type,
+            email,
+            consumer_account_id,
+        )
         if acc is None:
             return _json_err(400, "No bound account")
         if account_name and acc.name != account_name:
@@ -427,7 +467,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         if k.account_id and app.state.account_store.get(k.account_id) is not None:
-            app.state.account_store.clear_credentials(k.account_id)
+            await app.state.refresh_scheduler.clear_account_credentials(k.account_id)
         return {"status": "ok"}
 
     @app.post("/user/account/unbind")
@@ -441,9 +481,12 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             return _json_err(401, "Invalid API key", "auth_error")
         acc_id = k.account_id
         if acc_id and app.state.account_store.get(acc_id) is not None:
-            app.state.account_store.clear_credentials(acc_id)
+            await app.state.refresh_scheduler.clear_account_credentials(acc_id)
         app.state.key_store.update(k.id, account_id="", displaced_at=0.0)
         removed = False
-        if acc_id and not app.state.key_store.list_for_account(acc_id):
-            removed = app.state.account_store.remove(acc_id)
+        if acc_id:
+            removed = await app.state.refresh_scheduler.remove_account(
+                acc_id,
+                can_remove=lambda: not app.state.key_store.list_for_account(acc_id),
+            )
         return {"status": "ok", "removed": removed}

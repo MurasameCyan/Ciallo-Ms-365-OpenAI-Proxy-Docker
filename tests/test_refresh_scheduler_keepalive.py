@@ -93,6 +93,7 @@ def _consumer(**kw) -> Account:
     base = dict(
         provider="consumer",
         consumer_token="tok",
+        consumer_account_id="home:account-a",
         consumer_updated_at=time.time() - age,
     )
     base.update(kw)
@@ -125,6 +126,15 @@ def test_consumer_keepalive_not_due_without_a_captured_credential(tmp_path):
     assert sched._consumer_keepalive_due(acct) is False
 
 
+def test_consumer_keepalive_not_due_without_a_pinned_microsoft_subject(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(
+        consumer_account_id="",
+        age=rs._CONSUMER_KEEPALIVE_AGE_SECONDS + 60,
+    )
+    assert sched._consumer_keepalive_due(acct) is False
+
+
 def test_consumer_keepalive_backoff_blocks_immediate_retry(tmp_path):
     sched = _make_scheduler(tmp_path)
     acct = _consumer(age=rs._CONSUMER_KEEPALIVE_AGE_SECONDS + 60)
@@ -133,6 +143,10 @@ def test_consumer_keepalive_backoff_blocks_immediate_retry(tmp_path):
 
 
 def test_consumer_profile_dir_is_separate_from_the_chromium_one(tmp_path):
-    """A Firefox profile and a Chromium profile cannot share a directory."""
+    """Firefox profiles are isolated by both proxy account and MSAL subject."""
     sched = _make_scheduler(tmp_path)
-    assert sched._consumer_profile_dir("acct1") == tmp_path / "acct1-consumer"
+    account_a = sched._consumer_profile_dir("acct1", "home:account-a")
+    account_b = sched._consumer_profile_dir("acct1", "home:account-b")
+    assert account_a.parent == tmp_path
+    assert account_a.name.startswith("acct1-consumer-")
+    assert account_a != account_b

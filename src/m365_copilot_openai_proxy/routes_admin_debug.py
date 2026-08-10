@@ -29,7 +29,8 @@ def register_admin_debug_routes(app: FastAPI, require_admin: Callable[[Request],
         for a in app.state.account_store.list():
             st = a.token_status()
             rem = st.get("seconds_remaining")
-            if st.get("valid") and rem is not None and 0 <= rem <= 600:
+            expires_at = st.get("expires_at")
+            if st.get("valid") and expires_at not in (None, "") and rem is not None and 0 <= rem <= 600:
                 expiring_accounts.append({"name": a.name or a.id, "email": a.email, "seconds_remaining": rem})
         expiring_accounts.sort(key=lambda x: x["seconds_remaining"])
         return {

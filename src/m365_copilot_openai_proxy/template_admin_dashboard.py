@@ -3,7 +3,7 @@ from __future__ import annotations
 _ADMIN_DASHBOARD_JS = """function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function fmtHMS(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor(sec%3600/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return h+':'+m+':'+s}
 function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
-function liveTokenStatus(st){st=st||{};const exp=Number(st.expires_at||0),now=Date.now()/1000,base=Number(st.seconds_remaining||0),loaded=Number(st._loaded_at||now);const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(base-(now-loaded)));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem}}
+function liveTokenStatus(st){st=st||{};const raw=st.expires_at,numeric=Number(raw),parsed=raw&&Number.isFinite(numeric)?numeric:(raw?Date.parse(raw)/1000:0),exp=Number.isFinite(parsed)&&parsed>0?parsed:0,now=Date.now()/1000,base=Number(st.seconds_remaining||0),loaded=Number(st._loaded_at||now);const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(base-(now-loaded)));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem,expiry_known:exp>0}}
 function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
 function lineChart(points,series){
   // points: [{ts,...}]; series: [{key,color,label}]. Returns responsive SVG.

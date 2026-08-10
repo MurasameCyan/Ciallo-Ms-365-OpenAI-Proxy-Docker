@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.70" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.70';" in SCRIPT
+    assert "// @version      1.0.71" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.71';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
