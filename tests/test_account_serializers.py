@@ -72,7 +72,7 @@ def test_account_public_matches_admin_account_shape_without_raw_token():
     assert data["has_designer_auth"] is True
     assert data["cookie_valid"] is True
     assert data["key_count"] == 1
-    assert data["bound_names"] == ["Proxy User"]
+    assert data["bound_names"] == ["proxyuser"]
     assert "token" not in data
     assert "media_auth_token" not in data
     assert "designer_auth_token" not in data

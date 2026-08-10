@@ -73,7 +73,7 @@ def account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict
         "refresh_token_updated_at": getattr(acc, "refresh_token_updated_at", 0.0),
         "token_status": acc.token_status(),
         "key_count": len(keys),
-        "bound_names": [k.name or k.username or k.id for k in keys],
+        "bound_names": [k.username or k.name or k.id for k in keys],
         "created_at": acc.created_at,
         "updated_at": acc.updated_at,
         **_provider_fields(acc),
