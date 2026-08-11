@@ -187,7 +187,11 @@ class ConsumerCopilotClient:
         while True:
             try:
                 async for chunk in self._chat_stream_once(prompt, conversation_id):
-                    emitted = True
+                    # Only visible output closes the retry window. Upstream can
+                    # open a turn with an empty appendText and demand clearance
+                    # right after; counting that as emitted spent the one
+                    # re-mint on nothing and made the raw challenge escape.
+                    emitted = emitted or bool(chunk)
                     yield chunk
                 return
             except ClearanceRequired:

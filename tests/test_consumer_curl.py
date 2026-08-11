@@ -307,6 +307,65 @@ def test_browser_gate_refreshes_auth_and_retries_one_unstarted_turn():
     assert "X-UserIdentityType=MicrosoftAccount" in client._ws_url()
 
 
+def test_an_empty_text_frame_does_not_spend_the_one_browser_gate_retry():
+    """A zero-length appendText must not count as output.
+
+    Upstream sometimes opens a turn with an empty appendText and only then
+    demands clearance. That frame yields "" -- nothing a client can see -- so
+    treating it as "already emitted" burned the single mid-request re-mint and
+    let the raw challenge escape, which is what made an expired clearance
+    unrecoverable without operator action.
+    """
+    attempts = []
+    gate_calls = []
+
+    def factory(**kwargs):
+        attempts.append(kwargs)
+        return (
+            _FakeSession(
+                [
+                    b'{"event":"appendText","text":""}',
+                    b'{"event":"challenge","method":null}',
+                ]
+            )
+            if len(attempts) == 1
+            else _FakeSession()
+        )
+
+    async def gate():
+        gate_calls.append(True)
+        return {"cookies": {"_C_Auth": "fresh"}, "access_token": "new-token"}
+
+    client = ConsumerCopilotClient(gate=gate, session_factory=factory)
+
+    assert asyncio.run(_collect(client)) == "CURL-OK"
+    assert gate_calls == [True]
+    assert len(attempts) == 2
+
+
+def test_real_text_before_a_challenge_still_suppresses_the_gate():
+    """Retrying after visible output would duplicate it, so the gate stays shut."""
+    gate_calls = []
+
+    def factory(**kwargs):
+        return _FakeSession(
+            [
+                b'{"event":"appendText","text":"partial"}',
+                b'{"event":"challenge","method":null}',
+            ]
+        )
+
+    async def gate():
+        gate_calls.append(True)
+        return {"cookies": {"_C_Auth": "fresh"}}
+
+    client = ConsumerCopilotClient(gate=gate, session_factory=factory)
+
+    with pytest.raises(ClearanceRequired):
+        asyncio.run(_collect(client))
+    assert gate_calls == []
+
+
 def test_browser_gate_is_attempted_only_once():
     attempts = 0
     gate_calls = []
