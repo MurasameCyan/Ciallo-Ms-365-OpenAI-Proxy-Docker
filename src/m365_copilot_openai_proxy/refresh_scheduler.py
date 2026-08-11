@@ -240,6 +240,7 @@ class RefreshScheduler:
     def _build_consumer_gate(self, account_id: str, account=None):
         if self._consumer_gate_factory is not None:
             return self._consumer_gate_factory(account_id)
+        from .account_store import resolve_account_proxy
         from .consumer_camoufox import CamoufoxConsumerGate
 
         account = account or self._accounts.get(account_id)
@@ -250,6 +251,7 @@ class RefreshScheduler:
             self._consumer_profile_dir(account_id, consumer_account_id),
             seed_cookies=list(getattr(account, "cookies", []) or []),
             previous_token=str(getattr(account, "consumer_token", "") or ""),
+            proxy_url=resolve_account_proxy(account),
         )
 
     async def refresh_consumer(self, account_id: str) -> bool:

@@ -218,14 +218,18 @@ def _default_headless() -> bool | str:
     return "virtual" if sys.platform.startswith("linux") else True
 
 
-def _proxy_option() -> dict | None:
-    """Playwright proxy config from the same env the Chromium paths read.
+def _proxy_option(proxy_url: str = "") -> dict | None:
+    """Playwright proxy config: the explicit override, else the proxy env.
+
+    An account-level proxy must win over the env here. The credentials this
+    browser mints are scored against the IP that earned them, so a re-mint has
+    to leave through the same egress the chat turns will use.
 
     socks5h/socks4a are a curl convention meaning "resolve DNS at the proxy";
     Firefox does not parse those schemes, and its socks5 already resolves
     remotely, so mapping them across is an equivalence rather than a downgrade.
     """
-    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+    proxy = str(proxy_url or "") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
     if not proxy:
         return None
     scheme, sep, rest = proxy.partition("://")
@@ -252,6 +256,7 @@ class CamoufoxConsumerGate:
         poll_interval: float = 0.25,
         seed_cookies: list[dict] | None = None,
         previous_token: str = "",
+        proxy_url: str = "",
     ):
         self._profile_dir = Path(profile_dir)
         self._headless = _default_headless() if headless is None else headless
@@ -260,6 +265,7 @@ class CamoufoxConsumerGate:
         self._poll_interval = poll_interval
         self._seed_cookies = [dict(cookie) for cookie in (seed_cookies or [])]
         self._previous_token = str(previous_token or "")
+        self._proxy_url = str(proxy_url or "")
 
     async def __call__(self) -> dict:
         async with _gate_lock(self._profile_dir):
@@ -304,7 +310,7 @@ class CamoufoxConsumerGate:
             humanize=True,
             geoip=True,
             firefox_user_prefs=dict(_UNPARTITIONED_PREFS),
-            proxy=_proxy_option(),
+            proxy=_proxy_option(self._proxy_url),
         ) as browser:
             seed_cookies = _consumer_cookie_records(self._seed_cookies)
             if seed_cookies:

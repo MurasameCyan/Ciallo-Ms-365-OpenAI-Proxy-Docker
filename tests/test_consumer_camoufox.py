@@ -47,6 +47,30 @@ def test_proxy_option_reads_the_lowercase_variant(monkeypatch):
     assert cc._proxy_option() == {"server": "http://proxy:8080"}
 
 
+def test_proxy_option_prefers_explicit_override(monkeypatch):
+    """A credential re-mint has to leave through the same egress the chat turns
+    will use, or the minted cookies are scored against the wrong source IP.
+
+    The socks5h -> socks5 mapping still applies: it is Firefox's parser that
+    cannot read the curl spelling, so where the value came from is irrelevant.
+    """
+    monkeypatch.setenv("HTTPS_PROXY", "http://global:8080")
+    assert cc._proxy_option("socks5h://acct:1080") == {"server": "socks5://acct:1080"}
+
+
+def test_proxy_option_falls_back_to_env(monkeypatch):
+    """"" is resolve_account_proxy's "no account proxy", which means "use the
+    global setting the env already carries" -- not "go direct"."""
+    monkeypatch.setenv("HTTPS_PROXY", "http://global:8080")
+    assert cc._proxy_option("") == {"server": "http://global:8080"}
+
+
+def test_proxy_option_none_when_nothing_configured(monkeypatch):
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    assert cc._proxy_option("") is None
+
+
 # ---------------------------------------------------------------- profile handling
 
 def test_clear_profile_locks_removes_a_stale_firefox_lock(tmp_path):
@@ -228,6 +252,30 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
     assert auth["identity_type"] == ""
 
 
+def test_gate_passes_the_account_proxy_to_the_browser(tmp_path, monkeypatch):
+    """The account's egress must reach the launch options, beating the env."""
+    monkeypatch.setenv("HTTPS_PROXY", "http://global:8080")
+    seen = {}
+
+    class _FakeBrowser:
+        async def __aenter__(self):
+            # Nothing past the launch options is under test, and going further
+            # would need the whole page/cookie fake for no added coverage.
+            raise RuntimeError("stop after options are captured")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def factory(**kwargs):
+        seen.update(kwargs)
+        return _FakeBrowser()
+
+    gate = cc.CamoufoxConsumerGate(tmp_path / "p", proxy_url="socks5h://acct:1080")
+    with pytest.raises(RuntimeError, match="stop after options"):
+        asyncio.run(gate._run(factory))
+    assert seen["proxy"] == {"server": "socks5://acct:1080"}
+
+
 def test_cloudflare_cookies_are_dropped_before_changing_hands():
     """The consumer HTTP client impersonates firefox147 while this browser is
     Firefox 152, so a __cf_bm minted here would be replayed under a UA that did
@@ -337,6 +385,27 @@ def test_refresh_raises_camoufox_unavailable_without_the_package(tmp_path, monke
 def test_camoufox_unavailable_is_a_consumer_error():
     """So the /v1 error mapping already knows what to do with it."""
     assert issubclass(cc.CamoufoxUnavailable, ConsumerCopilotError)
+
+
+def test_scheduler_builds_gate_with_account_proxy(tmp_path):
+    """The scheduler is the only caller that knows which account is refreshing,
+    so it is where the account's egress has to be read and handed over."""
+    from m365_copilot_openai_proxy.account_store import AccountStore
+    from m365_copilot_openai_proxy.refresh_scheduler import RefreshScheduler
+
+    store = AccountStore(persist_path=tmp_path / "accounts.json")
+    acc = store.add(name="c")
+    store.set_consumer_auth(
+        acc.id,
+        [{"name": "_U", "value": "v", "domain": ".copilot.microsoft.com"}],
+        "tok",
+        consumer_account_id="home:abc",
+    )
+    assert store.set_proxy_url(acc.id, "socks5h://acct:1080") is not None
+
+    sched = RefreshScheduler(store, profile_root=tmp_path / "profiles")
+    gate = sched._build_consumer_gate(acc.id)
+    assert gate._proxy_url == "socks5h://acct:1080"
 
 
 def test_gate_lock_is_shared_per_profile(tmp_path):
