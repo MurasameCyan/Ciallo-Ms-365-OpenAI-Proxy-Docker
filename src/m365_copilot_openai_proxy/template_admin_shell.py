@@ -134,15 +134,34 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <div class="card view-settings">
 <details id="tone-options-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-<span data-i18n="tone_options_title">对话模式列表（全局）</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+<span data-i18n="m365_tone_options_title">M365 模型 / Tone</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="margin-top:.75rem">
-<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="tone_options_hint">每行一个模式，格式：底层tone值 | 显示名（显示名可省略，默认用tone值）。显示名会作为 /v1/models 里的模型名，其中的空格会自动转为下划线；每个模式会生成普通与「-持续」两个模型。底层值即发送给 M365 的 tone，可填任意字符串。保存后立即生效。</div>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="m365_tone_options_hint">每行一个 M365 tone，格式：底层 tone 值 | 显示名。显示名作为 /v1/models 的模型 ID，每项生成普通与「-持续」模型。保存后立即生效。</div>
 <textarea id="tone-options-input" rows="7" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical;scrollbar-width:none;-ms-overflow-style:none" placeholder="Gpt_5_5_Chat | gpt-5.5_Chat"></textarea>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
 <button id="tone-options-save" onclick="saveToneOptions()" data-i18n="media_suffix_save">保存</button>
 <button id="tone-options-reset" onclick="resetToneOptions()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="prompt_reset">恢复默认</button>
 <span id="tone-options-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
+</div>
+</div>
+</details>
+</div>
+
+<div class="card view-settings">
+<details id="consumer-mode-options-details" style="cursor:pointer">
+<summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+<span data-i18n="consumer_mode_options_title">个人版模型 / Mode</span><span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:.75rem">
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.4rem" data-i18n="consumer_mode_options_hint">每行格式：model | mode | status。model 是兼容 API 的模型 ID，mode 原样发送给个人版 Copilot。</div>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.4rem" data-i18n="consumer_mode_status_hint">stable 表示证据相对稳定；experimental 表示实验条目，不改变请求执行策略。</div>
+<div style="font-size:.8rem;color:#f59e0b;margin-bottom:.5rem" data-i18n="consumer_mode_rollout_warning">实验 mode 可能受账户、地区和 Microsoft rollout 限制。</div>
+<textarea id="consumer-mode-options-input" rows="11" style="width:100%;box-sizing:border-box;padding:8px 12px;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;color:var(--strong);font-size:.85rem;font-family:monospace;outline:none;resize:vertical;scrollbar-width:none;-ms-overflow-style:none" placeholder="copilot | smart | stable"></textarea>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem">
+<button id="consumer-mode-options-save" onclick="saveConsumerModeOptions()" data-i18n="media_suffix_save">保存</button>
+<button id="consumer-mode-options-reset" onclick="resetConsumerModeOptions()" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="consumer_mode_restore_default">恢复个人版默认</button>
+<span id="consumer-mode-options-saved" style="font-size:.75rem;color:#22c55e;opacity:0;transition:opacity .3s"></span>
 </div>
 </div>
 </details>

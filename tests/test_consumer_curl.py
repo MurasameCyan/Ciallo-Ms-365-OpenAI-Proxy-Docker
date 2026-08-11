@@ -118,6 +118,54 @@ def test_curl_transport_uses_one_impersonated_session_for_rest_and_websocket():
     ]
 
 
+def test_send_frame_uses_the_selected_consumer_mode():
+    sessions = []
+
+    def factory(**kwargs):
+        session = _FakeSession()
+        sessions.append(session)
+        return session
+
+    client = ConsumerCopilotClient(
+        access_token="tok", mode="reasoning", session_factory=factory,
+    )
+
+    assert asyncio.run(_collect(client)) == "CURL-OK"
+    send_frame = sessions[0].socket.sent[-1]
+    assert send_frame["mode"] == "reasoning"
+    assert "tone" not in send_frame
+    assert "toneId" not in send_frame
+
+
+def test_event_error_does_not_retry_or_fallback_mode():
+    sessions = []
+    gate_calls = []
+
+    def factory(**kwargs):
+        session = _FakeSession([
+            b'{"event":"error","errorCode":"unsupported-mode"}',
+        ])
+        sessions.append(session)
+        return session
+
+    async def gate():
+        gate_calls.append(True)
+        return {"cookies": {"_C_Auth": "fresh"}}
+
+    client = ConsumerCopilotClient(
+        access_token="tok",
+        gate=gate,
+        mode="reasoning",
+        session_factory=factory,
+    )
+
+    with pytest.raises(ConsumerCopilotError, match="unsupported-mode"):
+        asyncio.run(_collect(client))
+    assert len(sessions) == 1
+    assert gate_calls == []
+    assert sessions[0].socket.sent[-1]["mode"] == "reasoning"
+
+
 def test_websocket_avoids_the_tls_profiles_copilot_challenges():
     # Copilot fingerprints the TLS client when `send` arrives: every Chrome,
     # Edge and Safari profile draws {"event":"challenge","method":null} while
@@ -218,13 +266,18 @@ def test_conversation_401_is_not_misreported_as_a_browser_gate():
 
 def test_browser_gate_refreshes_auth_and_retries_one_unstarted_turn():
     attempts = []
+    sessions = []
     gate_calls = []
 
     def factory(**kwargs):
         attempts.append(kwargs)
-        if len(attempts) == 1:
-            return _FakeSession([b'{"event":"challenge","method":null}'])
-        return _FakeSession()
+        session = (
+            _FakeSession([b'{"event":"challenge","method":null}'])
+            if len(attempts) == 1
+            else _FakeSession()
+        )
+        sessions.append(session)
+        return session
 
     async def gate():
         gate_calls.append(True)
@@ -239,12 +292,17 @@ def test_browser_gate_refreshes_auth_and_retries_one_unstarted_turn():
         access_token="old-token",
         gate=gate,
         session_factory=factory,
+        mode="reasoning",
     )
 
     assert asyncio.run(_collect(client)) == "CURL-OK"
     assert gate_calls == [True]
     assert len(attempts) == 2
     assert attempts[1]["cookies"] == {"_C_Auth": "fresh"}
+    assert [session.socket.sent[-1]["mode"] for session in sessions] == [
+        "reasoning",
+        "reasoning",
+    ]
     assert "accessToken=new-token" in client._ws_url()
     assert "X-UserIdentityType=MicrosoftAccount" in client._ws_url()
 

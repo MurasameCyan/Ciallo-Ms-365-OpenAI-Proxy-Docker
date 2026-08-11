@@ -54,6 +54,7 @@ function renderRuntimeSettings(s){
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
     const ms=document.getElementById('media-suffix-input');if(ms&&document.activeElement!==ms)ms.value=(s.media_proxy_suffixes||[]).join('\\n');
     const to=document.getElementById('tone-options-input');if(to&&document.activeElement!==to)to.value=_toneOptionsToText(s.tone_options||[]);
+    const co=document.getElementById('consumer-mode-options-input');if(co&&document.activeElement!==co)co.value=_consumerModeOptionsToText(s.consumer_mode_options||[]);
     const mt=document.getElementById('media-proxy-ttl-input');if(mt&&document.activeElement!==mt)mt.value=s.media_proxy_ttl_seconds?Math.max(1,Math.round(s.media_proxy_ttl_seconds/86400)):'';
     const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
     const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
@@ -145,6 +146,35 @@ async function resetToneOptions(){
     window.__toneSig='';loadTone();
     const s=document.getElementById('tone-options-saved');if(s){s.textContent=t('tool_prompt_saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
   }catch(e){}
+}
+function _consumerModeOptionsToText(opts){
+  return (opts||[]).map(o=>o.model+' | '+o.mode+' | '+o.status).join('\\n');
+}
+function _showConsumerModeResult(message,error){
+  const s=document.getElementById('consumer-mode-options-saved');if(!s)return;
+  s.textContent=message;s.style.color=error?'#ef4444':'#22c55e';s.style.opacity='1';
+  if(!error)setTimeout(()=>{s.style.opacity='0'},1500);
+}
+async function saveConsumerModeOptions(){
+  const ta=document.getElementById('consumer-mode-options-input');if(!ta)return;
+  const body={...__runtimeSettings,consumer_mode_options:ta.value};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){const d=await r.json().catch(()=>({}));_showConsumerModeResult((d.error&&d.error.message)||'error',true);return;}
+    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    ta.value=_consumerModeOptionsToText(__runtimeSettings.consumer_mode_options||[]);
+    _showConsumerModeResult(t('consumer_mode_saved'),false);
+  }catch(e){_showConsumerModeResult(String(e),true)}
+}
+async function resetConsumerModeOptions(){
+  const body={...__runtimeSettings,consumer_mode_options:[]};
+  try{
+    const r=await fetch('/admin/runtime-settings',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){const d=await r.json().catch(()=>({}));_showConsumerModeResult((d.error&&d.error.message)||'error',true);return;}
+    const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    const ta=document.getElementById('consumer-mode-options-input');if(ta)ta.value=_consumerModeOptionsToText(__runtimeSettings.consumer_mode_options||[]);
+    _showConsumerModeResult(t('consumer_mode_saved'),false);
+  }catch(e){_showConsumerModeResult(String(e),true)}
 }
 async function loadToolPrompt(){
   try{

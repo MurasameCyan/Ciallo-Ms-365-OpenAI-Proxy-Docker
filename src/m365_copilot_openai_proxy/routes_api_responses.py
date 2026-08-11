@@ -11,7 +11,7 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import OpenAIResponsesRequest
 from .response_helpers import _responses_stream
-from .routes_api_common import request_model_alias, resolve_request_tone, upstream_http_error
+from .routes_api_common import apply_request_model, request_model_alias, upstream_http_error
 from .routes_media_proxy import request_media_rewriter
 from .session_helpers import (
     _encode_responses_session_id,
@@ -32,20 +32,27 @@ def register_responses_routes(
     async def openai_responses(
         raw: Request,
         settings: Settings = Depends(get_settings),
-        client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
         model_alias = request_model_alias(app, raw, settings)
         body = await raw.json()
         try:
             request = OpenAIResponsesRequest.model_validate(body)
-            # The requested model name selects the conversation tone (and its
-            # persistent variant); override the client tone and normalize the
-            # persist marker for _persistent_session's suffix check.
-            resolved_tone, _is_persist = resolve_request_tone(app, request.model)
-            client._tone = resolved_tone
+            # Apply the provider-specific upstream selector: M365 tone or
+            # Consumer mode. Session suffix normalization remains M365-specific.
+            client, resolved_tone, is_consumer = apply_request_model(
+                app, raw, get_copilot_client, request.model
+            )
             translated = translate_responses_request(request)
-            session_key = _responses_session_key(request)
-            session = _persistent_session(app, raw, normalized_session_model(request.model), session_key)
+            session_key = None
+            session = None
+            if not is_consumer:
+                session_key = _responses_session_key(request)
+                session = _persistent_session(
+                    app,
+                    raw,
+                    normalized_session_model(request.model),
+                    session_key,
+                )
             media_rewriter = request_media_rewriter(app, raw)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -26,11 +26,25 @@ from .substrate_client import SubstrateCopilotError
 from .substrate_parse import _combine_text
 
 
+_EXPERIMENTAL_MODE_HINT = (
+    "该实验 mode 可能受账户、地区或 Microsoft rollout 限制"
+)
+
+
 class ConsumerClientAdapter:
     """Present a ``ConsumerCopilotClient`` through the Substrate route contract."""
 
     def __init__(self, client: ConsumerCopilotClient):
         self._client = client
+        self.mode_status = "stable"
+
+    @property
+    def mode(self) -> str:
+        return self._client.mode
+
+    @mode.setter
+    def mode(self, value: str) -> None:
+        self._client.mode = value
 
     async def chat_stream(
         self,
@@ -51,7 +65,10 @@ class ConsumerClientAdapter:
             # SubstrateCopilotError, and upstream_http_error keys on marker
             # strings, so a consumer clearance/region failure surfaces as a 502
             # carrying its own message -- which is the correct operator signal.
-            raise SubstrateCopilotError(str(exc)) from exc
+            detail = str(exc)
+            if self.mode_status == "experimental":
+                detail = f"{detail}；{_EXPERIMENTAL_MODE_HINT}"
+            raise SubstrateCopilotError(detail) from exc
 
     async def chat(
         self,

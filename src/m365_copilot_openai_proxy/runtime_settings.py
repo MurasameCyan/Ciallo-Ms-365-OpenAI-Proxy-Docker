@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -8,6 +9,7 @@ from urllib.parse import urlsplit
 
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 
+_log = logging.getLogger("copilot_proxy")
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _RUN_PERMISSIONS = {"read_only", "full"}
 _PROXY_SCHEMES = {"http", "https", "socks5", "socks5h", "socks4", "socks4a"}
@@ -28,6 +30,21 @@ _DEFAULT_MEDIA_PROXY_SUFFIXES = [
     "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "java", "go", "rs", "c", "h", "cpp", "cxx", "cc", "hpp", "cs",
     "php", "rb", "swift", "kt", "kts", "scala", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "sql", "r", "lua", "pl", "pm",
     "vue", "svelte", "css", "scss", "sass", "less", "dockerfile", "makefile", "cmake", "gradle", "lock", "log", "conf", "cfg",
+]
+# OpenAI-compatible facade names kept for backward compatibility. These are not
+# an upstream Microsoft capability catalogue; administrators may replace them.
+_BUILTIN_CONSUMER_MODE_OPTIONS = [
+    {"model": "copilot", "mode": "smart", "status": "stable"},
+    {"model": "copilot-smart", "mode": "smart", "status": "stable"},
+    {"model": "copilot-reasoning", "mode": "reasoning", "status": "experimental"},
+    {"model": "copilot-thinking", "mode": "reasoning", "status": "experimental"},
+    {"model": "copilot-search", "mode": "search", "status": "experimental"},
+    {"model": "copilot-study", "mode": "study", "status": "experimental"},
+    {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
+    {"model": "copilot-default", "mode": "default", "status": "experimental"},
+    {"model": "copilot-research", "mode": "research", "status": "experimental"},
+    {"model": "copilot-computer-use", "mode": "computer_use", "status": "experimental"},
+    {"model": "copilot-coco", "mode": "coco", "status": "experimental"},
 ]
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
@@ -82,11 +99,82 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # string, so future upstream modes work without a code change) and the labels
     # are the editable display names. Defaults to the built-in list.
     "tone_options": [dict(o) for o in _BUILTIN_TONE_OPTIONS],
+    # Consumer exposes facade model ids which map to the raw WebSocket `mode`.
+    # It is deliberately separate from M365 tones and has no persistent suffix.
+    "consumer_mode_options": [dict(o) for o in _BUILTIN_CONSUMER_MODE_OPTIONS],
 }
 
-# Max entries / field lengths to keep the picker and persisted file bounded.
+# Max entries / field lengths to keep the pickers and persisted file bounded.
 _MAX_TONE_OPTIONS = 40
 _MAX_TONE_FIELD_LEN = 80
+_MAX_CONSUMER_MODE_OPTIONS = 40
+_MAX_CONSUMER_MODE_FIELD_LEN = 80
+
+
+def normalize_consumer_mode_options(value) -> list[dict]:
+    """Validate Consumer facade model mappings as one atomic configuration."""
+    raw_items: list[tuple[dict, str]] = []
+    if isinstance(value, str):
+        for line_number, line in enumerate(value.splitlines(), 1):
+            if not line.strip():
+                continue
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) not in (2, 3):
+                raise ValueError(
+                    f"consumer_mode_options line {line_number}: expected 2 or 3 "
+                    "pipe-separated columns"
+                )
+            item = {"model": parts[0], "mode": parts[1]}
+            if len(parts) == 3:
+                item["status"] = parts[2]
+            raw_items.append((item, f"line {line_number}"))
+        if not raw_items:
+            raise ValueError("consumer_mode_options must contain at least one entry")
+    elif isinstance(value, list):
+        if not value:
+            return [dict(option) for option in _BUILTIN_CONSUMER_MODE_OPTIONS]
+        raw_items = [(item, f"entry {index}") for index, item in enumerate(value, 1)]
+    else:
+        raise ValueError("consumer_mode_options must be a string or list")
+
+    if len(raw_items) > _MAX_CONSUMER_MODE_OPTIONS:
+        raise ValueError(
+            f"consumer_mode_options: maximum {_MAX_CONSUMER_MODE_OPTIONS} entries"
+        )
+
+    options: list[dict] = []
+    seen: set[str] = set()
+    for item, location in raw_items:
+        prefix = f"consumer_mode_options {location}"
+        if not isinstance(item, dict):
+            raise ValueError(f"{prefix}: must be an object")
+        for field in ("model", "mode"):
+            if field not in item:
+                raise ValueError(f"{prefix}: {field} is required")
+            if not isinstance(item[field], str):
+                raise ValueError(f"{prefix}: {field} must be a string")
+        if "status" in item and not isinstance(item["status"], str):
+            raise ValueError(f"{prefix}: status must be a string")
+
+        model = item["model"].strip().lower()
+        mode = item["mode"].strip()
+        status = item.get("status", "stable" if mode == "smart" else "experimental")
+        status = status.strip().lower()
+        for field, field_value in (("model", model), ("mode", mode), ("status", status)):
+            if not field_value:
+                raise ValueError(f"{prefix}: {field} must not be empty")
+            if len(field_value) > _MAX_CONSUMER_MODE_FIELD_LEN:
+                raise ValueError(
+                    f"{prefix}: {field} must be at most "
+                    f"{_MAX_CONSUMER_MODE_FIELD_LEN} characters"
+                )
+        if status not in {"stable", "experimental"}:
+            raise ValueError(f"{prefix}: status must be stable or experimental")
+        if model in seen:
+            raise ValueError(f"{prefix}: duplicate model '{model}'")
+        seen.add(model)
+        options.append({"model": model, "mode": mode, "status": status})
+    return options
 
 
 def _sanitize_tone_label(label: str) -> str:
@@ -275,6 +363,18 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     data["tone_options"] = normalize_tone_options(data.get("tone_options"))
+    try:
+        data["consumer_mode_options"] = normalize_consumer_mode_options(
+            data.get("consumer_mode_options")
+        )
+    except ValueError as exc:
+        _log.warning(
+            "Invalid persisted consumer_mode_options; using built-in defaults: %s",
+            exc,
+        )
+        data["consumer_mode_options"] = [
+            dict(option) for option in _BUILTIN_CONSUMER_MODE_OPTIONS
+        ]
     try:
         data["media_proxy_ttl_seconds"] = max(60, int(data.get("media_proxy_ttl_seconds") or 0))
     except (TypeError, ValueError):

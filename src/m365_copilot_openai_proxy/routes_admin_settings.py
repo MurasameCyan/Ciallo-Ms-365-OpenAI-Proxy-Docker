@@ -15,6 +15,7 @@ from .runtime_settings import (
     _RUN_PERMISSIONS,
     _write_runtime_settings,
     apply_proxy_env,
+    normalize_consumer_mode_options,
     normalize_media_proxy_suffixes,
     normalize_proxy_url,
     normalize_tone_options,
@@ -71,6 +72,15 @@ def register_admin_settings_routes(
                 return max(minimum, int(body.get(name, current[name])))
             except (TypeError, ValueError):
                 return int(current[name])
+        try:
+            consumer_mode_options = normalize_consumer_mode_options(
+                body.get(
+                    "consumer_mode_options",
+                    current.get("consumer_mode_options"),
+                )
+            )
+        except ValueError as exc:
+            return _json_err(400, str(exc), "validation_error")
         data = {
             "time_zone": str(body.get("time_zone", current["time_zone"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["time_zone"],
             "model_alias": str(body.get("model_alias", current["model_alias"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["model_alias"],
@@ -95,6 +105,7 @@ def register_admin_settings_routes(
             "media_proxy_suffixes": normalize_media_proxy_suffixes(body.get("media_proxy_suffixes", current.get("media_proxy_suffixes"))) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
             "media_proxy_ttl_seconds": int_setting("media_proxy_ttl_seconds", 60),
             "tone_options": normalize_tone_options(body.get("tone_options", current.get("tone_options"))),
+            "consumer_mode_options": consumer_mode_options,
         }
         if data["log_level"] not in _LOG_LEVELS:
             return _json_err(400, "Invalid log level")
@@ -129,6 +140,7 @@ def register_admin_settings_routes(
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
         app.state.tone_options = data["tone_options"]
+        app.state.consumer_mode_options = data["consumer_mode_options"]
         app.state.user_log_verbose = data["user_log_verbose"]
         app.state.user_log_errors = data["user_log_errors"]
         app.state.suppress_access_log = data["suppress_access_log"]

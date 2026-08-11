@@ -49,11 +49,26 @@ def test_adapter_drops_session_and_images_arguments():
     assert prompt == "hi"
 
 
-def test_adapter_reraises_consumer_error_as_substrate_error():
+def test_adapter_reraises_stable_consumer_error_unchanged():
     adapter = ConsumerClientAdapter(FakeConsumerClient(fail=ConsumerCopilotError("boom")))
+    adapter.mode_status = "stable"
     try:
         _collect(adapter.chat_stream("hi"))
     except SubstrateCopilotError as exc:
         assert str(exc) == "boom"
+    else:
+        raise AssertionError("expected SubstrateCopilotError")
+
+
+def test_adapter_appends_rollout_hint_to_experimental_consumer_error():
+    adapter = ConsumerClientAdapter(FakeConsumerClient(fail=ConsumerCopilotError("boom")))
+    adapter.mode_status = "experimental"
+    try:
+        _collect(adapter.chat_stream("hi"))
+    except SubstrateCopilotError as exc:
+        assert str(exc).startswith("boom")
+        assert str(exc).endswith(
+            "该实验 mode 可能受账户、地区或 Microsoft rollout 限制"
+        )
     else:
         raise AssertionError("expected SubstrateCopilotError")

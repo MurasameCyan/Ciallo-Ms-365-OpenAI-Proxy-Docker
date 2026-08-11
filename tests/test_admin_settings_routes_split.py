@@ -45,6 +45,125 @@ def test_runtime_settings_saves_normalized_media_suffixes(tmp_path):
     assert "glb" in reloaded.get("/admin/runtime-settings").json()["settings"]["media_proxy_suffixes"]
 
 
+def test_runtime_settings_saves_live_consumer_mode_options(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
+    client = TestClient(app)
+
+    response = client.post(
+        "/admin/runtime-settings",
+        json={
+            "consumer_mode_options": [
+                {
+                    "model": " Custom-Model ",
+                    "mode": " custom-mode ",
+                    "status": " STABLE ",
+                },
+                {
+                    "model": "reasoning-alias",
+                    "mode": "reasoning",
+                    "status": "experimental",
+                },
+            ],
+        },
+    )
+
+    expected = [
+        {"model": "custom-model", "mode": "custom-mode", "status": "stable"},
+        {
+            "model": "reasoning-alias",
+            "mode": "reasoning",
+            "status": "experimental",
+        },
+    ]
+    assert response.status_code == 200
+    assert response.json()["settings"]["consumer_mode_options"] == expected
+    assert app.state.runtime_settings["consumer_mode_options"] == expected
+    assert app.state.consumer_mode_options == expected
+
+    reloaded = TestClient(create_app(Settings(
+        TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="",
+    )))
+    assert reloaded.get("/admin/runtime-settings").json()["settings"]["consumer_mode_options"] == expected
+
+
+def test_runtime_settings_rejects_invalid_consumer_modes_without_side_effects(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
+    client = TestClient(app)
+    baseline = client.post(
+        "/admin/runtime-settings",
+        json={
+            "model_alias": "baseline-alias",
+            "consumer_mode_options": [
+                {"model": "baseline", "mode": "smart", "status": "stable"},
+            ],
+        },
+    )
+    assert baseline.status_code == 200
+    settings_path = tmp_path / "runtime_settings.json"
+    before_bytes = settings_path.read_bytes()
+    before_runtime_settings = app.state.runtime_settings
+    before_consumer_options = app.state.consumer_mode_options
+
+    response = client.post(
+        "/admin/runtime-settings",
+        json={
+            "model_alias": "must-not-apply",
+            "consumer_mode_options": (
+                "ok | smart | stable\n"
+                "bad | | experimental"
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert "line 2" in response.json()["error"]["message"]
+    assert "mode must not be empty" in response.json()["error"]["message"]
+    assert settings_path.read_bytes() == before_bytes
+    assert app.state.runtime_settings is before_runtime_settings
+    assert app.state.consumer_mode_options is before_consumer_options
+    assert app.state.model_alias == "baseline-alias"
+
+
+def test_runtime_settings_reset_lists_are_independent(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
+    client = TestClient(app)
+    custom_tones = [{"value": "CustomTone", "label_zh": "Custom_Model"}]
+    custom_consumer = [
+        {"model": "custom-consumer", "mode": "reasoning", "status": "experimental"},
+    ]
+
+    saved = client.post(
+        "/admin/runtime-settings",
+        json={
+            "tone_options": custom_tones,
+            "consumer_mode_options": custom_consumer,
+        },
+    ).json()["settings"]
+    normalized_custom_tones = saved["tone_options"]
+
+    consumer_reset = client.post(
+        "/admin/runtime-settings",
+        json={"consumer_mode_options": []},
+    )
+    assert consumer_reset.status_code == 200
+    consumer_reset_settings = consumer_reset.json()["settings"]
+    assert len(consumer_reset_settings["consumer_mode_options"]) == 11
+    assert consumer_reset_settings["tone_options"] == normalized_custom_tones
+
+    client.post(
+        "/admin/runtime-settings",
+        json={"consumer_mode_options": custom_consumer},
+    )
+    tone_reset = client.post(
+        "/admin/runtime-settings",
+        json={"tone_options": []},
+    )
+    assert tone_reset.status_code == 200
+    tone_reset_settings = tone_reset.json()["settings"]
+    assert tone_reset_settings["consumer_mode_options"] == custom_consumer
+    assert tone_reset_settings["tone_options"] != normalized_custom_tones
+
+
 def test_suppress_access_log_default_from_env(tmp_path):
     client = TestClient(create_app(Settings(
         TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="",

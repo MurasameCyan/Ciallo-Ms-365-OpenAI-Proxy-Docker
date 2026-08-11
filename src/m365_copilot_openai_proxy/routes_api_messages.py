@@ -14,9 +14,9 @@ from .config import Settings
 from .models import AnthropicMessagesRequest
 from .response_helpers import _anthropic_stream
 from .routes_api_common import (
+    apply_request_model,
     effective_run_permission,
     request_model_alias,
-    resolve_request_tone,
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
@@ -70,7 +70,6 @@ def register_messages_routes(
         raw_request: Request,
         request: AnthropicMessagesRequest,
         settings: Settings = Depends(get_settings),
-        client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
         _log = logging.getLogger("copilot_proxy")
         model_alias = request_model_alias(app, raw_request, settings)
@@ -81,11 +80,11 @@ def register_messages_routes(
         _tools = effective_tools(request.tools, choice)
         tool_names = {t.name for t in _tools if getattr(t, "name", "")} if _tools else set()
         try:
-            # The requested model name selects the conversation tone (and its
-            # persistent variant); override the client tone and normalize the
-            # persist marker for _persistent_session's suffix check.
-            resolved_tone, _is_persist = resolve_request_tone(app, request.model)
-            client._tone = resolved_tone
+            # Apply the provider-specific upstream selector: M365 tone or
+            # Consumer mode. Session suffix normalization remains M365-specific.
+            client, resolved_tone, is_consumer = apply_request_model(
+                app, raw_request, get_copilot_client, request.model
+            )
             # System prompt: the key's own override wins, else the global one --
             # same precedence the OpenAI chat route uses.
             _key_obj = getattr(raw_request.state, "api_key_obj", None)
@@ -96,7 +95,15 @@ def register_messages_routes(
                 *(flatten_content(m.content) for m in request.messages if m.role == "user")
             )
             translated = translate_anthropic_request(request, system_override=_system_override)
-            session = _persistent_session(app, raw_request, normalized_session_model(request.model), _messages_session_key(request), request)
+            session = None
+            if not is_consumer:
+                session = _persistent_session(
+                    app,
+                    raw_request,
+                    normalized_session_model(request.model),
+                    _messages_session_key(request),
+                    request,
+                )
             media_rewriter = request_media_rewriter(app, raw_request)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

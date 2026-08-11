@@ -150,15 +150,25 @@ class ConsumerCopilotClient:
         proxy: str | None = None,
         gate: Callable[[], Awaitable[dict]] | None = None,
         session_factory: Callable[..., AsyncSession] = AsyncSession,
+        mode: str = "smart",
     ):
         self._cookies = dict(cookies or {})
         self._token = access_token or ""
         self._identity_type = identity_type or ""
+        self._mode = mode or "smart"
         self._idle_timeout = idle_timeout or _IDLE_TIMEOUT
         self._timeout = timeout
         self._proxy = proxy
         self._gate = gate
         self._session_factory = session_factory
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    @mode.setter
+    def mode(self, value: str) -> None:
+        self._mode = value or "smart"
 
     def _ws_url(self) -> str:
         """Build the authenticated v2 chat URL used by the current web client."""
@@ -243,7 +253,7 @@ class ConsumerCopilotClient:
                 "event": "send",
                 "conversationId": conversation_id,
                 "content": [{"type": "text", "text": prompt}],
-                "mode": "smart",
+                "mode": self._mode,
                 "context": {},
             }
             ws_kwargs = {

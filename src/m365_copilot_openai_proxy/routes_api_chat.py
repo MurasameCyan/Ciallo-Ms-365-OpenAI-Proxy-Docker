@@ -14,9 +14,11 @@ from .config import Settings
 from .models import OpenAIChatRequest
 from .response_helpers import _openai_stream
 from .routes_api_common import (
+    apply_request_model,
+    _consumer_mode_options,
+    build_consumer_models_list,
     effective_run_permission,
     request_model_alias,
-    resolve_request_tone,
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
@@ -43,11 +45,18 @@ def register_chat_routes(
 ) -> None:
     @app.get("/v1/models")
     async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> dict:
-        tone_options = getattr(app.state, "tone_options", None) or []
         created = int(time.time())
+        account = getattr(raw_request.state, "account", None)
+        if getattr(account, "provider", "m365") == "consumer":
+            models = build_consumer_models_list(
+                _consumer_mode_options(app), created,
+            )
+        else:
+            tone_options = getattr(app.state, "tone_options", None) or []
+            models = build_models_list(tone_options, created)
         return {
             "object": "list",
-            "data": build_models_list(tone_options, created),
+            "data": models,
         }
 
     @app.post("/v1/chat/completions")
@@ -55,7 +64,6 @@ def register_chat_routes(
         raw_request: Request,
         request: OpenAIChatRequest,
         settings: Settings = Depends(get_settings),
-        client: SubstrateCopilotClient = Depends(get_copilot_client),
     ):
         _log = logging.getLogger("copilot_proxy")
         model_alias = request_model_alias(app, raw_request, settings)
@@ -85,14 +93,21 @@ def register_chat_routes(
             "tool_calls_result": None,
         }
         try:
-            # Each tone is exposed as its own model via /v1/models, so the
-            # requested model name now selects the conversation tone (and its
-            # persistent variant). Override the client tone accordingly; the
-            # persist marker is normalized so _persistent_session's suffix check
-            # keeps working regardless of which variant the client addressed.
-            resolved_tone, _is_persist = resolve_request_tone(app, request.model)
-            client._tone = resolved_tone
-            session = _persistent_session(app, raw_request, normalized_session_model(request.model), request.user, request)
+            # Apply the provider-specific upstream selector. M365 receives a tone;
+            # Consumer receives a mode. Persistent-session normalization remains
+            # M365-only because the Consumer adapter resends the full transcript.
+            client, resolved_tone, is_consumer = apply_request_model(
+                app, raw_request, get_copilot_client, request.model
+            )
+            session = None
+            if not is_consumer:
+                session = _persistent_session(
+                    app,
+                    raw_request,
+                    normalized_session_model(request.model),
+                    request.user,
+                    request,
+                )
             # Whenever we reuse a persistent M365 session that already has history
             # (both auto mode and explicit :persist mode), the server remembers the
             # prior turns — so only send the incremental turn instead of resending the
@@ -253,8 +268,15 @@ async def _openai_stream_with_tools(
     """Buffer full stream, then emit as tool_calls if found, else normal content stream."""
     _log = logging.getLogger("copilot_proxy")
     chunks: list[str] = []
-    async for delta in client.chat_stream(prompt, additional_context, session, images):
-        chunks.append(delta)
+    try:
+        async for delta in client.chat_stream(
+            prompt, additional_context, session, images
+        ):
+            chunks.append(delta)
+    except SubstrateCopilotError as exc:
+        yield f"data: {json.dumps({'error': {'message': str(exc), 'type': 'upstream_error'}})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
     # Raw text for parsing; the media rewriter runs at delivery time below. This
     # path previously never applied it at all, so media links reached streaming
     # clients unrewritten.

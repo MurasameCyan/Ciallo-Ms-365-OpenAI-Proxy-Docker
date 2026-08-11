@@ -11,6 +11,7 @@ from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from m365_copilot_openai_proxy.template_admin_copy import _ADMIN_COPY_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
 from m365_copilot_openai_proxy.template_admin_dialogs import _ADMIN_DIALOGS_JS
+from m365_copilot_openai_proxy.template_admin_i18n import _ADMIN_I18N_JS
 from m365_copilot_openai_proxy.template_admin_keys import _ADMIN_KEYS_JS
 from m365_copilot_openai_proxy.template_admin_settings_js import _ADMIN_SETTINGS_JS
 from m365_copilot_openai_proxy.template_admin_tables import _ADMIN_TABLES_JS
@@ -125,6 +126,79 @@ def test_admin_ports_logs_swaps_idle_timeout_before_account_cdp_port():
 
     assert idle_pos < account_cdp_pos
 
+
+
+def test_admin_settings_include_independent_m365_and_consumer_model_cards():
+    for element_id in (
+        "tone-options-details",
+        "tone-options-input",
+        "tone-options-save",
+        "tone-options-reset",
+        "tone-options-saved",
+        "consumer-mode-options-details",
+        "consumer-mode-options-input",
+        "consumer-mode-options-save",
+        "consumer-mode-options-reset",
+        "consumer-mode-options-saved",
+    ):
+        assert f'id="{element_id}"' in _ADMIN_HTML
+
+    assert 'data-i18n="m365_tone_options_title"' in _ADMIN_HTML
+    assert 'data-i18n="consumer_mode_options_title"' in _ADMIN_HTML
+    assert "M365 模型 / Tone" in _ADMIN_HTML
+    assert "个人版模型 / Mode" in _ADMIN_HTML
+    assert _ADMIN_HTML.index('id="tone-options-input"') < _ADMIN_HTML.index(
+        'id="consumer-mode-options-input"'
+    )
+
+
+def test_admin_consumer_mode_editor_serializes_three_columns():
+    assert "function _consumerModeOptionsToText(opts)" in _ADMIN_SETTINGS_JS
+    assert "o.model+' | '+o.mode+' | '+o.status" in _ADMIN_SETTINGS_JS
+    assert "async function saveConsumerModeOptions()" in _ADMIN_SETTINGS_JS
+    assert "consumer_mode_options:ta.value" in _ADMIN_SETTINGS_JS
+    assert "_consumerModeOptionsToText(__runtimeSettings.consumer_mode_options||[])" in _ADMIN_SETTINGS_JS
+    assert "async function resetConsumerModeOptions()" in _ADMIN_SETTINGS_JS
+
+
+def test_admin_consumer_mode_actions_are_independent_and_surface_errors():
+    consumer_save = _ADMIN_SETTINGS_JS[
+        _ADMIN_SETTINGS_JS.index("async function saveConsumerModeOptions()"):
+        _ADMIN_SETTINGS_JS.index("async function resetConsumerModeOptions()")
+    ]
+    consumer_reset = _ADMIN_SETTINGS_JS[
+        _ADMIN_SETTINGS_JS.index("async function resetConsumerModeOptions()"):
+        _ADMIN_SETTINGS_JS.index("async function loadToolPrompt()")
+    ]
+    tone_reset = _ADMIN_SETTINGS_JS[
+        _ADMIN_SETTINGS_JS.index("async function resetToneOptions()"):
+        _ADMIN_SETTINGS_JS.index("async function saveConsumerModeOptions()")
+    ]
+
+    assert "consumer_mode_options:ta.value" in consumer_save
+    assert "consumer_mode_options:[]" in consumer_reset
+    assert "tone_options" not in consumer_save + consumer_reset
+    assert "tone_options:[]" in tone_reset
+    assert "consumer_mode_options" not in tone_reset
+    assert "d.error&&d.error.message" in consumer_save
+    assert "d.error&&d.error.message" in consumer_reset
+    result_helper = _ADMIN_SETTINGS_JS[
+        _ADMIN_SETTINGS_JS.index("function _showConsumerModeResult"):
+        _ADMIN_SETTINGS_JS.index("async function saveConsumerModeOptions()")
+    ]
+    assert "consumer-mode-options-saved" in result_helper
+    assert "_showConsumerModeResult" in consumer_save
+    assert "_showConsumerModeResult" in consumer_reset
+
+
+def test_admin_consumer_mode_i18n_explains_status_and_rollout():
+    assert _ADMIN_I18N_JS.count("model | mode | status") >= 2
+    assert _ADMIN_I18N_JS.count("stable") >= 2
+    assert _ADMIN_I18N_JS.count("experimental") >= 2
+    assert "可能受账户、地区和 Microsoft rollout 限制" in _ADMIN_I18N_JS
+    assert "may be limited by account, region, or Microsoft rollout" in _ADMIN_I18N_JS
+    assert "恢复个人版默认" in _ADMIN_I18N_JS
+    assert "Restore Consumer defaults" in _ADMIN_I18N_JS
 
 
 def test_admin_settings_include_media_suffix_card():
