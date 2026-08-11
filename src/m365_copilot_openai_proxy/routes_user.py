@@ -28,7 +28,7 @@ from .runtime_flags import elog
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
-def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
+def _spawn_post_push_refresh(scheduler, account_id: str, *, force: bool = False) -> None:
     """After a successful cookie injection, capture a substrate token in the
     background so the account gets a real token + a positive cookie_expires_at.
 
@@ -36,6 +36,9 @@ def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
     treats as "no signal" and never auto-refreshes, so the session silently dies
     once the cookie expires. Runs detached: the push response returns immediately
     and the token/expiry appear on the next admin refresh (~10-20s later).
+
+    ``force`` exists for the consumer push: ensure_fresh routes a consumer account
+    to its Camoufox gate but re-mints only when forced (see its provider guard).
     """
     try:
         loop = asyncio.get_running_loop()
@@ -44,12 +47,12 @@ def _spawn_post_push_refresh(scheduler, account_id: str) -> None:
 
     async def _run() -> None:
         try:
-            # force=False on purpose: if inject_cookies already captured a token
-            # opportunistically in the same session, the token is fresh and this
-            # becomes a cheap no-op (no second Chromium launch). It only spins up
-            # a real refresh (with nudge) when the opportunistic grab did not land
-            # a usable token.
-            await scheduler.ensure_fresh(account_id, force=False)
+            # force defaults to False on purpose: if inject_cookies already
+            # captured a token opportunistically in the same session, the token is
+            # fresh and this becomes a cheap no-op (no second Chromium launch). It
+            # only spins up a real refresh (with nudge) when the opportunistic grab
+            # did not land a usable token.
+            await scheduler.ensure_fresh(account_id, force=force)
         except Exception as exc:  # noqa: BLE001 - detached task must not raise
             elog(f"Post-push refresh failed for {account_id}: {exc}")
 
@@ -407,10 +410,10 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
     async def user_set_account_consumer(request: Request) -> dict:
         """Ingest a consumer (personal-account) Copilot credential snapshot.
 
-        Deliberately unlike /user/account/cookies: no Chromium injection and no
-        post-push token capture, because a consumer account has no substrate
-        token to capture. set_consumer_auth flips the provider so later refreshes
-        use the dedicated Camoufox path instead of the M365 Chromium path.
+        Deliberately unlike /user/account/cookies: no Chromium injection, because
+        a consumer account has no substrate token to capture. set_consumer_auth
+        flips the provider so this push and every later refresh use the dedicated
+        Camoufox path instead of the M365 Chromium path.
         """
         k = _resolve_user_key(request)
         if k is None:
@@ -476,6 +479,16 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         resolved_name = account_name or acc.email
         if resolved_name and acc.name != resolved_name:
             app.state.account_store.rename(k.account_id, resolved_name)
+        # The pushed cf_clearance was minted against the user's own browser
+        # fingerprint, which the Firefox-impersonating consumer transport cannot
+        # reuse, so the account can be authenticated here and still die on
+        # Cloudflare's challenge at the first turn. Re-mint through Camoufox now
+        # rather than leaving it broken until keepalive notices an hour later.
+        # Queued after set_consumer_auth because the gate seeds from the stored
+        # cookies/token; every refresh_consumer failure path returns without
+        # touching them, and its snapshot guard drops the result if a newer push
+        # lands meanwhile.
+        _spawn_post_push_refresh(app.state.refresh_scheduler, k.account_id, force=True)
         return {"status": "ok", "provider": "consumer", "cookies": len(acc.cookies)}
 
     @app.post("/user/regenerate-key")

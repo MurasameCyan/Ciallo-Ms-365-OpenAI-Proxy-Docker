@@ -9,19 +9,42 @@ from m365_copilot_openai_proxy.config import Settings
 
 
 class ExplodingRefreshScheduler:
-    """Every consumer path must avoid the scheduler entirely; if the endpoint
-    ever calls inject_cookies/ensure_fresh on a consumer push, these blow up."""
+    """A consumer push must stay out of the M365 machinery, so inject_cookies
+    blows up if it is ever reached. ensure_fresh only records: it is the shared
+    entry point that dispatches a consumer account to its own Camoufox gate
+    instead of the substrate paths, which is what the post-push re-mint wants."""
+
+    def __init__(self):
+        self.ensure_fresh_calls: list[tuple[str, bool]] = []
 
     async def inject_cookies(self, account_id: str, cookies: list[dict]) -> tuple[int, int]:
         raise AssertionError("consumer push must not inject cookies into Chromium")
 
     async def ensure_fresh(self, account_id: str, force: bool = False) -> bool:
-        raise AssertionError("consumer push must not trigger a substrate refresh")
+        self.ensure_fresh_calls.append((account_id, force))
+        return True
 
 
 def make_test_app(tmp_path):
     app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
     app.state.refresh_scheduler = ExplodingRefreshScheduler()
+    return app
+
+
+def make_real_app(tmp_path):
+    """A real app+scheduler whose consumer gate never launches a browser.
+
+    A consumer push queues a Camoufox re-mint, which tests can neither run nor
+    wait for. Stubbing the scheduler's own gate factory is enough to keep the
+    browser out while leaving the rest of the scheduler (profile dirs, locking,
+    persistence) real, which is why these tests build the real app at all.
+    """
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
+
+    async def _no_browser():
+        raise RuntimeError("no browser under test")
+
+    app.state.refresh_scheduler._consumer_gate_factory = lambda account_id: _no_browser
     return app
 
 
@@ -172,7 +195,7 @@ def test_consumer_push_invalid_email_does_not_overwrite_stored_email(tmp_path):
 
 
 def test_consumer_subject_change_requires_explicit_logout(tmp_path):
-    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
+    app = make_real_app(tmp_path)
     account = app.state.account_store.add(name="Personal User")
     key = app.state.key_store.add(name="Proxy User", account_id=account.id)
     client = TestClient(app)
@@ -252,7 +275,7 @@ def test_consumer_logout_fully_signs_out_a_consumer_account(tmp_path):
     request dispatch keep streaming through the consumer client on stale cookies
     while binding_state reads 'none'. After logout the account must look like a
     blank m365 account -- no consumer routing, no stored token."""
-    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
+    app = make_real_app(tmp_path)
     client = TestClient(app)
     key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
 
@@ -295,7 +318,7 @@ def test_consumer_logout_fully_signs_out_a_consumer_account(tmp_path):
 
 
 def test_consumer_unbind_removes_persisted_browser_profiles(tmp_path):
-    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key"))
+    app = make_real_app(tmp_path)
     client = TestClient(app)
     key = app.state.key_store.add(name="Proxy User")
     push = client.post(
@@ -366,6 +389,92 @@ def test_consumer_push_rejects_a_token_without_a_pinned_microsoft_subject(tmp_pa
 
     assert response.status_code == 400
     assert "identity" in response.json()["error"]["message"].lower()
+
+
+def test_consumer_push_queues_a_forced_remint(tmp_path, monkeypatch):
+    """A push alone can land an account that is authenticated yet unusable.
+
+    The pushed cf_clearance is minted against the user's own browser fingerprint,
+    which the Firefox-impersonating consumer transport cannot reuse, so the very
+    first turn can still die on Cloudflare's challenge. Queue the Camoufox re-mint
+    with the push instead of leaving the account broken until keepalive notices an
+    hour later. force=True because ensure_fresh only re-mints a consumer
+    credential when forced. Asserted on the spawn helper: the endpoint fires it
+    detached, so the HTTP-layer timing is not deterministic under TestClient.
+    """
+    from m365_copilot_openai_proxy import routes_user
+
+    app = make_test_app(tmp_path)
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+    spawned = []
+
+    def _record(scheduler, account_id, *, force=False):
+        # The gate seeds from the stored credential, so the re-mint has to be
+        # queued after the push is persisted -- never before.
+        stored = app.state.account_store.get(account_id)
+        spawned.append((account_id, force, stored.consumer_token))
+
+    monkeypatch.setattr(routes_user, "_spawn_post_push_refresh", _record)
+
+    response = TestClient(app).post(
+        "/user/account/consumer",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={
+            "cookies": COOKIES,
+            "access_token": TOKEN,
+            "identity_type": "MSA",
+            "consumer_account_id": "home:account-a",
+        },
+    )
+
+    assert response.status_code == 200
+    account_id = app.state.key_store.get(key.id).account_id
+    assert spawned == [(account_id, True, TOKEN)]
+
+
+def test_rejected_consumer_push_queues_no_remint(tmp_path, monkeypatch):
+    """A push that stored nothing leaves the gate nothing to seed from."""
+    from m365_copilot_openai_proxy import routes_user
+
+    app = make_test_app(tmp_path)
+    key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")
+    spawned = []
+    monkeypatch.setattr(
+        routes_user,
+        "_spawn_post_push_refresh",
+        lambda *args, **kwargs: spawned.append(args),
+    )
+
+    response = TestClient(app).post(
+        "/user/account/consumer",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"cookies": COOKIES, "access_token": "too-short"},
+    )
+
+    assert response.status_code == 400
+    assert spawned == []
+
+
+def test_post_push_refresh_forwards_force_to_the_shared_refresh_entry_point(tmp_path):
+    """ensure_fresh is the one entry point that routes a consumer account to its
+    Camoufox gate, and it re-mints only when forced -- a force that silently got
+    dropped here would make the post-push re-mint a no-op."""
+    from m365_copilot_openai_proxy import routes_user
+
+    app = make_test_app(tmp_path)
+    scheduler = app.state.refresh_scheduler
+
+    async def _drive() -> None:
+        routes_user._spawn_post_push_refresh(scheduler, "acc-1", force=True)
+        # Let the detached task run to completion within this loop.
+        await asyncio.sleep(0)
+        pending = list(routes_user._BACKGROUND_TASKS)
+        if pending:
+            await asyncio.gather(*pending)
+
+    asyncio.run(_drive())
+
+    assert scheduler.ensure_fresh_calls == [("acc-1", True)]
 
 
 def test_consumer_account_excluded_from_refresh_scheduler(tmp_path):
