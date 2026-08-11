@@ -100,6 +100,13 @@ class Account:
     # captured. Never exposed via public serializers (only has_media_seed bool).
     media_seed_url: str = ""
     cdp_port: int = _CDP_PORT_BASE
+    # Per-account outbound proxy. Empty => inherit the process-global proxy env
+    # that apply_proxy_env() publishes from the admin setting. Exists because the
+    # consumer and M365 providers need different egresses: measured 2026-08-12, a
+    # real Firefox on this host's direct egress gets `challenge method=None` from
+    # consumer Copilot, while M365 works direct. A process-global env var cannot
+    # express that split.
+    proxy_url: str = ""
     # "m365" = enterprise Substrate account (everything above applies).
     # "consumer" = personal-account Copilot, authenticated by the ChatAI access
     # token + browser cookies below instead of a substrate JWT. None of the M365
@@ -225,6 +232,7 @@ class AccountStore:
                     refresh_token_retry_after=float(raw.get("refresh_token_retry_after", 0.0) or 0.0),
                     media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
+                    proxy_url=str(raw.get("proxy_url", "") or ""),
                     token_source=raw.get("token_source", "manual"),
                     provider=str(raw.get("provider", "m365") or "m365"),
                     consumer_token=str(raw.get("consumer_token", "") or ""),
@@ -395,6 +403,29 @@ class AccountStore:
             acc.cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
             if isinstance(local_storage, dict) and local_storage:
                 acc.local_storage = {str(k): str(v) for k, v in local_storage.items()}
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def set_proxy_url(self, acc_id: str, proxy_url: str) -> Account | None:
+        """Set this account's outbound proxy, or clear it with "".
+
+        Returns None when the account is unknown or the URL is unusable, so a
+        typo cannot silently drop an account onto the wrong egress. Validation is
+        normalize_proxy_url's: it is the same trust boundary as the global
+        setting (the value reaches httpx, curl_cffi and a Firefox argv).
+        """
+        from .runtime_settings import normalize_proxy_url
+
+        raw = str(proxy_url or "").strip()
+        normalized = normalize_proxy_url(raw)
+        if raw and not normalized:
+            return None
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.proxy_url = normalized
             acc.updated_at = time.time()
             self._save()
             return acc
