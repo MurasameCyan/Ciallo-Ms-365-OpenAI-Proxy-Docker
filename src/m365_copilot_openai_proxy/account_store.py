@@ -670,3 +670,15 @@ class AccountStore:
                 self._save()
                 return True
             return False
+
+
+def resolve_account_proxy(account: Account | None) -> str:
+    """This account's outbound proxy, or "" to mean "use the proxy env vars".
+
+    Returning "" rather than a direct-connection marker is deliberate: the
+    global admin setting is already published to HTTP_PROXY/HTTPS_PROXY by
+    apply_proxy_env(), and httpx / curl_cffi / Firefox all honour those by
+    default. So "" preserves today's behaviour for every account that has not
+    opted into its own egress.
+    """
+    return str(getattr(account, "proxy_url", "") or "")

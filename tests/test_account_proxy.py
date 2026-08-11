@@ -45,3 +45,23 @@ def test_set_proxy_url_empty_clears(tmp_path):
 
 def test_set_proxy_url_unknown_account():
     assert AccountStore().set_proxy_url("acct_nope", "http://h:1") is None
+
+
+def test_resolve_returns_account_proxy_when_set():
+    from m365_copilot_openai_proxy.account_store import resolve_account_proxy
+
+    assert resolve_account_proxy(Account(proxy_url="socks5h://h:1080")) == "socks5h://h:1080"
+
+
+def test_resolve_returns_empty_when_account_has_none():
+    """Empty means "caller falls back to the proxy env vars", not "direct":
+    apply_proxy_env has already published the global setting there."""
+    from m365_copilot_openai_proxy.account_store import resolve_account_proxy
+
+    assert resolve_account_proxy(Account()) == ""
+
+
+def test_resolve_tolerates_none_account():
+    from m365_copilot_openai_proxy.account_store import resolve_account_proxy
+
+    assert resolve_account_proxy(None) == ""
