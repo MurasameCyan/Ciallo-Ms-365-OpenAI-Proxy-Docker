@@ -20,6 +20,10 @@ def _provider_fields(acc: Account) -> dict:
         "provider": getattr(acc, "provider", "m365"),
         "has_consumer_token": bool(getattr(acc, "consumer_token", "")),
         "consumer_updated_at": getattr(acc, "consumer_updated_at", 0.0),
+        # Exposed in full, not as a presence flag: the user has to see and edit
+        # the value. Credentials in a proxy URL are the user's own and were
+        # supplied through this same endpoint.
+        "proxy_url": getattr(acc, "proxy_url", ""),
     }
 
 

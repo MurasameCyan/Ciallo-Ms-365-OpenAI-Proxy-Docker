@@ -491,6 +491,31 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         _spawn_post_push_refresh(app.state.refresh_scheduler, k.account_id, force=True)
         return {"status": "ok", "provider": "consumer", "cookies": len(acc.cookies)}
 
+    @app.post("/user/account/proxy")
+    async def user_set_account_proxy(request: Request) -> dict:
+        """Set the bound account's outbound proxy ("" clears it).
+
+        Per-account rather than global because the two providers are gated
+        differently by source IP: consumer Copilot rejects this host's direct
+        egress while M365 works on it. The value is validated by the same
+        normalize_proxy_url the admin setting uses.
+        """
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        if not k.account_id:
+            return _json_err(400, "No Microsoft account is bound to this key")
+        body = await request.json()
+        proxy_url = str(body.get("proxy_url", "")).strip()
+        acc = app.state.account_store.set_proxy_url(k.account_id, proxy_url)
+        if acc is None:
+            return _json_err(
+                400,
+                "Invalid proxy URL. Use scheme://host:port with an explicit port, "
+                "e.g. socks5h://127.0.0.1:1080 (http/https/socks4/socks5 only).",
+            )
+        return {"status": "ok", "proxy_url": acc.proxy_url}
+
     @app.post("/user/regenerate-key")
     async def user_regenerate_key(request: Request) -> dict:
         """Let a user rotate their own API key. The key id (and thus account
