@@ -59,6 +59,9 @@ SENSITIVE_FIELDS = (
     "media_seed_url",
     "consumer_token",
     "consumer_account_id",
+    # An outbound proxy URL may embed credentials (http://user:pass@host:port),
+    # which normalize_proxy_url explicitly accepts -- so it is at-rest sensitive.
+    "proxy_url",
 )
 
 

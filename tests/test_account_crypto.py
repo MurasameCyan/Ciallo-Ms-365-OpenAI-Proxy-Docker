@@ -76,6 +76,24 @@ def test_store_persists_sensitive_fields_encrypted_on_disk(tmp_path):
     assert record["id"] == acc.id
 
 
+def test_store_persists_proxy_credentials_encrypted_on_disk(tmp_path):
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    acc = store.add(name="acct")
+    # normalize_proxy_url accepts embedded credentials, so a proxy URL can carry
+    # a password -- it must not land in accounts.json as plaintext.
+    assert store.set_proxy_url(acc.id, "http://user:proxy-secret-pass@proxy.example.com:3128") is not None
+
+    raw = json.loads(persist.read_text(encoding="utf-8"))
+    assert raw[acc.id]["proxy_url"].get("__enc__") == 1
+    blob = persist.read_text(encoding="utf-8")
+    assert "proxy-secret-pass" not in blob
+    assert "proxy.example.com" not in blob
+
+    reloaded = AccountStore(persist_path=persist)
+    assert reloaded.get(acc.id).proxy_url == "http://user:proxy-secret-pass@proxy.example.com:3128"
+
+
 def test_store_reloads_encrypted_accounts(tmp_path):
     persist = tmp_path / "accounts.json"
     store = AccountStore(persist_path=persist)
