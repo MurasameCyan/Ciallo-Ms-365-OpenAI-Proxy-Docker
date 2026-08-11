@@ -366,3 +366,18 @@ def test_admin_stats_excludes_unknown_consumer_expiry(tmp_path: Path):
     assert response.json()["expiring_accounts"] == [
         {"name": "Known Expiry", "email": "", "seconds_remaining": 120}
     ]
+
+
+def test_user_page_exposes_proxy_field():
+    """The input, its save hook and both locales must ship together: a field
+    with no handler silently discards what the user typed."""
+    from m365_copilot_openai_proxy.template_user import _USER_HTML
+    from m365_copilot_openai_proxy.template_user_account_js import _USER_ACCOUNT_JS
+    from m365_copilot_openai_proxy.template_user_i18n import _USER_I18N_JS
+
+    assert 'id="user-proxy-url"' in _USER_HTML
+    assert "saveAccountProxy" in _USER_HTML
+    assert "/user/account/proxy" in _USER_ACCOUNT_JS
+    assert "saveAccountProxy" in _USER_ACCOUNT_JS
+    assert _USER_I18N_JS.count("user_proxy_label") == 2
+    assert _USER_I18N_JS.count("user_proxy_hint") == 2

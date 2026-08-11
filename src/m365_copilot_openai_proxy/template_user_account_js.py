@@ -140,6 +140,7 @@ function renderAccountInfo(d){
   }
   acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
   const info=document.getElementById('account-info');if(info)info.innerHTML=acc;
+  const upx=document.getElementById('user-proxy-url');if(upx&&document.activeElement!==upx)upx.value=(d.account&&d.account.proxy_url)||'';
   renderAccountStatus(d);
 }
 function applyUserLangDynamic(){
@@ -224,5 +225,19 @@ async function pushToken(btn){
   try{const r=await fetch('/user/account/token',{method:'POST',headers:authHeaders(),body:JSON.stringify({token:token})});ok=r.ok}catch(e){}
   if(ok)document.getElementById('acct-token').value='';
   if(btn){btn.textContent=ok?t('push_ok'):t('token_update_failed');btn.style.color=ok?'#22c55e':'#ef4444';clearTimeout(btn._rTimer);btn._rTimer=setTimeout(async()=>{btn.textContent=t('push_token_btn');btn.style.color='';btn.disabled=false;if(ok)await loadMe()},3000)}
+}
+
+async function saveAccountProxy(){
+  const el=document.getElementById('user-proxy-url');if(!el)return;
+  const msg=document.getElementById('user-proxy-msg');
+  const show=k=>{if(!msg)return;msg.textContent=t(k);msg.style.opacity='1';setTimeout(()=>{msg.style.opacity='0'},2500)};
+  try{
+    const r=await fetch('/user/account/proxy',{method:'POST',headers:authHeaders(),body:JSON.stringify({proxy_url:el.value.trim()})});
+    const d=await r.json().catch(()=>({}));
+    // A rejected URL leaves the stored value untouched, so restore the input
+    // from the response rather than leaving the bad text looking accepted.
+    if(r.ok){el.value=d.proxy_url||'';show('user_proxy_saved')}
+    else show('user_proxy_invalid');
+  }catch(e){show('user_proxy_invalid')}
 }
 """

@@ -280,6 +280,11 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
         <div class="hint" data-i18n="user_media_suffix_hint">填写后将强制覆盖全局媒体后缀，仅作用于你自己的 Key。用逗号、空格或换行分隔。留空则跟随全局。</div>
         <textarea id="user-media-suffix" rows="3" onchange="saveTone()" placeholder=""></textarea>
       </div>
+      <div class="user-media-suffix">
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem"><span class="user-config-label" data-i18n="user_proxy_label">出站代理</span><span id="user-proxy-msg" class="hint" style="opacity:0;transition:opacity .3s"></span></div>
+        <div class="hint" data-i18n="user_proxy_hint">仅作用于你绑定的账户。个人版 Copilot 与 M365 按来源 IP 分别风控，两者可能需要不同出口。格式 scheme://host:port，端口必填，支持 http/https/socks4/socks5。留空则跟随全局设置。</div>
+        <input id="user-proxy-url" type="text" onchange="saveAccountProxy()" placeholder="socks5h://127.0.0.1:1080" style="width:100%;box-sizing:border-box;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.85rem;font-family:monospace">
+      </div>
       </div>
       </details>
     </div>
