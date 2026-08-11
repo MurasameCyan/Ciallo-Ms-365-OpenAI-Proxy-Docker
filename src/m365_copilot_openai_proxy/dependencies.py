@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request
 
+from .account_store import resolve_account_proxy
 from .config import Settings
 from .substrate_client import SubstrateCopilotClient
 
@@ -95,8 +96,10 @@ def create_api_dependencies(
             # different error type. Dispatch here -- the single point every /v1
             # route funnels through -- so no route needs per-provider branching.
             # The adapter presents the Substrate contract and translates errors;
-            # the client rides the same HTTPS_PROXY egress as everything else
-            # (curl_cffi honours the proxy env by default). A gate is attached so
+            # the client rides this account's own egress when it has one, else
+            # the process-global proxy env (curl_cffi honours that by default).
+            # The split exists because consumer Copilot and M365 are gated
+            # differently per source IP. A gate is attached so
             # an expired credential re-mints itself once mid-request instead of
             # failing the turn; it degrades to the userscript re-push when the
             # optional browser is absent.
@@ -113,6 +116,7 @@ def create_api_dependencies(
                     access_token=getattr(account, "consumer_token", ""),
                     identity_type=getattr(account, "consumer_identity_type", ""),
                     idle_timeout=idle_timeout,
+                    proxy=resolve_account_proxy(account) or None,
                     gate=_consumer_gate_for(app, account.id),
                 )
                 return ConsumerClientAdapter(consumer)

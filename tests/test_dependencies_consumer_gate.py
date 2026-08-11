@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 
 from m365_copilot_openai_proxy.consumer_client import ClearanceRequired
-from m365_copilot_openai_proxy.dependencies import _consumer_gate_for
+from m365_copilot_openai_proxy.dependencies import _consumer_gate_for, create_api_dependencies
 
 
 def _app(*, scheduler=None, account=None) -> FastAPI:
@@ -91,3 +91,57 @@ def test_gate_does_not_run_at_dependency_resolution_time():
     sched = _scheduler(True)
     _consumer_gate_for(_app(scheduler=sched, account=None), "a")
     assert sched.calls == []
+
+
+def _consumer_request(account):
+    """A request shaped the way the /v1 auth middleware leaves it."""
+    return SimpleNamespace(state=SimpleNamespace(api_key_obj=None, account=account))
+
+
+def _consumer_account(**overrides):
+    account = SimpleNamespace(
+        id="acct-1",
+        provider="consumer",
+        token="",
+        cookies=[{"name": "_U", "value": "v", "domain": ".copilot.microsoft.com"}],
+        consumer_token="tok",
+        consumer_identity_type="MSA",
+        proxy_url="",
+    )
+    for key, value in overrides.items():
+        setattr(account, key, value)
+    return account
+
+
+def _capturing_app(account) -> FastAPI:
+    """An app whose consumer_client_factory records the kwargs it was handed."""
+    app = _app(scheduler=_scheduler(True), account=account)
+    app.state.tool_prompt = ""
+    app.state.ws_idle_timeout_minutes = 0
+    app.state.seen = {}
+    app.state.consumer_client_factory = lambda **kwargs: (
+        app.state.seen.update(kwargs) or SimpleNamespace(chat_stream=None)
+    )
+    return app
+
+
+def test_consumer_client_receives_the_account_proxy():
+    """The consumer client must ride the account's own egress, not just the
+    process-global proxy env: that split is the whole point of the field."""
+    app = _capturing_app(_consumer_account(proxy_url="socks5h://127.0.0.1:1080"))
+    _get_settings, get_client = create_api_dependencies(app)
+
+    get_client(_consumer_request(app.state.account_store.get("acct-1")))
+
+    assert app.state.seen["proxy"] == "socks5h://127.0.0.1:1080"
+
+
+def test_consumer_client_proxy_is_none_when_the_account_has_none():
+    """None, not "": the client falls through to curl_cffi's own env handling,
+    which is what preserves today's behaviour for accounts that never opted in."""
+    app = _capturing_app(_consumer_account())
+    _get_settings, get_client = create_api_dependencies(app)
+
+    get_client(_consumer_request(app.state.account_store.get("acct-1")))
+
+    assert app.state.seen["proxy"] is None
