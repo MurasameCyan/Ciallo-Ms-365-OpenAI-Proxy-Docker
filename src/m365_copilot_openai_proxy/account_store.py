@@ -184,6 +184,14 @@ class AccountStore:
 
     # ------------------------------------------------------------------ IO
     def _load(self) -> None:
+        # Same trust boundary as _read_runtime_settings' proxy_url handling: the
+        # persisted file is hand-editable (and encryption is a no-op when
+        # cryptography or the key is unavailable), so revalidate here instead of
+        # trusting whatever string is on disk. Imported inside the function to
+        # match set_proxy_url and keep this low-level module's import graph free
+        # of runtime_settings.
+        from .runtime_settings import normalize_proxy_url
+
         try:
             data = json.loads(self._persist_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -232,7 +240,10 @@ class AccountStore:
                     refresh_token_retry_after=float(raw.get("refresh_token_retry_after", 0.0) or 0.0),
                     media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
-                    proxy_url=str(raw.get("proxy_url", "") or ""),
+                    # An unusable value degrades to "" (fall back to the global
+                    # proxy env) rather than failing the whole account: one bad
+                    # field must not cost the user this account's credentials.
+                    proxy_url=normalize_proxy_url(raw.get("proxy_url", "")),
                     token_source=raw.get("token_source", "manual"),
                     provider=str(raw.get("provider", "m365") or "m365"),
                     consumer_token=str(raw.get("consumer_token", "") or ""),

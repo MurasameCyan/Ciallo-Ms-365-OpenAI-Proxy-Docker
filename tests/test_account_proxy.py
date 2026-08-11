@@ -8,6 +8,8 @@ which a process-global HTTPS_PROXY cannot express.
 
 from __future__ import annotations
 
+import json
+
 from m365_copilot_openai_proxy.account_store import Account, AccountStore
 
 
@@ -65,3 +67,35 @@ def test_resolve_tolerates_none_account():
     from m365_copilot_openai_proxy.account_store import resolve_account_proxy
 
     assert resolve_account_proxy(None) == ""
+
+
+def test_resolve_coerces_none_proxy_url_to_empty():
+    """Account is a plain dataclass with no validation, so proxy_url=None is
+    constructible. Callers splice this return value into a URL or a
+    {"server": ...} launch option, so leaking a None would explode far away
+    from here -- resolve must hand back "" instead."""
+    from m365_copilot_openai_proxy.account_store import resolve_account_proxy
+
+    assert resolve_account_proxy(Account(proxy_url=None)) == ""
+
+
+def test_load_drops_unusable_persisted_proxy_url(tmp_path):
+    """The persisted file is a trust boundary: it is hand-editable, and at-rest
+    encryption is a plaintext passthrough whenever cryptography or the key is
+    unavailable. An injected value must be revalidated on load -- and rejecting
+    it must cost only that field, never the account's token."""
+    path = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=path)
+    acc = store.add(name="a", token="tok-abc")
+    store.set_proxy_url(acc.id, "socks5h://127.0.0.1:1080")
+
+    for bad in ("http://127.0.0.1", "http://127.0.0.1:8080\r\nX: y", "socks5h://h:1080 --foo"):
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw[acc.id]["proxy_url"] = bad
+        raw[acc.id]["token"] = "tok-abc"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+
+        reloaded = AccountStore(persist_path=path).get(acc.id)
+        assert reloaded is not None, bad
+        assert reloaded.proxy_url == "", bad
+        assert reloaded.token == "tok-abc", bad
