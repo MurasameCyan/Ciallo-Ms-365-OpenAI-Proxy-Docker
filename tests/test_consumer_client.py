@@ -15,7 +15,6 @@ import pytest
 from curl_cffi.requests import WebSocketClosed, WebSocketError, WebSocketTimeout
 
 from m365_copilot_openai_proxy.consumer_client import (
-    NO_RESPONSE,
     ClearanceRequired,
     ConsumerCopilotClient,
     ConsumerCopilotError,
@@ -87,15 +86,14 @@ def test_browser_only_challenges_return_none(msg):
 @pytest.mark.parametrize("msg", [
     {"method": None, "parameter": None},
     {},
-    {"id": "0.1"},
+    {"id": "0.0001"},
 ])
-def test_empty_challenge_asks_for_no_response_frame(msg):
-    """A challenge carrying neither method nor parameter is a progress notice,
-    not a question. The CDP capture of copilot.microsoft.com's own page (see
-    tests/test_consumer_gate.py) goes from `challenge method=null` straight to
-    `appendText`, sending no challengeResponse -- and answering it anyway is an
-    unsolicited frame the backend rejects with `invalid-event`."""
-    assert solve_challenge(msg) is NO_RESPONSE
+def test_empty_challenge_is_a_verdict_no_token_can_pass(msg):
+    """A challenge carrying neither method nor parameter is Cloudflare's verdict
+    on the client, not a puzzle. Both answers tried online failed: an empty token
+    drew `error: invalid-event`, and sending nothing made the backend close the
+    socket without replying (3/3). Returning None routes it to the gate."""
+    assert solve_challenge(msg) is None
 
 
 def test_drain_json_splits_concatenated_objects():
@@ -247,37 +245,32 @@ def test_turnstile_after_a_solved_pow_still_raises():
         _collect(ConsumerCopilotClient(), socket)
 
 
-def test_stream_stays_silent_on_an_empty_challenge_and_keeps_streaming():
-    """The live backend interleaves a method-less challenge into most turns. It
-    is a progress notice: answering it at all is an unsolicited frame on a live
-    turn, which came back as `error: invalid-event` on every online attempt."""
+def test_an_empty_challenge_is_raised_as_clearance_without_answering_it():
+    """Measured live, 3/3: the backend follows the method-less challenge with a
+    socket close, so nothing is gained by waiting and nothing may be sent -- an
+    empty token came back as `invalid-event`. Raising ClearanceRequired is what
+    lets chat_stream re-mint the credentials once and retry the turn."""
     socket = _FakeSocket([
-        '{"event":"connected"}{"event":"challenge","id":"0.1"}',
-        '{"event":"appendText","text":"pong"}{"event":"done"}',
+        '{"event":"connected"}{"event":"challenge","id":"0.0001"}',
     ])
-    assert _collect(ConsumerCopilotClient(), socket) == "pong"
-    # No challengeResponse, and no second `send`: an empty challenge neither
-    # asks for an answer nor holds the pending send back.
+    with pytest.raises(ClearanceRequired) as error:
+        _collect(ConsumerCopilotClient(), socket)
+    # No challengeResponse and no second `send`: the verdict is not answerable.
     assert [m.get("event") for m in socket.sent] == [
         "setOptions", "reportLocalConsents", "send",
     ]
+    # The trace rides along, because which frame drew the verdict is the whole
+    # question when it comes back again.
+    assert ">send(mode=" in str(error.value)
 
 
-def test_an_empty_challenge_does_not_consume_the_answer_to_a_real_one():
-    """`answered` must stay untouched by an empty challenge, or a real hashcash
-    challenge arriving after one would be silently skipped and the turn would
-    hang until the idle timeout."""
-    socket = _FakeSocket([
-        '{"event":"connected"}{"event":"challenge","id":"0.1"}',
-        '{"event":"challenge","method":"hashcash","parameter":"s:0","id":"0.2"}',
-        '{"event":"appendText","text":"pong"}{"event":"done"}',
-    ])
-    assert _collect(ConsumerCopilotClient(), socket) == "pong"
-    assert [m.get("event") for m in socket.sent] == [
-        "setOptions", "reportLocalConsents", "send",
-        "challengeResponse", "send",  # the real one is still answered
-    ]
-    assert socket.sent[3]["id"] == "0.2"
+def test_an_empty_challenge_names_the_cookie_cause_it_usually_has():
+    """The operator-facing half: `challenge method=None` is what a Cloudflare
+    cookie replayed under a client that did not earn it looks like, and it
+    surfaces on the `send` frame rather than on the request that carried it."""
+    socket = _FakeSocket(['{"event":"challenge","method":null,"parameter":null}'])
+    with pytest.raises(ClearanceRequired, match="Cloudflare cookie earned by a"):
+        _collect(ConsumerCopilotClient(), socket)
 
 
 def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():

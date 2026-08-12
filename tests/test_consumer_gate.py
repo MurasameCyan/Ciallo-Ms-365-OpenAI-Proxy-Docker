@@ -16,6 +16,7 @@ from m365_copilot_openai_proxy.consumer_gate import (
     ConsumerBrowserGate,
     click_verification_box,
     export_consumer_auth,
+    _pick_cookies,
     _wait_for_copilot_page,
     find_verification_box,
     recover_consumer_auth,
@@ -219,11 +220,29 @@ def test_auth_export_prefers_socket_token_and_host_specific_cookies():
     auth = asyncio.run(export_consumer_auth(cdp))
 
     assert auth == {
-        "cookies": {"_C_Auth": "host", "__cf_bm": "bm"},
+        # No __cf_bm: Edge earned it, and every consumer of this snapshot is a
+        # different client (the chat transport impersonates firefox147). Replaying
+        # it is what draws `challenge method=null` on the `send` frame.
+        "cookies": {"_C_Auth": "host"},
         "access_token": "socket-token",
         "identity_type": "Google",
     }
     assert "ChatAI" in cdp.expressions[0]
+
+
+def test_cookie_pick_drops_every_cloudflare_cookie_by_name():
+    """The one choke point every consumer of a jar goes through -- the gate
+    export, the client factory in dependencies, and the refresh scheduler's
+    reusability check. Filtering by domain alone let these through, and a jar
+    pushed to /user/account/cookies straight out of a browser carries them."""
+    jar = [
+        {"name": "__cf_bm", "value": "bm", "domain": ".copilot.microsoft.com"},
+        {"name": "__cflb", "value": "lb", "domain": ".copilot.microsoft.com"},
+        {"name": "cf_clearance", "value": "cl", "domain": ".copilot.microsoft.com"},
+        {"name": "WLSSC", "value": "keep", "domain": ".live.com"},
+    ]
+
+    assert _pick_cookies(jar) == {"WLSSC": "keep"}
 
 
 def test_auth_export_requires_a_chat_scoped_token():

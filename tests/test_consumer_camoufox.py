@@ -279,7 +279,8 @@ def test_gate_passes_the_account_proxy_to_the_browser(tmp_path, monkeypatch):
 def test_cloudflare_cookies_are_dropped_before_changing_hands():
     """The consumer HTTP client impersonates firefox147 while this browser is
     Firefox 152, so a __cf_bm minted here would be replayed under a UA that did
-    not earn it. _pick_cookies filters by domain alone and lets these through."""
+    not earn it. _pick_cookies now drops them too; this path needs its own filter
+    because it keeps full cookie records rather than flattening to name->value."""
     jar = [
         {"name": "WLSSC", "value": "v", "domain": ".live.com", "path": "/"},
         {"name": "__cf_bm", "value": "x", "domain": ".copilot.microsoft.com", "path": "/"},

@@ -134,34 +134,26 @@ def solve_copilot_challenge(parameter: str) -> str:
     return str(int(math.floor(((value**3 / 100 + value * 25) % 22) + 0.5)))
 
 
-# An empty challenge needs a third answer, distinct from both "here is a token"
-# and "only a browser can do this": send nothing at all. An empty string cannot
-# say that -- it is a legal token value -- so the no-frame case gets its own
-# sentinel.
-NO_RESPONSE = "\x00no-response"
-
-
 def solve_challenge(message: dict) -> str | None:
-    """Return a token, ``NO_RESPONSE`` to stay silent, or ``None`` if browser-only."""
+    """Return a proof-of-work token, or ``None`` when no token can pass."""
     method, parameter = message.get("method"), message.get("parameter")
-    # An empty challenge (neither method nor parameter) is a progress notice, not
-    # a gate and not a question: the CDP capture of copilot.microsoft.com's own
-    # page (tests/test_consumer_gate.py) receives `challenge method=null` and
-    # goes straight on to `appendText`, sending no challengeResponse at all.
-    # Answering it -- with any token -- is an unsolicited frame on a live turn,
-    # which the backend rejects with `invalid-event` and kills the reply.
-    #
-    # Both readings tried before were wrong in the same way: they assumed the
-    # frame has to be answered. Reading it as a Cloudflare verdict failed every
-    # turn with `challenge method=None`; acking it with an empty token (copied
-    # from the one reference implementation of five that does so) moved the
-    # failure to `invalid-event`.
-    if not method and not parameter:
-        return NO_RESPONSE
     if method == "hashcash" and parameter:
         return solve_hashcash(parameter)
     if method == "copilot" and parameter:
         return solve_copilot_challenge(parameter)
+    # Everything else -- including the empty challenge that carries neither a
+    # method nor a parameter -- is Cloudflare's verdict on the client that sent
+    # the `send` frame, not a puzzle. All three answers were tried against the
+    # live backend before this one settled:
+    #
+    #   empty token   -> `error: invalid-event` (the frame shape is refused)
+    #   no frame      -> backend closed the socket without replying, 3/3
+    #   None (here)   -> ClearanceRequired, so chat_stream re-mints once
+    #
+    # It is a verdict on the stack rather than on the turn, which is why it never
+    # coexists with a reply: alternating impersonation profiles over one set of
+    # credentials measured firefox147 4/4 replied, chrome146 0/4 -- every chrome
+    # turn drew this exact method-less challenge.
     return None
 
 
@@ -425,22 +417,21 @@ class ConsumerCopilotClient:
                         raise ClearanceRequired(
                             f"Unsafe Copilot challenge (method={method!r}): {exc}"
                         ) from exc
-                    # None means browser-only (Cloudflare Turnstile, or a method we
-                    # don't know). Checked before ``answered`` below so a Turnstile
-                    # arriving late in a turn still surfaces as a clean error rather
-                    # than being ignored into an idle timeout.
+                    # None means no token can pass: a Turnstile, a method we do
+                    # not know, or the method-less verdict Cloudflare returns
+                    # when the `send` arrives from a client it does not trust.
+                    # Checked before ``answered`` so one arriving late in a turn
+                    # still surfaces as a clean error rather than being ignored
+                    # into an idle timeout, and typed ClearanceRequired so
+                    # chat_stream spends its one gate re-mint on it.
                     if token is None:
                         raise ClearanceRequired(
-                            "Copilot demands an interactive Cloudflare verification "
-                            f"(challenge method={method!r}). Open the account profile "
-                            "in Edge, pass it once, then retry."
+                            "Copilot answered the turn with a challenge no token "
+                            f"can pass (method={method!r}): the chat client is not "
+                            "trusted. Usually a Cloudflare cookie earned by a "
+                            "different client, or clearance that went stale -- "
+                            f"re-mint the account and retry.{_trace_suffix(trace)}"
                         )
-                    # An empty challenge is a progress notice: no response frame,
-                    # and no re-send either -- the pending `send` was never
-                    # suspended, so replaying it is a second send on a live turn,
-                    # which also comes back as `invalid-event`.
-                    if token is NO_RESPONSE:
-                        continue
                     if answered:
                         continue
                     await emit({

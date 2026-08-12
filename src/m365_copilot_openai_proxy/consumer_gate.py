@@ -251,11 +251,24 @@ async def click_verification_box(cdp) -> bool:
     return True
 
 
+# Cloudflare's bot-management cookies are bound to the client that earned them,
+# and every consumer of this jar is a *different* client from the browser that
+# filled it: the chat transport impersonates firefox147, the gate drives Edge,
+# and the refresh path drives Firefox 152. Replaying a `__cf_bm` under a stack
+# that did not earn it is what Cloudflare scores against -- and it surfaces
+# lazily, as `challenge method=null` on the `send` frame rather than on the
+# request that carried the cookie. Dropping them by name here costs nothing:
+# consumer_client's per-turn warmup GET earns its own.
+_CLOUDFLARE_COOKIE_PREFIXES = ("__cf", "cf_clearance")
+
+
 def _pick_cookies(raw: list[dict]) -> dict[str, str]:
     keep = ("copilot.microsoft.com", "microsoft.com", "bing.com", "live.com")
     picked: dict[str, str] = {}
     for cookie in sorted(raw, key=lambda item: len(item.get("domain") or "")):
         domain = str(cookie.get("domain") or "").lower().lstrip(".")
+        if str(cookie.get("name") or "").startswith(_CLOUDFLARE_COOKIE_PREFIXES):
+            continue
         if (
             any(domain == suffix or domain.endswith(f".{suffix}") for suffix in keep)
             and cookie.get("value")

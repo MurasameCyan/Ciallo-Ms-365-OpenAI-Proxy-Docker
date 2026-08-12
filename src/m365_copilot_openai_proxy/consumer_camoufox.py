@@ -46,7 +46,7 @@ from pathlib import Path
 
 from .account_store import _normalize_consumer_account_id
 from .consumer_client import ConsumerCopilotError
-from .consumer_gate import _pick_cookies
+from .consumer_gate import _CLOUDFLARE_COOKIE_PREFIXES, _pick_cookies
 from .runtime_flags import elog, ulog
 
 COPILOT_URL = "https://copilot.microsoft.com/"
@@ -108,8 +108,9 @@ _GATE_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 _LOCK_FILES = (".parentlock", "lock", "parent.lock")
 
 # Cloudflare's bot-management cookies are bound to the client that earned them.
-# _pick_cookies filters by domain alone, so they survive it; drop them by name.
-_CLOUDFLARE_COOKIE_PREFIXES = ("__cf", "cf_clearance")
+# Defined in consumer_gate next to _pick_cookies, which drops them for every
+# caller; this path needs the names too, because it filters the raw record list
+# rather than going through _pick_cookies.
 _CONSUMER_COOKIE_DOMAINS = (
     "copilot.microsoft.com",
     "microsoft.com",
