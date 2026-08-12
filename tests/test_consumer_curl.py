@@ -170,6 +170,23 @@ def test_event_error_does_not_retry_or_fallback_mode():
     assert sessions[0].socket.sent[-1]["mode"] == "reasoning"
 
 
+def test_the_error_diagnostic_reports_the_prompt_as_a_length():
+    """The frame trace attached to a backend error must not carry the prompt.
+
+    It reaches the client's error body and the server log, and a protocol
+    rejection is about the shape of `send`, never about its text.
+    """
+    def factory(**kwargs):
+        return _FakeSession([b'{"event":"error","errorCode":"invalid-event"}'])
+
+    client = ConsumerCopilotClient(access_token="tok", session_factory=factory)
+
+    with pytest.raises(ConsumerCopilotError) as error:
+        asyncio.run(_collect(client))
+    assert ">send(mode='smart', parts=1, len=6)" in str(error.value)
+    assert "say hi" not in str(error.value)
+
+
 def test_websocket_avoids_the_tls_profiles_copilot_challenges():
     # Copilot fingerprints the TLS client when `send` arrives: every Chrome,
     # Edge and Safari profile draws {"event":"challenge","method":null} while

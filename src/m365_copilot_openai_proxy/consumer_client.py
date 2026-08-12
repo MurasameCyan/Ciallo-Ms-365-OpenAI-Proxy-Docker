@@ -64,6 +64,39 @@ _MAX_HASHCASH_DIFFICULTY = 22
 _MAX_HASHCASH_NONCE = 1 << 25
 _DECODER = json.JSONDecoder()
 
+# How many frames of the exchange to keep for the diagnostic that accompanies a
+# backend `error` frame. `invalid-event` names no offending frame, so the frame
+# that drew it can only be identified from what was in flight around it -- which
+# needs both directions, in order, hence one interleaved trace. The oldest frames
+# are the ones kept: a handshake rejection lands within the first few.
+_TRACE_LIMIT = 16
+
+
+def _frame_note(message: dict) -> str:
+    """Compact one frame, either direction, for an error trace.
+
+    Everything but message text is kept verbatim, because a protocol rejection is
+    about frame shape -- an explicit ``"method": null`` and an absent ``method``
+    are different frames, and the trace is useless if it cannot tell them apart.
+    Text is reduced to a length instead: it is bulky, it is the user's content,
+    and no protocol error is ever about what was said.
+    """
+    event = message.get("event") or message.get("type") or "(none)"
+    if event in ("appendText", "appendTextSuggestion"):
+        return f"{event}(len={len(message.get('text') or '')})"
+    if event == "send":
+        parts = message.get("content") or []
+        return (
+            f"send(mode={message.get('mode')!r}, parts={len(parts)}, "
+            f"len={sum(len(part.get('text') or '') for part in parts)})"
+        )
+    dumped = json.dumps(message, ensure_ascii=False)
+    return dumped if len(dumped) <= 400 else dumped[:400] + "...}"
+
+
+def _trace_suffix(trace: list[str]) -> str:
+    return f" frames: {' '.join(trace)}" if trace else ""
+
 
 class ConsumerCopilotError(RuntimeError):
     """The consumer chat backend refused or failed a turn."""
@@ -291,6 +324,14 @@ class ConsumerCopilotClient:
         opened = answered = started = False
         last_message = None
         image_prompt = ""
+        # One interleaved trace, `>` sent and `<` received, for the error branch.
+        trace: list[str] = []
+
+        async def emit(frame: dict) -> None:
+            if len(trace) < _TRACE_LIMIT:
+                trace.append(">" + _frame_note(frame))
+            await ws.send(json.dumps(frame), CurlWsFlag.TEXT)
+
         while True:
             try:
                 raw, _flags = await ws.recv(timeout=self._idle_timeout)
@@ -302,7 +343,7 @@ class ConsumerCopilotClient:
                 )
                 raise ConsumerCopilotError(
                     f"Copilot chat socket went silent for {self._idle_timeout:.0f}s; "
-                    f"{stage}"
+                    f"{stage}{_trace_suffix(trace)}"
                 ) from exc
             except WebSocketClosed as exc:
                 stage = (
@@ -312,7 +353,7 @@ class ConsumerCopilotClient:
                 )
                 raise ConsumerCopilotError(
                     f"Copilot chat socket closed {stage}; last frame was "
-                    f"{last_message!r}."
+                    f"{last_message!r}.{_trace_suffix(trace)}"
                 ) from exc
             except WebSocketError as exc:
                 stage = " after reply streaming started" if started else ""
@@ -322,6 +363,8 @@ class ConsumerCopilotClient:
 
             for message in drain_json(raw):
                 last_message = message
+                if len(trace) < _TRACE_LIMIT:
+                    trace.append("<" + _frame_note(message))
                 event = message.get("event")
                 if event == "connected":
                     # The backend speaks first and rejects anything sent before
@@ -340,7 +383,7 @@ class ConsumerCopilotClient:
                         continue
                     opened = True
                     for frame in (SET_OPTIONS_FRAME, CONSENTS_FRAME, send_frame):
-                        await ws.send(json.dumps(frame), CurlWsFlag.TEXT)
+                        await emit(frame)
                 elif event == "appendText":
                     started = True
                     yield message.get("text") or ""
@@ -379,15 +422,12 @@ class ConsumerCopilotClient:
                         )
                     if answered:
                         continue
-                    await ws.send(
-                        json.dumps({
-                            "event": "challengeResponse",
-                            "token": token,
-                            "method": method,
-                            "id": message.get("id"),
-                        }),
-                        CurlWsFlag.TEXT,
-                    )
+                    await emit({
+                        "event": "challengeResponse",
+                        "token": token,
+                        "method": method,
+                        "id": message.get("id"),
+                    })
                     answered = True
                     # A real challenge suspends the pending `send`, so it has to
                     # be replayed once cleared. An empty one does not -- it is an
@@ -395,7 +435,7 @@ class ConsumerCopilotClient:
                     # replaying `send` there is a second send on a live turn,
                     # which comes back as `invalid-event` and kills the reply.
                     if method or message.get("parameter"):
-                        await ws.send(json.dumps(send_frame), CurlWsFlag.TEXT)
+                        await emit(send_frame)
                 elif event == "error":
                     code = message.get("errorCode") or message
                     if code == "chat-service-unavailable":
@@ -403,7 +443,11 @@ class ConsumerCopilotClient:
                             "Copilot refused the anonymous or out-of-region consumer "
                             "session; sign in and use a supported egress region."
                         )
-                    raise ConsumerCopilotError(f"Copilot error: {code}")
+                    # `invalid-event` names no offending frame, so the exchange
+                    # around it is the only way to tell which of ours it rejected.
+                    raise ConsumerCopilotError(
+                        f"Copilot error: {code};{_trace_suffix(trace)}"
+                    )
 
     async def chat(self, prompt: str, conversation_id: str = "") -> str:
         """Return one complete non-streaming reply."""

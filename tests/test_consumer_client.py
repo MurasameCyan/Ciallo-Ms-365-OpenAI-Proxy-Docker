@@ -312,6 +312,46 @@ def test_chat_service_unavailable_is_a_typed_region_error():
         _collect(ConsumerCopilotClient(), socket)
 
 
+def test_backend_error_names_the_exchange_that_produced_it():
+    """`invalid-event` identifies no offending frame, and the same opaque code
+    covers a wrong handshake order, a duplicate `send` and a malformed frame
+    shape. Only the interleaved exchange says which frame drew it."""
+    socket = _FakeSocket([
+        '{"event":"connected"}',
+        '{"event":"challenge","id":"0.1"}',
+        '{"event":"error","errorCode":"invalid-event"}',
+    ])
+
+    with pytest.raises(ConsumerCopilotError) as error:
+        _collect(ConsumerCopilotClient(), socket)
+    message = str(error.value)
+    assert '<{"event": "connected"}' in message
+    assert '>{"event": "setOptions"' in message
+    assert ">send(mode=" in message
+    # Shapes, not just names: an empty challenge is answered with an explicit
+    # null method, and whether *that* is what the backend rejects cannot be read
+    # off an event name.
+    assert (
+        '>{"event": "challengeResponse", "token": "", "method": null, "id": "0.1"}'
+    ) in message
+    assert message.index(">send(") < message.index('>{"event": "challengeResponse"')
+    assert message.endswith('<{"event": "error", "errorCode": "invalid-event"}')
+
+
+def test_the_error_trace_keeps_message_text_out_of_the_diagnostic():
+    # The trace lands in logs and in the client's error body. The frames that
+    # matter carry no text, so content is reduced to a count.
+    socket = _FakeSocket([
+        '{"event":"connected"}{"event":"appendText","text":"secret reply"}',
+        '{"event":"error","errorCode":"invalid-event"}',
+    ])
+
+    with pytest.raises(ConsumerCopilotError) as error:
+        _collect(ConsumerCopilotClient(), socket)
+    assert "<appendText(len=12)" in str(error.value)
+    assert "secret" not in str(error.value)
+
+
 def test_curl_websocket_timeout_becomes_a_typed_idle_error():
     socket = _FakeSocket([WebSocketTimeout("timed out")])
 
