@@ -268,9 +268,11 @@ def test_an_empty_challenge_names_the_egress_as_the_cause_measurement_found():
     """The operator-facing half. It used to blame a Cloudflare cookie earned by
     another client and tell the reader to re-mint, which 2026-08-12 measured
     wrong: with zero CF cookies stored and credentials re-minted a minute
-    earlier, the verdict repeated, and the same account through another egress
-    drew an answerable hashcash instead. So the message has to point at the
-    egress, or an operator spends the day re-minting."""
+    earlier, the verdict repeated. It then blamed the client stack, which the
+    same day measured wrong too -- Copilot's own web UI, driven with trusted
+    keyboard input on the same egress, drew the identical frame and was closed
+    with 1006. What is left is the connection: the egress IP and the account. So
+    the message has to point there, or an operator spends the day re-minting."""
     socket = _FakeSocket(['{"event":"challenge","method":null,"parameter":null}'])
     with pytest.raises(ClearanceRequired, match="through another egress"):
         _collect(ConsumerCopilotClient(), socket)

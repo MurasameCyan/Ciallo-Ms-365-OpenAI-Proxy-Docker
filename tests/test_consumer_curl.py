@@ -187,12 +187,14 @@ def test_the_error_diagnostic_reports_the_prompt_as_a_length():
     assert "say hi" not in str(error.value)
 
 
-def test_websocket_avoids_the_tls_profiles_copilot_challenges():
-    # Copilot fingerprints the TLS client when `send` arrives: every Chrome,
-    # Edge and Safari profile draws {"event":"challenge","method":null} while
-    # firefox147 gets a normal reply (measured 4/4 vs 0/4, alternating, on one
-    # set of credentials). A Chrome-family profile here is a silent outage --
-    # the transport connects, then every turn dies on the challenge.
+def test_websocket_impersonates_the_browser_that_mints_the_credentials():
+    # The credentials are minted by a Firefox (Camoufox) profile, so the replay
+    # has to present the same TLS family -- a Chrome handshake is one the account
+    # has never been seen behind. This assertion used to be justified as the cure
+    # for {"event":"challenge","method":null} (firefox147 4/4 vs chrome146 0/4);
+    # that reading was withdrawn once the method turned out to drift on its own
+    # and Copilot's own web UI drew the same frame on the same egress. The
+    # invariant that survives is the narrower one: follow the minting browser.
     sessions = []
 
     def factory(**kwargs):
@@ -204,7 +206,7 @@ def test_websocket_avoids_the_tls_profiles_copilot_challenges():
     asyncio.run(_collect(client))
 
     profile = sessions[0].ws_calls[0][1]["impersonate"]
-    assert not profile.startswith(("chrome", "edge", "safari")), profile
+    assert profile.startswith("firefox"), profile
 
 
 def test_websocket_handshake_sends_the_origin_curl_omits():

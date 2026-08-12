@@ -43,22 +43,17 @@ SET_OPTIONS_FRAME = {
 }
 CONSENTS_FRAME = {"event": "reportLocalConsents", "grantedConsents": []}
 
-# Copilot fingerprints the TLS client when a `send` frame arrives, and every
-# Chrome/Edge/Safari profile curl_cffi offers answers with
-# {"event":"challenge","method":null} -- a verdict, not a solvable puzzle. Under
-# firefox147 the identical turn is answered normally. Measured on one set of
-# credentials, alternating profiles: firefox147 4/4 replied, chrome146 0/4.
-# Nothing above the TLS layer distinguishes the two: handshake headers, cookies,
-# conversation provenance, and frame payloads were all matched against a real
-# browser's capture first, and a bare WebSocket opened from page JS -- no SPA
-# logic, our own frames -- replies fine, so this is the stack, not the protocol.
-#
-# 2026-08-12, from the deployed VPS (Oracle Cloud Tokyo, colo NRT), that no
-# longer reproduces: firefox147/144/135 and chrome146 are all challenged within
-# 0.4s on fresh credentials, and alternating firefox147/chrome146 six times is
-# 6/6 challenged. So the profile is no longer the discriminant -- whatever score
-# this egress carries, no profile curl_cffi offers clears it. Keeping firefox147
-# because it is the closest match to the Firefox that mints the credentials.
+# The profile that mints the credentials, so the replay's TLS matches the
+# handshake the account was last seen behind. It is not a fix for
+# {"event":"challenge","method":null}: an earlier reading of that frame as a
+# TLS-fingerprint verdict (firefox147 4/4 replied, chrome146 0/4) has been
+# withdrawn, because the method of the first challenge drifts on its own -- the
+# same account through the same egress with the same profile drew a solvable
+# hashcash and, forty minutes later, the method-less frame -- so one run per cell
+# measured the clock, not the stack. Measured 2026-08-12 from the deployed VPS:
+# firefox147/144/135 and chrome146 are all challenged within 0.4s, and Copilot's
+# own web UI on the same egress draws the identical frame, so no profile
+# curl_cffi offers clears whatever this connection scores. See solve_challenge.
 _IMPERSONATE = "firefox147"
 
 # curl_cffi's WebSocket handshake omits Origin; browsers always send it, and the
@@ -157,19 +152,24 @@ def solve_challenge(message: dict) -> str | None:
     #   no frame      -> backend closed the socket without replying, 3/3
     #   None (here)   -> ClearanceRequired, so chat_stream re-mints once
     #
-    # It is a verdict on the stack rather than on the turn, which is why it never
-    # coexists with a reply. What it tracks is the egress and the client stack
-    # together, measured 2026-08-12 on the deployed VPS with one set of
-    # credentials:
+    # It is a verdict on the connection rather than on the turn, which is why it
+    # never coexists with a reply. What it tracks is the egress and the account,
+    # not the client stack: measured 2026-08-12 from the deployed VPS, Copilot's
+    # own UI -- real Camoufox page, trusted keyboard input, the page's own socket
+    # and frames -- drew the same `method=null id="0.0001"` through the same
+    # egress and was then closed with 1006, no reply on the page. Our `send` frame
+    # is byte-identical in shape to the one the UI puts on the wire.
     #
-    #                        Oracle Tokyo (direct)   authenticated FR proxy
-    #   curl_cffi, 4 profiles   method=null            method=null
-    #   real Firefox, our frames method=null           method=hashcash
+    # The method of the first challenge also drifts: the same account through the
+    # same egress with the same stack drew a solvable `hashcash` (difficulty 1)
+    # and, forty minutes later, `method=null`. So a single run compares nothing --
+    # the earlier profile matrix (firefox147 4/4 vs chrome146 0/4) was one run per
+    # cell and has been withdrawn.
     #
-    # So the credentials are not the variable: a re-mint one minute earlier draws
-    # it again, and `POST /c/api/conversations` answers 200 throughout. Answering
-    # the hashcash the browser does get is the open question -- the frame after
-    # our `challengeResponse` plus replayed `send` was `method=null` again.
+    # The credentials are not the variable either: a re-mint one minute earlier
+    # draws it again and `POST /c/api/conversations` answers 200 throughout. The
+    # remaining lever is the egress (both IPs measured so far are datacenter) or
+    # another account.
     return None
 
 
@@ -435,19 +435,21 @@ class ConsumerCopilotClient:
                         ) from exc
                     # None means no token can pass: a Turnstile, a method we do
                     # not know, or the method-less verdict Cloudflare returns
-                    # when the `send` arrives from a client it does not trust.
-                    # Checked before ``answered`` so one arriving late in a turn
-                    # still surfaces as a clean error rather than being ignored
-                    # into an idle timeout, and typed ClearanceRequired so
-                    # chat_stream spends its one gate re-mint on it.
+                    # when the `send` arrives over a connection it does not
+                    # trust. Checked before ``answered`` so one arriving late in
+                    # a turn still surfaces as a clean error rather than being
+                    # ignored into an idle timeout, and typed ClearanceRequired
+                    # so chat_stream spends its one gate re-mint on it.
                     if token is None:
                         raise ClearanceRequired(
                             "Copilot answered the turn with a challenge no token "
-                            f"can pass (method={method!r}): the chat client is not "
-                            "trusted. Measured to follow the egress IP and the "
-                            "client stack rather than the credentials -- a re-mint "
-                            "a minute earlier draws it again -- so try this "
-                            f"account through another egress.{_trace_suffix(trace)}"
+                            f"can pass (method={method!r}): this connection is "
+                            "not trusted. Measured to follow the egress IP and "
+                            "the account, not the client and not the credentials "
+                            "-- Copilot's own web UI draws the same frame on the "
+                            "same egress, and a re-mint a minute earlier draws it "
+                            "again -- so try this account through another egress "
+                            f"(a residential one).{_trace_suffix(trace)}"
                         )
                     if answered:
                         continue
