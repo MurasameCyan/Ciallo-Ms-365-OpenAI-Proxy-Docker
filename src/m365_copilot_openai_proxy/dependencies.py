@@ -120,11 +120,16 @@ def create_api_dependencies(
                     gate=_consumer_gate_for(app, account.id),
                 )
                 return ConsumerClientAdapter(consumer)
-            client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
-            _attach_response_debug_sink(app, client)
-            return client
-        except TypeError:
-            client = app.state.copilot_client_factory()
+            try:
+                client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
+            except TypeError:
+                # A factory that accepts no kwargs still has to work. Scoped to
+                # this one call on purpose: while the whole body was covered, any
+                # TypeError raised building the *consumer* client -- a renamed
+                # kwarg, an adapter signature drift -- silently handed back an
+                # anonymous M365 client instead, and the turn then failed with an
+                # unrelated M365 error that named nothing about the real cause.
+                client = app.state.copilot_client_factory()
             _attach_response_debug_sink(app, client)
             return client
         except Exception as exc:
