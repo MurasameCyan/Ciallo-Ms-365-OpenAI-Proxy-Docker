@@ -275,8 +275,10 @@ class ConsumerCopilotClient:
                 ws_kwargs["proxy"] = self._proxy
             try:
                 async with session.ws_connect(self._ws_url(), **ws_kwargs) as ws:
-                    for frame in (SET_OPTIONS_FRAME, CONSENTS_FRAME, send_frame):
-                        await ws.send(json.dumps(frame), CurlWsFlag.TEXT)
+                    # Nothing is sent from here: the backend speaks first with
+                    # `connected`, and any frame that arrives before it is
+                    # rejected with `error: invalid-event`. _read_stream opens
+                    # the turn when that frame lands.
                     async for chunk in self._read_stream(ws, send_frame):
                         yield chunk
             except (WebSocketTimeout, WebSocketClosed, WebSocketError, CurlError) as exc:
@@ -285,17 +287,22 @@ class ConsumerCopilotClient:
                 ) from exc
 
     async def _read_stream(self, ws, send_frame: dict) -> AsyncIterator[str]:
-        """Answer proof-of-work frames and yield reply text until ``done``."""
-        answered = started = False
+        """Open the turn on ``connected``, answer proof-of-work, yield reply text."""
+        opened = answered = started = False
         last_message = None
         image_prompt = ""
         while True:
             try:
                 raw, _flags = await ws.recv(timeout=self._idle_timeout)
             except WebSocketTimeout as exc:
+                stage = (
+                    f"last frame was {last_message!r}."
+                    if opened
+                    else "it never sent the `connected` frame the turn opens on."
+                )
                 raise ConsumerCopilotError(
                     f"Copilot chat socket went silent for {self._idle_timeout:.0f}s; "
-                    f"last frame was {last_message!r}."
+                    f"{stage}"
                 ) from exc
             except WebSocketClosed as exc:
                 stage = (
@@ -316,7 +323,25 @@ class ConsumerCopilotClient:
             for message in drain_json(raw):
                 last_message = message
                 event = message.get("event")
-                if event == "appendText":
+                if event == "connected":
+                    # The backend speaks first and rejects anything sent before
+                    # this frame with `error: invalid-event`. curl_cffi's
+                    # ws_connect returns as soon as the 101 lands -- a full round
+                    # trip before `connected` -- so opening the turn from there
+                    # lost that race every time, on every HTTP-only client
+                    # written this way. It stayed invisible while an empty
+                    # challenge was read as a Cloudflare verdict, because the
+                    # turn died before the error frame was ever read.
+                    #
+                    # A live socket sends `connected` twice; replaying the burst
+                    # on the second one is a duplicate `send`, which the backend
+                    # also answers with `invalid-event`.
+                    if opened:
+                        continue
+                    opened = True
+                    for frame in (SET_OPTIONS_FRAME, CONSENTS_FRAME, send_frame):
+                        await ws.send(json.dumps(frame), CurlWsFlag.TEXT)
+                elif event == "appendText":
                     started = True
                     yield message.get("text") or ""
                 elif event == "imageGenerated":
@@ -364,7 +389,13 @@ class ConsumerCopilotClient:
                         CurlWsFlag.TEXT,
                     )
                     answered = True
-                    await ws.send(json.dumps(send_frame), CurlWsFlag.TEXT)
+                    # A real challenge suspends the pending `send`, so it has to
+                    # be replayed once cleared. An empty one does not -- it is an
+                    # acknowledgement the backend asks for mid-turn -- and
+                    # replaying `send` there is a second send on a live turn,
+                    # which comes back as `invalid-event` and kills the reply.
+                    if method or message.get("parameter"):
+                        await ws.send(json.dumps(send_frame), CurlWsFlag.TEXT)
                 elif event == "error":
                     code = message.get("errorCode") or message
                     if code == "chat-service-unavailable":

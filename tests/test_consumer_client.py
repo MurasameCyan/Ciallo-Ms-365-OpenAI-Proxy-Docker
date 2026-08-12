@@ -170,8 +170,37 @@ def test_stream_answers_the_challenge_and_resends_the_held_message():
         '{"event":"done"}',
     ])
     assert _collect(ConsumerCopilotClient(), socket) == "PROBE-OK"
-    assert [m.get("event") for m in socket.sent] == ["challengeResponse", "send"]
-    assert socket.sent[0]["id"] == "0.1"  # the backend correlates on the id
+    assert [m.get("event") for m in socket.sent] == [
+        "setOptions", "reportLocalConsents", "send",  # opened by `connected`
+        "challengeResponse", "send",  # a real challenge held the send back
+    ]
+    assert socket.sent[3]["id"] == "0.1"  # the backend correlates on the id
+
+
+def test_nothing_is_sent_before_the_connected_frame():
+    """The backend speaks first; a frame that beats `connected` is answered with
+    `error: invalid-event`. curl_cffi's ws_connect returns a full round trip
+    before `connected` arrives, so opening the turn from there loses every
+    time."""
+    socket = _FakeSocket([
+        '{"event":"appendText","text":"hi"}{"event":"done"}',
+    ])
+    assert _collect(ConsumerCopilotClient(), socket) == "hi"
+    assert socket.sent == []
+
+
+def test_a_second_connected_frame_does_not_replay_the_handshake():
+    """A live socket sends `connected` twice (captured from the real page). A
+    replayed burst is a duplicate `send` on a live turn, which the backend
+    rejects with `invalid-event`."""
+    socket = _FakeSocket([
+        '{"event":"connected"}{"event":"connected"}',
+        '{"event":"appendText","text":"hi"}{"event":"done"}',
+    ])
+    assert _collect(ConsumerCopilotClient(), socket) == "hi"
+    assert [m.get("event") for m in socket.sent] == [
+        "setOptions", "reportLocalConsents", "send",
+    ]
 
 
 def test_stream_solves_hashcash_outside_the_event_loop(monkeypatch):
@@ -225,9 +254,13 @@ def test_stream_acknowledges_an_empty_challenge_and_keeps_streaming():
         '{"event":"appendText","text":"pong"}{"event":"done"}',
     ])
     assert _collect(ConsumerCopilotClient(), socket) == "pong"
-    assert [m.get("event") for m in socket.sent] == ["challengeResponse", "send"]
-    assert socket.sent[0]["token"] == ""
-    assert socket.sent[0]["id"] == "0.1"
+    # No second `send`: an empty challenge acknowledges, it does not hold the
+    # pending send back, and replaying it earns `error: invalid-event`.
+    assert [m.get("event") for m in socket.sent] == [
+        "setOptions", "reportLocalConsents", "send", "challengeResponse",
+    ]
+    assert socket.sent[3]["token"] == ""
+    assert socket.sent[3]["id"] == "0.1"
 
 
 def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():

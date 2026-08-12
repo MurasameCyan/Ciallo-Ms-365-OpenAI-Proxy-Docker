@@ -27,7 +27,11 @@ class _Response:
 class _FakeSocket:
     def __init__(self, frames=None):
         self.sent = []
-        self.frames = list(frames or [
+        # Every real socket opens with `connected`, and the client waits for it
+        # before sending anything -- frames that arrive earlier come back as
+        # `error: invalid-event`. Prepending it here keeps these tests about what
+        # they are actually testing instead of restating the handshake.
+        self.frames = [b'{"event":"connected"}'] + list(frames or [
             b'{"event":"appendText","text":"CURL"}',
             b'{"event":"appendText","text":"-OK"}{"event":"done"}',
         ])
