@@ -43,6 +43,7 @@ import sys
 import time
 import weakref
 from pathlib import Path
+from urllib.parse import unquote
 
 from .account_store import _normalize_consumer_account_id
 from .consumer_client import ConsumerCopilotError
@@ -229,15 +230,32 @@ def _proxy_option(proxy_url: str = "") -> dict | None:
     socks5h/socks4a are a curl convention meaning "resolve DNS at the proxy";
     Firefox does not parse those schemes, and its socks5 already resolves
     remotely, so mapping them across is an equivalence rather than a downgrade.
+
+    Credentials are split out of the URL rather than left inline. Firefox does
+    not accept userinfo in a proxy address and Playwright authenticates only
+    from the separate username/password fields, so `user:pass@host:port` was
+    taken as the *hostname* and every launch through an authenticated proxy died
+    with NS_ERROR_PROXY_CONNECTION_REFUSED -- measured on the deployed VPS, where
+    curl_cffi accepted the identical URL and reached the new egress. That made
+    the whole account-level proxy feature unusable for the unattended re-mint
+    whenever the proxy needed a password.
     """
     proxy = str(proxy_url or "") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
     if not proxy:
         return None
-    scheme, sep, rest = proxy.partition("://")
-    mapped = {"socks5h": "socks5", "socks4a": "socks4"}.get(scheme.lower())
-    if sep and mapped:
-        proxy = f"{mapped}://{rest}"
-    return {"server": proxy}
+    scheme, separator, body = proxy.partition("://")
+    if not separator:
+        scheme, body = "", proxy
+    else:
+        scheme = {"socks5h": "socks5", "socks4a": "socks4"}.get(scheme.lower(), scheme)
+    userinfo, at, host_port = body.rpartition("@")
+    option = {"server": f"{scheme}://{host_port}" if scheme else host_port}
+    if at and userinfo:
+        user, _colon, password = userinfo.partition(":")
+        # Percent-encoding is how a password with @ or : survives the URL form.
+        option["username"] = unquote(user)
+        option["password"] = unquote(password)
+    return option
 
 
 class CamoufoxConsumerGate:

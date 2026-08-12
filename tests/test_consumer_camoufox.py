@@ -71,6 +71,54 @@ def test_proxy_option_none_when_nothing_configured(monkeypatch):
     assert cc._proxy_option("") is None
 
 
+def test_proxy_option_splits_credentials_out_of_the_url(monkeypatch):
+    """Firefox takes no userinfo in a proxy address and Playwright authenticates
+    only from the separate fields, so an inline `user:pass@host` was read as the
+    hostname: every launch through an authenticated account proxy died with
+    NS_ERROR_PROXY_CONNECTION_REFUSED while curl_cffi accepted the same URL.
+    """
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    assert cc._proxy_option("http://user:secret@203.0.113.7:3129") == {
+        "server": "http://203.0.113.7:3129",
+        "username": "user",
+        "password": "secret",
+    }
+
+
+def test_proxy_option_decodes_percent_escaped_credentials(monkeypatch):
+    """Percent-encoding is how a password containing @ or : survives the URL
+    form, so the split has to undo it -- the browser gets the raw secret."""
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    assert cc._proxy_option("http://us%40er:p%3Ass%40word@host:8080") == {
+        "server": "http://host:8080",
+        "username": "us@er",
+        "password": "p:ss@word",
+    }
+
+
+def test_proxy_option_splits_credentials_from_the_env_proxy_too(monkeypatch):
+    """The global proxy reaches the browser through the same helper, so it has
+    the same defect and needs the same split."""
+    monkeypatch.setenv("HTTPS_PROXY", "socks5h://user:secret@host:1080")
+    assert cc._proxy_option("") == {
+        "server": "socks5://host:1080",
+        "username": "user",
+        "password": "secret",
+    }
+
+
+def test_proxy_option_keeps_a_bare_host_port_without_a_scheme(monkeypatch):
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    assert cc._proxy_option("user:secret@host:3129") == {
+        "server": "host:3129",
+        "username": "user",
+        "password": "secret",
+    }
+
+
 # ---------------------------------------------------------------- profile handling
 
 def test_clear_profile_locks_removes_a_stale_firefox_lock(tmp_path):
