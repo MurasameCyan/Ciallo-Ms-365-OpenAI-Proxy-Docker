@@ -134,15 +134,30 @@ def solve_copilot_challenge(parameter: str) -> str:
     return str(int(math.floor(((value**3 / 100 + value * 25) % 22) + 0.5)))
 
 
+# An empty challenge needs a third answer, distinct from both "here is a token"
+# and "only a browser can do this": send nothing at all. An empty string cannot
+# say that -- it is a legal token value -- so the no-frame case gets its own
+# sentinel.
+NO_RESPONSE = "\x00no-response"
+
+
 def solve_challenge(message: dict) -> str | None:
-    """Return a proof-of-work token, or ``None`` for browser-only challenges."""
+    """Return a token, ``NO_RESPONSE`` to stay silent, or ``None`` if browser-only."""
     method, parameter = message.get("method"), message.get("parameter")
-    # An empty challenge (neither method nor parameter) is an acknowledgement the
-    # backend now asks for on most turns, not a gate -- copilot.microsoft.com's own
-    # client answers it with an empty token and keeps streaming. Reading it as a
-    # Cloudflare verdict is what made every impersonation profile look blocked.
+    # An empty challenge (neither method nor parameter) is a progress notice, not
+    # a gate and not a question: the CDP capture of copilot.microsoft.com's own
+    # page (tests/test_consumer_gate.py) receives `challenge method=null` and
+    # goes straight on to `appendText`, sending no challengeResponse at all.
+    # Answering it -- with any token -- is an unsolicited frame on a live turn,
+    # which the backend rejects with `invalid-event` and kills the reply.
+    #
+    # Both readings tried before were wrong in the same way: they assumed the
+    # frame has to be answered. Reading it as a Cloudflare verdict failed every
+    # turn with `challenge method=None`; acking it with an empty token (copied
+    # from the one reference implementation of five that does so) moved the
+    # failure to `invalid-event`.
     if not method and not parameter:
-        return ""
+        return NO_RESPONSE
     if method == "hashcash" and parameter:
         return solve_hashcash(parameter)
     if method == "copilot" and parameter:
@@ -420,6 +435,12 @@ class ConsumerCopilotClient:
                             f"(challenge method={method!r}). Open the account profile "
                             "in Edge, pass it once, then retry."
                         )
+                    # An empty challenge is a progress notice: no response frame,
+                    # and no re-send either -- the pending `send` was never
+                    # suspended, so replaying it is a second send on a live turn,
+                    # which also comes back as `invalid-event`.
+                    if token is NO_RESPONSE:
+                        continue
                     if answered:
                         continue
                     await emit({
@@ -430,12 +451,8 @@ class ConsumerCopilotClient:
                     })
                     answered = True
                     # A real challenge suspends the pending `send`, so it has to
-                    # be replayed once cleared. An empty one does not -- it is an
-                    # acknowledgement the backend asks for mid-turn -- and
-                    # replaying `send` there is a second send on a live turn,
-                    # which comes back as `invalid-event` and kills the reply.
-                    if method or message.get("parameter"):
-                        await emit(send_frame)
+                    # be replayed once cleared.
+                    await emit(send_frame)
                 elif event == "error":
                     code = message.get("errorCode") or message
                     if code == "chat-service-unavailable":

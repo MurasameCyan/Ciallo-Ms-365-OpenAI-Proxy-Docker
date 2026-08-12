@@ -15,6 +15,7 @@ import pytest
 from curl_cffi.requests import WebSocketClosed, WebSocketError, WebSocketTimeout
 
 from m365_copilot_openai_proxy.consumer_client import (
+    NO_RESPONSE,
     ClearanceRequired,
     ConsumerCopilotClient,
     ConsumerCopilotError,
@@ -88,12 +89,13 @@ def test_browser_only_challenges_return_none(msg):
     {},
     {"id": "0.1"},
 ])
-def test_empty_challenge_is_acknowledged_with_an_empty_token(msg):
-    """A challenge carrying neither method nor parameter is an ack the backend
-    asks for on most turns, not a gate: copilot.microsoft.com's own client
-    answers it with an empty token and keeps streaming. Returning None here
-    reads it as a Cloudflare verdict, which fails every turn."""
-    assert solve_challenge(msg) == ""
+def test_empty_challenge_asks_for_no_response_frame(msg):
+    """A challenge carrying neither method nor parameter is a progress notice,
+    not a question. The CDP capture of copilot.microsoft.com's own page (see
+    tests/test_consumer_gate.py) goes from `challenge method=null` straight to
+    `appendText`, sending no challengeResponse -- and answering it anyway is an
+    unsolicited frame the backend rejects with `invalid-event`."""
+    assert solve_challenge(msg) is NO_RESPONSE
 
 
 def test_drain_json_splits_concatenated_objects():
@@ -245,22 +247,37 @@ def test_turnstile_after_a_solved_pow_still_raises():
         _collect(ConsumerCopilotClient(), socket)
 
 
-def test_stream_acknowledges_an_empty_challenge_and_keeps_streaming():
-    """The live backend opens most turns with a method-less challenge. Treating
-    it as a Cloudflare gate is what made every turn fail with
-    `challenge method=None`; it has to be answered like any other challenge."""
+def test_stream_stays_silent_on_an_empty_challenge_and_keeps_streaming():
+    """The live backend interleaves a method-less challenge into most turns. It
+    is a progress notice: answering it at all is an unsolicited frame on a live
+    turn, which came back as `error: invalid-event` on every online attempt."""
     socket = _FakeSocket([
         '{"event":"connected"}{"event":"challenge","id":"0.1"}',
         '{"event":"appendText","text":"pong"}{"event":"done"}',
     ])
     assert _collect(ConsumerCopilotClient(), socket) == "pong"
-    # No second `send`: an empty challenge acknowledges, it does not hold the
-    # pending send back, and replaying it earns `error: invalid-event`.
+    # No challengeResponse, and no second `send`: an empty challenge neither
+    # asks for an answer nor holds the pending send back.
     assert [m.get("event") for m in socket.sent] == [
-        "setOptions", "reportLocalConsents", "send", "challengeResponse",
+        "setOptions", "reportLocalConsents", "send",
     ]
-    assert socket.sent[3]["token"] == ""
-    assert socket.sent[3]["id"] == "0.1"
+
+
+def test_an_empty_challenge_does_not_consume_the_answer_to_a_real_one():
+    """`answered` must stay untouched by an empty challenge, or a real hashcash
+    challenge arriving after one would be silently skipped and the turn would
+    hang until the idle timeout."""
+    socket = _FakeSocket([
+        '{"event":"connected"}{"event":"challenge","id":"0.1"}',
+        '{"event":"challenge","method":"hashcash","parameter":"s:0","id":"0.2"}',
+        '{"event":"appendText","text":"pong"}{"event":"done"}',
+    ])
+    assert _collect(ConsumerCopilotClient(), socket) == "pong"
+    assert [m.get("event") for m in socket.sent] == [
+        "setOptions", "reportLocalConsents", "send",
+        "challengeResponse", "send",  # the real one is still answered
+    ]
+    assert socket.sent[3]["id"] == "0.2"
 
 
 def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():
@@ -318,7 +335,7 @@ def test_backend_error_names_the_exchange_that_produced_it():
     shape. Only the interleaved exchange says which frame drew it."""
     socket = _FakeSocket([
         '{"event":"connected"}',
-        '{"event":"challenge","id":"0.1"}',
+        '{"event":"challenge","method":"hashcash","parameter":"s:0","id":"0.1"}',
         '{"event":"error","errorCode":"invalid-event"}',
     ])
 
@@ -328,11 +345,11 @@ def test_backend_error_names_the_exchange_that_produced_it():
     assert '<{"event": "connected"}' in message
     assert '>{"event": "setOptions"' in message
     assert ">send(mode=" in message
-    # Shapes, not just names: an empty challenge is answered with an explicit
-    # null method, and whether *that* is what the backend rejects cannot be read
-    # off an event name.
+    # Shapes, not just names: whether the backend rejected the frame's *shape*
+    # cannot be read off an event name, so the trace keeps the payload verbatim.
     assert (
-        '>{"event": "challengeResponse", "token": "", "method": null, "id": "0.1"}'
+        '>{"event": "challengeResponse", "token": "0", "method": "hashcash", '
+        '"id": "0.1"}'
     ) in message
     assert message.index(">send(") < message.index('>{"event": "challengeResponse"')
     assert message.endswith('<{"event": "error", "errorCode": "invalid-event"}')
