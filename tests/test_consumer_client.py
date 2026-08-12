@@ -264,12 +264,15 @@ def test_an_empty_challenge_is_raised_as_clearance_without_answering_it():
     assert ">send(mode=" in str(error.value)
 
 
-def test_an_empty_challenge_names_the_cookie_cause_it_usually_has():
-    """The operator-facing half: `challenge method=None` is what a Cloudflare
-    cookie replayed under a client that did not earn it looks like, and it
-    surfaces on the `send` frame rather than on the request that carried it."""
+def test_an_empty_challenge_names_the_egress_as_the_cause_measurement_found():
+    """The operator-facing half. It used to blame a Cloudflare cookie earned by
+    another client and tell the reader to re-mint, which 2026-08-12 measured
+    wrong: with zero CF cookies stored and credentials re-minted a minute
+    earlier, the verdict repeated, and the same account through another egress
+    drew an answerable hashcash instead. So the message has to point at the
+    egress, or an operator spends the day re-minting."""
     socket = _FakeSocket(['{"event":"challenge","method":null,"parameter":null}'])
-    with pytest.raises(ClearanceRequired, match="Cloudflare cookie earned by a"):
+    with pytest.raises(ClearanceRequired, match="through another egress"):
         _collect(ConsumerCopilotClient(), socket)
 
 

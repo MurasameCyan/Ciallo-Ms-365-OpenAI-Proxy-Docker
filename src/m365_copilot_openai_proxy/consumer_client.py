@@ -52,6 +52,13 @@ CONSENTS_FRAME = {"event": "reportLocalConsents", "grantedConsents": []}
 # conversation provenance, and frame payloads were all matched against a real
 # browser's capture first, and a bare WebSocket opened from page JS -- no SPA
 # logic, our own frames -- replies fine, so this is the stack, not the protocol.
+#
+# 2026-08-12, from the deployed VPS (Oracle Cloud Tokyo, colo NRT), that no
+# longer reproduces: firefox147/144/135 and chrome146 are all challenged within
+# 0.4s on fresh credentials, and alternating firefox147/chrome146 six times is
+# 6/6 challenged. So the profile is no longer the discriminant -- whatever score
+# this egress carries, no profile curl_cffi offers clears it. Keeping firefox147
+# because it is the closest match to the Firefox that mints the credentials.
 _IMPERSONATE = "firefox147"
 
 # curl_cffi's WebSocket handshake omits Origin; browsers always send it, and the
@@ -151,9 +158,18 @@ def solve_challenge(message: dict) -> str | None:
     #   None (here)   -> ClearanceRequired, so chat_stream re-mints once
     #
     # It is a verdict on the stack rather than on the turn, which is why it never
-    # coexists with a reply: alternating impersonation profiles over one set of
-    # credentials measured firefox147 4/4 replied, chrome146 0/4 -- every chrome
-    # turn drew this exact method-less challenge.
+    # coexists with a reply. What it tracks is the egress and the client stack
+    # together, measured 2026-08-12 on the deployed VPS with one set of
+    # credentials:
+    #
+    #                        Oracle Tokyo (direct)   authenticated FR proxy
+    #   curl_cffi, 4 profiles   method=null            method=null
+    #   real Firefox, our frames method=null           method=hashcash
+    #
+    # So the credentials are not the variable: a re-mint one minute earlier draws
+    # it again, and `POST /c/api/conversations` answers 200 throughout. Answering
+    # the hashcash the browser does get is the open question -- the frame after
+    # our `challengeResponse` plus replayed `send` was `method=null` again.
     return None
 
 
@@ -428,9 +444,10 @@ class ConsumerCopilotClient:
                         raise ClearanceRequired(
                             "Copilot answered the turn with a challenge no token "
                             f"can pass (method={method!r}): the chat client is not "
-                            "trusted. Usually a Cloudflare cookie earned by a "
-                            "different client, or clearance that went stale -- "
-                            f"re-mint the account and retry.{_trace_suffix(trace)}"
+                            "trusted. Measured to follow the egress IP and the "
+                            "client stack rather than the credentials -- a re-mint "
+                            "a minute earlier draws it again -- so try this "
+                            f"account through another egress.{_trace_suffix(trace)}"
                         )
                     if answered:
                         continue
