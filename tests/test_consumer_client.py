@@ -74,15 +74,26 @@ def test_solve_challenge_dispatches_by_method():
 
 
 @pytest.mark.parametrize("msg", [
-    {"method": None, "parameter": None},
     {"method": "cloudflare", "parameter": "x"},
     {"method": "some-new-pow", "parameter": "x"},
     {"method": "hashcash"},  # no parameter -> unsolvable, not a crash
 ])
 def test_browser_only_challenges_return_none(msg):
-    # None is the signal the caller turns into ClearanceRequired. Answering an
-    # empty challenge with an empty token stalls the socket instead.
+    # None is the signal the caller turns into ClearanceRequired.
     assert solve_challenge(msg) is None
+
+
+@pytest.mark.parametrize("msg", [
+    {"method": None, "parameter": None},
+    {},
+    {"id": "0.1"},
+])
+def test_empty_challenge_is_acknowledged_with_an_empty_token(msg):
+    """A challenge carrying neither method nor parameter is an ack the backend
+    asks for on most turns, not a gate: copilot.microsoft.com's own client
+    answers it with an empty token and keeps streaming. Returning None here
+    reads it as a Cloudflare verdict, which fails every turn."""
+    assert solve_challenge(msg) == ""
 
 
 def test_drain_json_splits_concatenated_objects():
@@ -199,10 +210,24 @@ def test_turnstile_after_a_solved_pow_still_raises():
     # swallows the frame and the turn dies at the idle timeout instead.
     socket = _FakeSocket([
         '{"event":"challenge","method":"hashcash","parameter":"s:0","id":"0.1"}',
-        '{"event":"challenge","method":null,"id":"0.2"}',
+        '{"event":"challenge","method":"cloudflare","parameter":"x","id":"0.2"}',
     ])
     with pytest.raises(ClearanceRequired):
         _collect(ConsumerCopilotClient(), socket)
+
+
+def test_stream_acknowledges_an_empty_challenge_and_keeps_streaming():
+    """The live backend opens most turns with a method-less challenge. Treating
+    it as a Cloudflare gate is what made every turn fail with
+    `challenge method=None`; it has to be answered like any other challenge."""
+    socket = _FakeSocket([
+        '{"event":"connected"}{"event":"challenge","id":"0.1"}',
+        '{"event":"appendText","text":"pong"}{"event":"done"}',
+    ])
+    assert _collect(ConsumerCopilotClient(), socket) == "pong"
+    assert [m.get("event") for m in socket.sent] == ["challengeResponse", "send"]
+    assert socket.sent[0]["token"] == ""
+    assert socket.sent[0]["id"] == "0.1"
 
 
 def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():

@@ -104,6 +104,12 @@ def solve_copilot_challenge(parameter: str) -> str:
 def solve_challenge(message: dict) -> str | None:
     """Return a proof-of-work token, or ``None`` for browser-only challenges."""
     method, parameter = message.get("method"), message.get("parameter")
+    # An empty challenge (neither method nor parameter) is an acknowledgement the
+    # backend now asks for on most turns, not a gate -- copilot.microsoft.com's own
+    # client answers it with an empty token and keeps streaming. Reading it as a
+    # Cloudflare verdict is what made every impersonation profile look blocked.
+    if not method and not parameter:
+        return ""
     if method == "hashcash" and parameter:
         return solve_hashcash(parameter)
     if method == "copilot" and parameter:
@@ -330,21 +336,21 @@ class ConsumerCopilotClient:
                     return
                 elif event == "challenge":
                     method = message.get("method")
-                    if method in (None, "cloudflare"):
-                        raise ClearanceRequired(
-                            "Copilot demands an interactive Cloudflare verification "
-                            f"(challenge method={method!r}). Open the account profile "
-                            "in Edge, pass it once, then retry."
-                        )
                     try:
                         token = await asyncio.to_thread(solve_challenge, message)
                     except (TypeError, ValueError) as exc:
                         raise ClearanceRequired(
                             f"Unsafe Copilot challenge (method={method!r}): {exc}"
                         ) from exc
+                    # None means browser-only (Cloudflare Turnstile, or a method we
+                    # don't know). Checked before ``answered`` below so a Turnstile
+                    # arriving late in a turn still surfaces as a clean error rather
+                    # than being ignored into an idle timeout.
                     if token is None:
                         raise ClearanceRequired(
-                            f"Unsolvable Copilot challenge (method={method!r})."
+                            "Copilot demands an interactive Cloudflare verification "
+                            f"(challenge method={method!r}). Open the account profile "
+                            "in Edge, pass it once, then retry."
                         )
                     if answered:
                         continue
