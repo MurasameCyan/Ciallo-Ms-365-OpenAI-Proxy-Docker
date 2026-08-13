@@ -15,6 +15,7 @@ import json
 import math
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from curl_cffi.curl import CurlError
@@ -100,6 +101,11 @@ def _trace_suffix(trace: list[str]) -> str:
     return f" frames: {' '.join(trace)}" if trace else ""
 
 
+# Stable wording shared by throttle diagnostics and tests. HTTP status mapping
+# uses the typed AccountThrottled exception rather than parsing this text.
+_THROTTLED_MARKER = "spent its message quota"
+
+
 class ConsumerCopilotError(RuntimeError):
     """The consumer chat backend refused or failed a turn."""
 
@@ -110,6 +116,48 @@ class ClearanceRequired(ConsumerCopilotError):
 
 class RegionBlocked(ConsumerCopilotError):
     """The consumer backend refused this account or egress region."""
+
+
+class TurnRefused(ConsumerCopilotError):
+    """Copilot returned a challenge for which this protocol has no valid token.
+
+    Deliberately not a ``ClearanceRequired``: replying with an empty token is an
+    invalid event, while the frame alone does not disclose whether credentials,
+    egress, quota, or another connection property caused the refusal. Do not
+    spend the turn's one credential re-mint on an undisclosed cause.
+    """
+
+
+class AccountThrottled(ConsumerCopilotError):
+    """The account spent its message quota; the backend named a reset time.
+
+    ``next_available_at`` is kept verbatim from ``errorDetail`` because the wait
+    is the only actionable part: no client, credential or egress change shortens
+    it, and a retry before then draws the same refusal.
+    """
+
+    def __init__(self, message: str, next_available_at: str = ""):
+        super().__init__(message)
+        self.next_available_at = next_available_at
+
+    def retry_after_seconds(self, now: datetime | None = None) -> int | None:
+        """Seconds until the quota returns, or None if the frame named no time.
+
+        Clamped at zero: a reset time already in the past must not become a
+        negative ``Retry-After``, which clients read as "retry immediately".
+        """
+        if not self.next_available_at:
+            return None
+        try:
+            when = datetime.fromisoformat(self.next_available_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return max(
+            0,
+            math.ceil((when - (now or datetime.now(timezone.utc))).total_seconds()),
+        )
 
 
 def solve_hashcash(parameter: str) -> str:
@@ -144,32 +192,19 @@ def solve_challenge(message: dict) -> str | None:
     if method == "copilot" and parameter:
         return solve_copilot_challenge(parameter)
     # Everything else -- including the empty challenge that carries neither a
-    # method nor a parameter -- is Cloudflare's verdict on the client that sent
-    # the `send` frame, not a puzzle. All three answers were tried against the
-    # live backend before this one settled:
+    # method nor a parameter -- is a refusal rather than a puzzle. All three
+    # answers were tried against the live backend before this one settled:
     #
     #   empty token   -> `error: invalid-event` (the frame shape is refused)
     #   no frame      -> backend closed the socket without replying, 3/3
-    #   None (here)   -> ClearanceRequired, so chat_stream re-mints once
+    #   None (here)   -> TurnRefused, with the frame trace attached
     #
-    # It is a verdict on the connection rather than on the turn, which is why it
-    # never coexists with a reply. What it tracks is the egress and the account,
-    # not the client stack: measured 2026-08-12 from the deployed VPS, Copilot's
-    # own UI -- real Camoufox page, trusted keyboard input, the page's own socket
-    # and frames -- drew the same `method=null id="0.0001"` through the same
-    # egress and was then closed with 1006, no reply on the page. Our `send` frame
-    # is byte-identical in shape to the one the UI puts on the wire.
-    #
-    # The method of the first challenge also drifts: the same account through the
-    # same egress with the same stack drew a solvable `hashcash` (difficulty 1)
-    # and, forty minutes later, `method=null`. So a single run compares nothing --
-    # the earlier profile matrix (firefox147 4/4 vs chrome146 0/4) was one run per
-    # cell and has been withdrawn.
-    #
-    # The credentials are not the variable either: a re-mint one minute earlier
-    # draws it again and `POST /c/api/conversations` answers 200 throughout. The
-    # remaining lever is the egress (both IPs measured so far are datacenter) or
-    # another account.
+    # A live throttled turn later established one ordering fact, not an identity:
+    # it emitted `chatMessageError errorCode=throttled` with `nextAvailableAt`,
+    # followed by this method-less challenge. The explicit error is sufficient to
+    # diagnose that turn; a challenge received without it is not sufficient to
+    # diagnose quota, egress, credentials, or the client stack. Keep those cases
+    # separate rather than turning temporal correlation into a protocol rule.
     return None
 
 
@@ -433,23 +468,18 @@ class ConsumerCopilotClient:
                         raise ClearanceRequired(
                             f"Unsafe Copilot challenge (method={method!r}): {exc}"
                         ) from exc
-                    # None means no token can pass: a Turnstile, a method we do
-                    # not know, or the method-less verdict Cloudflare returns
-                    # when the `send` arrives over a connection it does not
-                    # trust. Checked before ``answered`` so one arriving late in
-                    # a turn still surfaces as a clean error rather than being
-                    # ignored into an idle timeout, and typed ClearanceRequired
-                    # so chat_stream spends its one gate re-mint on it.
+                    # None means no token can pass. This frame is terminal but
+                    # not diagnostic by itself: a live throttled turn emitted an
+                    # explicit chatMessageError first, while other turns exposed
+                    # only this challenge. Do not invent a cause when the backend
+                    # did not disclose one, and do not spend a credential re-mint
+                    # on a frame that has no valid answer.
                     if token is None:
-                        raise ClearanceRequired(
-                            "Copilot answered the turn with a challenge no token "
-                            f"can pass (method={method!r}): this connection is "
-                            "not trusted. Measured to follow the egress IP and "
-                            "the account, not the client and not the credentials "
-                            "-- Copilot's own web UI draws the same frame on the "
-                            "same egress, and a re-mint a minute earlier draws it "
-                            "again -- so try this account through another egress "
-                            f"(a residential one).{_trace_suffix(trace)}"
+                        raise TurnRefused(
+                            "Copilot refused the turn with a challenge no token "
+                            f"can pass (method={method!r}); the reason was not "
+                            "disclosed. Do not answer this frame or re-mint "
+                            f"credentials.{_trace_suffix(trace)}"
                         )
                     if answered:
                         continue
@@ -463,6 +493,29 @@ class ConsumerCopilotClient:
                     # A real challenge suspends the pending `send`, so it has to
                     # be replayed once cleared.
                     await emit(send_frame)
+                elif event == "chatMessageError":
+                    # The backend's per-message refusal, captured 2026-08-12:
+                    # `{"event":"chatMessageError","errorCode":"throttled",
+                    #   "errorDetail":{"type":"throttled","nextAvailableAt":...}}`
+                    # followed by a method-less challenge and a close. Unhandled
+                    # it was invisible -- the turn sat until the idle timeout and
+                    # reported silence, hiding the one number that matters.
+                    detail = message.get("errorDetail") or {}
+                    code = str(
+                        message.get("errorCode") or detail.get("type") or "unknown"
+                    )
+                    if code == "throttled":
+                        when = str(detail.get("nextAvailableAt") or "")
+                        raise AccountThrottled(
+                            f"This Copilot account {_THROTTLED_MARKER}"
+                            + (f"; the backend allows the next turn at {when}"
+                               if when else " and named no reset time")
+                            + f".{_trace_suffix(trace)}",
+                            next_available_at=when,
+                        )
+                    raise ConsumerCopilotError(
+                        f"Copilot refused the message: {code};{_trace_suffix(trace)}"
+                    )
                 elif event == "error":
                     code = message.get("errorCode") or message
                     if code == "chat-service-unavailable":

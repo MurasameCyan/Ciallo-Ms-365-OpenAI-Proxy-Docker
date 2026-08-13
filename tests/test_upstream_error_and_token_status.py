@@ -10,8 +10,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
+from m365_copilot_openai_proxy.consumer_client import AccountThrottled
 from m365_copilot_openai_proxy.routes_api_common import upstream_http_error
 from m365_copilot_openai_proxy.substrate_client import (
     _EMPTY_TURN_MARKER,
@@ -86,6 +89,20 @@ def test_transport_and_credential_failures_stay_502(detail):
 def test_detail_is_preserved_either_way():
     exc = SubstrateCopilotError(f"M365 Copilot {_REFUSED_TURN_MARKER} instead of answering")
     assert upstream_http_error(exc).detail == str(exc)
+
+
+def test_account_throttle_maps_to_429_and_retry_after():
+    exc = AccountThrottled(
+        "This Copilot account spent its message quota.",
+        "2026-08-13T15:17:13+00:00",
+    )
+    response = upstream_http_error(
+        exc,
+        now=datetime(2026, 8, 13, 15, 17, 3, tzinfo=timezone.utc),
+    )
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "10"
+    assert response.detail == str(exc)
 
 
 # ------------------------------------------------------------ format wording

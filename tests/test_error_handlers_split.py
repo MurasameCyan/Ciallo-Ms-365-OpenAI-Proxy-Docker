@@ -21,6 +21,25 @@ def test_register_error_handlers_returns_json_for_http_exceptions():
     assert response.headers["Access-Control-Allow-Origin"] == "*"
 
 
+def test_http_exception_headers_are_preserved():
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/limited")
+    async def limited():
+        raise HTTPException(
+            status_code=429,
+            detail="quota",
+            headers={"Retry-After": "42"},
+        )
+
+    response = TestClient(app).get("/limited")
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "42"
+    assert response.headers["Access-Control-Allow-Origin"] == "*"
+
+
 def test_register_error_handlers_returns_json_for_unhandled_exceptions():
     app = FastAPI()
     register_error_handlers(app)

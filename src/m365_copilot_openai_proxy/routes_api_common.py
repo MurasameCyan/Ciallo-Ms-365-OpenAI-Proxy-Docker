@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
 
 from .config import Settings
+from .consumer_client import AccountThrottled
 from .key_store import ApiKey
 from .runtime_settings import (
     _BUILTIN_CONSUMER_MODE_OPTIONS,
@@ -15,7 +18,9 @@ from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 from .tone_resolver import resolve_tone
 
 
-def upstream_http_error(exc: Exception) -> HTTPException:
+def upstream_http_error(
+    exc: Exception, *, now: datetime | None = None
+) -> HTTPException:
     """Map a SubstrateCopilotError onto the status code its cause deserves.
 
     Every failure used to surface as 502, so a turn M365 simply would not answer
@@ -27,11 +32,19 @@ def upstream_http_error(exc: Exception) -> HTTPException:
     maps to 400 -- the request as phrased will not be served. Everything else
     (idle timeout, closed socket, unusable token) stays 502.
 
-    Keyed on the markers substrate_client raises rather than on exception
-    subclasses, matching how mode availability is already classified from these
-    same strings.
+    Consumer quota refusals use the typed ``AccountThrottled`` cause preserved by
+    the adapter, so their reset timestamp becomes ``Retry-After`` without parsing
+    error text. Refused/empty M365 turns retain the historical marker mapping
+    because the substrate client does not expose typed subclasses for them.
     """
     detail = str(exc)
+    throttled = exc if isinstance(exc, AccountThrottled) else exc.__cause__
+    if isinstance(throttled, AccountThrottled):
+        headers = None
+        seconds = throttled.retry_after_seconds(now)
+        if seconds is not None:
+            headers = {"Retry-After": str(max(1, math.ceil(seconds)))}
+        return HTTPException(status_code=429, detail=detail, headers=headers)
     refused = _REFUSED_TURN_MARKER in detail or _EMPTY_TURN_MARKER in detail
     return HTTPException(status_code=400 if refused else 502, detail=detail)
 

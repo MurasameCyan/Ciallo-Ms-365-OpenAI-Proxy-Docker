@@ -9,16 +9,19 @@ import asyncio
 import hashlib
 import json
 import threading
+from datetime import datetime, timezone
 
 import pytest
 
 from curl_cffi.requests import WebSocketClosed, WebSocketError, WebSocketTimeout
 
 from m365_copilot_openai_proxy.consumer_client import (
+    AccountThrottled,
     ClearanceRequired,
     ConsumerCopilotClient,
     ConsumerCopilotError,
     RegionBlocked,
+    TurnRefused,
     drain_json,
     solve_challenge,
     solve_copilot_challenge,
@@ -79,7 +82,7 @@ def test_solve_challenge_dispatches_by_method():
     {"method": "hashcash"},  # no parameter -> unsolvable, not a crash
 ])
 def test_browser_only_challenges_return_none(msg):
-    # None is the signal the caller turns into ClearanceRequired.
+    # None tells the reader that this frame has no valid challenge response.
     assert solve_challenge(msg) is None
 
 
@@ -88,11 +91,13 @@ def test_browser_only_challenges_return_none(msg):
     {},
     {"id": "0.0001"},
 ])
-def test_empty_challenge_is_a_verdict_no_token_can_pass(msg):
-    """A challenge carrying neither method nor parameter is Cloudflare's verdict
-    on the client, not a puzzle. Both answers tried online failed: an empty token
-    drew `error: invalid-event`, and sending nothing made the backend close the
-    socket without replying (3/3). Returning None routes it to the gate."""
+def test_empty_challenge_has_no_token_the_client_can_send(msg):
+    """The frame discloses no proof method and therefore has no valid response.
+
+    An empty token drew ``invalid-event`` online. The frame alone does not reveal
+    why this connection received it, so the client must stop without replying or
+    automatically re-minting credentials.
+    """
     assert solve_challenge(msg) is None
 
 
@@ -234,48 +239,53 @@ def test_repeated_challenge_is_not_answered_twice():
     assert len(socket.sent) == 2  # one challengeResponse + one re-send, not four
 
 
-def test_turnstile_after_a_solved_pow_still_raises():
-    # The regression this guards: gating the Turnstile check behind `answered`
+def test_unknown_challenge_after_a_solved_pow_is_still_refused():
+    # The regression this guards: gating the refusal check behind `answered`
     # swallows the frame and the turn dies at the idle timeout instead.
     socket = _FakeSocket([
         '{"event":"challenge","method":"hashcash","parameter":"s:0","id":"0.1"}',
         '{"event":"challenge","method":"cloudflare","parameter":"x","id":"0.2"}',
     ])
-    with pytest.raises(ClearanceRequired):
+    with pytest.raises(TurnRefused):
         _collect(ConsumerCopilotClient(), socket)
 
 
-def test_an_empty_challenge_is_raised_as_clearance_without_answering_it():
-    """Measured live, 3/3: the backend follows the method-less challenge with a
-    socket close, so nothing is gained by waiting and nothing may be sent -- an
-    empty token came back as `invalid-event`. Raising ClearanceRequired is what
-    lets chat_stream re-mint the credentials once and retry the turn."""
+def test_an_empty_challenge_refuses_without_answering_or_reminting():
+    """A method-less challenge has no valid response. By itself it does not
+    identify quota, egress, credentials, or client fingerprint."""
     socket = _FakeSocket([
         '{"event":"connected"}{"event":"challenge","id":"0.0001"}',
     ])
-    with pytest.raises(ClearanceRequired) as error:
+    with pytest.raises(TurnRefused, match="method=None") as error:
         _collect(ConsumerCopilotClient(), socket)
-    # No challengeResponse and no second `send`: the verdict is not answerable.
     assert [m.get("event") for m in socket.sent] == [
         "setOptions", "reportLocalConsents", "send",
     ]
-    # The trace rides along, because which frame drew the verdict is the whole
-    # question when it comes back again.
     assert ">send(mode=" in str(error.value)
 
 
-def test_an_empty_challenge_names_the_egress_as_the_cause_measurement_found():
-    """The operator-facing half. It used to blame a Cloudflare cookie earned by
-    another client and tell the reader to re-mint, which 2026-08-12 measured
-    wrong: with zero CF cookies stored and credentials re-minted a minute
-    earlier, the verdict repeated. It then blamed the client stack, which the
-    same day measured wrong too -- Copilot's own web UI, driven with trusted
-    keyboard input on the same egress, drew the identical frame and was closed
-    with 1006. What is left is the connection: the egress IP and the account. So
-    the message has to point there, or an operator spends the day re-minting."""
-    socket = _FakeSocket(['{"event":"challenge","method":null,"parameter":null}'])
-    with pytest.raises(ClearanceRequired, match="through another egress"):
+def test_throttled_message_wins_over_a_later_empty_challenge():
+    """The actionable quota error must win over a later method-less challenge."""
+    socket = _FakeSocket([
+        '{"event":"chatMessageError","errorCode":"throttled",'
+        '"errorDetail":{"type":"throttled",'
+        '"nextAvailableAt":"2026-08-13T15:17:13+00:00"}}'
+        '{"event":"challenge","method":null,"parameter":null,"id":"0.0002"}',
+    ])
+    with pytest.raises(AccountThrottled) as error:
         _collect(ConsumerCopilotClient(), socket)
+    assert error.value.next_available_at == "2026-08-13T15:17:13+00:00"
+    assert error.value.retry_after_seconds(
+        datetime(2026, 8, 13, 15, 17, 2, 900_000, tzinfo=timezone.utc)
+    ) == 11
+    assert '<{"event": "challenge"' not in str(error.value)
+
+
+def test_throttle_retry_after_is_zero_once_the_reset_time_passes():
+    error = AccountThrottled("quota", "2026-08-13T15:17:13+00:00")
+    assert error.retry_after_seconds(
+        datetime(2026, 8, 13, 15, 17, 14, tzinfo=timezone.utc)
+    ) == 0
 
 
 def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():

@@ -68,7 +68,13 @@ class ConsumerClientAdapter:
             detail = str(exc)
             if self.mode_status == "experimental":
                 detail = f"{detail}；{_EXPERIMENTAL_MODE_HINT}"
-            raise SubstrateCopilotError(detail) from exc
+            translated = SubstrateCopilotError(detail)
+            # Keep the reset timestamp across the route-contract adapter. The
+            # HTTP layer uses it to return a useful Retry-After instead of
+            # treating an account quota refusal as a generic 502.
+            if hasattr(exc, "next_available_at"):
+                translated.next_available_at = exc.next_available_at
+            raise translated from exc
 
     async def chat(
         self,

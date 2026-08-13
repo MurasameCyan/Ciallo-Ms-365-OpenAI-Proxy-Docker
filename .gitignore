@@ -17,3 +17,5 @@ poc_refresh_token_exchange.py
 # Protocol probes: throwaway scripts + the browser profile they sign in with
 .probe/
 get_rt.console.js
+# Temporary authenticated proxy pool exports (contain live credentials)
+proxies_*.txt

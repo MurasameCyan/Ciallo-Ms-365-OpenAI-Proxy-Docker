@@ -22,8 +22,10 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
+        headers = {"Access-Control-Allow-Origin": "*"}
+        headers.update(exc.headers or {})
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"message": exc.detail, "type": "http_error"}},
-            headers={"Access-Control-Allow-Origin": "*"},
+            headers=headers,
         )

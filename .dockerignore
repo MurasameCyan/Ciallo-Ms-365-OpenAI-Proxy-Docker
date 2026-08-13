@@ -8,3 +8,5 @@ image/
 *.md
 LICENSE
 get_token.js
+# Temporary authenticated proxy pool exports must never enter build context
+proxies_*.txt

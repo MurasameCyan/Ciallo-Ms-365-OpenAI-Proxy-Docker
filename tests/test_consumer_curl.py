@@ -295,7 +295,7 @@ def test_browser_gate_refreshes_auth_and_retries_one_unstarted_turn():
     def factory(**kwargs):
         attempts.append(kwargs)
         session = (
-            _FakeSession([b'{"event":"challenge","method":"cloudflare","parameter":"x"}'])
+            _FakeSession([b'{"event":"challenge","method":"hashcash","parameter":"broken"}'])
             if len(attempts) == 1
             else _FakeSession()
         )
@@ -348,7 +348,7 @@ def test_an_empty_text_frame_does_not_spend_the_one_browser_gate_retry():
             _FakeSession(
                 [
                     b'{"event":"appendText","text":""}',
-                    b'{"event":"challenge","method":"cloudflare","parameter":"x"}',
+                    b'{"event":"challenge","method":"hashcash","parameter":"broken"}',
                 ]
             )
             if len(attempts) == 1
@@ -374,7 +374,7 @@ def test_real_text_before_a_challenge_still_suppresses_the_gate():
         return _FakeSession(
             [
                 b'{"event":"appendText","text":"partial"}',
-                b'{"event":"challenge","method":"cloudflare","parameter":"x"}',
+                b'{"event":"challenge","method":"hashcash","parameter":"broken"}',
             ]
         )
 
@@ -396,7 +396,7 @@ def test_browser_gate_is_attempted_only_once():
     def factory(**kwargs):
         nonlocal attempts
         attempts += 1
-        return _FakeSession([b'{"event":"challenge","method":"cloudflare","parameter":"x"}'])
+        return _FakeSession([b'{"event":"challenge","method":"hashcash","parameter":"broken"}'])
 
     async def gate():
         gate_calls.append(True)
@@ -419,7 +419,7 @@ def test_gate_retry_discards_a_preexisting_blocked_conversation_id():
 
     def factory(**kwargs):
         session = _FakeSession(
-            [b'{"event":"challenge","method":"cloudflare","parameter":"x"}']
+            [b'{"event":"challenge","method":"hashcash","parameter":"broken"}']
             if not attempts else None
         )
         attempts.append(session)
@@ -446,7 +446,7 @@ def test_browser_gate_never_replays_after_a_chunk_was_emitted():
         attempts += 1
         return _FakeSession([
             b'{"event":"appendText","text":"half"}',
-            b'{"event":"challenge","method":"cloudflare","parameter":"x"}',
+            b'{"event":"challenge","method":"hashcash","parameter":"broken"}',
         ])
 
     async def gate():

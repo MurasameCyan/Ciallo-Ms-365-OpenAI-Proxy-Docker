@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from m365_copilot_openai_proxy.consumer_adapter import ConsumerClientAdapter
-from m365_copilot_openai_proxy.consumer_client import ConsumerCopilotError
+from m365_copilot_openai_proxy.consumer_client import AccountThrottled, ConsumerCopilotError
 from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
 
 
@@ -58,6 +60,20 @@ def test_adapter_reraises_stable_consumer_error_unchanged():
         assert str(exc) == "boom"
     else:
         raise AssertionError("expected SubstrateCopilotError")
+
+
+def test_adapter_preserves_account_throttle_metadata():
+    adapter = ConsumerClientAdapter(
+        FakeConsumerClient(
+            fail=AccountThrottled(
+                "quota", "2026-08-13T15:17:13+00:00"
+            )
+        )
+    )
+    with pytest.raises(SubstrateCopilotError) as error:
+        _collect(adapter.chat_stream("hi"))
+    assert isinstance(error.value.__cause__, AccountThrottled)
+    assert error.value.next_available_at == "2026-08-13T15:17:13+00:00"
 
 
 def test_adapter_appends_rollout_hint_to_experimental_consumer_error():
