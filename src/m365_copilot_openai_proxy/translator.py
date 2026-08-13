@@ -4,6 +4,7 @@ import json
 import re
 from typing import Iterable
 
+from .consumer_prompt import validate_consumer_required_content
 from .models import (
     AnthropicMessagesRequest,
     ContentPart,
@@ -332,6 +333,138 @@ def _format_tools_prompt(
     return out
 
 
+_CONSUMER_TOOL_BUDGET_ERROR = (
+    "Consumer Copilot prompt budget cannot fit the required tool signatures"
+)
+
+
+def _compact_schema_signature(schema, depth: int = 0) -> str:
+    """Render JSON Schema without descriptions, examples, titles, or defaults."""
+    if not isinstance(schema, dict):
+        return "any"
+    if depth >= 12:
+        raw_type = schema.get("type")
+        if isinstance(raw_type, str) and raw_type:
+            return raw_type
+        if isinstance(schema.get("properties"), dict):
+            return "object"
+        if "items" in schema:
+            return "array"
+        return "any"
+
+    alternatives = schema.get("oneOf") or schema.get("anyOf")
+    if isinstance(alternatives, list) and alternatives:
+        kind = "oneOf" if schema.get("oneOf") else "anyOf"
+        rendered = f"{kind}<" + " | ".join(
+            _compact_schema_signature(option, depth + 1) for option in alternatives
+        ) + ">"
+    else:
+        raw_type = schema.get("type")
+        if isinstance(raw_type, list):
+            rendered = "|".join(str(item) for item in raw_type)
+        elif isinstance(raw_type, str) and raw_type:
+            rendered = raw_type
+        elif isinstance(schema.get("properties"), dict):
+            rendered = "object"
+        elif "items" in schema:
+            rendered = "array"
+        else:
+            rendered = "any"
+
+        if rendered == "object":
+            properties = schema.get("properties")
+            if isinstance(properties, dict) and properties:
+                required = schema.get("required")
+                required_names = set(required) if isinstance(required, list) else set()
+                fields = []
+                for name, definition in properties.items():
+                    marker = " required" if name in required_names else ""
+                    fields.append(
+                        f"{name}: {_compact_schema_signature(definition, depth + 1)}{marker}"
+                    )
+                rendered += "{" + "; ".join(fields) + "}"
+        elif rendered == "array":
+            items = schema.get("items")
+            if isinstance(items, list):
+                item_signature = " | ".join(
+                    _compact_schema_signature(item, depth + 1) for item in items
+                )
+            else:
+                item_signature = _compact_schema_signature(items, depth + 1)
+            rendered += f"<{item_signature}>"
+
+    if "enum" in schema:
+        rendered += " enum=" + json.dumps(
+            schema["enum"], ensure_ascii=False, separators=(",", ":")
+        )
+    if "const" in schema:
+        rendered += " const=" + json.dumps(
+            schema["const"], ensure_ascii=False, separators=(",", ":")
+        )
+    return rendered
+
+
+def _format_consumer_tools_contract(
+    tools,
+    choice: tuple[str, str | None, bool],
+    max_chars: int,
+) -> str | None:
+    """Build the complete, compact tool contract used only by Consumer Copilot."""
+    if not tools:
+        return None
+
+    tool_lines = []
+    for tool in tools:
+        func = tool.function
+        name = (func.name or "").strip()
+        if not name:
+            continue
+        schema = func.parameters if isinstance(func.parameters, dict) else {}
+        properties = schema.get("properties")
+        required = schema.get("required")
+        required_names = set(required) if isinstance(required, list) else set()
+        params = []
+        if isinstance(properties, dict):
+            for param_name, definition in properties.items():
+                marker = " required" if param_name in required_names else ""
+                params.append(
+                    f"{param_name}: {_compact_schema_signature(definition)}{marker}"
+                )
+        elif schema:
+            params.append(f"arguments: {_compact_schema_signature(schema)}")
+        tool_lines.append(f"- {name}({'; '.join(params)})")
+
+    if not tool_lines:
+        return None
+
+    mode, selected_name, allow_parallel = choice
+    if mode == "required":
+        choice_line = "MUST request one listed tool."
+    elif mode == "tool" and selected_name:
+        choice_line = f"MUST request only tool named {selected_name}."
+    else:
+        choice_line = "Tool use is optional."
+    parallel_line = (
+        "Multiple tool calls are allowed; use one tool_call block per call."
+        if allow_parallel
+        else "Request at most one tool call."
+    )
+    contract = "\n".join([
+        "Consumer tool contract:",
+        "You do not execute tools. The client executes requests you emit as:",
+        "```tool_call",
+        '{"name":"<exact tool name>","arguments":{}}',
+        "```",
+        "Available tools:",
+        *tool_lines,
+        choice_line,
+        parallel_line,
+    ])
+    if len(contract) > max_chars:
+        raise ValueError(_CONSUMER_TOOL_BUDGET_ERROR)
+    return contract
+
+
 def _anthropic_tools_as_openai(tools) -> list[ToolDefinition]:
     """Adapt Anthropic tool definitions to the OpenAI shape.
 
@@ -410,19 +543,33 @@ def _format_tool_results(tool_calls: list[ToolCall] | None, content: str, name: 
     return "\n".join(parts)
 
 
-def translate_openai_request(request: OpenAIChatRequest, incremental: bool = False, system_override: str | None = None) -> TranslatedRequest:
+def translate_openai_request(
+    request: OpenAIChatRequest,
+    incremental: bool = False,
+    system_override: str | None = None,
+    consumer_tool_max_chars: int | None = None,
+) -> TranslatedRequest:
     system_lines: list[str] = []
     transcript_lines: list[str] = []
     prompt = ""
     images: list[ImageData] = []
+    consumer_tools_contract = None
 
     # Inject tool definitions into system context. tool_choice="none" means the
     # client forbids tool calls this turn, so the whole tool contract is withheld
     # -- see effective_tools(), which the route uses to disable parsing to match.
     choice = normalize_tool_choice(request.tool_choice, getattr(request, "parallel_tool_calls", None))
-    tools_prompt = _format_tools_prompt(effective_tools(request.tools, choice), system_override, choice)
-    if tools_prompt:
-        system_lines.append(tools_prompt)
+    tools = effective_tools(request.tools, choice)
+    if consumer_tool_max_chars is None:
+        tools_prompt = _format_tools_prompt(tools, system_override, choice)
+        if tools_prompt:
+            system_lines.append(tools_prompt)
+    else:
+        consumer_tools_contract = _format_consumer_tools_contract(
+            tools, choice, consumer_tool_max_chars
+        )
+        if consumer_tools_contract and (system_override or "").strip():
+            system_lines.append(system_override.strip())
 
     # In incremental (persistent-session continuation) mode, the M365 server already
     # remembers everything up to and including its last assistant response. Only the
@@ -506,7 +653,14 @@ def translate_openai_request(request: OpenAIChatRequest, incremental: bool = Fal
     if not prompt:
         raise ValueError("A final user message is required.")
 
+    if consumer_tools_contract:
+        validate_consumer_required_content(
+            prompt, consumer_tools_contract, consumer_tool_max_chars
+        )
+
     additional_context: list[str] = []
+    if consumer_tools_contract:
+        additional_context.append(consumer_tools_contract)
     system_text = _join_lines(system_lines)
     if system_text:
         additional_context.append(f"System instructions:\n{system_text}")
@@ -570,17 +724,25 @@ def translate_responses_request(request: OpenAIResponsesRequest) -> TranslatedRe
 def translate_anthropic_request(
     request: AnthropicMessagesRequest,
     system_override: str | None = None,
+    consumer_tool_max_chars: int | None = None,
 ) -> TranslatedRequest:
     system_lines: list[str] = []
+    consumer_tools_contract = None
 
     # Same tool instruction block the OpenAI path injects, so a Claude-style
     # client asking for a file write gets the ```tool_call``` contract too.
     choice = normalize_tool_choice(request.tool_choice)
-    tools_prompt = _format_tools_prompt(
-        _anthropic_tools_as_openai(effective_tools(request.tools, choice)), system_override, choice
-    )
-    if tools_prompt:
-        system_lines.append(tools_prompt)
+    tools = _anthropic_tools_as_openai(effective_tools(request.tools, choice))
+    if consumer_tool_max_chars is None:
+        tools_prompt = _format_tools_prompt(tools, system_override, choice)
+        if tools_prompt:
+            system_lines.append(tools_prompt)
+    else:
+        consumer_tools_contract = _format_consumer_tools_contract(
+            tools, choice, consumer_tool_max_chars
+        )
+        if consumer_tools_contract and (system_override or "").strip():
+            system_lines.append(system_override.strip())
 
     top_level_system = flatten_content(request.system).strip()
     if top_level_system:
@@ -632,7 +794,14 @@ def translate_anthropic_request(
     if not prompt and not images:
         raise ValueError("A final user message is required.")
 
+    if consumer_tools_contract:
+        validate_consumer_required_content(
+            prompt, consumer_tools_contract, consumer_tool_max_chars
+        )
+
     additional_context: list[str] = []
+    if consumer_tools_contract:
+        additional_context.append(consumer_tools_contract)
     system_text = _join_lines(system_lines)
     if system_text:
         additional_context.append(f"System instructions:\n{system_text}")

@@ -23,9 +23,11 @@ class _FakeConsumerClient:
         self.mode = "smart"
         self.fail = None
         self.calls = 0
+        self.prompts = []
 
     async def chat_stream(self, prompt, conversation_id=""):
         self.calls += 1
+        self.prompts.append(prompt)
         if self.fail:
             raise self.fail
         yield "ok"
@@ -34,8 +36,10 @@ class _FakeConsumerClient:
 class _FakeM365Client:
     def __init__(self, tone="Magic"):
         self._tone = tone or "Magic"
+        self.calls = []
 
     async def chat(self, prompt, additional_context, session=None, images=None):
+        self.calls.append((prompt, additional_context))
         return "ok"
 
 
@@ -106,6 +110,135 @@ def provider_app(tmp_path):
 
 def _body_with_model(body: dict, model: str) -> dict:
     return {**body, "model": model}
+
+
+def _body_with_history(endpoint: str, body: dict, history: str, prompt: str) -> dict:
+    updated = dict(body)
+    if endpoint == "/v1/responses":
+        updated["input"] = [
+            {"role": "user", "content": history},
+            {"role": "assistant", "content": "ack"},
+            {"role": "user", "content": prompt},
+        ]
+    else:
+        updated["messages"] = [
+            {"role": "user", "content": history},
+            {"role": "assistant", "content": "ack"},
+            {"role": "user", "content": prompt},
+        ]
+    return updated
+
+
+@pytest.mark.parametrize("endpoint,body", _ROUTE_CASES)
+def test_consumer_routes_cap_long_history_and_keep_current_prompt(
+    provider_app, endpoint, body,
+):
+    app, consumer_key, _m365_key, made_consumers, made_m365 = provider_app
+    app.state.settings.consumer_prompt_max_chars = 1000
+    app.state.consumer_mode_options = [
+        {"model": "deep-alias", "mode": "smart", "status": "stable"},
+    ]
+    history = "OLD_HISTORY_HEAD\n" + ("你" * 3000) + "\nOLD_HISTORY_TAIL"
+    current = "CURRENT_USER_SENTINEL"
+
+    response = TestClient(app).post(
+        endpoint,
+        headers={"Authorization": f"Bearer {consumer_key.key}"},
+        json=_body_with_history(endpoint, body, history, current),
+    )
+
+    assert response.status_code == 200
+    sent = made_consumers[-1].prompts[-1]
+    assert len(sent) <= 1000
+    assert sent.endswith(current)
+    assert "OLD_HISTORY_HEAD" not in sent
+    assert "OLD_HISTORY_TAIL" in sent
+    assert made_m365 == []
+
+
+@pytest.mark.parametrize("endpoint,body", _ROUTE_CASES)
+def test_m365_routes_do_not_apply_consumer_history_limit(provider_app, endpoint, body):
+    app, _consumer_key, m365_key, made_consumers, made_m365 = provider_app
+    app.state.settings.consumer_prompt_max_chars = 1000
+    app.state.tone_options = [{"value": "Magic", "label": "自动"}]
+    history = "OLD_HISTORY_HEAD\n" + ("你" * 3000) + "\nOLD_HISTORY_TAIL"
+    current = "CURRENT_USER_SENTINEL"
+
+    response = TestClient(app).post(
+        endpoint,
+        headers={"Authorization": f"Bearer {m365_key.key}"},
+        json=_body_with_model(
+            _body_with_history(endpoint, body, history, current),
+            "Magic",
+        ),
+    )
+
+    assert response.status_code == 200
+    prompt, context = made_m365[-1].calls[-1]
+    assert prompt == current
+    joined = "\n\n".join(context)
+    assert history in joined
+    assert len(joined) + len(prompt) > 1000
+    assert "omitted for Consumer Copilot prompt budget" not in joined
+    assert made_consumers == []
+
+
+@pytest.mark.parametrize(
+    "endpoint,tool",
+    [
+        (
+            "/v1/chat/completions",
+            {
+                "type": "function",
+                "function": {
+                    "name": "Read",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"file_path": {"type": "string"}},
+                        "required": ["file_path"],
+                    },
+                },
+            },
+        ),
+        (
+            "/v1/messages",
+            {
+                "name": "Read",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"file_path": {"type": "string"}},
+                    "required": ["file_path"],
+                },
+            },
+        ),
+    ],
+)
+def test_consumer_tool_stream_rejects_mandatory_content_before_upstream_call(
+    provider_app, endpoint, tool,
+):
+    app, consumer_key, _m365_key, made_consumers, _made_m365 = provider_app
+    app.state.settings.consumer_prompt_max_chars = 320
+    app.state.consumer_mode_options = [
+        {"model": "deep-alias", "mode": "smart", "status": "stable"},
+    ]
+    body = {
+        "model": "deep-alias",
+        "stream": True,
+        "messages": [{"role": "user", "content": "CURRENT_" + ("x" * 100)}],
+        "tools": [tool],
+    }
+    if endpoint == "/v1/messages":
+        body["max_tokens"] = 64
+
+    response = TestClient(app).post(
+        endpoint,
+        headers={"Authorization": f"Bearer {consumer_key.key}"},
+        json=body,
+    )
+
+    assert response.status_code == 400
+    assert "required tool signatures and current user prompt" in response.text
+    assert made_consumers[-1].calls == 0
 
 
 @pytest.mark.parametrize("endpoint,body", _ROUTE_CASES)

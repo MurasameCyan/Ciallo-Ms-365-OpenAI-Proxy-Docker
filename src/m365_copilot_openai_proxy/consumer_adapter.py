@@ -7,9 +7,9 @@ a different protocol (``ConsumerCopilotClient.chat_stream(prompt,
 conversation_id)``) and raises ``ConsumerCopilotError``. This wrapper is the
 single seam between them, so the routes need no per-provider branching:
 
-* It flattens ``prompt`` + ``additional_context`` exactly the way
-  ``SubstrateCopilotClient`` does (shared ``_combine_text``), which also gives
-  consumer accounts the same prompt-simulated tool-call instructions for free.
+* It preserves the shared ``_combine_text`` result while it fits, then compacts
+  only Consumer prompts that exceed the configured upstream character budget.
+  Consumer tool requests carry a dedicated compact prompt contract.
 * It drops the substrate-only ``session`` and ``images`` arguments. Consumer is
   a stateless text bridge: the full transcript is re-sent as ``additional_context``
   every turn, so a fresh conversation per turn loses no context.
@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from .consumer_client import ConsumerCopilotClient, ConsumerCopilotError
+from .consumer_prompt import compact_consumer_prompt
 from .substrate_client import SubstrateCopilotError
 from .substrate_parse import _combine_text
 
@@ -34,8 +35,9 @@ _EXPERIMENTAL_MODE_HINT = (
 class ConsumerClientAdapter:
     """Present a ``ConsumerCopilotClient`` through the Substrate route contract."""
 
-    def __init__(self, client: ConsumerCopilotClient):
+    def __init__(self, client: ConsumerCopilotClient, max_prompt_chars: int = 8000):
         self._client = client
+        self.max_prompt_chars = max_prompt_chars
         self.mode_status = "stable"
 
     @property
@@ -56,7 +58,13 @@ class ConsumerClientAdapter:
         # ponytail: images are dropped -- the consumer bridge is text-only. Ceiling:
         # a request carrying an image gets a text-only answer. Upgrade path: port
         # the browser's image-upload handshake into ConsumerCopilotClient.
-        text = _combine_text(prompt, additional_context or [])
+        context = additional_context or []
+        if any(part.startswith("Consumer tool contract:") for part in context):
+            text = compact_consumer_prompt(prompt, context, self.max_prompt_chars)
+        else:
+            text = _combine_text(prompt, context)
+            if len(text) > self.max_prompt_chars:
+                text = compact_consumer_prompt(prompt, context, self.max_prompt_chars)
         try:
             async for chunk in self._client.chat_stream(text):
                 yield chunk

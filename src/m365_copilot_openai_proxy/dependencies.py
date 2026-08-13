@@ -119,7 +119,14 @@ def create_api_dependencies(
                     proxy=resolve_account_proxy(account) or None,
                     gate=_consumer_gate_for(app, account.id),
                 )
-                return ConsumerClientAdapter(consumer)
+                return ConsumerClientAdapter(
+                    consumer,
+                    max_prompt_chars=getattr(
+                        getattr(app.state, "settings", None),
+                        "consumer_prompt_max_chars",
+                        8000,
+                    ),
+                )
             try:
                 client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
             except TypeError:

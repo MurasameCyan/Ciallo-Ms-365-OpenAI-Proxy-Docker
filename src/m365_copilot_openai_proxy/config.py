@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     api_key: str = Field(default="", alias="API_KEY")
     admin_password: str = Field(default="", alias="ADMIN_PASSWORD")
     idle_timeout_minutes: int = Field(default=30, alias="IDLE_TIMEOUT_MINUTES")
+    consumer_prompt_max_chars: int = Field(
+        default=8000,
+        ge=1000,
+        alias="CONSUMER_PROMPT_MAX_CHARS",
+    )
     token_dir: str = Field(default="/home/app/token", alias="TOKEN_DIR")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     # Runtime user/account log toggles. Seed the initial value of the (Web-editable)

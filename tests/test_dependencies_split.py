@@ -57,7 +57,11 @@ def test_get_copilot_client_dispatches_consumer_account_through_adapter(tmp_path
     from m365_copilot_openai_proxy.consumer_adapter import ConsumerClientAdapter
 
     app = FastAPI()
-    app.state.settings = Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key")
+    app.state.settings = Settings(
+        TOKEN_DIR=str(tmp_path),
+        API_KEY="admin-key",
+        CONSUMER_PROMPT_MAX_CHARS=4321,
+    )
     app.state.copilot_client_factory = lambda **kw: pytest.fail("consumer must not build a Substrate client")
 
     sentinel_consumer = object()
@@ -88,6 +92,7 @@ def test_get_copilot_client_dispatches_consumer_account_through_adapter(tmp_path
 
     assert isinstance(client, ConsumerClientAdapter)
     assert client._client is sentinel_consumer
+    assert client.max_prompt_chars == 4321
     # _pick_cookies dropped the off-keep-list cookie and flattened to name->value.
     assert captured["cookies"] == {"_C_Auth": "abc"}
     assert captured["access_token"] == "chatai-token"

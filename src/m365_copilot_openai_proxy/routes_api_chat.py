@@ -130,7 +130,14 @@ def register_chat_routes(
             read_only_guard = run_permission == "read_only" or _has_read_only_intent(*(flatten_content(m.content) for m in request.messages if m.role == "user"))
             call_record["run_permission"] = run_permission
             call_record["read_only_guard"] = read_only_guard
-            translated = translate_openai_request(request, incremental=incremental, system_override=_system_override)
+            translated = translate_openai_request(
+                request,
+                incremental=incremental,
+                system_override=_system_override,
+                consumer_tool_max_chars=(
+                    settings.consumer_prompt_max_chars if is_consumer else None
+                ),
+            )
             media_rewriter = request_media_rewriter(app, raw_request)
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)

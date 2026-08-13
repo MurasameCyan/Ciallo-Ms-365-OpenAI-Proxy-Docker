@@ -47,6 +47,13 @@ def _transcript(translated) -> str:
     return ""
 
 
+def _consumer_tool_contract(translated) -> str:
+    for ctx in translated.additional_context:
+        if ctx.startswith("Consumer tool contract:\n"):
+            return ctx
+    return ""
+
+
 # --- request side: the model has to be TOLD about the tools ----------------
 
 def test_anthropic_tools_inject_tool_call_contract():
@@ -75,6 +82,21 @@ def test_anthropic_without_tools_injects_no_tool_prompt():
     assert "tool_call" not in _system_context(translate_anthropic_request(request))
 
 
+def test_anthropic_consumer_without_tools_does_not_inject_tool_system_override():
+    request = AnthropicMessagesRequest(
+        model="copilot",
+        messages=[AnthropicMessage(role="user", content="hi")],
+    )
+
+    translated = translate_anthropic_request(
+        request,
+        system_override="CUSTOM TOOL RULES",
+        consumer_tool_max_chars=700,
+    )
+
+    assert not _system_context(translated)
+
+
 def test_anthropic_tool_system_override_is_honoured():
     request = AnthropicMessagesRequest(
         model="claude",
@@ -86,6 +108,45 @@ def test_anthropic_tool_system_override_is_honoured():
 
     assert system.startswith("CUSTOM RULES")
     assert "- Write: Write a file" in system
+
+
+def test_anthropic_consumer_tool_contract_keeps_signature_without_default_examples():
+    request = AnthropicMessagesRequest(
+        model="copilot",
+        tools=[WRITE_TOOL],
+        messages=[AnthropicMessage(role="user", content="写个文件")],
+    )
+
+    translated = translate_anthropic_request(
+        request,
+        consumer_tool_max_chars=700,
+    )
+    contract = _consumer_tool_contract(translated)
+
+    assert len(contract) <= 700
+    assert "Write" in contract
+    assert "file_path: string required" in contract
+    assert "content: string required" in contract
+    assert "You are the reasoning component" not in contract
+    assert "Example:" not in contract
+    assert "[FORMAT]" not in contract
+
+
+def test_anthropic_consumer_custom_tool_rules_remain_system_context():
+    request = AnthropicMessagesRequest(
+        model="copilot",
+        tools=[WRITE_TOOL],
+        messages=[AnthropicMessage(role="user", content="hi")],
+    )
+
+    translated = translate_anthropic_request(
+        request,
+        system_override="CUSTOM CONSUMER RULE",
+        consumer_tool_max_chars=700,
+    )
+
+    assert "CUSTOM CONSUMER RULE" in _system_context(translated)
+    assert _consumer_tool_contract(translated)
 
 
 # --- request side: the agentic loop carries state in content blocks --------

@@ -94,7 +94,13 @@ def register_messages_routes(
             read_only_guard = run_permission == "read_only" or _has_read_only_intent(
                 *(flatten_content(m.content) for m in request.messages if m.role == "user")
             )
-            translated = translate_anthropic_request(request, system_override=_system_override)
+            translated = translate_anthropic_request(
+                request,
+                system_override=_system_override,
+                consumer_tool_max_chars=(
+                    settings.consumer_prompt_max_chars if is_consumer else None
+                ),
+            )
             session = None
             if not is_consumer:
                 session = _persistent_session(

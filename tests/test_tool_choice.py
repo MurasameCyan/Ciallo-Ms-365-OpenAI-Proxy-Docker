@@ -43,6 +43,13 @@ def _system(translated) -> str:
     return ""
 
 
+def _consumer_contract(translated) -> str:
+    return next(
+        (ctx for ctx in translated.additional_context if ctx.startswith("Consumer tool contract:\n")),
+        "",
+    )
+
+
 # --- normalization: both wire shapes collapse onto one mode ------------------
 
 @pytest.mark.parametrize(
@@ -142,6 +149,102 @@ def test_openai_named_tool_is_the_only_one_offered():
 def test_openai_parallel_false_asks_for_one_call():
     assert "at most ONE tool_call" in _system(_openai(parallel=False))
     assert "at most ONE tool_call" not in _system(_openai())
+
+
+def test_openai_consumer_contract_keeps_all_effective_tool_names():
+    request = OpenAIChatRequest(
+        model="copilot",
+        messages=[OpenAIMessage(role="user", content="do it")],
+        tools=[WRITE, READ],
+        tool_choice="required",
+    )
+
+    translated = translate_openai_request(request, consumer_tool_max_chars=600)
+    contract = _consumer_contract(translated)
+
+    assert len(contract) <= 600
+    assert "Write" in contract and "Read" in contract
+    assert "MUST request one listed tool" in contract
+    assert "You are the reasoning component" not in contract
+
+
+def test_openai_consumer_named_choice_only_serializes_selected_tool():
+    request = OpenAIChatRequest(
+        model="copilot",
+        messages=[OpenAIMessage(role="user", content="read it")],
+        tools=[WRITE, READ],
+        tool_choice={"type": "function", "function": {"name": "Read"}},
+    )
+
+    contract = _consumer_contract(
+        translate_openai_request(request, consumer_tool_max_chars=600)
+    )
+
+    assert "Read" in contract
+    assert "Write" not in contract
+
+
+def test_openai_consumer_none_has_no_compact_contract():
+    request = OpenAIChatRequest(
+        model="copilot",
+        messages=[OpenAIMessage(role="user", content="answer")],
+        tools=[WRITE, READ],
+        tool_choice="none",
+    )
+
+    translated = translate_openai_request(
+        request,
+        system_override="CUSTOM TOOL RULES",
+        consumer_tool_max_chars=600,
+    )
+
+    assert not _consumer_contract(translated)
+    assert not _system(translated)
+
+
+def test_openai_consumer_contract_rejects_budget_too_small_for_all_tools():
+    request = OpenAIChatRequest(
+        model="copilot",
+        messages=[OpenAIMessage(role="user", content="do it")],
+        tools=[WRITE, READ],
+        tool_choice="required",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Consumer Copilot prompt budget cannot fit the required tool signatures",
+    ):
+        translate_openai_request(request, consumer_tool_max_chars=80)
+
+
+def test_openai_consumer_contract_bounds_deep_schema_recursion():
+    nested = {"type": "string"}
+    for _ in range(1100):
+        nested = {
+            "type": "object",
+            "properties": {"next": nested},
+            "required": ["next"],
+        }
+    request = OpenAIChatRequest(
+        model="copilot",
+        messages=[OpenAIMessage(role="user", content="do it")],
+        tools=[ToolDefinition(function=ToolFunction(
+            name="Deep",
+            parameters={
+                "type": "object",
+                "properties": {"root": nested},
+                "required": ["root"],
+            },
+        ))],
+    )
+
+    contract = _consumer_contract(
+        translate_openai_request(request, consumer_tool_max_chars=8000)
+    )
+
+    assert "Deep" in contract
+    assert "root: object" in contract
+    assert len(contract) <= 8000
 
 
 # --- prompt side: Anthropic -------------------------------------------------
