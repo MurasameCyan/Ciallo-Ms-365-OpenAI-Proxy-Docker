@@ -5,8 +5,40 @@ __pycache__/
 .git/
 .github/
 image/
-*.md
+README*
 LICENSE
-get_token.js
+get_token.user.js
 # Temporary authenticated proxy pool exports must never enter build context
 proxies_*.txt
+# Scratch notes holding live API keys must never enter build context
+/api.txt
+
+# Local credentials, runtime state, and protocol probes
+.probe/
+tmp-debug*/
+accounts.json
+.enc_key
+keys.json
+sessions.json
+media_proxy_secret
+setup.json
+*.rt.json
+poc_refresh_token_exchange.py
+get_rt.console.js
+
+# Local environments, caches, and coding-agent state
+.venv/
+.pytest_cache/
+.ruff_cache/
+.claude/
+.superpowers/
+
+# Development and host-only files not copied by Dockerfile
+tests/
+docs/
+docker-compose*.yml
+docker-compose*.yaml
+.gitignore
+.env.example
+dump_frames.py
+scan_tones.py

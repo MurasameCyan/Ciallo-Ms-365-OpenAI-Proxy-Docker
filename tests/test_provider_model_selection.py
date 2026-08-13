@@ -210,7 +210,9 @@ def test_consumer_stream_errors_keep_experimental_hint_in_route_envelopes(
     if endpoint == "/v1/responses":
         assert '"type": "response.failed"' in response.text
     elif endpoint == "/v1/messages":
-        assert "event: error" in response.text
+        assert "event: content_block_delta" in response.text
+        assert "event: message_stop" in response.text
+        assert "event: error" not in response.text
     else:
         assert "data: [DONE]" in response.text
 
@@ -262,6 +264,45 @@ def test_consumer_chat_tool_stream_preserves_experimental_upstream_error(
     assert _ROLLOUT_HINT in decoded_payloads
     assert response.text.endswith("data: [DONE]\n\n")
     assert made_consumers[-1].mode == "reasoning"
+    assert made_consumers[-1].calls == 1
+
+
+def test_consumer_anthropic_tool_stream_error_is_visible_and_logged(provider_app):
+    app, consumer_key, _m365_key, made_consumers, _made_m365 = provider_app
+    app.state.consumer_mode_options = [
+        {"model": "deep-alias", "mode": "reasoning", "status": "experimental"},
+    ]
+
+    def failing_factory(**kwargs):
+        client = _FakeConsumerClient()
+        client.fail = ConsumerCopilotError("tool stream mode error E_ANTHROPIC_TOOL")
+        made_consumers.append(client)
+        return client
+
+    app.state.consumer_client_factory = failing_factory
+    response = TestClient(app).post(
+        "/v1/messages",
+        headers={"Authorization": f"Bearer {consumer_key.key}"},
+        json={
+            "model": "deep-alias",
+            "max_tokens": 64,
+            "stream": True,
+            "messages": [{"role": "user", "content": "ping"}],
+            "tools": [{
+                "name": "Write",
+                "description": "Write a file",
+                "input_schema": {"type": "object", "properties": {}},
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    assert "event: content_block_delta" in response.text
+    assert "event: message_stop" in response.text
+    assert "event: error" not in response.text
+    assert "tool stream mode error E_ANTHROPIC_TOOL" in response.text
+    assert app.state.call_log[-1]["tools"] == ["Write"]
+    assert "tool stream mode error E_ANTHROPIC_TOOL" in app.state.call_log[-1]["response_text"]
     assert made_consumers[-1].calls == 1
 
 

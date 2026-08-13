@@ -281,10 +281,15 @@ async def _anthropic_stream_with_tools(
                 if call_record is not None:
                     call_record["retried"] = True
     except SubstrateCopilotError as exc:
+        error_text = f"⚠️ 上游错误：{exc}"
         yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 0, "output_tokens": 0}}})
-        yield sse("error", {"type": "error", "error": {"type": "upstream_error", "message": str(exc)}})
+        yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+        yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": error_text}})
+        yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
+        yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}})
         if on_text_done is not None:
-            on_text_done("")
+            on_text_done(error_text)
+        yield sse("message_stop", {"type": "message_stop"})
         return
 
     blocks = _tool_use_blocks(tool_calls)

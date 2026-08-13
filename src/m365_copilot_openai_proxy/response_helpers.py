@@ -172,7 +172,17 @@ async def _anthropic_stream(
             full_text += delta
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
     except SubstrateCopilotError as exc:
-        yield sse("error", {"type": "error", "error": {"type": "upstream_error", "message": str(exc)}})
+        error_text = f"⚠️ 上游错误：{exc}"
+        if text_transform is not None and raw_text:
+            full_text = _transform_complete_text(raw_text, text_transform)
+            if full_text:
+                yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
+        yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": error_text}})
+        yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
+        yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}})
+        if on_text_done is not None:
+            on_text_done(full_text + error_text)
+        yield sse("message_stop", {"type": "message_stop"})
         return
 
     if text_transform is not None:
