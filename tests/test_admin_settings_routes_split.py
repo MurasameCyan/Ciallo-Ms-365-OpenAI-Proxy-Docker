@@ -147,7 +147,19 @@ def test_runtime_settings_reset_lists_are_independent(tmp_path):
     )
     assert consumer_reset.status_code == 200
     consumer_reset_settings = consumer_reset.json()["settings"]
-    assert len(consumer_reset_settings["consumer_mode_options"]) == 11
+    assert [
+        option["model"] for option in consumer_reset_settings["consumer_mode_options"]
+    ] == [
+        "copilot",
+        "copilot-smart",
+        "copilot-reasoning",
+        "copilot-thinking",
+        "copilot-search",
+        "copilot-study",
+        "copilot-chat",
+        "copilot-research",
+        "copilot-coco",
+    ]
     assert consumer_reset_settings["tone_options"] == normalized_custom_tones
 
     client.post(

@@ -32,7 +32,7 @@
 
 - **多账户池** — 每个账户拥有独立 M365 Token 与 Chromium 刷新配置
 - **多 API Key** — 每个 Key 绑定一个账户，可单独设置对话模式 / 提示词，随时启用停用
-- **模型即模式** — 每个对话模式通过 `GET /v1/models` 暴露为独立模型（含「-持续」持久会话变体）
+- **模型即模式** — `GET /v1/models` 按 API Key 绑定的账户类型返回目录：M365 为对话模式（含「-持续」变体），个人版为可配置的 `model → mode` 别名
 - **按需串行刷新** — RT 优先纯 HTTP 换 Token；失败再拉起单个 Chromium，用完即关，峰值内存接近单租户
 - **分层界面** — `/admin` 运营总控台（账户池 + Key 管理），`/` 用户自助页（用自己的 Key 管理对话模式、提示词、账户 Token）
 - **按需刷新** — 空闲自动暂停，有 `/v1/` 请求时自动唤醒，降低账号风险
@@ -46,7 +46,16 @@
 
 ## 可调用模型目录
 
-`GET /v1/models` 会按当前全局「对话模式列表」生成模型清单。每个模式产出 **2 个模型 ID**：
+`GET /v1/models` 会按请求 API Key 绑定账户的 provider 返回不同目录：
+
+| Key 绑定账户 | 模型目录 |
+| ------------ | -------- |
+| M365 企业版 | 当前全局「对话模式列表」，每个模式生成普通与「-持续」两个模型 ID |
+| Consumer 个人版 | 当前全局「个人版模型 / Mode」列表，每条 `model → mode` 映射生成一个模型 ID，无持续变体 |
+
+### M365 模型目录
+
+每个 M365 对话模式产出 **2 个模型 ID**：
 
 | 变体 | 模型 ID 形态 | 会话行为 |
 | ---- | ------------ | -------- |
@@ -55,7 +64,7 @@
 
 显示名中的空格会自动转为下划线，便于客户端当作 model id 使用。也可直接用 **底层 tone 值**（如 `Magic`、`Gpt_5_5_Chat`、`Claude_Sonnet`）请求；未匹配到任何模式时，回退到该 Key / 全局默认对话模式。
 
-### 默认内置模式（开箱即用）
+#### 默认内置模式（开箱即用）
 
 与代码中 `TONE_OPTIONS`（经规范化后）一致。可用 `curl -H "Authorization: Bearer <KEY>" http://localhost:8000/v1/models` 核对当前实例实际列表。
 
@@ -81,7 +90,7 @@
 
 某个模式能不能用由 M365 侧的 rollout 决定，与本项目无关：M365 拒绝服务的模式会返回 **400** 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。用 400 而非 502，是因为重试改变不了上游的拒绝——502 会让客户端把它当成网关故障反复重试。传输层故障（空闲超时、断流）与凭据问题仍然是 502。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
 
-### 请求示例
+#### 请求示例
 
 ```bash
 # 列出模型
@@ -100,17 +109,35 @@ curl -s http://localhost:8000/v1/chat/completions \
   -d '{"model":"gpt-5.5_Chat-持续","messages":[{"role":"user","content":"继续上面的话题"}]}'
 ```
 
-### 能力说明
+#### 能力说明
 
-- **多模态输入**：列表中每个模型都声明 `vision` / `input_modalities: text+image`（底层均为 M365 多模态后端）。部分客户端（如 CherryStudio）可能仍依赖内置模型名正则，需在客户端手动开启图片。
+- **多模态输入（仅 M365）**：M365 目录中的每个模型都声明 `vision` / `input_modalities: text+image`（底层均为 M365 多模态后端）。Consumer 个人版当前丢弃图片，只能返回纯文本。部分客户端（如 CherryStudio）可能仍依赖内置模型名正则，需在客户端手动开启图片。
 - **响应中的 `model` 字段**：返回体里的 `model` 使用运行时别名（默认 `m365-copilot`，可由 `M365_MODEL_ALIAS` 或 Key 级 `model_alias` 覆盖），**不等于**请求时选用的对话模式 ID。
 - **可自定义模式列表**：在 `/admin` → 运行设置中编辑「对话模式列表」，格式每行：`底层tone值 | 显示名`。保存后立即反映到 `/v1/models` 与解析逻辑；显示名会作为模型 ID，空格转下划线，每个模式仍生成普通 + `-持续` 两个模型。
 
-### 与「Key 默认对话模式」的关系
+#### 与「Key 默认对话模式」的关系
 
 - 请求 **`model` 命中** 某显示名 / 底层 tone → 使用该模式。
 - 请求 **未命中**（任意字符串、旧别名等）→ 使用该 API Key 在 Web 上配置的默认 tone，否则用全局默认（通常为 `Magic`）。
 - 因此客户端既可「按模型选模式」，也可继续用固定模型名 + Web 侧默认模式。
+
+### Consumer 个人版模型目录
+
+个人版模型 ID 是本项目提供的**兼容别名**，不是不同的基础模型。每个 ID 映射到一个上游 `mode`，请求时原样发送给 Microsoft。可用性会随账户、地区和 Microsoft rollout 变化；同一个 mode 在不同时段也可能表现不同，因此下表只代表当前部署的实测结果，不是长期可用性保证。
+
+| 模型 ID | 上游 mode | 文本对话 | Claude Code 工具调用 | 当前建议 |
+| ------- | --------- | -------- | -------------------- | -------- |
+| `copilot-reasoning` | `reasoning` | ✅ | ✅ 已完成真实 `Read → tool_result → 最终答复` 循环 | 工具调用首选 |
+| `copilot-thinking` | `reasoning` | ✅ | ✅ 已完成真实工具循环 | `reasoning` 的兼容别名，工具备选 |
+| `copilot-research` | `research` | ✅ | ✅ 已完成真实工具循环 | 实验性工具备选 |
+| `copilot-coco` | `coco` | ✅ | ✅ 已完成真实工具循环 | 实验性工具备选 |
+| `copilot-search` | `search` | ✅ | ⚠️ 曾成功，也出现过 `method=null` | 工具行为不稳定 |
+| `copilot` | `smart` | ✅ | ❌ 强制工具时上游断开 | 仅建议文本 |
+| `copilot-smart` | `smart` | ✅ | ❌ 与 `copilot` 相同 | 仅建议文本 |
+| `copilot-chat` | `chat` | ✅ | ⚠️ 可能忽略工具或直接编造结果 | 仅建议文本 |
+| `copilot-study` | `study` | ✅ | ❌ 工具路径曾在开始响应后断开 | 仅建议文本 |
+
+`copilot-default` 与 `copilot-computer-use` 当前连续返回 `invalid-event`，不列入默认可用清单。升级时，若持久配置仍精确等于旧版 11 项默认目录，会自动迁移到上述 9 项；不精确匹配旧默认的自定义目录不会因本次升级被自动删减，仍只执行既有的大小写、空白和 `status` 规范化。个人版没有 `-持续` / `:persist` 变体；每轮会新建上游对话，并在本地压缩、重发必要历史。`/admin` → 运行设置中的「个人版模型 / Mode」可编辑这份目录，格式为 `model | mode | status`。其中 `experimental` 只标记 rollout 风险并影响错误提示，不改变请求执行策略。
 
 ## 快速部署
 
@@ -347,10 +374,13 @@ _auto_refresh_loop → 检查 auto_refresh_enabled → 检查空闲时间
 ```bash
 export ANTHROPIC_BASE_URL=http://your-server:8000
 export ANTHROPIC_API_KEY=YOUR_API_KEY
-claude
+# Consumer 个人版
+claude --model copilot-reasoning
 ```
 
-> Anthropic 兼容走 `POST /v1/messages`；`model` 同样按对话模式解析。
+> Anthropic 兼容走 `POST /v1/messages`。`model` 按 API Key 绑定的 provider 解析：M365 对应对话 tone，Consumer 对应「个人版模型 / Mode」中的兼容别名。
+
+个人版使用 Claude Code 工具时推荐 `copilot-reasoning`。当前已实测 Claude Code 默认 25 个工具、约 31.8K 字符输入压缩至 8000 字符后，能够完成 `Read → tool_result → 最终答复` 的完整循环。`copilot-thinking`、`copilot-research`、`copilot-coco` 可作实验性备选；`copilot-search` 工具行为不稳定；`copilot` / `copilot-smart`、`copilot-chat`、`copilot-study` 仅建议用于文本对话。
 
 ### Cherry Studio / OpenWebUI / 其他 OpenAI 兼容客户端
 
@@ -361,7 +391,7 @@ Model:    Copilot_自动
           或 gpt-5.5_Chat / claude-sonnet-4-6 / gpt-5.5_Reasoning-持续 等
 ```
 
-也可在客户端「刷新模型列表」拉取 `GET /v1/models` 后点选。若客户端忽略 vision 能力字段，请在客户端手动开启图片上传。
+也可在客户端「刷新模型列表」拉取 `GET /v1/models` 后点选。M365 模型若被客户端忽略 vision 能力字段，请手动开启图片上传；Consumer 当前不支持图片输入。
 
 ## 认证
 
@@ -577,14 +607,14 @@ docker compose exec ciallo-proxy-multi \
 
 ### 限制
 
-个人版走的是另一套上游协议，以下能力**不生效**，且都是协议/实现层面的硬限制，不是配置问题：
+个人版走的是另一套上游协议。下列能力包含协议硬限制与实验性上游行为，不能按 M365 的表现推断：
 
 | 能力 | 个人版 | 说明 |
 |---|---|---|
-| 对话模式（tone） | ❌ | 上游无模式选择器，`/v1/models` 里的模式 ID 对个人版账户无意义 |
+| Consumer mode | ⚠️ | 通过可配置的 `model → mode` 映射把 mode 原样发给上游；没有 `-持续` 变体，且可用性受账户、地区与 Microsoft rollout 影响 |
 | 提示词增强 | ❌ | 该文本在 M365 客户端内部注入（`substrate_client.py`），个人版客户端不经过那条路径 |
-| 系统提示词 | ✅ | 在路由层拼进对话正文，两种 provider 都生效 |
-| 工具调用（提示词模拟） | ✅ | 客户端声明的 tools 随对话正文下发，与企业版同源 |
+| 系统提示词 | ⚠️ | 请求自带的 system 消息会拼进正文；管理页的工具系统提示词只在存在有效工具合同的请求中注入，无工具或 `tool_choice=none` 时不注入 |
+| 工具调用（提示词模拟） | ⚠️ | 非原生工具协议；客户端 tools 压缩为签名后随正文发送。`copilot-reasoning` / `copilot-thinking` / `copilot-research` / `copilot-coco` 已完成真实工具循环，其他映射可能忽略工具或断开 |
 | 图片输入 | ❌ | 适配器丢弃图片，带图请求会得到**纯文本回复**而不是报错 |
 | 图片生成 | ✅ | 让它画图会返回 Markdown 图片链接。个人版不需要企业版那套「媒体授权」——链接是匿名可取的（实测无 Cookie、无 token 直接 200） |
 | 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
@@ -594,7 +624,7 @@ docker compose exec ciallo-proxy-multi \
 
 ## 企业版与个人版的差异
 
-社区里另有一类项目桥接的是 **`copilot.microsoft.com`（个人微软账号）**，本项目桥接的是 **`substrate.office.com`（M365 企业版）**。两者上游协议不同，因此约束差别很大——下表中「个人版」一列的数字来自那类项目的源码与文档，「本项目」一列是在本部署上实测的：
+本项目同时支持 **`substrate.office.com`（M365 企业版）** 与 **`copilot.microsoft.com`（个人微软账号）** 两条 provider 路径。两者上游协议不同，因此约束差别很大；下表均以本项目当前实现与部署实测为准：
 
 | | 本项目（M365 企业版） | 个人版（消费者版 Copilot） |
 |---|---|---|
@@ -604,7 +634,7 @@ docker compose exec ciallo-proxy-multi \
 | Cloudflare | 上游无 Turnstile | 该站**不签发 `cf_clearance`**（实测：全新 profile 加载后只有 `__cf_bm` / `__cflb`，无 Turnstile iframe）。验证发生在**应用层**——`challenge` 帧的 `method` 为 `null` 时要的是页内 JS 现场铸的 Turnstile token，不在任何 Cookie 里，因此「浏览器过验证、HTTP 客户端重放 Cookie」这条路不存在；能否通过只取决于 TLS/HTTP 指纹与出口信誉 |
 | 提示词长度 | 实测 147k 字符仍完整（在首轮埋标记、末轮追问，标记可复述） | 默认截断到 8000 字符，需要压缩历史 |
 | 并发 | **支持**。每轮开独立 WebSocket（各自 conv/session id），实测 4 路并发同账号答案互不干扰 | 取决于具体代理实现；复用单 socket 的实现必须串行化 |
-| 模型/模式 | 多模式（可在管理页编辑列表），每个模式另有「-持续」变体 | 单一模型，无选择器 |
+| 模型/模式 | 多模式（可在管理页编辑列表），每个模式另有「-持续」变体 | 可配置 `model → mode` 兼容别名，无「-持续」变体；实际可用性随账户、地区与 rollout 漂移 |
 | 浏览器依赖 | Chromium + 裸 CDP（仅刷新时按需拉起） | 聊天走 curl_cffi（TLS 指纹）；凭据续期需 Firefox 内核，本项目用 Camoufox，同样只在续期时按需拉起（约 6.7 秒后退出）。镜像里的 Chromium 顶不了这个班——consumer 端点拒 Chromium 指纹 |
 | 速率限制 | 令牌桶，默认 60 次/分 | 默认 12 次/分（其文档称单账号约 15 rpm 起开始限流） |
 
@@ -622,8 +652,9 @@ docker compose exec ciallo-proxy-multi \
   │
   └─ copilot-openai-proxy serve (端口 8000)
       ├─ /v1/* — OpenAI/Anthropic 兼容 API
-      │         · model 名 → 对话 tone（+ 可选 -持续 / :persist）
-      │         · 按 API Key 解析账户 → per-key 默认 tone / 提示词
+      │         · M365 model → 对话 tone（+ 可选 -持续 / :persist）
+      │         · Consumer model → 可配置上游 mode（无持续变体）
+      │         · 按 API Key 解析账户与 provider → 对应模型目录 / 提示词策略
       ├─ /admin/* — 运营总控台端点（账户池 + Key 管理 + 设置/可观测性）
       ├─ /user/* — 用户自助端点（用自己的 Key 管理模式/提示词/账户 Token/Cookie）
       ├─ /admin — 运营总控台页面（管理密码登录）

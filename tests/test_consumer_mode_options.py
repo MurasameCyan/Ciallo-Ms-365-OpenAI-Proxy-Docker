@@ -16,10 +16,20 @@ _DEFAULT_OPTIONS = [
     {"model": "copilot-search", "mode": "search", "status": "experimental"},
     {"model": "copilot-study", "mode": "study", "status": "experimental"},
     {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
-    {"model": "copilot-default", "mode": "default", "status": "experimental"},
     {"model": "copilot-research", "mode": "research", "status": "experimental"},
-    {"model": "copilot-computer-use", "mode": "computer_use", "status": "experimental"},
     {"model": "copilot-coco", "mode": "coco", "status": "experimental"},
+]
+
+_LEGACY_DEFAULT_OPTIONS = [
+    *_DEFAULT_OPTIONS[:7],
+    {"model": "copilot-default", "mode": "default", "status": "experimental"},
+    _DEFAULT_OPTIONS[7],
+    {
+        "model": "copilot-computer-use",
+        "mode": "computer_use",
+        "status": "experimental",
+    },
+    _DEFAULT_OPTIONS[8],
 ]
 
 
@@ -189,6 +199,45 @@ def test_read_runtime_settings_migrates_legacy_consumer_modes(tmp_path):
         {"model": "smart-alias", "mode": "smart", "status": "stable"},
         {"model": "deep-alias", "mode": "reasoning", "status": "experimental"},
     ]
+
+
+def test_read_runtime_settings_migrates_exact_legacy_default_catalog(tmp_path):
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"consumer_mode_options": _LEGACY_DEFAULT_OPTIONS}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["consumer_mode_options"] == _DEFAULT_OPTIONS
+
+
+def test_read_runtime_settings_preserves_custom_catalog_with_legacy_model_ids(tmp_path):
+    custom_options = [
+        *_LEGACY_DEFAULT_OPTIONS,
+        {"model": "private-preview", "mode": "preview", "status": "experimental"},
+    ]
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"consumer_mode_options": custom_options}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["consumer_mode_options"] == custom_options
+
+
+def test_read_runtime_settings_preserves_reordered_legacy_default_catalog(tmp_path):
+    custom_options = [*_LEGACY_DEFAULT_OPTIONS]
+    custom_options[0], custom_options[1] = custom_options[1], custom_options[0]
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"consumer_mode_options": custom_options}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["consumer_mode_options"] == custom_options
 
 
 @pytest.mark.parametrize(

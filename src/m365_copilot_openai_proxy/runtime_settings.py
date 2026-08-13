@@ -31,9 +31,10 @@ _DEFAULT_MEDIA_PROXY_SUFFIXES = [
     "php", "rb", "swift", "kt", "kts", "scala", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "sql", "r", "lua", "pl", "pm",
     "vue", "svelte", "css", "scss", "sass", "less", "dockerfile", "makefile", "cmake", "gradle", "lock", "log", "conf", "cfg",
 ]
-# OpenAI-compatible facade names kept for backward compatibility. These are not
-# an upstream Microsoft capability catalogue; administrators may replace them.
-_BUILTIN_CONSUMER_MODE_OPTIONS = [
+# Historical OpenAI-compatible facade names. Keep this exact list only so an
+# untouched persisted default from older releases can move to the current
+# tested catalogue; administrators may still configure any model/mode mapping.
+_LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS = [
     {"model": "copilot", "mode": "smart", "status": "stable"},
     {"model": "copilot-smart", "mode": "smart", "status": "stable"},
     {"model": "copilot-reasoning", "mode": "reasoning", "status": "experimental"},
@@ -45,6 +46,11 @@ _BUILTIN_CONSUMER_MODE_OPTIONS = [
     {"model": "copilot-research", "mode": "research", "status": "experimental"},
     {"model": "copilot-computer-use", "mode": "computer_use", "status": "experimental"},
     {"model": "copilot-coco", "mode": "coco", "status": "experimental"},
+]
+_BUILTIN_CONSUMER_MODE_OPTIONS = [
+    dict(option)
+    for option in _LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS
+    if option["model"] not in {"copilot-default", "copilot-computer-use"}
 ]
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
@@ -363,9 +369,15 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     data["tone_options"] = normalize_tone_options(data.get("tone_options"))
+    persisted_consumer_options = (
+        raw.get("consumer_mode_options") if isinstance(raw, dict) else None
+    )
     try:
+        consumer_options = data.get("consumer_mode_options")
+        if persisted_consumer_options == _LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS:
+            consumer_options = _BUILTIN_CONSUMER_MODE_OPTIONS
         data["consumer_mode_options"] = normalize_consumer_mode_options(
-            data.get("consumer_mode_options")
+            consumer_options
         )
     except ValueError as exc:
         _log.warning(

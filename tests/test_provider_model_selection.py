@@ -560,7 +560,7 @@ def test_models_list_is_provider_specific_and_live(provider_app):
     assert [model["id"] for model in global_models] == ["自动", "自动-持续"]
 
 
-def test_default_consumer_models_include_all_compatibility_aliases(provider_app):
+def test_default_consumer_models_include_tested_catalog(provider_app):
     app, consumer_key, _m365_key, _made_consumers, _made_m365 = provider_app
 
     models = TestClient(app).get(
@@ -576,9 +576,7 @@ def test_default_consumer_models_include_all_compatibility_aliases(provider_app)
         "copilot-search",
         "copilot-study",
         "copilot-chat",
-        "copilot-default",
         "copilot-research",
-        "copilot-computer-use",
         "copilot-coco",
     ]
 
