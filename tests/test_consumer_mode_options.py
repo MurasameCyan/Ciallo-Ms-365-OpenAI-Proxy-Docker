@@ -9,6 +9,18 @@ from m365_copilot_openai_proxy import runtime_settings
 
 
 _DEFAULT_OPTIONS = [
+    {"model": "copilot-reasoning", "mode": "reasoning", "status": "experimental"},
+    {"model": "copilot-thinking", "mode": "reasoning", "status": "experimental"},
+    {"model": "copilot-research", "mode": "research", "status": "experimental"},
+    {"model": "copilot-coco", "mode": "coco", "status": "experimental"},
+    {"model": "copilot-search", "mode": "search", "status": "experimental"},
+    {"model": "copilot", "mode": "smart", "status": "stable"},
+    {"model": "copilot-smart", "mode": "smart", "status": "stable"},
+    {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
+    {"model": "copilot-study", "mode": "study", "status": "experimental"},
+]
+
+_PREVIOUS_DEFAULT_OPTIONS = [
     {"model": "copilot", "mode": "smart", "status": "stable"},
     {"model": "copilot-smart", "mode": "smart", "status": "stable"},
     {"model": "copilot-reasoning", "mode": "reasoning", "status": "experimental"},
@@ -21,15 +33,15 @@ _DEFAULT_OPTIONS = [
 ]
 
 _LEGACY_DEFAULT_OPTIONS = [
-    *_DEFAULT_OPTIONS[:7],
+    *_PREVIOUS_DEFAULT_OPTIONS[:7],
     {"model": "copilot-default", "mode": "default", "status": "experimental"},
-    _DEFAULT_OPTIONS[7],
+    _PREVIOUS_DEFAULT_OPTIONS[7],
     {
         "model": "copilot-computer-use",
         "mode": "computer_use",
         "status": "experimental",
     },
-    _DEFAULT_OPTIONS[8],
+    _PREVIOUS_DEFAULT_OPTIONS[8],
 ]
 
 
@@ -212,6 +224,17 @@ def test_read_runtime_settings_migrates_exact_legacy_default_catalog(tmp_path):
     assert settings["consumer_mode_options"] == _DEFAULT_OPTIONS
 
 
+def test_read_runtime_settings_migrates_exact_previous_default_catalog(tmp_path):
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"consumer_mode_options": _PREVIOUS_DEFAULT_OPTIONS}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["consumer_mode_options"] == _DEFAULT_OPTIONS
+
+
 def test_read_runtime_settings_preserves_custom_catalog_with_legacy_model_ids(tmp_path):
     custom_options = [
         *_LEGACY_DEFAULT_OPTIONS,
@@ -227,8 +250,9 @@ def test_read_runtime_settings_preserves_custom_catalog_with_legacy_model_ids(tm
     assert settings["consumer_mode_options"] == custom_options
 
 
-def test_read_runtime_settings_preserves_reordered_legacy_default_catalog(tmp_path):
-    custom_options = [*_LEGACY_DEFAULT_OPTIONS]
+@pytest.mark.parametrize("base_options", [_LEGACY_DEFAULT_OPTIONS, _PREVIOUS_DEFAULT_OPTIONS])
+def test_read_runtime_settings_preserves_reordered_default_catalog(tmp_path, base_options):
+    custom_options = [*base_options]
     custom_options[0], custom_options[1] = custom_options[1], custom_options[0]
     (tmp_path / "runtime_settings.json").write_text(
         json.dumps({"consumer_mode_options": custom_options}),

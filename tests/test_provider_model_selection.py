@@ -645,15 +645,15 @@ def test_default_consumer_models_include_tested_catalog(provider_app):
     ).json()["data"]
 
     assert [model["id"] for model in models] == [
-        "copilot",
-        "copilot-smart",
         "copilot-reasoning",
         "copilot-thinking",
-        "copilot-search",
-        "copilot-study",
-        "copilot-chat",
         "copilot-research",
         "copilot-coco",
+        "copilot-search",
+        "copilot",
+        "copilot-smart",
+        "copilot-chat",
+        "copilot-study",
     ]
 
 

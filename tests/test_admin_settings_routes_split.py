@@ -150,15 +150,15 @@ def test_runtime_settings_reset_lists_are_independent(tmp_path):
     assert [
         option["model"] for option in consumer_reset_settings["consumer_mode_options"]
     ] == [
-        "copilot",
-        "copilot-smart",
         "copilot-reasoning",
         "copilot-thinking",
-        "copilot-search",
-        "copilot-study",
-        "copilot-chat",
         "copilot-research",
         "copilot-coco",
+        "copilot-search",
+        "copilot",
+        "copilot-smart",
+        "copilot-chat",
+        "copilot-study",
     ]
     assert consumer_reset_settings["tone_options"] == normalized_custom_tones
 

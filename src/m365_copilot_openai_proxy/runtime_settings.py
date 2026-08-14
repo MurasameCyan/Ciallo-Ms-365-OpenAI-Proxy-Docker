@@ -47,10 +47,23 @@ _LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS = [
     {"model": "copilot-computer-use", "mode": "computer_use", "status": "experimental"},
     {"model": "copilot-coco", "mode": "coco", "status": "experimental"},
 ]
-_BUILTIN_CONSUMER_MODE_OPTIONS = [
+# Preserve the former nine-entry default so untouched persisted settings can
+# adopt README ordering without reordering an administrator's custom catalog.
+_PREVIOUS_BUILTIN_CONSUMER_MODE_OPTIONS = [
     dict(option)
     for option in _LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS
     if option["model"] not in {"copilot-default", "copilot-computer-use"}
+]
+_BUILTIN_CONSUMER_MODE_OPTIONS = [
+    {"model": "copilot-reasoning", "mode": "reasoning", "status": "experimental"},
+    {"model": "copilot-thinking", "mode": "reasoning", "status": "experimental"},
+    {"model": "copilot-research", "mode": "research", "status": "experimental"},
+    {"model": "copilot-coco", "mode": "coco", "status": "experimental"},
+    {"model": "copilot-search", "mode": "search", "status": "experimental"},
+    {"model": "copilot", "mode": "smart", "status": "stable"},
+    {"model": "copilot-smart", "mode": "smart", "status": "stable"},
+    {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
+    {"model": "copilot-study", "mode": "study", "status": "experimental"},
 ]
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
@@ -374,7 +387,10 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     )
     try:
         consumer_options = data.get("consumer_mode_options")
-        if persisted_consumer_options == _LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS:
+        if persisted_consumer_options in (
+            _LEGACY_BUILTIN_CONSUMER_MODE_OPTIONS,
+            _PREVIOUS_BUILTIN_CONSUMER_MODE_OPTIONS,
+        ):
             consumer_options = _BUILTIN_CONSUMER_MODE_OPTIONS
         data["consumer_mode_options"] = normalize_consumer_mode_options(
             consumer_options

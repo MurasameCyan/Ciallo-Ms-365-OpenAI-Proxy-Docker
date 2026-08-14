@@ -137,7 +137,18 @@ curl -s http://localhost:8000/v1/chat/completions \
 | `copilot-chat` | `chat` | ✅ | ⚠️ 可能忽略工具或直接编造结果 | 仅建议文本 |
 | `copilot-study` | `study` | ✅ | ❌ 工具路径曾在开始响应后断开 | 仅建议文本 |
 
-`copilot-default` 与 `copilot-computer-use` 当前连续返回 `invalid-event`，不列入默认可用清单。升级时，若持久配置仍精确等于旧版 11 项默认目录，会自动迁移到上述 9 项；不精确匹配旧默认的自定义目录不会因本次升级被自动删减，仍只执行既有的大小写、空白和 `status` 规范化。个人版没有 `-持续` / `:persist` 变体；每轮会新建上游对话，并在本地压缩、重发必要历史。`/admin` → 运行设置中的「个人版模型 / Mode」可编辑这份目录，格式为 `model | mode | status`。其中 `experimental` 只标记 rollout 风险并影响错误提示，不改变请求执行策略。
+`copilot-default` 与 `copilot-computer-use` 当前连续返回 `invalid-event`，不列入默认可用清单。升级时，若持久配置仍精确等于旧版 11 项默认目录，或等于此前旧顺序的 9 项默认目录，会自动迁移到上述顺序；不精确匹配旧默认的自定义目录不会因本次升级被自动删减或重排，仍只执行既有的大小写、空白和 `status` 规范化。个人版没有 `-持续` / `:persist` 变体；每轮会新建上游对话，并在本地压缩、重发必要历史。`/admin` → 运行设置中的「个人版模型 / Mode」可编辑这份目录，格式为 `model | mode | status`。其中 `experimental` 只标记 rollout 风险并影响错误提示，不改变请求执行策略。
+
+### 推断知识新鲜度（离线实测）
+
+以下结果来自 **2026-08-15** 的 `/v1/responses` 文本请求。请求未提供任何工具，并明确要求模型不得联网、搜索或按当前日期外推，只能依据内置知识回答多种软件的最新稳定版本与发布日期。它只能反映模型当次回答覆盖到的公开信息，**不是 Microsoft 公布的训练数据截止日期，也不是稳定能力保证**。
+
+| Provider / 模型 | 版本时间锚点 | 推断知识新鲜度 |
+| --------------- | ------------ | -------------- |
+| Consumer / `copilot-reasoning` | 能识别 [Git 2.43.0（2023-11-20）](https://github.com/git/git/releases/tag/v2.43.0)、Python 3.12.0、Rust 1.74.0、PostgreSQL 16、Ubuntu 23.10 与 Linux 6.6 已发布；对 [Git 2.44.0（2024-02-23）](https://github.com/git/git/releases/tag/v2.44.0) 回答 `unknown` | **约 2023-11**；保守区间为 2023-11 至 2024-02 之前 |
+| M365 / `gpt-5.6_Reasoning` | 回答 Git 2.52.0、Python 3.14.1、Rust 1.92.0、Kubernetes 1.35.0 等 2025 年末版本已发布；对多项 2026 年初版本回答 `unknown` | **约 2025-12**；最晚正向锚点为 [Kubernetes 1.35.0（2025-12-17）](https://github.com/kubernetes/kubernetes/releases/tag/v1.35.0) |
+
+Consumer 的自由回答曾在 Git 2.42.0 / 2.43.0 之间变化，并出现过错误发布日期；M365 的部分低置信度日期也有偏差。因此这里依据多软件版本和“已知 / 未知”边界做月份级推断，不把模型自报日期直接当事实。
 
 ## 快速部署
 
@@ -568,9 +579,9 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 ## 个人版（消费者版 Copilot）账户
 
-除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。凭据可以自动续（需 `-camoufox` 镜像，见[凭据自动续期](#4-凭据自动续期可选)），也可以手动重推。
+除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。ChatAI Token 与 Cookie 可以自动保活（需 `-camoufox` 镜像，见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)），也可以手动重推。
 
-一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定：推送个人版凭据会把它**永久切到 `consumer`**，同时把它**移出 M365 的刷新链路**（RT 换取、Cookie 回放、CDP 抓取对它都没有意义）。它仍在调度里，只是走另一条续期路径。`/admin` 账户表会给这类账户打上标记。
+一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定：推送个人版凭据会把它**永久切到 `consumer`**，同时把它**移出 M365 的刷新链路**（RT 换取、Cookie 回放、Chromium CDP 抓取对它都没有意义）。应用启动时的保活调度器仍会扫描这类账户，并把它们分派到独立的 Camoufox 重铸路径。`--no-auto-refresh` / `AUTO_REFRESH=false` 只关闭旧的共享 M365 CDP 自动刷新，不会关闭个人版保活。`/admin` 账户表会给这类账户打上标记。
 
 ### 1. 配置出站代理（仅在服务器直连不到 Copilot 时）
 
@@ -590,40 +601,49 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 >
 > 抽屉只是折叠、没有移除，因为 M365 的 **Cookie 推送**查的是绝对域名，在任何标签页都能用；其余按钮仍需在各自的站点上才能抓到凭据。
 
-### 3. 凭据过期后重推
+### 3. 凭据过期后手动重推
 
 个人版的 ChatAI token 对本服务是**不透明**的（不是可解码的 JWT），因此管理页只能显示「有没有存」，无法显示剩余有效期。过期的表现是 `/v1/` 请求返回 **502**，消息体里带上游的失败原因。
 
 **手动恢复方式就是重复上面第 2 步**：回到 copilot.microsoft.com 发一条消息，再点一次推送按钮。若用了下面的 `-camoufox` 镜像，多数情况不需要走到这一步。
 
-### 4. 凭据自动续期（可选）
+### 4. 凭据与 Cookie 自动保活（Camoufox，可选）
 
-用 `ghcr.io/<repo>:fox-camoufox` 这类带 `-camoufox` 后缀的镜像，服务端就能自己续个人版凭据，不需要人再去点推送按钮。默认镜像不含这个能力。
+用 `ghcr.io/<repo>:fox-camoufox` 这类带 `-camoufox` 后缀的镜像，服务端就能定期重铸个人版 ChatAI Token 与 Cookie 快照，不需要人反复点推送按钮。默认精简镜像不含 Camoufox，因此只能手动重推。
 
-原理是让 **MSAL 的静默 SSO 重新铸一个 token**：容器里起一个持久 profile 的 Firefox（Camoufox），加载 copilot.microsoft.com，等页内 MSAL 用 profile 里的微软账号会话换出新的 ChatAI token，导出 Cookie，然后关掉浏览器。全程不点任何东西、不发聊天消息，所以**没有任何 Turnstile 环节**。实测冷启动到拿到 token 约 **6.7 秒**，之后进程即退出——不是常驻浏览器。
+原理是让 **MSAL 的静默 SSO 重新铸一整套凭据**：容器里起一个使用持久 profile 的 Firefox（Camoufox），加载 copilot.microsoft.com，等页内 MSAL 用 profile 里的微软账号会话换出新的 ChatAI Token，导出新的 Cookie 快照，然后关掉浏览器。它不是延长或反复回放最初推送的 Cookie。服务端只接受与旧值不同的新 Token、同一个 Microsoft 账号主体及可复用 Cookie，随后原子写回账户存储。全程不点任何东西、不发聊天消息，所以**没有任何 Turnstile 环节**。实测冷启动到拿到 Token 约 **6.7 秒**，之后进程即退出，不是常驻浏览器。
 
-这是真「铸新的」而不是「读缓存」：把 localStorage 里的 MSAL 缓存清空再刷新，拿到的是一个**不同**的 token 且没有跳转登录页，所以缓存里的 token 过期后它照样能用。
+这是真「铸新的」而不是「读缓存」：把 localStorage 里的 MSAL Token 清空再刷新，拿到的是一个**不同**的新 Token 且没有跳转登录页，因此旧 Token 过期后仍可恢复。
 
-三个触发点：
+四个触发点：
 
-- **保活** —— 凭据存下来超过 1 小时就重铸一次。个人版 token 不透明、读不到 `exp`，只能按「距上次捕获多久」调度；这一次次的重铸同时也在保持 profile 里的微软账号会话不失效
-- **请求内自救** —— `/v1` 请求因凭据过期失败（且还没吐出任何内容）时，自动重铸一次并重试当轮。没失败的请求不会付这 7 秒
-- **管理页刷新按钮** —— 手点即重铸
+- **推送后初始化** —— 用户成功推送个人版凭据后，后台立即强制重铸一次，尽早把用户浏览器抓到的凭据换成与服务端 Camoufox 指纹一致的快照
+- **定时保活** —— 调度器默认每 5 分钟扫描；凭据距上次成功捕获满 1 小时后重铸。个人版 Token 不透明、读不到 `exp`，只能按年龄调度
+- **请求内自救** —— `/v1` 请求在输出任何内容前收到明确的 `ClearanceRequired` 时，自动重铸一次并重试当轮。普通请求不会额外承担这约 7 秒的浏览器启动
+- **管理页刷新按钮** —— 手动触发时立即重铸
 
-前提是 profile 里那个**微软账号会话本身还活着**。每次续期都会顺带把它焐热，但它真失效了（换密码、被撤销、长期没动），就还需要一次人工登录。
+前提是 profile 里那个**微软账号会话本身还活着**。每次重铸都会顺带保持会话活跃，但它真失效了（换密码、被撤销、长期没动），仍需要人工重新登录并推送。重铸失败时旧凭据不会被覆盖；同一账户进入 30 分钟退避，避免失效会话每 5 分钟反复拉起浏览器。
 
-profile 落在 `TOKEN_DIR/profiles/<account-id>-consumer`（默认即 `token-data` 卷内的 `/home/app/token/profiles/...`）。**这个挂载必须是持久卷，不能是 tmpfs** —— 丢了它就等于丢了那个微软账号会话，代价是一次人工登录。要从干净状态重来：
+profile 落在 `TOKEN_DIR/profiles/` 下，目录名包含代理账户 ID 与 24 位 Microsoft subject 哈希，例如 `<proxy-account-id>-consumer-<subject-hash>`；默认位于 `token-data` 卷内的 `/home/app/token/profiles/`。**这个挂载必须是持久卷，不能是 tmpfs**，否则容器重建后会丢失 Microsoft 登录会话，需要重新人工登录并推送。
 
-```bash
-docker compose exec ciallo-proxy-multi \
-  rm -rf /home/app/token/profiles/<account-id>-consumer
-```
+需要从干净状态重来时，请在 `/` 用户自助页点击「登出 Microsoft」。服务端会清除账户凭据，并按实际账户 ID 删除当前及兼容旧版的 Consumer profile；不要手工拼接目录名执行 `rm -rf`。
 
 > 续期时会拉起浏览器，峰值内存约 417 MB。调度用同一把全局锁把它和 M365 的 Chromium 刷新**串行化**，不会两个浏览器同时在跑；`docker-compose.yml` 默认的 2G 内存上限够用。
+
+可用下面的日志判断保活是否真正成功；只有第二行出现才代表新 Token 与 Cookie 已写回：
+
+```text
+Keepalive: re-minting consumer <account-id>
+Consumer refresh for <account-id>: re-minted <N> cookies
+```
+
+若日志只有 `Consumer refresh unavailable`、`failed`、`returned the previous token`、账号不匹配或无可复用 Cookie，则本次没有更新凭据。请检查镜像是否含 Camoufox、`TOKEN_DIR/profiles` 是否持久化、Microsoft 登录会话是否仍有效，以及聊天与重铸是否使用同一个可用代理出口。
 
 > 为什么是 Firefox 而不是镜像里已有的 Chromium：consumer 端点会**按 TLS 指纹判决**，Chromium 指纹拿到的是 `method: null` 的 `challenge`（只能由页内 JS 现场解），Firefox 指纹则根本不触发 challenge。这也是 HTTP 客户端那一侧必须用 curl_cffi 的 `firefox147` 的同一个原因。
 >
 > 代价：镜像大约 **+936 MB**，每个账户的 profile 再占约 97 MB（落在 `token-data` 卷上，与上面的 profile 路径同一处）。这也是它没进默认镜像的原因。本地自建：`docker build --build-arg WITH_CAMOUFOX=true ...`
+>
+> **保活只解决凭据老化。** 它不能修复 `challenge method=null`、不匹配的 TLS 指纹、代理出口信誉或地区限制、上游额度与服务故障。遇到这些问题，即使 Cookie 刚重铸也可能继续失败。
 
 ### 限制
 
@@ -638,7 +658,7 @@ docker compose exec ciallo-proxy-multi \
 | 图片输入 | ❌ | 适配器丢弃图片，带图请求会得到**纯文本回复**而不是报错 |
 | 图片生成 | ✅ | 让它画图会返回 Markdown 图片链接。个人版不需要企业版那套「媒体授权」——链接是匿名可取的（实测无 Cookie、无 token 直接 200） |
 | 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
-| Token 自动刷新 | ⚠️ | RT / CDP 两条链路都不适用。`-camoufox` 镜像用 MSAL 静默 SSO 自动重铸（见[凭据自动续期](#4-凭据自动续期可选)）；默认镜像只能手动重推 |
+| Token / Cookie 自动保活 | ⚠️ | RT / CDP 两条 M365 链路都不适用。`-camoufox` 镜像用持久 Microsoft 登录 profile 静默重铸新 Token 与 Cookie（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)）；默认镜像只能手动重推 |
 
 > **TLS 指纹是硬约束。** 个人版上游按 TLS 指纹判客户端：curl_cffi 的 chrome / edge / safari 全系会被拒（表现为收到 `challenge` 帧后连接被掐断），当前固定使用 `firefox147`。这是实测得到的经验事实，微软调整策略后可能失效。
 
