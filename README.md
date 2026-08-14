@@ -672,7 +672,6 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 | | 本项目（M365 企业版） | 个人版（消费者版 Copilot） |
 |---|---|---|
 | 上游 | `wss://substrate.office.com/m365Copilot/Chathub`（SignalR） | `wss://copilot.microsoft.com/c/api/chat` |
-| 账号模型 | **多租户**：账号池 + 每个 API Key 绑定账号 | **同一多租户账户池**：每个 API Key 绑定一个 Consumer 账号，可同时管理多个个人账号 |
 | 鉴权 | substrate JWT（RT 纯 HTTP 交换，或 CDP 抓取） | 登录 Cookie + ChatAI access token（WebSocket query 参数） |
 | Cloudflare | 上游无 Turnstile | 该站**不签发 `cf_clearance`**（实测：全新 profile 加载后只有 `__cf_bm` / `__cflb`，无 Turnstile iframe）。验证发生在**应用层**——`challenge` 帧的 `method` 为 `null` 时要的是页内 JS 现场铸的 Turnstile token，不在任何 Cookie 里，因此「浏览器过验证、HTTP 客户端重放 Cookie」这条路不存在；能否通过只取决于 TLS/HTTP 指纹与出口信誉 |
 | 提示词长度 | 实测 147k 字符仍完整（在首轮埋标记、末轮追问，标记可复述） | 默认截断到 8000 字符，需要压缩历史 |
