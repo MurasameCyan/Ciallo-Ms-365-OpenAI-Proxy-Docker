@@ -13,6 +13,7 @@ from m365_copilot_openai_proxy import (
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.consumer_client import ConsumerCopilotError
+from m365_copilot_openai_proxy.session_helpers import _encode_responses_session_id
 
 
 _ROLLOUT_HINT = "该实验 mode 可能受账户、地区或 Microsoft rollout 限制"
@@ -492,6 +493,81 @@ def test_provider_is_selected_from_bound_account_not_model_name(provider_app):
     assert m365_response.status_code == 200
     assert global_response.status_code == 200
     assert [consumer._tone for consumer in made_m365[-2:]] == ["Magic", "Magic"]
+
+
+def test_m365_responses_allows_incremental_tool_output_for_proxy_response_id(
+    provider_app,
+):
+    app, _consumer_key, m365_key, _made_consumers, made_m365 = provider_app
+    session_key = f"{m365_key.id}:auto:responses-history"
+    session = app.state.session_store.get(session_key)
+    previous_response_id = _encode_responses_session_id(
+        session_key,
+        app.state.media_proxy_secret,
+        {"call_from_server_history"},
+    )
+    session.reserve_turn()
+    session.record_response(
+        previous_response_id,
+        ["call_from_server_history"],
+    )
+
+    response = TestClient(app).post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {m365_key.key}"},
+        json={
+            "model": "Magic",
+            "previous_response_id": previous_response_id,
+            "input": [{
+                "type": "function_call_output",
+                "call_id": "call_from_server_history",
+                "output": "real result",
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    assert made_m365[-1].calls
+
+
+@pytest.mark.parametrize("provider", ["m365", "consumer"])
+def test_responses_rejects_orphan_tool_output_without_m365_server_history(
+    provider_app, provider,
+):
+    app, consumer_key, m365_key, made_consumers, made_m365 = provider_app
+    key = m365_key if provider == "m365" else consumer_key
+    model = "Magic" if provider == "m365" else "deep-alias"
+    app.state.consumer_mode_options = [
+        {"model": "deep-alias", "mode": "reasoning", "status": "stable"},
+    ]
+
+    response = TestClient(app).post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={
+            "model": model,
+            "previous_response_id": (
+                _encode_responses_session_id("missing-history")
+                if provider == "m365"
+                else _encode_responses_session_id("consumer-history")
+            ),
+            "input": [{
+                "type": "function_call_output",
+                "call_id": "call_missing",
+                "output": "real result",
+            }],
+        },
+    )
+
+    assert response.status_code == 400
+    expected = (
+        "Invalid or expired Responses previous_response_id"
+        if provider == "m365"
+        else "matching function_call"
+    )
+    assert expected in response.text
+    assert all(consumer.calls == 0 for consumer in made_consumers)
+    assert all(client.calls == [] for client in made_m365)
 
 
 @pytest.mark.parametrize("endpoint,body", _ROUTE_CASES)

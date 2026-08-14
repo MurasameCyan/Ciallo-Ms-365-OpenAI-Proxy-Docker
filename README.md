@@ -199,7 +199,7 @@ Web 页面显示 Token 有效性与刷新相关状态。
 | ---- | ---- |
 | `GET /v1/models` | 模型列表（对话模式 × 普通/持续） |
 | `POST /v1/chat/completions` | OpenAI Chat Completions（支持流式） |
-| `POST /v1/responses` | OpenAI Responses API（支持流式） |
+| `POST /v1/responses` | Responses API 兼容子集（方案 A，支持流式与 function tools） |
 | `POST /v1/messages` | Anthropic Messages API（支持流式） |
 
 ### 会话与页面
@@ -283,6 +283,26 @@ Web 页面显示 Token 有效性与刷新相关状态。
 | `POST /user/regenerate-key` | 重置自己的 API Key |
 
 </details>
+
+### Responses API（方案 A）
+
+`POST /v1/responses` 实现的是当前项目所需的 **Responses API 兼容子集**，不是与 OpenAI 官方接口完全等价：
+
+- **Function tools**：支持扁平定义（例如 `{"type":"function","name":"Read",...}`），也支持 `{"type":"namespace","name":"filesystem","description":"...","tools":[...]}` 分组。`namespace` 只承载元数据，内部目前仅接受 `function`；代理会把子函数展平给微软上游，并在返回的 `function_call` 上恢复 `namespace`。由于上游只生成裸函数名，namespace 子函数名不得与其他 namespace 子函数或同名扁平函数重复。模型返回 `function_call` 后，由调用方执行函数，再把同一 `call_id` 的 `function_call_output`（以及需要保留的 `function_call` / 消息历史）放入下一次 `input`；重复此循环，直到返回最终 `message`。`strict:true` 会在代理侧按声明的 JSON Schema 校验模型参数；不合规调用不会返回给客户端。Microsoft 上游仍没有原生 schema 强制。
+- **Tool choice**：支持 `auto`、`none`、`required` 和 named function（例如 `{"type":"function","name":"Read"}`）。`required` 与 named function 会严格执行：上游首次未返回合法调用时代理重试一次，连续两次失败后，非流式请求返回 HTTP 502，流式请求以 `error` + `response.failed` 结束。`allowed_tools` 当前不支持，并在请求上游前返回 HTTP 400。
+- **Codex CLI**：实测 Codex CLI 0.145.0 的自定义 Responses provider 请求可能同时包含 `function`、`namespace` 和 `web_search`。前两者可用；`web_search` 没有等价微软上游能力，仍会在请求上游前返回 HTTP 400。使用本代理时需关闭 Codex Web Search：
+
+  ```toml
+  web_search = "disabled"
+  ```
+
+  单次运行可传 `-c 'web_search="disabled"'`；不要使用 `--search`。Codex 0.145.0 的 `tools.web_search=false` 是旧式工具配置，不保证移除默认的 cached Web Search，不能替代顶层开关。
+- **只读保护边界**：Responses 复用现有的大小写不敏感名称启发式，只把 `Read`、`Grep`、`Glob`、`ls`、`SearchCodebase` 视为只读工具。它无法判断任意自定义函数的真实副作用，因此不是安全边界；实际工具执行器仍须独立实施权限、审批和沙箱限制。
+- **流式生命周期**：成功流从 `response.created`、`response.in_progress` 开始。文本项依次发送 `response.output_item.added` → `response.content_part.added` → `response.output_text.delta` / `done` → `response.content_part.done` → `response.output_item.done`；函数调用项发送 `response.output_item.added` → `response.function_call_arguments.delta` / `done` → `response.output_item.done`，最后以 `response.completed` 结束。上游失败以顶层 `error` 后接 `response.failed` 结束；不发送 `[DONE]`。
+- **M365 续接**：把上一轮返回的 `response.id` 作为下一轮 `previous_response_id`，代理会恢复同一条服务端 M365 会话；下一次 `input` 只需携带本轮新增内容。该续接是线性且单次的，只接受最新 `response.id`，不支持从旧 ID 分叉、成功后重放，或在终止帧丢失后的幂等重试。若上一轮并行返回多个函数调用，必须在一次续接中提交全部对应的 `function_call_output`；工具输出目前只支持文本。
+- **Consumer 续接**：Consumer 是无状态桥接，每轮都会新建上游对话，`previous_response_id` 不会恢复服务端历史。调用方必须在下一次 `input` 中重发完整的 `input` 历史，包括相关消息、`function_call` 和 `function_call_output`。Consumer 返回的 `resp_...` 只是当前响应标识，不是服务端续接句柄。
+- **资源 API 不支持**：方案 A 只注册 `POST /v1/responses`，不提供响应存储、`GET /v1/responses/{response_id}`、`DELETE /v1/responses/{response_id}` 或 `POST /v1/responses/{response_id}/cancel`；`store` 不会创建可供后续读取的响应资源。
+- **非函数与托管工具不支持**：OpenAI 托管的 `web_search`、`file_search`、`computer_use`、`code_interpreter` 等工具，以及 `custom`、`shell`、`local_shell` 等非 function 工具，会在请求上游前返回 HTTP 400。Function tool 的 `allowed_callers`、`defer_loading:true`、`output_schema` 也因缺少等价执行语义而明确返回 HTTP 400；namespace 内的 `custom` 子项同样不支持。
 
 ## 按需刷新机制
 
@@ -497,7 +517,7 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 > **租户隔离**：所有会话键都会自动加上 `tenant` 前缀（该请求 API Key 的 id，未绑定则用账户 id / `global`）。因此**不同 Key 即使推送相同的 `X-M365-Session-Id` 值或相同开场白，也不会串会话**。
 >
-> Responses API（`/v1/responses`）另有一条通道：会话键会被编码进返回的 `resp_...` id，客户端把它作为 `previous_response_id` 回传即可续接，无需显式 Header。
+> 对于 M365 Responses API（`/v1/responses`），代理签发的 `resp_...` 可作为一次性的 `previous_response_id` 线性续接，无需显式 Header。Consumer 返回的 `resp_...` 不恢复任何服务端历史，调用方仍须重发完整历史。
 
 ### 增量上下文优化
 

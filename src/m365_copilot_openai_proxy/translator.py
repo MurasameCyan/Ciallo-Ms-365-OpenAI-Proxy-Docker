@@ -3,6 +3,14 @@ from __future__ import annotations
 import json
 import re
 from typing import Iterable
+from urllib.parse import unquote
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from jsonschema.validators import validator_for
+from referencing import Registry
+from referencing.exceptions import Unresolvable
+from referencing.jsonschema import DRAFT202012, UnknownDialect, specification_with
 
 from .consumer_prompt import validate_consumer_required_content
 from .models import (
@@ -273,6 +281,17 @@ def _tool_name(tool) -> str:
     return (getattr(function, "name", None) or getattr(tool, "name", "") or "").strip()
 
 
+def _tool_namespace_label(function) -> str:
+    namespace = (getattr(function, "namespace", None) or "").strip()
+    if not namespace:
+        return ""
+    description = (getattr(function, "namespace_description", None) or "").strip()
+    detail = f"namespace {namespace}"
+    if description:
+        detail += f": {description}"
+    return f" [{detail}]"
+
+
 def _tool_choice_instruction(mode: str, name: str | None, allow_parallel: bool) -> str | None:
     """The extra instruction line a non-default tool_choice implies, if any."""
     lines = []
@@ -306,14 +325,32 @@ def _format_tools_prompt(
     tool_descriptions = []
     for tool in tools:
         func = tool.function
-        desc = f"- {func.name}: {func.description or 'No description'}"
+        desc = (
+            f"- {func.name}{_tool_namespace_label(func)}: "
+            f"{func.description or 'No description'}"
+        )
         if func.parameters:
-            props = func.parameters.get("properties", {})
-            required = func.parameters.get("required", [])
+            schema = func.parameters
+            prompt_schema = _schema_prompt_view(schema, schema)
+            props = (
+                prompt_schema.get("properties", {})
+                if isinstance(prompt_schema, dict)
+                else {}
+            )
+            required = (
+                prompt_schema.get("required", [])
+                if isinstance(prompt_schema, dict)
+                else []
+            )
             param_parts = []
             for pname, pdef in props.items():
-                ptype = pdef.get("type", "any")
-                pdesc = pdef.get("description", "")
+                ptype = _compact_schema_signature(pdef, root_schema=schema)
+                prompt_definition = _schema_prompt_view(pdef, schema)
+                pdesc = (
+                    prompt_definition.get("description", "")
+                    if isinstance(prompt_definition, dict)
+                    else ""
+                )
                 req_flag = " (required)" if pname in required else ""
                 param_parts.append(f"    - {pname}: {ptype}{req_flag} — {pdesc}")
             if param_parts:
@@ -338,10 +375,125 @@ _CONSUMER_TOOL_BUDGET_ERROR = (
 )
 
 
-def _compact_schema_signature(schema, depth: int = 0) -> str:
+def _local_schema_ref_target(
+    schema: dict,
+    root_schema: dict,
+) -> dict | bool | None:
+    ref = schema.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith("#"):
+        return None
+    if ref == "#":
+        return root_schema
+    if not ref.startswith("#/"):
+        anchor = unquote(ref[1:])
+        legacy_id_keyword = None
+        dialect = root_schema.get("$schema")
+        if isinstance(dialect, str):
+            try:
+                dialect_name = specification_with(dialect).name
+            except UnknownDialect:
+                dialect_name = ""
+            if dialect_name == "draft-04":
+                legacy_id_keyword = "id"
+            elif dialect_name in {"draft-06", "draft-07"}:
+                legacy_id_keyword = "$id"
+        pending = [root_schema]
+        while pending:
+            candidate = pending.pop()
+            if isinstance(candidate, dict):
+                if (
+                    anchor
+                    in {
+                        candidate.get("$anchor"),
+                        candidate.get("$dynamicAnchor"),
+                    }
+                    or (
+                        legacy_id_keyword is not None
+                        and candidate.get(legacy_id_keyword) == ref
+                    )
+                ):
+                    return candidate
+                pending.extend(candidate.values())
+            elif isinstance(candidate, list):
+                pending.extend(candidate)
+        return None
+
+    target = root_schema
+    for raw_token in ref[2:].split("/"):
+        token = unquote(raw_token).replace("~1", "/").replace("~0", "~")
+        if isinstance(target, dict) and token in target:
+            target = target[token]
+        elif isinstance(target, list) and token.isdigit():
+            index = int(token)
+            if index >= len(target):
+                return None
+            target = target[index]
+        else:
+            return None
+    return target if isinstance(target, (dict, bool)) else None
+
+
+def _schema_prompt_view(schema, root_schema: dict):
+    """Resolve one local ref for compact prompt rendering."""
+    if not isinstance(schema, dict):
+        return schema
+    target = _local_schema_ref_target(schema, root_schema)
+    if target is None:
+        return schema
+
+    dialect = root_schema.get("$schema")
+    if isinstance(dialect, str):
+        try:
+            legacy_ref = specification_with(dialect).name in {
+                "draft-04",
+                "draft-06",
+                "draft-07",
+            }
+        except UnknownDialect:
+            legacy_ref = False
+        if legacy_ref:
+            return target
+
+    siblings = {key: value for key, value in schema.items() if key != "$ref"}
+    if not siblings:
+        return target
+    if target is True:
+        return siblings
+    if target is False:
+        return False
+    merged = {**target, **siblings}
+    target_properties = target.get("properties")
+    sibling_properties = siblings.get("properties")
+    if isinstance(target_properties, dict) and isinstance(sibling_properties, dict):
+        merged_properties = dict(target_properties)
+        for name, definition in sibling_properties.items():
+            target_definition = merged_properties.get(name)
+            if isinstance(target_definition, dict) and isinstance(definition, dict):
+                merged_properties[name] = {**target_definition, **definition}
+            else:
+                merged_properties[name] = definition
+        merged["properties"] = merged_properties
+    target_required = target.get("required")
+    sibling_required = siblings.get("required")
+    if isinstance(target_required, list) and isinstance(sibling_required, list):
+        merged["required"] = list(dict.fromkeys([*target_required, *sibling_required]))
+    # ponytail: this is a prompt summary, not a schema compiler; jsonschema
+    # remains authoritative for overlapping non-object constraints.
+    return merged
+
+
+def _compact_schema_signature(
+    schema,
+    depth: int = 0,
+    root_schema: dict | None = None,
+) -> str:
     """Render JSON Schema without descriptions, examples, titles, or defaults."""
+    if isinstance(schema, bool):
+        return "any" if schema else "never"
     if not isinstance(schema, dict):
         return "any"
+    if root_schema is None:
+        root_schema = schema
     if depth >= 12:
         raw_type = schema.get("type")
         if isinstance(raw_type, str) and raw_type:
@@ -352,11 +504,16 @@ def _compact_schema_signature(schema, depth: int = 0) -> str:
             return "array"
         return "any"
 
+    prompt_schema = _schema_prompt_view(schema, root_schema)
+    if prompt_schema is not schema:
+        return _compact_schema_signature(prompt_schema, depth + 1, root_schema)
+
     alternatives = schema.get("oneOf") or schema.get("anyOf")
     if isinstance(alternatives, list) and alternatives:
         kind = "oneOf" if schema.get("oneOf") else "anyOf"
         rendered = f"{kind}<" + " | ".join(
-            _compact_schema_signature(option, depth + 1) for option in alternatives
+            _compact_schema_signature(option, depth + 1, root_schema)
+            for option in alternatives
         ) + ">"
     else:
         raw_type = schema.get("type")
@@ -380,17 +537,22 @@ def _compact_schema_signature(schema, depth: int = 0) -> str:
                 for name, definition in properties.items():
                     marker = " required" if name in required_names else ""
                     fields.append(
-                        f"{name}: {_compact_schema_signature(definition, depth + 1)}{marker}"
+                        f"{name}: {_compact_schema_signature(definition, depth + 1, root_schema)}{marker}"
                     )
                 rendered += "{" + "; ".join(fields) + "}"
         elif rendered == "array":
             items = schema.get("items")
             if isinstance(items, list):
                 item_signature = " | ".join(
-                    _compact_schema_signature(item, depth + 1) for item in items
+                    _compact_schema_signature(item, depth + 1, root_schema)
+                    for item in items
                 )
             else:
-                item_signature = _compact_schema_signature(items, depth + 1)
+                item_signature = _compact_schema_signature(
+                    items,
+                    depth + 1,
+                    root_schema,
+                )
             rendered += f"<{item_signature}>"
 
     if "enum" in schema:
@@ -420,19 +582,33 @@ def _format_consumer_tools_contract(
         if not name:
             continue
         schema = func.parameters if isinstance(func.parameters, dict) else {}
-        properties = schema.get("properties")
-        required = schema.get("required")
+        prompt_schema = _schema_prompt_view(schema, schema)
+        properties = (
+            prompt_schema.get("properties")
+            if isinstance(prompt_schema, dict)
+            else None
+        )
+        required = (
+            prompt_schema.get("required")
+            if isinstance(prompt_schema, dict)
+            else None
+        )
         required_names = set(required) if isinstance(required, list) else set()
         params = []
         if isinstance(properties, dict):
             for param_name, definition in properties.items():
                 marker = " required" if param_name in required_names else ""
                 params.append(
-                    f"{param_name}: {_compact_schema_signature(definition)}{marker}"
+                    f"{param_name}: {_compact_schema_signature(definition, root_schema=schema)}{marker}"
                 )
         elif schema:
-            params.append(f"arguments: {_compact_schema_signature(schema)}")
-        tool_lines.append(f"- {name}({'; '.join(params)})")
+            params.append(
+                "arguments: "
+                f"{_compact_schema_signature(prompt_schema, root_schema=schema)}"
+            )
+        tool_lines.append(
+            f"- {name}({'; '.join(params)}){_tool_namespace_label(func)}"
+        )
 
     if not tool_lines:
         return None
@@ -670,48 +846,478 @@ def translate_openai_request(
     return TranslatedRequest(prompt=prompt, additional_context=additional_context, images=images)
 
 
-def translate_responses_request(request: OpenAIResponsesRequest) -> TranslatedRequest:
-    instructions = request.instructions or ""
-    if isinstance(request.input, str):
-        return TranslatedRequest(
-            prompt=request.input,
-            additional_context=[f"System instructions:\n{instructions}"] if instructions else [],
+def _schema_validator_and_specification(schema: dict):
+    dialect = schema.get("$schema")
+    if dialect is None:
+        return Draft202012Validator, DRAFT202012
+    if not isinstance(dialect, str):
+        raise ValueError("Responses JSON Schema $schema must be a string.")
+    try:
+        specification = specification_with(dialect)
+    except UnknownDialect as exc:
+        raise ValueError(
+            f"Unsupported Responses JSON Schema dialect: {dialect}."
+        ) from exc
+    return validator_for(schema), specification
+
+
+def _validate_local_schema_references(
+    schema: dict,
+    validator_class,
+    specification,
+) -> None:
+    """Reject references that cannot resolve within the submitted schema."""
+    root = specification.create_resource(schema)
+    resolver = Registry().resolver_with_root(root)
+
+    def visit(contents, current_resolver) -> None:
+        if isinstance(contents, dict):
+            for ref_keyword in ("$ref", "$recursiveRef", "$dynamicRef"):
+                if (
+                    ref_keyword in validator_class.VALIDATORS
+                    and ref_keyword in contents
+                ):
+                    current_resolver.lookup(contents[ref_keyword])
+        for subcontents in specification.subresources_of(contents):
+            subresource = specification.create_resource(subcontents)
+            visit(
+                subcontents,
+                current_resolver.in_subresource(subresource),
+            )
+
+    visit(schema, resolver)
+
+
+def _adapt_responses_function_tool(
+    tool: dict,
+    *,
+    namespace: str | None = None,
+    namespace_description: str | None = None,
+) -> ToolDefinition:
+    supported_fields = {
+        "type", "name", "description", "parameters", "strict",
+        "allowed_callers", "defer_loading", "output_schema",
+    }
+    unknown_fields = sorted(set(tool) - supported_fields)
+    if unknown_fields:
+        raise ValueError(
+            "Responses function tool fields are not supported by this proxy: "
+            + ", ".join(unknown_fields)
+            + "."
         )
-    # input is a list of message dicts
+    unsupported_semantics = [
+        field
+        for field in ("allowed_callers", "output_schema")
+        if tool.get(field) is not None
+    ]
+    if tool.get("defer_loading") not in (None, False):
+        unsupported_semantics.append("defer_loading")
+    if unsupported_semantics:
+        raise ValueError(
+            "Responses function tool fields are not supported by this proxy: "
+            + ", ".join(unsupported_semantics)
+            + "."
+        )
+    name = tool.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Responses function tools require a non-empty name.")
+    parameters = tool.get("parameters")
+    if parameters is not None and not isinstance(parameters, dict):
+        raise ValueError("Responses function tool parameters must be an object.")
+    if isinstance(parameters, dict):
+        properties = parameters.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            raise ValueError(
+                "Responses function tool parameter properties must be an object."
+            )
+        if isinstance(properties, dict) and any(
+            not isinstance(schema, (dict, bool))
+            for schema in properties.values()
+        ):
+            raise ValueError(
+                "Responses function tool property schemas must be objects."
+            )
+        required = parameters.get("required")
+        if required is not None and (
+            not isinstance(required, list)
+            or any(not isinstance(name, str) for name in required)
+        ):
+            raise ValueError(
+                "Responses function tool required must be an array of strings."
+            )
+        try:
+            validator_class, specification = _schema_validator_and_specification(
+                parameters
+            )
+            validator_class.check_schema(parameters)
+            if tool.get("strict") is True:
+                _validate_local_schema_references(
+                    parameters,
+                    validator_class,
+                    specification,
+                )
+        except SchemaError as exc:
+            raise ValueError(
+                "Responses function tool parameters must be valid JSON Schema: "
+                f"{exc.message}"
+            ) from exc
+        except Unresolvable as exc:
+            raise ValueError(
+                "Responses strict function tool references must be locally "
+                f"resolvable: {exc}"
+            ) from exc
+        except RecursionError as exc:
+            raise ValueError(
+                "Responses function tool parameters are too deeply nested."
+            ) from exc
+    description = tool.get("description")
+    if description is not None and not isinstance(description, str):
+        raise ValueError("Responses function tool description must be a string.")
+    strict = tool.get("strict", False)
+    if strict is None:
+        strict = False
+    if not isinstance(strict, bool):
+        raise ValueError("Responses function tool strict must be a boolean.")
+    return ToolDefinition(function=ToolFunction(
+        name=name.strip(),
+        description=description,
+        parameters=parameters,
+        strict=strict,
+        namespace=namespace,
+        namespace_description=namespace_description,
+    ))
+
+
+def responses_tools_as_openai(tools: list[dict] | None) -> list[ToolDefinition]:
+    """Flatten supported Responses function tools into the shared OpenAI shape."""
+    adapted: list[ToolDefinition] = []
+    seen_namespaces: dict[str, str | None] = {}
+
+    def add_function(tool: dict, namespace: str | None = None, description=None):
+        if tool.get("type") != "function":
+            if namespace is not None:
+                raise ValueError(
+                    "Responses namespace tools must contain only function tools."
+                )
+            raise ValueError(
+                "Responses only function tools are supported by this proxy; "
+                "OpenAI hosted tools are unavailable."
+            )
+        definition = _adapt_responses_function_tool(
+            tool,
+            namespace=namespace,
+            namespace_description=description,
+        )
+        name = definition.function.name
+        if name in seen_namespaces:
+            raise ValueError(
+                f"Responses tools contain duplicate function name '{name}'."
+            )
+        seen_namespaces.setdefault(name, namespace)
+        adapted.append(definition)
+
+    for tool in tools or []:
+        if not isinstance(tool, dict):
+            raise ValueError("Responses tools must be JSON objects.")
+        if tool.get("type") != "namespace":
+            add_function(tool)
+            continue
+
+        unknown_fields = sorted(set(tool) - {"type", "name", "description", "tools"})
+        if unknown_fields:
+            raise ValueError(
+                "Responses namespace fields are not supported by this proxy: "
+                + ", ".join(unknown_fields)
+                + "."
+            )
+        namespace = tool.get("name")
+        if not isinstance(namespace, str) or not namespace.strip():
+            raise ValueError("Responses namespaces require a non-empty name.")
+        description = tool.get("description")
+        if not isinstance(description, str):
+            raise ValueError("Responses namespace description must be a string.")
+        nested_tools = tool.get("tools")
+        if not isinstance(nested_tools, list):
+            raise ValueError("Responses namespace tools must be an array.")
+        namespace = namespace.strip()
+        for nested_tool in nested_tools:
+            if not isinstance(nested_tool, dict):
+                raise ValueError("Responses namespace tools must be JSON objects.")
+            add_function(nested_tool, namespace, description)
+    return adapted
+
+
+def responses_tool_config(
+    tools: list[dict] | None,
+    tool_choice,
+    parallel_tool_calls=None,
+) -> tuple[tuple[str, str | None, bool], list[ToolDefinition]]:
+    """Validate Responses tool fields and return normalized choice + tools."""
+    adapted = responses_tools_as_openai(tools)
+    allow_parallel = parallel_tool_calls is not False
+
+    if tool_choice is None:
+        choice = ("auto", None, allow_parallel)
+    elif isinstance(tool_choice, str):
+        mode = tool_choice.strip().lower()
+        if mode not in {"auto", "none", "required"}:
+            raise ValueError(f"Unsupported Responses tool_choice: {tool_choice}.")
+        choice = (mode, None, allow_parallel)
+    elif isinstance(tool_choice, dict):
+        if tool_choice.get("type") != "function":
+            raise ValueError("Unsupported Responses tool_choice object.")
+        name = tool_choice.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(
+                "Responses function tool_choice requires a non-empty function name."
+            )
+        choice = ("tool", name.strip(), allow_parallel)
+    else:
+        raise ValueError("Unsupported Responses tool_choice value.")
+
+    names = {_tool_name(tool) for tool in adapted}
+    if choice[0] == "required" and not names:
+        raise ValueError(
+            "Responses tool_choice=required requires at least one function tool."
+        )
+    if choice[0] == "tool" and choice[1] not in names:
+        raise ValueError(
+            f"Responses tool_choice function '{choice[1]}' is not declared."
+        )
+    return choice, effective_tools(adapted, choice)
+
+
+def _responses_content_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") in {"text", "input_text", "output_text"}
+        )
+    return "" if content is None else str(content)
+
+
+def _responses_function_arguments(item: dict) -> str:
+    arguments = item.get("arguments")
+    if not isinstance(arguments, str):
+        raise ValueError(
+            "Responses function_call items require arguments as a JSON string."
+        )
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "Responses function_call arguments must encode a JSON object."
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "Responses function_call arguments must encode a JSON object."
+        )
+    return arguments
+
+
+def _responses_function_output(item: dict) -> str:
+    if "output" not in item:
+        raise ValueError("Responses function_call_output items require an output.")
+    output = item["output"]
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        parts: list[str] = []
+        for part in output:
+            if (
+                not isinstance(part, dict)
+                or part.get("type") not in {"text", "input_text", "output_text"}
+                or not isinstance(part.get("text"), str)
+            ):
+                raise ValueError(
+                    "Responses function_call_output output supports only text."
+                )
+            parts.append(part["text"])
+        return "".join(parts)
+    raise ValueError("Responses function_call_output output supports only text.")
+
+
+def _responses_last_action_index(items) -> int | None:
+    if not isinstance(items, list):
+        return None
+    for index in range(len(items) - 1, -1, -1):
+        item = items[index]
+        if (
+            isinstance(item, dict)
+            and item.get("type") in (None, "message")
+            and item.get("role") in {"system", "developer"}
+        ):
+            continue
+        return index
+    return None
+
+
+def translate_responses_request(
+    request: OpenAIResponsesRequest,
+    system_override: str | None = None,
+    consumer_tool_max_chars: int | None = None,
+    allow_unmatched_function_call_outputs: bool = False,
+) -> TranslatedRequest:
+    instructions = (request.instructions or "").strip()
+    choice, tools = responses_tool_config(
+        request.tools,
+        request.tool_choice,
+        getattr(request, "parallel_tool_calls", None),
+    )
+    consumer_tools_contract = None
     system_lines: list[str] = []
+    if consumer_tool_max_chars is None:
+        tools_prompt = _format_tools_prompt(tools, system_override, choice)
+        if tools_prompt:
+            system_lines.append(tools_prompt)
+    else:
+        consumer_tools_contract = _format_consumer_tools_contract(
+            tools, choice, consumer_tool_max_chars
+        )
+        if consumer_tools_contract and (system_override or "").strip():
+            system_lines.append(system_override.strip())
     if instructions:
         system_lines.append(instructions)
+
+    if isinstance(request.input, str):
+        prompt = request.input
+        if consumer_tools_contract:
+            validate_consumer_required_content(
+                prompt, consumer_tools_contract, consumer_tool_max_chars
+            )
+        additional_context: list[str] = []
+        if consumer_tools_contract:
+            additional_context.append(consumer_tools_contract)
+        system_text = _join_lines(system_lines)
+        if system_text:
+            additional_context.append(f"System instructions:\n{system_text}")
+        return TranslatedRequest(prompt=prompt, additional_context=additional_context)
+
+    items = request.input
+    parsed_items: list[tuple[str, dict]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("Responses input items must be JSON objects.")
+        item_type = item.get("type")
+        if item_type == "function_call":
+            parsed_items.append(("function_call", item))
+        elif item_type == "function_call_output":
+            parsed_items.append(("function_call_output", item))
+        elif item_type in (None, "message") and isinstance(item.get("role"), str):
+            parsed_items.append(("message", item))
+        else:
+            label = str(item_type or "unknown")
+            raise ValueError(f"Unsupported Responses input item type: {label}.")
+
+    last_action_index = _responses_last_action_index(items)
+    if last_action_index is None:
+        raise ValueError("No user message found in input.")
+
     transcript_lines: list[str] = []
     prompt = ""
     images: list[ImageData] = []
-    items = request.input
-    for index, item in enumerate(items):
-        role = item.get("role", "") if isinstance(item, dict) else ""
-        raw_content = item.get("content", "") if isinstance(item, dict) else str(item)
-        if isinstance(raw_content, list):
-            content = "".join(p.get("text", "") for p in raw_content if isinstance(p, dict) and p.get("type") in ("text", "input_text"))
-        else:
-            content = raw_content
-        text = content.strip()
-        is_last = index == len(items) - 1
-        # The final user turn may carry images (and possibly no text), so extract
-        # before the empty-text skip below would otherwise drop an image-only turn.
-        if is_last and role == "user" and isinstance(raw_content, list):
-            images = extract_images_from_dicts(raw_content)
-        if not text and not (is_last and images):
+    function_call_ids: set[str] = set()
+    function_output_ids: set[str] = set()
+    for index, (kind, item) in enumerate(parsed_items):
+        is_last_action = index == last_action_index
+        if kind == "function_call":
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str) or not call_id.strip():
+                raise ValueError("Responses function_call items require a call_id.")
+            call_id = call_id.strip()
+            if call_id in function_call_ids:
+                raise ValueError(
+                    f"Responses input contains duplicate function_call call_id: {call_id}."
+                )
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Responses function_call items require a name.")
+            namespace = item.get("namespace")
+            if namespace is not None and (
+                not isinstance(namespace, str) or not namespace.strip()
+            ):
+                raise ValueError(
+                    "Responses function_call namespace must be a non-empty string."
+                )
+            arguments = _responses_function_arguments(item)
+            function_call_ids.add(call_id)
+            qualified_name = (
+                f"{namespace.strip()}.{name.strip()}"
+                if isinstance(namespace, str)
+                else name.strip()
+            )
+            transcript_lines.append(
+                f"Assistant called tool (id: {call_id}): {qualified_name}({arguments})"
+            )
+            if is_last_action:
+                raise ValueError(
+                    "The final Responses input item must be a user message or function_call_output."
+                )
             continue
+
+        if kind == "function_call_output":
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str) or not call_id.strip():
+                raise ValueError("Responses function_call_output items require a call_id.")
+            call_id = call_id.strip()
+            if call_id in function_output_ids:
+                raise ValueError(
+                    "Responses input contains duplicate function_call_output "
+                    f"call_id: {call_id}."
+                )
+            if call_id not in function_call_ids and not allow_unmatched_function_call_outputs:
+                if function_call_ids:
+                    raise ValueError(
+                        "Responses function_call_output call_id does not match a prior "
+                        "function_call."
+                    )
+                raise ValueError(
+                    "Stateless Responses requests must resend the matching "
+                    "function_call before each function_call_output."
+                )
+            output = _responses_function_output(item)
+            function_output_ids.add(call_id)
+            transcript_lines.append(
+                f"Tool: Tool result (id: {call_id})\n{output}".rstrip()
+            )
+            if is_last_action:
+                prompt = (
+                    "The tool action you requested has been executed by the host and the "
+                    "result is shown above. Continue the task: if more actions are needed, "
+                    "emit the next tool_call; otherwise give the user your final answer."
+                )
+            continue
+
+        role = str(item.get("role") or "")
+        raw_content = item.get("content", "")
+        text = _responses_content_text(raw_content).strip()
         if role in {"system", "developer"}:
-            system_lines.append(text)
+            if text:
+                system_lines.append(text)
             continue
-        if is_last:
+        if is_last_action:
             if role != "user":
                 raise ValueError("The final Responses input message must be a user message.")
             prompt = text
+            if isinstance(raw_content, list):
+                images = extract_images_from_dicts(raw_content)
             continue
-        transcript_lines.append(f"{role.capitalize()}: {text}")
+        if text:
+            transcript_lines.append(f"{role.capitalize()}: {text}")
+
     if not prompt and not images:
         raise ValueError("No user message found in input.")
+    if consumer_tools_contract:
+        validate_consumer_required_content(
+            prompt, consumer_tools_contract, consumer_tool_max_chars
+        )
     additional_context: list[str] = []
+    if consumer_tools_contract:
+        additional_context.append(consumer_tools_contract)
     system_text = _join_lines(system_lines)
     if system_text:
         additional_context.append(f"System instructions:\n{system_text}")

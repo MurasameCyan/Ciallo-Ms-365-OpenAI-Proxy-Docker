@@ -138,6 +138,13 @@ class OpenAIResponsesRequest(BaseModel):
     stream: bool = False
     previous_response_id: str | None = None
     user: str | None = None
+    # Responses function tools are flat (`name`/`parameters` live directly on
+    # the item), unlike Chat Completions where they are nested below `function`.
+    # Keep non-function entries as raw mappings so the route can reject OpenAI
+    # hosted tools explicitly instead of silently dropping them.
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
+    parallel_tool_calls: bool | None = None
 
 
 class ImageData(BaseModel):

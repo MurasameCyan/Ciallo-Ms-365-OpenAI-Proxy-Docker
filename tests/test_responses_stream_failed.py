@@ -36,7 +36,7 @@ def test_responses_stream_emits_response_failed_envelope_on_upstream_error():
     assert '"type": "response.failed"' in body
     # Envelope is well-formed and carries a stable error code + failed status.
     assert '"status": "failed"' in body
-    assert '"code": "upstream_error"' in body
+    assert '"code": "server_error"' in body
     assert '"message": "upstream broke"' in body
     # response.failed is the terminal event: it comes after the error event and
     # a successful response.completed is NOT emitted on the failure path.
