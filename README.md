@@ -2,7 +2,7 @@
 
 来都来了 不点个⭐再走吗~?
 
-将 Microsoft 365 Copilot 暴露为 **OpenAI / Anthropic 兼容 API** 的 Docker 代理服务。**多租户版**：可管理多个 M365 账户与多个 API Key，给多人共用；每个 Key 绑定一个账户，并拥有独立的对话模式与提示词。
+将 Microsoft 365 Copilot 与个人版 Copilot 暴露为 **OpenAI / Anthropic 兼容 API** 的 Docker 代理服务。**多租户版**：可同时管理多个 M365 / Consumer 账户与多个 API Key，给多人共用；每个 Key 绑定一个账户，并拥有独立的对话模式与提示词。
 
 > 这是主项目的 `multi` 分支，镜像标签为 `:multi`。单租户（单账户单 Key）请用 `main` 分支 / `:latest` 镜像。
 
@@ -12,7 +12,7 @@
 - [可调用模型目录](#可调用模型目录)
 - [快速部署](#快速部署)
 - [API 端点](#api-端点)
-- [按需刷新机制](#按需刷新机制)
+- [多账户刷新与保活](#多账户刷新与保活)
 - [环境变量](#环境变量)
 - [客户端配置](#客户端配置)
 - [认证](#认证)
@@ -30,18 +30,18 @@
 
 ## 功能概览
 
-- **多账户池** — 每个账户拥有独立 M365 Token 与 Chromium 刷新配置
+- **多账户池** — M365 与 Consumer 共用同一账户池；每个账户独立保存对应 provider 的凭据和刷新状态。M365 使用账户专属 Chromium profile，Consumer 在 `-camoufox` 镜像中使用账户专属 Camoufox profile，并可配置账户级出站代理
 - **多 API Key** — 每个 Key 绑定一个账户，可单独设置对话模式 / 提示词，随时启用停用
 - **模型即模式** — `GET /v1/models` 按 API Key 绑定的账户类型返回目录：M365 为对话模式（含「-持续」变体），个人版为可配置的 `model → mode` 别名
-- **按需串行刷新** — RT 优先纯 HTTP 换 Token；失败再拉起单个 Chromium，用完即关，峰值内存接近单租户
-- **分层界面** — `/admin` 运营总控台（账户池 + Key 管理），`/` 用户自助页（用自己的 Key 管理对话模式、提示词、账户 Token）
-- **按需刷新** — 空闲自动暂停，有 `/v1/` 请求时自动唤醒，降低账号风险
+- **非驻留串行刷新** — 按 provider 分流：M365 优先 RT 纯 HTTP 换 Token，失败再拉起账户专属 Chromium；Consumer 按年龄由账户专属 Camoufox 重铸 ChatAI Token 与 Cookie。两条路径共享全局浏览器锁，峰值内存接近单租户
+- **分层界面** — `/admin` 运营总控台（账户池 + Key 管理），`/` 用户自助页（用自己的 Key 管理对话模式、提示词和对应 provider 的账户凭据）
+- **请求前凭据检查** — 每个 `/v1/` 请求先检查绑定账户；M365 到期时自动续期，Consumer 遇到明确认证失败时可重铸一次并重试
 - **油猴脚本** — Tampermonkey 一键推送 Token + Cookie（及 media / designer 凭据）
-- **增量上下文** — 复用会话时只发送新增内容，不重发完整历史
-- **会话持久化** — 容器重启后旧对话仍可正确续接
+- **M365 增量上下文** — 复用会话时只发送新增内容，不重发完整历史
+- **M365 会话持久化** — 容器重启后旧对话仍可正确续接
 - **提示词增强** — Web 可调 tool_call 行为与系统提示词，持久保存；服务端兜底重试 + 散文兜底救援（半成品）
 - **速率限制** — 令牌桶按 Key 限流，防止单个客户端跑飞拖垮共用账户；全局默认值 + 单 Key 覆盖
-- **出站代理** — Web 可配 http/socks5 代理，覆盖 WebSocket 与 Chromium；本地 CDP 始终直连
+- **出站代理** — Web 可配 http/socks5 全局代理，覆盖 WebSocket 与刷新浏览器；Consumer 还支持账户级覆盖，本地 CDP 始终直连
 - **API Key 认证** + **Web 管理页面**
 
 ## 可调用模型目录
@@ -315,17 +315,17 @@ Web 页面显示 Token 有效性与刷新相关状态。
 - **资源 API 不支持**：方案 A 只注册 `POST /v1/responses`，不提供响应存储、`GET /v1/responses/{response_id}`、`DELETE /v1/responses/{response_id}` 或 `POST /v1/responses/{response_id}/cancel`；`store` 不会创建可供后续读取的响应资源。
 - **非函数与托管工具不支持**：OpenAI 托管的 `web_search`、`file_search`、`computer_use`、`code_interpreter` 等工具，以及 `custom`、`shell`、`local_shell` 等非 function 工具，会在请求上游前返回 HTTP 400。Function tool 的 `allowed_callers`、`defer_loading:true`、`output_schema` 也因缺少等价执行语义而明确返回 HTTP 400；namespace 内的 `custom` 子项同样不支持。
 
-## 按需刷新机制
+## 多账户刷新与保活
 
-默认采用按需刷新模式，降低长时间保持连接的账号风控：
+应用启动时会一直运行账户池保活调度器，逐账户检查并按 `provider` 分流；它不因 API 空闲而暂停。Docker 入口只有在 `ENABLE_ADMIN_CDP=true` 且 `AUTO_REFRESH=true` 时才启动旧的共享 admin Chromium（9222），否则会关闭这条共享浏览器路径。独立运行 CLI 时，`--no-auto-refresh` 只停旧自动刷新线程，浏览器启动另由 `--no-launch-edge` 控制。**这些共享路径开关都不会关闭每账户 M365 保活，也不会关闭 Consumer Camoufox 保活**。
 
-1. **容器启动不自动刷新** — `auto_refresh` 初始为关闭状态，无后台 token 刷新活动
-2. **`/v1/` 请求触发按需刷新** — 当有 `/v1/` API 请求且 Token 过期或不存在时，中间件**同步刷新** Token（先 RT 后 CDP，见下），请求等待刷新完成后继续
-3. **空闲自动暂停** — 超过 `IDLE_TIMEOUT_MINUTES`（默认 30 分钟）无 `/v1/` 请求时，自动暂停刷新循环
-4. **再次请求自动唤醒** — 下一个 `/v1/` 请求到来时，自动唤醒刷新
-5. **Web 按钮控制** — 可通过 Web 页面手动启用/暂停自动刷新
+1. **请求前检查** — 每个 `/v1/` 请求先由 API Key 找到绑定账户，再调用 `ensure_fresh(account.id)`。M365 Token 有效时是廉价 no-op；到期时先尝试 RT，失败再回退到账户专属 Chromium。Consumer Token 不透明，普通请求先使用现有凭据；若上游明确返回需要重新认证，Consumer gate 才对该账户重铸一次并重试当轮。
+2. **后台逐账户保活** — 调度器按配置间隔扫描整个账户池。M365 的 CDP 账户在 Cookie 临近过期时刷新，Cookie 已失效但仍有快照时尝试自愈；Consumer 凭据达到年龄阈值后，用该账户专属 Camoufox profile 重铸 Token 与 Cookie。
+3. **账户级隔离** — M365 与 Consumer 都有独立账户锁、凭据快照和失败退避。Consumer profile 还包含 Microsoft 主体哈希，重铸结果只有在账户主体及快照仍匹配时才会写回。
+4. **全局串行浏览器锁** — M365 Chromium 与 Consumer Camoufox 共用一把浏览器锁，避免多个账户同时拉起浏览器；串行的是资源占用，不是凭据或 profile。
+5. **手动刷新** — `/admin` 的账户刷新按钮同样按 provider 分派：M365 强制走账户刷新，Consumer 强制走 Camoufox 重铸。
 
-### 两级刷新链路：RT 优先 → CDP 回退
+### M365 两级刷新链路：RT 优先 → CDP 回退
 
 刷新到期（或强制刷新）时，按以下顺序取新 Token：
 
@@ -334,23 +334,19 @@ Web 页面显示 Token 有效性与刷新相关状态。
 
 > media / designer（图片、Designer）Token 不经 RT 产生，由 CDP 媒体捕获路径按需懒保活。
 
-> **注意：按需刷新唤醒需要先刷新 Token，首轮回复等待时间会增加**；RT 路径通常只需一次 HTTP 往返，明显快于 CDP 拉起浏览器。
+> **注意：请求命中到期的 M365 Token 时，首轮回复需要等待刷新完成**；RT 路径通常只需一次 HTTP 往返，明显快于 CDP 拉起浏览器。
 
 ```
-/v1/ 请求 → 记录 last_request_time → 检查 token 有效性
-                                        ├─ 有效 → 正常处理
-                                        └─ 过期/缺失 →
-                                            ├─ 有 RT → HTTP 交换 substrate token（无浏览器）
-                                            │           ├─ 成功 → 轮换并持久化 RT → 正常处理
-                                            │           └─ 失败 → 回退 CDP
-                                            ├─ CDP：拉起账户专属 Chromium 抓 token
-                                            │           ├─ 成功 → 用新 token 正常处理
-                                            │           └─ 失败 → 返回 503
-                                            └─ 手动账户且已过期 → 返回 503
+/v1/ 请求 → API Key → 绑定账户 → provider 分流
+                                ├─ M365 → Token 有效：直接请求
+                                │          Token 到期：RT → 失败则账户专属 Chromium/CDP
+                                └─ Consumer → 先用账户 Token/Cookie
+                                             明确认证失败时：该账户 Camoufox 重铸一次并重试
 
-_auto_refresh_loop → 检查 auto_refresh_enabled → 检查空闲时间
-                        ├─ 启用 + 有请求 → 正常刷新（同样 RT 优先）
-                        └─ 暂停或无请求 → 休眠等待唤醒
+后台保活 → 扫描账户池
+           ├─ M365：Cookie 临期刷新 / 无效快照自愈
+           └─ Consumer：凭据满龄后重铸 Token + Cookie
+                        两种浏览器刷新由全局锁串行
 ```
 
 ## 环境变量
@@ -453,21 +449,26 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 分层界面：
 
-- **`/admin` 运营总控台**（管理密码登录）：管理账户池与所有 API Key。可添加账户、推送/刷新账户 Token、新建 Key 并绑定账户、设置各 Key 的默认对话模式、随时启用/停用或删除 Key；运行设置里可编辑全局对话模式列表。
-- **`/` 用户自助页**（用自己的 API Key 登录）：普通使用者用分到的 Key 登录，管理自己的默认对话模式、提示词增强、系统提示词，并可自助推送/更新绑定账户的 Token（未绑定账户时自动创建并绑定）。
+- **`/admin` 运营总控台**（管理密码登录）：管理包含 M365 与 Consumer 的账户池及所有 API Key。可新增账户、推送/刷新对应凭据、新建 Key 并绑定账户、设置各 Key 的默认对话模式、随时启用/停用或删除 Key；运行设置里可编辑全局对话模式列表。
+- **`/` 用户自助页**（用自己的 API Key 登录）：普通使用者用分到的 Key 登录，管理自己的默认对话模式、提示词增强、系统提示词，并可自助推送/更新绑定账户的 M365 Token 或 Consumer 凭据（未绑定账户时自动创建并绑定）。
 
-典型流程（每 Key 绑定一个账户）：
+典型流程（每个 API Key 绑定一个账户；账户可以是 M365 或 Consumer）：
 
-1. 运营方在 `/admin` 添加账户（可当场粘贴该账户 Token，或留空稍后由用户/CDP 推送）
+1. 运营方在 `/admin` 添加账户（可当场粘贴 M365 Token 或留空稍后推送；Consumer 账户由用户推送个人版凭据）
 2. 新建 API Key 并绑定到某账户，把 Key 发给对应使用者
-3. 使用者在 `/` 用自己的 Key 登录，按需自助推送账户 Token、调整默认对话模式与提示词
+3. 使用者在 `/` 用自己的 Key 登录，按需自助推送 M365 Token 或 Consumer 凭据、调整默认对话模式与提示词
 4. 在 OpenAI 兼容客户端里填入 Base URL（`http://<host>:8000/v1`）、自己的 API Key，以及 [模型目录](#可调用模型目录) 中的模型 ID
 
-数据持久化：账户池 `accounts.json`、Key 表 `keys.json`、会话 `sessions.json` 等均写入 `TOKEN_DIR`（挂载卷），容器重启不丢。各账户会话按 Key 维度隔离，不同 Key 即使开场白相同也不会串会话。
+数据持久化：账户池 `accounts.json`、Key 表 `keys.json`、会话 `sessions.json` 以及 Consumer profile 等均写入 `TOKEN_DIR`（挂载卷），容器重启不丢。凭据、刷新状态和浏览器 profile 按账户隔离；Consumer 的账户级出站代理也随账户保存。不同 Key 即使开场白相同也不会串 M365 会话。
 
-### 内存与刷新
+### 内存与刷新（按 provider 分流）
 
-采用**按需 + 串行**策略：平时账户只在磁盘/内存存 Token，无浏览器进程。某账户 Token 临近过期且有请求时才刷新——**优先走 RT 纯 HTTP 交换（无浏览器、零内存开销）**；仅当 RT 缺失或失效时，才回退拉起该账户专属的 Chromium profile（独立 CDP 端口）抓取新 Token 后随即关闭。串行队列保证同一时刻最多一个 Chromium 存活，因此多账户下峰值内存仍接近单租户（约数百 MB，而非账户数 × 300MB）；持有 RT 的账户刷新时通常不会启动浏览器。
+采用**浏览器非驻留 + 串行**策略，刷新状态按账户保存：
+
+- **M365**：Token 临近过期且有请求时刷新，优先走 RT 纯 HTTP 交换；RT 缺失或失效时回退到账户专属 Chromium profile（独立 CDP 端口）抓取新 Token。
+- **Consumer**：同一保活调度器按凭据年龄逐账户扫描，使用账户专属 Camoufox profile 静默重铸 ChatAI Token 与 Cookie；详见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)。
+
+两条路径共用同一全局浏览器锁，始终最多一个刷新浏览器存活；因此多个账户可以并存，峰值内存仍接近单租户，而不会把每个账户的浏览器同时常驻。
 
 ## 速率限制
 
@@ -485,18 +486,18 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 ## 出站代理
 
-给**服务器直连不到 M365 的部署**用（例如放在中国大陆的机器）。在 `/admin` → 运行设置 → 「出站代理」填一个地址，留空即直连。
+给**服务器直连不到 M365 或 Consumer 上游的部署**用（例如放在中国大陆的机器）。在 `/admin` → 运行设置 → 「出站代理」填写全局默认出口，留空即直连。
 
 支持 `http://`、`https://`、`socks5://`、`socks5h://`、`socks4://`、`socks4a://`，**必须写明端口**（`socks5h://127.0.0.1:1080`）。填错格式保存时会返回 400 并在按钮旁提示，不会静默存成直连。
 
-覆盖范围是**所有出站流量**，包括对话主干道那条 `wss://substrate.office.com` 的 WebSocket、媒体/Token 的 HTTP 调用，以及刷新用的 Chromium（`--proxy-server`）。实现方式是把地址写进标准的 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 环境变量——`httpx` 与 `websockets`（≥15）默认就读这些，因此不必逐个改调用点。
+全局默认覆盖所有未单独覆盖的出站流量，包括 M365 的 `wss://substrate.office.com` WebSocket、Consumer 聊天、媒体/Token HTTP 调用及刷新浏览器。实现方式是把地址写进标准的 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 环境变量，`httpx`、`websockets` 与 Consumer 传输会继承它。
 
 - **本地 CDP 永不走代理**。`localhost` / `127.0.0.1` / `::1` 始终被钉进 `NO_PROXY`，**即使没配代理也照样钉**：`websockets` 15 默认会读环境变量代理，若部署自己设了 `HTTPS_PROXY`，浏览器控制通道会被代理吞掉，Cookie 刷新与 Token 抓取全线失败。
-- 保存后**下一次**上游调用即生效，不用重启；已经跑着的 Chromium 要等下次刷新拉起才换代理。
+- 保存后**下一次**上游调用即生效，不用重启；已经跑着的刷新浏览器要等下次拉起才换代理。
 - 清空该设置会**还原**部署自带的 `HTTPS_PROXY`（如果 `docker-compose` 里设过），而不是抹掉它。
 - socks5 支持来自 `python-socks`（WebSocket）与 `httpx[socks]`（HTTP），已在依赖里，无需额外安装。
 
-> 这是**全局**设置，不是按账户设置。所有账户共用同一个代理出口。
+> Consumer 账户可在 `/` 用户自助页设置账户级出口；该设置优先于全局默认，清空后恢复继承全局。不同 Consumer 账户因此可以使用不同代理。M365 对话与 Chromium 刷新当前使用全局出口。
 
 ## 媒体 / Designer 授权抓取
 
@@ -581,11 +582,13 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。ChatAI Token 与 Cookie 可以自动保活（需 `-camoufox` 镜像，见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)），也可以手动重推。
 
-一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定：推送个人版凭据会把它**永久切到 `consumer`**，同时把它**移出 M365 的刷新链路**（RT 换取、Cookie 回放、Chromium CDP 抓取对它都没有意义）。应用启动时的保活调度器仍会扫描这类账户，并把它们分派到独立的 Camoufox 重铸路径。`--no-auto-refresh` / `AUTO_REFRESH=false` 只关闭旧的共享 M365 CDP 自动刷新，不会关闭个人版保活。`/admin` 账户表会给这类账户打上标记。
+一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定。个人版账户仍属于同一套多租户账户池：每个 API Key 绑定一个账户，多个用户可以分别绑定多个 Consumer 账户；各账户的 Consumer Token、Cookie、出站代理、Camoufox profile 和保活状态彼此隔离。推送个人版凭据会把该账户**切到 `consumer`**，并将它移出 M365 的刷新链路（RT 换取、Cookie 回放、Chromium CDP 抓取对它都没有意义），改由独立的 Camoufox 路径处理。旧共享 admin Chromium 及其 `--no-auto-refresh` 开关不控制账户池保活，因此个人版保活仍会运行。`/admin` 账户表会给这类账户打上标记。
+
+同一个已绑定账户切换到另一个 Microsoft 个人主体前，需要先在用户页「登出 Microsoft」或解绑；不同账户不会共用 Consumer profile。隔离单位是账户，不是 Key：如果管理员故意把多个 Key 绑定到同一个账户，这些 Key 会共享该账户的凭据、代理、profile 和保活状态；要做到一人一号，应给每人创建并绑定独立账户。这里的“移出 M365 刷新链路”只表示 provider 刷新实现不同，不表示个人版失去多租户隔离或账户级保活。
 
 ### 1. 配置出站代理（仅在服务器直连不到 Copilot 时）
 
-`copilot.microsoft.com` 在部分网络下会被 SNI 阻断。按[出站代理](#出站代理)一节在 `/admin` → 运行设置里填一个能连通的地址即可，个人版链路和其它出站流量共用同一出口。
+`copilot.microsoft.com` 在部分网络下会被 SNI 阻断。Consumer 账户默认继承 `/admin` → 运行设置中的全局出口；也可在 `/` 用户自助页为当前绑定账户设置独立代理，因此多个 Consumer 账户不必共用同一出口。
 
 > **写 `socks5h://` 而不是 `socks5://`。** 两者的差别是 DNS 在哪解析：`socks5` 在本地解析域名，解析结果又会撞回被阻断的路径；`socks5h` 把域名交给代理远端解析。实测同一个代理端口，`socks5://` 失败、`socks5h://` 成功。`http://` 同样可用。
 
@@ -669,7 +672,7 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 | | 本项目（M365 企业版） | 个人版（消费者版 Copilot） |
 |---|---|---|
 | 上游 | `wss://substrate.office.com/m365Copilot/Chathub`（SignalR） | `wss://copilot.microsoft.com/c/api/chat` |
-| 账号模型 | **多租户**：账号池 + 每个 API Key 绑定账号 | 单个已登录账号 |
+| 账号模型 | **多租户**：账号池 + 每个 API Key 绑定账号 | **同一多租户账户池**：每个 API Key 绑定一个 Consumer 账号，可同时管理多个个人账号 |
 | 鉴权 | substrate JWT（RT 纯 HTTP 交换，或 CDP 抓取） | 登录 Cookie + ChatAI access token（WebSocket query 参数） |
 | Cloudflare | 上游无 Turnstile | 该站**不签发 `cf_clearance`**（实测：全新 profile 加载后只有 `__cf_bm` / `__cflb`，无 Turnstile iframe）。验证发生在**应用层**——`challenge` 帧的 `method` 为 `null` 时要的是页内 JS 现场铸的 Turnstile token，不在任何 Cookie 里，因此「浏览器过验证、HTTP 客户端重放 Cookie」这条路不存在；能否通过只取决于 TLS/HTTP 指纹与出口信誉 |
 | 提示词长度 | 实测 147k 字符仍完整（在首轮埋标记、末轮追问，标记可复述） | 默认截断到 8000 字符，需要压缩历史 |
@@ -680,7 +683,7 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 
 **共同的短板**：两边都没有原生 tool-calling 通道，都靠提示词约定 + 解析文本实现，因此都受模型依从性限制。这不是实现选择，而是两个上游协议都没提供该能力。
 
-**对使用者的实际影响**：个人版不需要 M365 订阅，但需要维护一份浏览器登录态。本项目里这份登录态由 Camoufox 的持久 profile 承载、并由每次续期自动焐热，只有它真失效时才需要人工介入一次；普通 HTTP/WebSocket 重放同一组 Cookie 仍可能被拒。个人版代理常见的 8000 字符历史上限和串行限制属于具体实现约束，不是消费者协议本身的保证。本项目需要 M365 账号，换来已经验证的多租户、长上下文和真并发。
+**对使用者的实际影响**：个人版不需要 M365 订阅，但每个个人账号都需要维护自己的浏览器登录态；本项目用各账户独立的 Camoufox 持久 profile 承载，并由每次续期自动焐热，只有该账号的登录态真失效时才需要人工介入一次。普通 HTTP/WebSocket 重放同一组 Cookie 仍可能被拒。个人版代理常见的 8000 字符历史上限和串行限制属于具体实现约束，不是消费者协议本身的保证。两种 provider 都支持多账户绑定与隔离；M365 额外提供已经验证的长上下文和真并发。
 
 ## 架构
 
@@ -699,8 +702,10 @@ Consumer refresh for <account-id>: re-minted <N> cookies
       ├─ /user/* — 用户自助端点（用自己的 Key 管理模式/提示词/账户 Token/Cookie）
       ├─ /admin — 运营总控台页面（管理密码登录）
       ├─ / — 用户自助页面（API Key 登录）
-      └─ 按需串行刷新：RT 优先 → 失败再拉起账户专属 Chromium（CDP 9322+）
-          串行队列保证同一时刻最多一个 Chromium，峰值内存接近单租户
+      └─ 账户刷新与保活（按账户隔离、按 provider 分流）
+          ├─ M365：RT 优先 → 账户专属 Chromium（CDP 9322+）
+          └─ Consumer：账户专属 Camoufox profile → ChatAI Token + Cookie
+              两条路径共享全局浏览器锁，同一时刻最多一个浏览器，峰值内存接近单租户
 ```
 
 ## License
