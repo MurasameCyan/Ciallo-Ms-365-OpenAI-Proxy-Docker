@@ -31,6 +31,26 @@ _DEFAULT_MEDIA_PROXY_SUFFIXES = [
     "php", "rb", "swift", "kt", "kts", "scala", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "sql", "r", "lua", "pl", "pm",
     "vue", "svelte", "css", "scss", "sass", "less", "dockerfile", "makefile", "cmake", "gradle", "lock", "log", "conf", "cfg",
 ]
+# Preserve the former M365 default catalogue so an untouched persisted default
+# adopts the current display names without rewriting an administrator's custom
+# tone list or order.
+_PREVIOUS_BUILTIN_TONE_OPTIONS = [
+    {"value": "Magic", "label": "Copilot_自动", "label_zh": "Copilot_自动", "label_en": "Copilot_自动"},
+    {"value": "Chat", "label": "Copilot_快速答复", "label_zh": "Copilot_快速答复", "label_en": "Copilot_快速答复"},
+    {"value": "Reasoning", "label": "Copilot_深度思考", "label_zh": "Copilot_深度思考", "label_en": "Copilot_深度思考"},
+    {"value": "Claude_Sonnet", "label": "claude-sonnet-4-6", "label_zh": "claude-sonnet-4-6", "label_en": "claude-sonnet-4-6"},
+    {"value": "Claude_Sonnet_Reasoning", "label": "claude-sonnet-4-5_Reasoning", "label_zh": "claude-sonnet-4-5_Reasoning", "label_en": "claude-sonnet-4-5_Reasoning"},
+    {"value": "Claude_Fable", "label": "claude-fable-5", "label_zh": "claude-fable-5", "label_en": "claude-fable-5"},
+    {"value": "Claude_Opus", "label": "claude-opus", "label_zh": "claude-opus", "label_en": "claude-opus"},
+    {"value": "Gpt_5_6_Reasoning", "label": "gpt-5.6_Reasoning", "label_zh": "gpt-5.6_Reasoning", "label_en": "gpt-5.6_Reasoning"},
+    {"value": "Gpt_5_5_Chat", "label": "gpt-5.5_Chat", "label_zh": "gpt-5.5_Chat", "label_en": "gpt-5.5_Chat"},
+    {"value": "Gpt_5_5_Reasoning", "label": "gpt-5.5_Reasoning", "label_zh": "gpt-5.5_Reasoning", "label_en": "gpt-5.5_Reasoning"},
+    {"value": "Gpt_5_4_Chat", "label": "gpt-5.4_Chat", "label_zh": "gpt-5.4_Chat", "label_en": "gpt-5.4_Chat"},
+    {"value": "Gpt_5_4_Reasoning", "label": "gpt-5.4_Reasoning", "label_zh": "gpt-5.4_Reasoning", "label_en": "gpt-5.4_Reasoning"},
+    {"value": "Gpt_5_3_Chat", "label": "gpt-5.3_Chat", "label_zh": "gpt-5.3_Chat", "label_en": "gpt-5.3_Chat"},
+    {"value": "Gpt_5_2_Chat", "label": "gpt-5.2_Chat", "label_zh": "gpt-5.2_Chat", "label_en": "gpt-5.2_Chat"},
+    {"value": "Gpt_5_2_Reasoning", "label": "gpt-5.2_Reasoning", "label_zh": "gpt-5.2_Reasoning", "label_en": "gpt-5.2_Reasoning"},
+]
 # Historical OpenAI-compatible facade names. Keep this exact list only so an
 # untouched persisted default from older releases can move to the current
 # tested catalogue; administrators may still configure any model/mode mapping.
@@ -381,7 +401,11 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["user_log_errors"] = bool(data.get("user_log_errors"))
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
-    data["tone_options"] = normalize_tone_options(data.get("tone_options"))
+    persisted_tone_options = raw.get("tone_options") if isinstance(raw, dict) else None
+    tone_options = data.get("tone_options")
+    if persisted_tone_options == _PREVIOUS_BUILTIN_TONE_OPTIONS:
+        tone_options = _BUILTIN_TONE_OPTIONS
+    data["tone_options"] = normalize_tone_options(tone_options)
     persisted_consumer_options = (
         raw.get("consumer_mode_options") if isinstance(raw, dict) else None
     )

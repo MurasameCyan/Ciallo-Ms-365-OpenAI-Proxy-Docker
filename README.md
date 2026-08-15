@@ -74,17 +74,17 @@
 | `Chat` | `Copilot_快速答复` | `Copilot_快速答复-持续` | Copilot 快速答复 |
 | `Reasoning` | `Copilot_深度思考` | `Copilot_深度思考-持续` | Copilot 深度思考 |
 | `Claude_Sonnet` | `claude-sonnet-4-6` | `claude-sonnet-4-6-持续` | Claude Sonnet |
-| `Claude_Sonnet_Reasoning` | `claude-sonnet-4-5_Reasoning` | `claude-sonnet-4-5_Reasoning-持续` | Claude Sonnet 思考 |
+| `Claude_Sonnet_Reasoning` | `claude-sonnet-4-5` | `claude-sonnet-4-5-持续` | Claude Sonnet 思考 |
 | `Claude_Fable` | `claude-fable-5` | `claude-fable-5-持续` | Claude Fable |
 | `Claude_Opus` | `claude-opus` | `claude-opus-持续` | Claude Opus |
-| `Gpt_5_6_Reasoning` | `gpt-5.6_Reasoning` | `gpt-5.6_Reasoning-持续` | GPT 5.6 思考 |
+| `Gpt_5_6_Reasoning` | `gpt-5.6` | `gpt-5.6-持续` | GPT 5.6 思考 |
 | `Gpt_5_5_Chat` | `gpt-5.5_Chat` | `gpt-5.5_Chat-持续` | GPT 5.5 快速 |
-| `Gpt_5_5_Reasoning` | `gpt-5.5_Reasoning` | `gpt-5.5_Reasoning-持续` | GPT 5.5 思考 |
+| `Gpt_5_5_Reasoning` | `gpt-5.5` | `gpt-5.5-持续` | GPT 5.5 思考 |
 | `Gpt_5_4_Chat` | `gpt-5.4_Chat` | `gpt-5.4_Chat-持续` | GPT 5.4 快速 |
-| `Gpt_5_4_Reasoning` | `gpt-5.4_Reasoning` | `gpt-5.4_Reasoning-持续` | GPT 5.4 思考 |
+| `Gpt_5_4_Reasoning` | `gpt-5.4` | `gpt-5.4-持续` | GPT 5.4 思考 |
 | `Gpt_5_3_Chat` | `gpt-5.3_Chat` | `gpt-5.3_Chat-持续` | GPT 5.3 快速 |
 | `Gpt_5_2_Chat` | `gpt-5.2_Chat` | `gpt-5.2_Chat-持续` | GPT 5.2 快速 |
-| `Gpt_5_2_Reasoning` | `gpt-5.2_Reasoning` | `gpt-5.2_Reasoning-持续` | GPT 5.2 思考 |
+| `Gpt_5_2_Reasoning` | `gpt-5.2` | `gpt-5.2-持续` | GPT 5.2 思考 |
 
 共 **30** 个默认可选模型 ID（15 模式 × 2 变体）。
 
@@ -146,7 +146,7 @@ curl -s http://localhost:8000/v1/chat/completions \
 | Provider / 模型 | 版本时间锚点 | 推断知识新鲜度 |
 | --------------- | ------------ | -------------- |
 | Consumer / `copilot-reasoning` | 能识别 [Git 2.43.0（2023-11-20）](https://github.com/git/git/releases/tag/v2.43.0)、Python 3.12.0、Rust 1.74.0、PostgreSQL 16、Ubuntu 23.10 与 Linux 6.6 已发布；对 [Git 2.44.0（2024-02-23）](https://github.com/git/git/releases/tag/v2.44.0) 回答 `unknown` | **约 2023-11**；保守区间为 2023-11 至 2024-02 之前 |
-| M365 / `gpt-5.6_Reasoning` | 回答 Git 2.52.0、Python 3.14.1、Rust 1.92.0、Kubernetes 1.35.0 等 2025 年末版本已发布；对多项 2026 年初版本回答 `unknown` | **约 2025-12**；最晚正向锚点为 [Kubernetes 1.35.0（2025-12-17）](https://github.com/kubernetes/kubernetes/releases/tag/v1.35.0) |
+| M365 / `gpt-5.6` | 回答 Git 2.52.0、Python 3.14.1、Rust 1.92.0、Kubernetes 1.35.0 等 2025 年末版本已发布；对多项 2026 年初版本回答 `unknown` | **约 2025-12**；最晚正向锚点为 [Kubernetes 1.35.0（2025-12-17）](https://github.com/kubernetes/kubernetes/releases/tag/v1.35.0) |
 
 Consumer 的自由回答曾在 Git 2.42.0 / 2.43.0 之间变化，并出现过错误发布日期；M365 的部分低置信度日期也有偏差。因此这里依据多软件版本和“已知 / 未知”边界做月份级推断，不把模型自报日期直接当事实。
 
@@ -415,7 +415,7 @@ claude --model copilot-reasoning
 Base URL: http://your-server:8000/v1
 API Key:  YOUR_API_KEY
 Model:    Copilot_自动
-          或 gpt-5.5_Chat / claude-sonnet-4-6 / gpt-5.5_Reasoning-持续 等
+          或 gpt-5.5_Chat / claude-sonnet-4-6 / gpt-5.5-持续 等
 ```
 
 也可在客户端「刷新模型列表」拉取 `GET /v1/models` 后点选。M365 模型若被客户端忽略 vision 能力字段，请手动开启图片上传；Consumer 当前不支持图片输入。
