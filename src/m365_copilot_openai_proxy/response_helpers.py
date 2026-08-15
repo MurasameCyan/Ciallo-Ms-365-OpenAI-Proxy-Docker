@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -75,7 +76,33 @@ async def _openai_stream(
             }
             yield f"data: {json.dumps(chunk)}\n\n"
     except SubstrateCopilotError as exc:
-        yield f"data: {json.dumps({'error': {'message': str(exc), 'type': 'upstream_error'}})}\n\n"
+        # A mid-stream upstream failure (most often a mode M365 will not serve for
+        # this account) must reach the client as readable assistant text, NOT a
+        # bare {"error": ...} frame: strict OpenAI clients index
+        # choices[0].delta.content and render an error-only chunk as
+        # "null: [object Object]". Deliver the message as a normal content delta
+        # plus a stop finish, mirroring the anthropic stream path.
+        error_text = f"⚠️ 上游错误：{exc}"
+        logging.getLogger("copilot_proxy").warning("openai stream upstream error: %s", exc)
+        sep = "\n\n" if full_text else ""
+        err_delta = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model_alias,
+            "choices": [{"index": 0, "delta": {"content": sep + error_text}, "finish_reason": None}],
+        }
+        yield f"data: {json.dumps(err_delta)}\n\n"
+        stop_chunk = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model_alias,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        yield f"data: {json.dumps(stop_chunk)}\n\n"
+        if on_text_done is not None:
+            on_text_done(full_text + sep + error_text)
         yield "data: [DONE]\n\n"
         return
     if text_transform is not None:

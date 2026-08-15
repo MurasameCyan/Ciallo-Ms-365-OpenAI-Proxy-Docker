@@ -281,7 +281,27 @@ async def _openai_stream_with_tools(
         ):
             chunks.append(delta)
     except SubstrateCopilotError as exc:
-        yield f"data: {json.dumps({'error': {'message': str(exc), 'type': 'upstream_error'}})}\n\n"
+        # Deliver the upstream failure as readable assistant text rather than a
+        # bare {"error": ...} frame (strict OpenAI clients render an error-only
+        # chunk as "null: [object Object]"). Any buffered text captured before the
+        # failure is preserved ahead of the error note.
+        error_text = f"⚠️ 上游错误：{exc}"
+        _log.warning("stream_with_tools upstream error: %s", exc)
+        buffered = "".join(chunks)
+        if text_transform is not None:
+            buffered = text_transform(buffered)
+        sep = "\n\n" if buffered else ""
+        delivered = buffered + sep + error_text
+        if call_record is not None:
+            call_record["response_len"] = len(delivered)
+            call_record["response_text"] = delivered[:8000]
+            call_record["response_repr"] = repr(delivered[:2000])
+            call_record["error"] = str(exc)
+        err_id = f"chatcmpl_{uuid.uuid4().hex}"
+        err_created = int(time.time())
+        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
+        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
+        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
         yield "data: [DONE]\n\n"
         return
     # Raw text for parsing; the media rewriter runs at delivery time below. This
