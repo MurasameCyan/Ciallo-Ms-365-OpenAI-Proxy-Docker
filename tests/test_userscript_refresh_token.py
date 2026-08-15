@@ -12,17 +12,23 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(
 
 
 CLIENT_ID = "4765445b-32c6-49b0-83e6-1d93765276ca"
+# The real M365 Copilot SPA acquires the substrate token through a broker app,
+# so the issued token's appid is the broker's -- NOT the Copilot client id --
+# and there is no azp. The RT it rides on is a FOCI family token the Copilot
+# client can still redeem, which is why binding.client_id stays 4765445b.
+BROKER_APP_ID = "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"
 HOME_TENANT = "11111111-1111-1111-1111-111111111111"
 RESOURCE_TENANT = "22222222-2222-2222-2222-222222222222"
 OBJECT_ID = "33333333-3333-3333-3333-333333333333"
 
 
-def _jwt() -> str:
+def _jwt(aud: str = "https://substrate.office.com/sydney") -> str:
+    # Mirror a real captured substrate token: aud=.../sydney, appid=broker.
     claims = {
-        "aud": "https://substrate.office.com/",
+        "aud": aud,
         "oid": OBJECT_ID,
         "tid": RESOURCE_TENANT,
-        "azp": CLIENT_ID,
+        "appid": BROKER_APP_ID,
     }
     payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
     return f"eyJhbGciOiJub25lIn0.{payload}.sig"
@@ -36,17 +42,20 @@ def _capture_source() -> str:
     return SCRIPT.split(start_marker, 1)[1].split(end_marker, 1)[0]
 
 
-def test_userscript_only_accepts_a_substrate_rt_for_the_target_client_and_scope():
+def test_userscript_accepts_a_brokered_substrate_rt_and_rejects_non_substrate():
     source = _capture_source()
-    body = (
-        "client_id="
-        + CLIENT_ID
-        + "&scope=https%3A%2F%2Fsubstrate.office.com%2Fsydney%2F.default+openid+profile+offline_access"
+    # The real request body is a brokered MSAL exchange: its client_id is the
+    # broker's and its scope is sydney.readwrite-style, NOT the literal Copilot
+    # client id or ".../sydney/.default". The capture must accept it anyway --
+    # the meaningful proof that this is a substrate RT lives in the *response*
+    # (substrate aud + GUID tid/oid + a refresh_token), not the request.
+    brokered_body = (
+        "client_id=" + BROKER_APP_ID
+        + "&scope=https%3A%2F%2Fsubstrate.office.com%2Fsydney.readwrite+openid+profile+offline_access"
     )
     program = f"""
 const location={{href:'https://m365.cloud.microsoft/chat'}};
 const M365_RT_CLIENT_ID={json.dumps(CLIENT_ID)};
-const M365_RT_SCOPE='https://substrate.office.com/sydney/.default';
 let latestRefreshToken='';
 let latestRefreshTokenBinding=null;
 let latestToken='';
@@ -54,23 +63,18 @@ let refreshTokenGeneration=0;
 let pushes=0;
 function pushLatestRefreshTokenSilently(){{pushes++;}}
 {source}
-const response={{refresh_token:'1.AT4A'+'r'.repeat(200),access_token:{json.dumps(_jwt())}}};
-const wrongClient=captureM365RefreshToken(
-  'https://login.microsoftonline.com/{HOME_TENANT}/oauth2/v2.0/token',
-  'client_id=00000000-0000-0000-0000-000000000000&scope=https%3A%2F%2Fsubstrate.office.com%2Fsydney%2F.default',
-  response
-);
-const wrongScope=captureM365RefreshToken(
-  'https://login.microsoftonline.com/{HOME_TENANT}/oauth2/v2.0/token',
-  'client_id={CLIENT_ID}&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default',
-  response
-);
-const accepted=captureM365RefreshToken(
-  'https://login.microsoftonline.com/{HOME_TENANT}/oauth2/v2.0/token',
-  {json.dumps(body)},
-  response
-);
-process.stdout.write(JSON.stringify({{wrongClient,wrongScope,accepted,latestToken,latestRefreshToken,latestRefreshTokenBinding,pushes}}));
+const rt='1.AT4A'+'r'.repeat(200);
+const url='https://login.microsoftonline.com/{HOME_TENANT}/oauth2/v2.0/token';
+const substrateResp={{refresh_token:rt,access_token:{json.dumps(_jwt())}}};
+// A graph token response (non-substrate aud) that also carries an RT must be
+// rejected so we never redeem a wrong-audience RT as if it were substrate.
+const graphResp={{refresh_token:rt,access_token:{json.dumps(_jwt("https://graph.microsoft.com"))}}};
+const noRtResp={{access_token:{json.dumps(_jwt())}}};
+const accepted=captureM365RefreshToken(url,{json.dumps(brokered_body)},substrateResp);
+const nonSubstrate=captureM365RefreshToken(url,{json.dumps(brokered_body)},graphResp);
+const missingRt=captureM365RefreshToken(url,{json.dumps(brokered_body)},noRtResp);
+const wrongUrl=captureM365RefreshToken('https://login.microsoftonline.com/consumers/oauth2/v2.0/token',{json.dumps(brokered_body)},substrateResp);
+process.stdout.write(JSON.stringify({{accepted,nonSubstrate,missingRt,wrongUrl,latestToken,latestRefreshToken,latestRefreshTokenBinding,pushes}}));
 """
     completed = subprocess.run(
         ["node", "-e", program], check=True, capture_output=True, text=True
@@ -78,9 +82,10 @@ process.stdout.write(JSON.stringify({{wrongClient,wrongScope,accepted,latestToke
 
     result = json.loads(completed.stdout)
     assert result == {
-        "wrongClient": False,
-        "wrongScope": False,
         "accepted": True,
+        "nonSubstrate": False,
+        "missingRt": False,
+        "wrongUrl": False,
         "latestToken": _jwt(),
         "latestRefreshToken": "1.AT4A" + "r" * 200,
         "latestRefreshTokenBinding": {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.73
+// @version      1.0.74
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -30,10 +30,9 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.73';
+    const SCRIPT_VERSION = '1.0.74';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const M365_RT_CLIENT_ID = '4765445b-32c6-49b0-83e6-1d93765276ca';
-    const M365_RT_SCOPE = 'https://substrate.office.com/sydney/.default';
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
     // socket URL exactly like Substrate does, so the same WebSocket hook below
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
@@ -641,18 +640,18 @@
     function captureM365RefreshToken(requestUrl, requestBody, responseData) {
         const authority = m365RefreshAuthority(requestUrl);
         if (!authority || !responseData || typeof responseData !== 'object') return false;
-        let params;
-        try { params = new URLSearchParams(String(requestBody || '')); }
-        catch (e) { return false; }
-        const clientId = String(params.get('client_id') || '').toLowerCase();
-        const scopes = String(params.get('scope') || '').split(/\s+/).filter(Boolean);
-        if (clientId !== M365_RT_CLIENT_ID || !scopes.includes(M365_RT_SCOPE)) return false;
+        // The real M365 Copilot SPA acquires substrate tokens through a broker
+        // app, so the token endpoint request carries the broker's client_id and a
+        // sydney.readwrite-style scope, and the issued access_token's appid is the
+        // broker's -- none of them the literal Copilot client id or ".../.default".
+        // Gating on those rejected every genuine capture, so trust the response
+        // instead: a substrate audience + a refresh_token + a GUID subject is
+        // proof enough. The RT is a FOCI family token the Copilot client can
+        // still redeem, which is why the binding pins client_id to 4765445b.
         const refreshToken = typeof responseData.refresh_token === 'string' ? responseData.refresh_token.trim() : '';
         const claims = decodeM365JwtClaims(responseData.access_token);
         if (!refreshToken || !claims) return false;
         if (!String(claims.aud || '').startsWith('https://substrate.office.com/')) return false;
-        const issuedClient = String(claims.azp || claims.appid || '').toLowerCase();
-        if (issuedClient && issuedClient !== M365_RT_CLIENT_ID) return false;
         const tenantId = String(claims.tid || '').toLowerCase();
         const objectId = String(claims.oid || '').toLowerCase();
         const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
