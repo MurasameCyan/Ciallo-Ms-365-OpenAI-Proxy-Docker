@@ -172,6 +172,34 @@ def test_ambient_decor_does_not_animate_forever(page: str) -> None:
     )
 
 
+def test_donut_spin_is_stepped_not_continuous() -> None:
+    """The dashboard rings may rotate, but only in discrete notches.
+
+    This is the one ambient animation deliberately kept: it was asked for back
+    after the freeze. It is affordable only because it is stepped. Measured on
+    the live dashboard, idle, whole Chrome process tree:
+
+        linear (continuous)          115-137% of one core
+        steps(60), ~92ms per notch        9%
+        not rotating                      0%
+
+    The donut sits in a stack of 37 backdrop-filter surfaces that cannot be
+    composited, so every frame is a real repaint -- stripping all SVG filters
+    still cost 104%, and `will-change`/`contain` made it worse. Drawing fewer
+    frames is the only lever, so a `steps()` timing function is load-bearing
+    here, not a style choice. A future edit swapping it for `linear` would look
+    identical and cost 13x more, which is exactly the regression to catch.
+    """
+    css = _css_of(_ADMIN_HTML)
+    rules = [body for sel, body in _RULE_RE.findall(css) if ".donut-spin" in sel and "animation" in body]
+    assert rules, "admin dashboard no longer rotates its donut rings; .donut-spin lost its animation"
+    for body in rules:
+        assert re.search(r"animation\s*:[^;]*steps\(", body), (
+            f"admin .donut-spin rotates continuously; on this page that is 115-137% of a CPU "
+            f"core versus 9% stepped:\n  {body.strip()[:140]}"
+        )
+
+
 @pytest.mark.parametrize("page", sorted(PAGES))
 def test_pages_honour_prefers_reduced_motion(page: str) -> None:
     """A reduced-motion request must stop the remaining interaction animations too."""
