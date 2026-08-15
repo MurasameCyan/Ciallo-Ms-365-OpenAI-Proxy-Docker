@@ -119,6 +119,36 @@ def _css_of(html: str) -> str:
 
 
 @pytest.mark.parametrize("page", sorted(PAGES))
+def test_light_theme_does_not_restart_ambient_motion(page: str) -> None:
+    """The light theme must not switch ambient motion back on.
+
+    `_STILL_DECOR_CSS` is appended last, so it beats an equally-important rule
+    above it -- but a `body[data-theme="light"]` rule carries a higher-specificity
+    selector, so an `animation:<name>!important` there WOULD win and restart the
+    motion. Every light-theme `animation` today is `none` (light already dropped
+    some focus sweeps of its own), which is why light measured 1-2% of a core on
+    all three views against dark's 0-1%. This keeps it that way.
+
+    Light is not the cheaper theme by accident and is not exempt from the rest:
+    it raises every blur to 28px (dark runs 14-22px), and SMIL animation is
+    theme-independent, so the dashboard fix mattered equally in both.
+    """
+    css = _css_of(PAGES[page])
+    restarted = [
+        (" ".join(sel.split()), m.group(1).strip())
+        for sel, body in _RULE_RE.findall(css)
+        if 'data-theme="light"' in sel
+        for m in [re.search(r"(?:^|[;\s])animation\s*:\s*([^;]+)", body)]
+        if m and not m.group(1).lstrip().startswith("none")
+    ]
+    assert not restarted, (
+        f"{page} page light theme starts an animation; a light-theme selector outranks "
+        f"the shared freeze block, so this runs even though the decor is frozen:\n"
+        + "\n".join(f"  {sel} -> animation:{val}" for sel, val in restarted)
+    )
+
+
+@pytest.mark.parametrize("page", sorted(PAGES))
 def test_ambient_decor_does_not_animate_forever(page: str) -> None:
     css = _css_of(PAGES[page])
     muted = _muted_selectors(css)
