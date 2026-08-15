@@ -49,6 +49,26 @@ class PersistentSession:
             self._on_change()
         return turn
 
+    def reset_conversation(self) -> None:
+        """Abandon the current M365 conversation and start a fresh one in place.
+
+        A reused persistent conversation can rot: after enough turns the upstream
+        begins refusing every continuation (turnState=Failed / canned refusal) even
+        though the same tone answers in a brand-new conversation. Rebinding the
+        identity here (new conversation_id / client_session_id, turn_count back to
+        0) lets the very next turn -- and every turn after it -- run on a clean
+        conversation, so the caller never has to open a new chat by hand. Mutated
+        in place (same object and lock) so the store keeps handing this session back
+        under its existing key; unlike ``PersistentSessionStore.reset`` this needs
+        no key and preserves the per-session lock a caller may already hold.
+        """
+        self.conversation_id = str(uuid.uuid4())
+        self.client_session_id = str(uuid.uuid4())
+        self.turn_count = 0
+        self.last_accessed = time.time()
+        if self._on_change is not None:
+            self._on_change()
+
     def record_response(
         self,
         response_id: str,

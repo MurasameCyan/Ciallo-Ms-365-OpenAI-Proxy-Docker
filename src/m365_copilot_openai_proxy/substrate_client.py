@@ -346,14 +346,54 @@ class SubstrateCopilotClient:
             ) from exc
         try:
             turn = session.reserve_turn()
-            async for chunk in self._stream_turn_with_retry(
-                text=text,
-                conv_id=turn.conversation_id,
-                session_id=turn.client_session_id,
-                is_start_of_session=turn.is_start_of_session,
-                annotations=annotations,
-            ):
-                yield chunk
+            streamed_any = False
+            try:
+                async for chunk in self._stream_turn_with_retry(
+                    text=text,
+                    conv_id=turn.conversation_id,
+                    session_id=turn.client_session_id,
+                    is_start_of_session=turn.is_start_of_session,
+                    annotations=annotations,
+                ):
+                    streamed_any = True
+                    yield chunk
+            except SubstrateCopilotError as exc:
+                # A reused persistent conversation can rot: after some turns the
+                # upstream starts refusing every CONTINUATION (turnState=Failed /
+                # canned refusal) while the same tone still answers in a brand-new
+                # conversation. When that happens before anything is streamed,
+                # abandon the poisoned conversation and retry ONCE as a fresh
+                # start-of-session turn -- and keep the reset, so following turns run
+                # on the new conversation too instead of the user having to open a
+                # new chat. The retry re-posts only the incremental turn, so it loses
+                # prior context (the same tradeoff the empty-response retry already
+                # accepts), but returns an answer instead of a dead thread.
+                #
+                # Scope, narrow on purpose:
+                #  - continuation turns only: a start-of-session turn refusing is a
+                #    genuine tone/account outage, and a second fresh conversation
+                #    would refuse identically.
+                #  - refusals only (_REFUSED_TURN_MARKER): an empty turn is already
+                #    retried on a throwaway conversation inside _stream_turn_with_retry.
+                #  - nothing streamed yet: once bytes are on the wire a retry would
+                #    duplicate content, so the partial answer is kept and the error
+                #    propagates.
+                if (
+                    streamed_any
+                    or turn.is_start_of_session
+                    or _REFUSED_TURN_MARKER not in str(exc)
+                ):
+                    raise
+                session.reset_conversation()
+                healed = session.reserve_turn()
+                async for chunk in self._stream_turn_with_retry(
+                    text=text,
+                    conv_id=healed.conversation_id,
+                    session_id=healed.client_session_id,
+                    is_start_of_session=healed.is_start_of_session,
+                    annotations=annotations,
+                ):
+                    yield chunk
         finally:
             session.lock.release()
 
