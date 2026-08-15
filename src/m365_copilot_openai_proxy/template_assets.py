@@ -28,6 +28,49 @@ _NO_SPIN_CSS = """
 input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}"""
 
+# Stop the always-on decoration from spinning, and let the OS opt out of the
+# rest. Appended last by every page so it wins over the rules above.
+#
+# WHY: each page stacks blurred surfaces -- a fixed `filter:blur()` `.orb`
+# behind cards carrying `backdrop-filter`. A blur only stays cheap while its
+# source holds still; the moment anything in that stack moves, every blurred
+# surface is re-derived per frame in the GPU process. Measured against a live
+# deployment with Chrome, on a completely idle page: login view 49% of a CPU
+# core, signed-in user view 69%, admin 85%. Freezing the animations took all
+# three to ~2%.
+#
+# It is about what the animation touches, not which property moves: an
+# opacity-only fade on the blurred orb still cost 52%, while a transform on an
+# unblurred element cost 2%. So the ambient decor -- decoration that runs
+# forever with no user interaction -- is frozen at a representative frame, and
+# `.orb` keeps a static rotation so it does not sit at the keyframe origin.
+#
+# Interaction-driven motion is deliberately untouched: :hover / :focus / [open]
+# / .loading animations only run while someone is actually interacting, which is
+# brief, and that is where the motion carries meaning. The one exception is the
+# `autofocus` field on the login pages: its focus sweep starts on its own the
+# instant the page opens, with nobody interacting, and measured 43% of a core on
+# /admin. It animates `background-position`, which no compositor can take over,
+# so the sweep is dropped for the autofocused field only -- the focus border and
+# glow it shares with every other field still apply, and clicking any field
+# (including that one, once it is blurred and refocused) still sweeps.
+#
+# ponytail: frozen rather than made cheap. Keeping the motion would mean
+# dropping `backdrop-filter` off the cards and pre-blurring the orb into its own
+# gradient -- a redesign of the glass look, not an optimisation. Revisit only if
+# the ambient motion is wanted back.
+_STILL_DECOR_CSS = """
+.orb,.brand-mark:before,.brand-mark:after,.brand-mark::before,.brand-mark::after,
+.account-side:before,.debug-gate:before,.data-globe:before,.data-globe:after,
+.flow-box::after,.brand .tenant-pill:before,.tone-share-fill,.glass-select-menu:before,
+.card:has(details[open])::after,.debug-gate-card:has(.debug-gate.on)::after{animation:none!important}
+.orb{transform:translate(-50%,-50%) rotate(150deg)!important}
+.debug-gate.on .data-globe,.debug-gate.on .orbit,.debug-gate.on .gate-flow{animation:none!important}
+[autofocus]:focus{animation:none!important}
+@media(prefers-reduced-motion:reduce){
+*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}"""
+
 _GLASS_SELECT_JS = """function initGlassSelect(root){
   const scope=root||document;
   scope.querySelectorAll('select').forEach(sel=>{

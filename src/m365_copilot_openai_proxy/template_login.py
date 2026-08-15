@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .template_assets import _STILL_DECOR_CSS
+
 _LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -60,6 +62,7 @@ body[data-theme="light"] .lang-btn,body[data-theme="light"] .theme-btn{backgroun
 body[data-theme="light"] .msg.err{background:rgba(254,226,226,.85);color:#b91c1c;border-color:rgba(239,68,68,.35)}
 body[data-theme="light"]::-webkit-scrollbar-track{background:rgba(120,120,128,.08)}
 body[data-theme="light"]::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(0,122,255,.4),rgba(88,86,214,.32));border-color:rgba(255,255,255,.5)}
+""" + _STILL_DECOR_CSS + """
 </style>
 </head>
 <body>

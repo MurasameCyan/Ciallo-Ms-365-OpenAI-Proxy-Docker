@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS
+from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS, _STILL_DECOR_CSS
 from .template_user_account_js import _USER_ACCOUNT_JS
 from .template_user_config_js import _USER_CONFIG_JS
 from .template_user_i18n import _USER_I18N_JS
@@ -197,6 +197,7 @@ body[data-theme="light"] .glass-select.open .glass-select-trigger{border-color:r
 body[data-theme="light"] .glass-select-menu:before{background:linear-gradient(90deg,rgba(0,122,255,.35),rgba(88,86,214,.25),rgba(0,122,255,.35));animation:none;opacity:.45}
 body[data-theme="light"] .glass-select-option:hover{background:rgba(0,122,255,.08)!important;color:#1c1c1e!important}
 body[data-theme="light"] .glass-select-option.active{color:#007aff!important;background:rgba(0,122,255,.12)!important;box-shadow:inset 3px 0 0 #007aff!important}
+""" + _STILL_DECOR_CSS + """
 </style>
 </head>
 <body>

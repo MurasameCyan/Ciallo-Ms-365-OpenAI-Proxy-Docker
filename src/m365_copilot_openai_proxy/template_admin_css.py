@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .template_assets import _GLASS_SELECT_CSS, _NO_SPIN_CSS
+from .template_assets import _GLASS_SELECT_CSS, _NO_SPIN_CSS, _STILL_DECOR_CSS
 
 _ADMIN_CSS = """:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);
 --bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);
@@ -369,4 +369,4 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
 body[data-theme="light"] .role-toggle .role-u{color:#8e8e93}
 body[data-theme="light"] .role-toggle:has(input:checked) .role-u{color:#007aff}
 body[data-theme="light"] .data-globe .orbit:after{background:#007aff;box-shadow:0 0 8px rgba(0,122,255,.45)}
-"""
+""" + _STILL_DECOR_CSS
