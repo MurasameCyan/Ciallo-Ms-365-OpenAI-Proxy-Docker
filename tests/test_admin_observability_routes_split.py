@@ -55,13 +55,22 @@ def test_admin_call_log_returns_version_and_short_circuits_unchanged_payload(tmp
     }
 
 
-def test_admin_trend_chart_uses_stable_polyline_rendering_with_breathing_glow():
+def test_admin_trend_chart_uses_stable_polyline_rendering_with_static_glow():
+    """Two straight polylines, the wide one a static glow.
+
+    This used to assert the glow *breathed* (`attributeName="opacity"` on an
+    `<animate repeatCount="indefinite">`). That animation was measured at ~105%
+    of a CPU core in style recalculation on an idle dashboard -- SMIL drives the
+    same per-frame restyle as CSS while sitting outside it, so no
+    `animation:none` rule could switch it off. The glow is now a static opacity;
+    see tests/test_web_idle_cpu.py for the guard that keeps it that way.
+    """
     start = _ADMIN_HTML.index("function lineChart(points,series){")
     end = _ADMIN_HTML.index("async function loadSummary()", start)
     chart_code = _ADMIN_HTML[start:end]
 
     assert chart_code.count("<polyline") >= 2
-    assert 'attributeName="opacity"' in chart_code
+    assert "<animate" not in chart_code
     assert "smoothPath" not in chart_code
     assert "<path" not in chart_code
     assert "drop-shadow" not in chart_code

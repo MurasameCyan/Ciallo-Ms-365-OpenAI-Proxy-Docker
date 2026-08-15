@@ -47,13 +47,18 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
 #
 # Interaction-driven motion is deliberately untouched: :hover / :focus / [open]
 # / .loading animations only run while someone is actually interacting, which is
-# brief, and that is where the motion carries meaning. The one exception is the
-# `autofocus` field on the login pages: its focus sweep starts on its own the
-# instant the page opens, with nobody interacting, and measured 43% of a core on
-# /admin. It animates `background-position`, which no compositor can take over,
-# so the sweep is dropped for the autofocused field only -- the focus border and
-# glow it shares with every other field still apply, and clicking any field
-# (including that one, once it is blurred and refocused) still sweeps.
+# brief, and that is where the motion carries meaning. Two things that look like
+# interaction states but are not:
+#
+#   - `.nav-item.active::after`: `.active` marks the current page, so it is set
+#     from load and never clears. The selected tab swept forever.
+#   - the `autofocus` field on the login pages: its focus sweep starts on its own
+#     the instant the page opens, with nobody interacting, and measured 43% of a
+#     core on /admin. It animates `background-position`, which no compositor can
+#     take over, so the sweep is dropped for the autofocused field only -- the
+#     focus border and glow it shares with every other field still apply, and
+#     clicking any field (including that one, once it is blurred and refocused)
+#     still sweeps.
 #
 # ponytail: frozen rather than made cheap. Keeping the motion would mean
 # dropping `backdrop-filter` off the cards and pre-blurring the orb into its own
@@ -63,6 +68,7 @@ _STILL_DECOR_CSS = """
 .orb,.brand-mark:before,.brand-mark:after,.brand-mark::before,.brand-mark::after,
 .account-side:before,.debug-gate:before,.data-globe:before,.data-globe:after,
 .flow-box::after,.brand .tenant-pill:before,.tone-share-fill,.glass-select-menu:before,
+.nav-item.active::after,.nav-item.active:after,
 .card:has(details[open])::after,.debug-gate-card:has(.debug-gate.on)::after{animation:none!important}
 .orb{transform:translate(-50%,-50%) rotate(150deg)!important}
 .debug-gate.on .data-globe,.debug-gate.on .orbit,.debug-gate.on .gate-flow{animation:none!important}

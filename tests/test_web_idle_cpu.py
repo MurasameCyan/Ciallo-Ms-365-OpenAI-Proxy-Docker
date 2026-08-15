@@ -55,11 +55,18 @@ AMBIENT_SELECTORS = (
     ".tenant-pill:before",
     ".tone-share-fill",
     ".glass-select-menu:before",
+    ".nav-item.active::after",
+    ".nav-item.active:after",
 )
 
 # A rule only runs unconditionally when its selector carries no interaction
 # state. `.nav-item:hover::after` animating is fine; `.orb` animating is not.
-_STATE_GATED = (":hover", ":focus", ":active", "[open]", ".open", ".on", ".loading", ".active", "@keyframes")
+#
+# `.active` is deliberately NOT in here. It reads like an interaction state but
+# on a nav item it marks the current page, so it is set from page load and never
+# clears -- the selected tab animated forever and the first version of this test
+# waved it through.
+_STATE_GATED = (":hover", ":focus", ":active", "[open]", ".open", ".on", ".loading", "@keyframes")
 
 _RULE_RE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
@@ -69,7 +76,13 @@ def _selectors_of(rule_selector: str) -> list[str]:
 
 
 def _always_on_animated_rules(css: str) -> list[tuple[str, str]]:
-    """Rules that start an animation with no interaction state in the selector."""
+    """Rules that start an animation with no interaction state in the selector.
+
+    Judged per comma-separated selector, not per rule: `.nav-item:hover::after,
+    .nav-item.active::after` shares one body, and treating the rule as gated
+    because *one* of its selectors is `:hover` is how the always-on `.active`
+    variant slipped through.
+    """
     found = []
     for selector, body in _RULE_RE.findall(css):
         sel = " ".join(selector.split())
@@ -78,9 +91,10 @@ def _always_on_animated_rules(css: str) -> list[tuple[str, str]]:
         # `animation:none` and `animation-*` longhands that stop motion are fine.
         if re.search(r"animation\s*:\s*none", body):
             continue
-        if any(gate in sel for gate in _STATE_GATED):
+        ungated = [p for p in _selectors_of(sel) if not any(gate in p for gate in _STATE_GATED)]
+        if not ungated:
             continue
-        found.append((sel, body))
+        found.append((", ".join(ungated), body))
     return found
 
 
@@ -153,6 +167,32 @@ def test_autofocused_field_does_not_sweep(page: str) -> None:
         f"{page} page autofocuses a field whose :focus rule animates, so the sweep "
         f"runs from page load with no interaction"
     )
+
+
+@pytest.mark.parametrize("page", sorted(PAGES))
+def test_no_indefinite_smil_animation(page: str) -> None:
+    """SVG SMIL animation must not repeat forever.
+
+    Separate from the CSS rules above because `animation:none` cannot reach it
+    and `document.getAnimations()` does not report it -- which is why freezing
+    the CSS decor left the signed-in admin console untouched. Measured there:
+    43 `<animate>` elements, 39 of them `repeatCount="indefinite"`, driving
+    ~1460 style recalcs/s and 105% of a core in RecalcStyleDuration alone.
+    `svg.pauseAnimations()` dropped that to 2%, and unpausing restored it.
+
+    Worse than a CSS animation of the same size: the donut animates
+    `stroke-width`, so every frame invalidates layout as well as style, and two
+    of its three rings carry an feGaussianBlur filter that is re-run per frame.
+    """
+    for tag in ("animate", "animateTransform", "animateMotion"):
+        # `[^<>\n]*` so a `<animate` wrapped across lines in a comment cannot
+        # match forward into a later attribute; real markup is emitted on one line.
+        offenders = re.findall(rf"<{tag}\b[^<>\n]*repeatCount\s*=\s*[\"']indefinite", PAGES[page])
+        assert not offenders, (
+            f"{page} page has {len(offenders)} <{tag} repeatCount=\"indefinite\">; SMIL runs "
+            f"off the CSS animation machinery, so it keeps recalculating style forever and no "
+            f"animation:none rule can stop it"
+        )
 
 
 @pytest.mark.parametrize("page", sorted(PAGES))

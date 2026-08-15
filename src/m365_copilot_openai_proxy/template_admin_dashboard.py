@@ -20,7 +20,7 @@ function lineChart(points,series){
   series.forEach(s=>{
     const pts=points.map(p=>({x:X(p.ts),y:Y(p[s.key]||0)}));
     const poly=pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
-    g+='<polyline points="'+poly+'" fill="none" stroke="'+s.color+'" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.1"><animate attributeName="opacity" values="0.08;0.24;0.08" dur="3.2s" repeatCount="indefinite"/></polyline>';
+    g+='<polyline points="'+poly+'" fill="none" stroke="'+s.color+'" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.16"/>';
     g+='<polyline points="'+poly+'" fill="none" stroke="'+s.color+'" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>';
     pts.forEach((p,i)=>{if(i===0||i===pts.length-1)g+='<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="2.6" fill="var(--inner)" stroke="'+s.color+'" stroke-width="1.6"/>'});
   });
