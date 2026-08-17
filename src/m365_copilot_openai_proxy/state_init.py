@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from .account_store import AccountStore
 from .call_log_store import load_call_log
 from .config import Settings
+from .history_index import HistoryDigestIndex
 from .media_proxy_events import init_media_proxy_events
 from .key_store import KeyStore
 from .login_guard import LoginRateLimiter
@@ -74,6 +75,11 @@ def init_app_state(
     app.state.session_store = PersistentSessionStore(
         persist_path=Path(settings.token_dir) / "sessions.json"
     )
+    # Exact-history -> session map, so two conversations that open with the same
+    # text (an agent framework's templated first message) keep separate upstream
+    # threads instead of resetting each other. In-memory only: on restart the
+    # legacy first-message key still finds the session sessions.json restored.
+    app.state.history_index = HistoryDigestIndex()
     app.state.account_store = AccountStore(
         persist_path=Path(settings.token_dir) / "accounts.json"
     )

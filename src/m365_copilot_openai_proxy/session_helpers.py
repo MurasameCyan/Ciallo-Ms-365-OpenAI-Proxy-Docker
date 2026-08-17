@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import Request
 
+from .history_index import normalize_history
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
 from .session_store import PersistentSession
 from .translator import flatten_content
@@ -150,6 +151,46 @@ def _messages_session_key(request: AnthropicMessagesRequest) -> str | None:
     return None
 
 
+def _auto_session(
+    app: Any,
+    tenant: str,
+    request: OpenAIChatRequest | AnthropicMessagesRequest,
+) -> PersistentSession:
+    """Pick the session for a conversation the client did not name itself.
+
+    Prefers the exact history index (longest strict prefix of the messages just
+    sent), which keeps two conversations that open with the same text on separate
+    upstream threads instead of resetting each other. Falls back to the legacy
+    first-user-message key, so a client that trims old messages -- or a restart,
+    which empties the in-memory index -- still lands on the session
+    sessions.json restored.
+    """
+    index = getattr(app.state, "history_index", None)
+    pairs = normalize_history(request.messages) if index is not None else []
+    has_assistant = any(m.role == "assistant" for m in request.messages)
+    if pairs and has_assistant:
+        matched = index.match(tenant, pairs)
+        if matched is not None:
+            session = app.state.session_store.get_existing(matched)
+            if session is not None:
+                index.record(tenant, pairs, matched)
+                return session
+    sid, _title = _detect_conversation_session(request)
+    key = f"{tenant}:auto:{sid}"
+    if has_assistant:
+        session = app.state.session_store.get(key)
+    else:
+        # A brand-new conversation must not evict the session another chain is
+        # still running on (both opened with the same text), or that
+        # conversation's next turn silently continues in this one's thread.
+        if pairs and index.is_taken(tenant, key, pairs):
+            key = f"{key}:{uuid.uuid4().hex[:8]}"
+        session = app.state.session_store.reset(key)
+    if pairs:
+        index.record(tenant, pairs, key)
+    return session
+
+
 def _persistent_session(
     app: Any,
     raw_request: Request,
@@ -164,11 +205,7 @@ def _persistent_session(
     if model.endswith(_PERSIST_MODEL_SUFFIX):
         return app.state.session_store.get(f"{tenant}:model:{fallback_key or 'default'}")
     if request is not None:
-        sid, _title = _detect_conversation_session(request)
-        has_assistant = any(m.role == "assistant" for m in request.messages)
-        if not has_assistant:
-            return app.state.session_store.reset(f"{tenant}:auto:{sid}")
-        return app.state.session_store.get(f"{tenant}:auto:{sid}")
+        return _auto_session(app, tenant, request)
     if fallback_key:
         return app.state.session_store.get(f"{tenant}:auto:{fallback_key}")
     return None
