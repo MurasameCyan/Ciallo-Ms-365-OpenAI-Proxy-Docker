@@ -715,4 +715,5 @@ Apache License 2.0
 
 - [kuchris/m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy)
 - [KilimcininKorOglu/M365Bridge](https://github.com/KilimcininKorOglu/M365Bridge)
+- [HEXUXIU/M365-Copilot2API](https://github.com/HEXUXIU/M365-Copilot2API)
 - [LINUX DO](https://linux.do/)
