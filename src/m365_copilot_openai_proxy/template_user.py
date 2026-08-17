@@ -314,12 +314,12 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
       </summary>
       <div style="margin-top:.75rem">
       <div class="hint" data-i18n="my_sessions_hint">这里列出你自己的会话，以及它们在 M365 云端对应的对话。删除会同时删掉云端对话，不可恢复。</div>
-      <div id="my-sessions-warn" class="hint hidden" style="color:#fbbf24"></div>
       <div class="row" style="flex-wrap:wrap;gap:.5rem;margin:.6rem 0 .35rem">
         <input id="my-sess-ttl" type="number" min="0" style="width:150px">
         <input id="my-sess-keep" type="number" min="0" style="width:150px">
         <button class="btn-ghost" onclick="cleanupMySessions(this)" data-i18n="sess_cleanup_btn">执行清理</button>
         <button class="btn-ghost" onclick="loadMySessions()" data-i18n="sess_refresh">刷新</button>
+        <span id="my-sessions-warn" class="hidden" style="margin-left:auto;cursor:help" title=""><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" style="display:block"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5"></path><path d="M12 16.3h.01"></path></svg></span>
       </div>
       <div class="hint" data-i18n="sess_cleanup_hint">留空或 0 表示不启用该条件；勾选的会话永不被清理。</div>
       <div id="my-sessions-content"></div>

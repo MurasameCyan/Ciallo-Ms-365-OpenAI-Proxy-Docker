@@ -45,7 +45,9 @@ function renderSessions(){
   if(warn){
     const notes=(d&&d.warnings)||[];
     warn.classList.toggle('hide-card',!notes.length);
-    warn.innerHTML=notes.length?(t('sess_cloud_warn')+'<div style="margin-top:.3rem;font-size:.8rem">'+notes.map(esc).join('<br>')+'</div>'):'';
+    // Details live in the hover tooltip, not in a banner: one line per account
+    // would be a wall of text on a pool with many consumer accounts.
+    warn.title=notes.length?(t('sess_cloud_warn')+'\\n'+notes.join('\\n')):'';
   }
   if(!d){box.innerHTML='<span style="color:var(--faint)">'+t('loading')+'</span>';return}
   const rows=d.data||[];

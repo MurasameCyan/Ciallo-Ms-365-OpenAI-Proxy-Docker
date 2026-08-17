@@ -21,7 +21,9 @@ function renderMySessions(){
   const notes=(_mySessions&&_mySessions.warnings)||[];
   if(warn){
     warn.classList.toggle('hidden',!notes.length);
-    warn.innerHTML=notes.length?(t('sess_cloud_warn')+'<br>'+notes.map(esc).join('<br>')):'';
+    // Hover tooltip instead of a banner, same as /admin: the per-account notes
+    // are detail, not something worth a paragraph above the cleanup row.
+    warn.title=notes.length?(t('sess_cloud_warn')+'\\n'+notes.join('\\n')):'';
   }
   if(!_mySessions){box.innerHTML='<div class="hint">'+t('sess_loading')+'</div>';return}
   const rows=_mySessions.data||[];

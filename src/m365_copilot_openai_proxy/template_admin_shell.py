@@ -108,13 +108,13 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <button onclick="loadSessions()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
 <div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="sess_hint">本地会话绑定与 M365 云端对话历史合并显示。删除云端对话会同时清掉指向它的本地绑定，否则该会话的下一轮必定失败。</div>
-<div id="sessions-warn" class="hide-card" style="margin-bottom:.75rem;padding:.6rem .9rem;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.45);color:#fbbf24;font-size:.85rem;box-shadow:0 0 22px rgba(245,158,11,.12)"></div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;padding:.6rem;margin-bottom:.6rem">
 <span style="font-size:.78rem;color:var(--muted)" data-i18n="sess_cleanup_label">批量清理</span>
 <input id="sess-ttl" type="number" min="0" style="width:120px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
 <input id="sess-keep" type="number" min="0" style="width:120px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
 <button onclick="cleanupSessions()" style="font-size:.8rem;padding:6px 14px;background:linear-gradient(135deg,#f59e0b,#b45309)" data-i18n="sess_cleanup_btn">执行清理</button>
 <span style="font-size:.75rem;color:var(--faint)" data-i18n="sess_cleanup_hint">留空或 0 表示不启用该条件；勾选的行永不被清理。</span>
+<span id="sessions-warn" class="hide-card" style="margin-left:auto;cursor:help" title=""><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" style="display:block"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5"></path><path d="M12 16.3h.01"></path></svg></span>
 </div>
 <div id="sessions-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
