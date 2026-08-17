@@ -560,3 +560,82 @@ def test_media_keepalive_does_nothing_while_the_token_is_fresh(admin, aad):
     )
 
     assert aad.calls == []
+
+
+# --- the drawer the login panel lives in --------------------------------
+
+
+def test_the_drawer_survives_the_reload_that_used_to_close_it(tmp_path):
+    """A table rebuild must not collapse the drawer or eat what is in it.
+
+    The accounts table is re-rendered by the 30s poll and by every mutation that
+    ends in loadAccounts(), and the drawer's open state, the callback URL being
+    pasted into it and the result message all live only in that markup. So
+    "start sign-in" -> switch to the Microsoft tab -> come back found the drawer
+    shut (the operator's report), and pkceMint's own reload wiped the "minted"
+    line it had just written, leaving the mint with no visible outcome.
+    """
+    import shutil
+    import subprocess
+
+    from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for inline UI behavior tests")
+    script = "\n".join(
+        [
+            "const assert=require('assert');",
+            "let focused='',caret=null;",
+            "const els={};",
+            "function El(id){return {id:id,style:{},value:'',innerHTML:'',"
+            "selectionStart:null,selectionEnd:null,"
+            "focus(){focused=this.id},setSelectionRange(a,b){caret=[a,b]}}}",
+            "global.localStorage={getItem:()=>null,setItem(){}};",
+            "global.document={getElementById:id=>els[id]||null,activeElement:null};",
+            _ADMIN_ACCOUNTS_JS,
+            "__accounts=[{id:'a1'},{id:'a2'}];",
+            # a1: drawer open, callback URL half-pasted, caret in it, message shown
+            "['atok-a1','pkce-cb-a1','pkce-msg-a1','atok-a2'].forEach(i=>els[i]=El(i));",
+            "els['atok-a1'].style.display='table-row';",
+            "els['atok-a2'].style.display='none';",
+            "els['pkce-cb-a1'].value='https://login.microsoftonline.com/x?code=abc';",
+            "els['pkce-cb-a1'].selectionStart=7;els['pkce-cb-a1'].selectionEnd=7;",
+            "els['pkce-msg-a1'].innerHTML='signed in, <a href=\"#\">open manually</a>';",
+            "els['pkce-msg-a1'].style.color='var(--muted)';",
+            "global.document.activeElement=els['pkce-cb-a1'];",
+            "const st=_grabDrawerState({contains:()=>true});",
+            # the re-render: fresh elements, drawer closed, inputs empty
+            "['atok-a1','pkce-cb-a1','pkce-msg-a1','atok-a2'].forEach(i=>els[i]=El(i));",
+            "els['atok-a1'].style.display='none';els['atok-a2'].style.display='none';",
+            "_putDrawerState(st);",
+            "assert.strictEqual(els['atok-a1'].style.display,'table-row','open drawer closed');",
+            "assert.strictEqual(els['pkce-cb-a1'].value,"
+            "'https://login.microsoftonline.com/x?code=abc','pasted URL lost');",
+            "assert.ok(els['pkce-msg-a1'].innerHTML.includes('open manually'),'message lost');",
+            "assert.strictEqual(els['pkce-msg-a1'].style.color,'var(--muted)');",
+            "assert.strictEqual(els['atok-a2'].style.display,'none','closed drawer sprang open');",
+            "assert.strictEqual(focused,'pkce-cb-a1','focus lost mid-paste');",
+            "assert.deepStrictEqual(caret,[7,7],'caret lost mid-paste');",
+        ]
+    )
+    path = tmp_path / "drawer-state.js"
+    path.write_text(script, encoding="utf-8")
+    result = subprocess.run(
+        [node, str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+
+    assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
+
+
+def test_the_preserved_ids_are_the_ids_the_markup_emits():
+    """Guards the drift that would silently un-fix the reload: the state helpers
+    address rows by id, so a renamed id in the markup makes them no-ops."""
+    from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
+    from m365_copilot_openai_proxy.template_admin_pkce import _ADMIN_PKCE_JS
+
+    markup = _ADMIN_ACCOUNTS_JS + _ADMIN_PKCE_JS
+    for prefix in ("atok-", "atok-val-", "atok-msg-", "pkce-cb-", "pkce-msg-"):
+        assert any(
+            f"id=\"{prefix}'+{var}" in markup for var in ("a.id", "id")
+        ), f"{prefix} is preserved on reload but no longer rendered under that id"

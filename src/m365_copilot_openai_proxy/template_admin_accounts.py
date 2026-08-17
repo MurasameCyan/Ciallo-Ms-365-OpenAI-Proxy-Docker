@@ -39,6 +39,37 @@ function selectAccount(id){
   localStorage.setItem('admin_sel_account',__selectedAccount);
   loadAccounts();
 }
+// The accounts table is rebuilt wholesale -- by the 30s poll and by every
+// mutation that ends in loadAccounts() -- while the token drawer's open state,
+// its half-typed values and its result messages live only in that markup. So
+// starting a PKCE sign-in and coming back from the Microsoft tab found the
+// drawer collapsed, and pkceMint's own reload ate the "minted" line it had just
+// written. Snapshot the transient state around the innerHTML swap once here
+// rather than in each caller, because every caller loses it the same way.
+const _DRAWER_TEXT_IDS=['atok-val-','pkce-cb-'];
+const _DRAWER_MSG_IDS=['atok-msg-','pkce-msg-'];
+function _grabDrawerState(box){
+  const st={open:[],text:{},msg:{},focus:'',sel:null};
+  __accounts.forEach(a=>{
+    const row=document.getElementById('atok-'+a.id);
+    if(row&&row.style.display!=='none')st.open.push(a.id);
+    _DRAWER_TEXT_IDS.forEach(p=>{const el=document.getElementById(p+a.id);if(el&&el.value)st.text[p+a.id]=el.value});
+    _DRAWER_MSG_IDS.forEach(p=>{const el=document.getElementById(p+a.id);if(el&&el.innerHTML)st.msg[p+a.id]=[el.innerHTML,el.style.color]});
+  });
+  const act=document.activeElement;
+  if(act&&act.id&&box.contains&&box.contains(act)){st.focus=act.id;st.sel=[act.selectionStart,act.selectionEnd]}
+  return st;
+}
+function _putDrawerState(st){
+  st.open.forEach(id=>{const row=document.getElementById('atok-'+id);if(row)row.style.display='table-row'});
+  Object.keys(st.text).forEach(id=>{const el=document.getElementById(id);if(el)el.value=st.text[id]});
+  Object.keys(st.msg).forEach(id=>{const el=document.getElementById(id);if(el){el.innerHTML=st.msg[id][0];el.style.color=st.msg[id][1]}});
+  const el=st.focus?document.getElementById(st.focus):null;
+  if(!el)return;
+  el.focus();
+  // A caret only exists on text inputs; setSelectionRange throws elsewhere.
+  if(st.sel&&st.sel[0]!=null)try{el.setSelectionRange(st.sel[0],st.sel[1])}catch(e){}
+}
 async function loadAccounts(localOnly=false){
   const box=document.getElementById('accounts-content');
   if(!box)return;
@@ -97,7 +128,9 @@ async function loadAccounts(localOnly=false){
         +'</td></tr>';
     });
     h+='</tbody></table></div>'+_pageFoot('accounts',__pg);
+    const drawers=_grabDrawerState(box);
     box.innerHTML=h;
+    _putDrawerState(drawers);
     box.querySelectorAll('.cookie-refresh-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();refreshAccountCookie(btn.dataset.id)});
     __refreshingAccountIds.forEach(id=>setAccountRefreshBusy(id,true));
     initGlassSelect(box);
