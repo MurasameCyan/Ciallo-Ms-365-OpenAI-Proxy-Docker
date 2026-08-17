@@ -48,7 +48,12 @@ from .refresh_media import (
 )
 from .refresh_image_fetch import fetch_image_one as _fetch_image_one_impl
 from .refresh_cookie_inject import inject_cookies_one as _inject_cookies_one_impl
-from .refresh_via_rt import refresh_via_rt
+from .refresh_via_rt import (
+    M365_DESIGNER_SCOPE,
+    M365_MEDIA_SCOPE,
+    mint_scoped_token,
+    refresh_via_rt,
+)
 from .runtime_flags import elog, ulog
 
 
@@ -481,11 +486,11 @@ class RefreshScheduler:
     async def ensure_media_fresh(self, account_id: str, url: str) -> None:
         """Lazily refresh the media/designer auth token before a media fetch.
 
-        media/designer tokens are NOT produced by the RT/HTTP substrate refresh
-        (different client + flow); they only surface as live request headers when
-        the SPA re-fetches media. So keep them alive on demand: when a media
-        request arrives and the relevant token is missing/stale AND the account
-        has a media_seed_url + stored cookies, re-run the proven cookie
+        Preferred path: the media and designer tokens are the same client as the
+        substrate token with a different audience, so a stored refresh token can
+        mint them over plain HTTP (mint_scoped_token). Fallback, for accounts that
+        only have a browser session: media/designer tokens only surface as live
+        request headers when the SPA re-fetches media, so re-run the proven cookie
         re-injection (which navigates the seed conversation and captures the auth
         headers at the end). Best-effort: any failure just leaves the fetch to
         fall back to the Chromium image path as before.
@@ -493,18 +498,20 @@ class RefreshScheduler:
         account = self._accounts.get(account_id)
         if account is None:
             return
-        seed_url = (getattr(account, "media_seed_url", "") or "").strip()
-        if not seed_url:
-            return
-        stored_cookies = list(getattr(account, "cookies", []) or [])
-        if not stored_cookies:
-            return
         is_designer = _is_designer_media_url(url)
         if is_designer:
             stale = self._media_token_stale(account.designer_auth_token, account.designer_auth_updated_at)
         else:
             stale = self._media_token_stale(account.media_auth_token, account.media_auth_updated_at)
         if not stale:
+            return
+        if await self._try_mint_media_token(account_id, is_designer=is_designer):
+            return
+        seed_url = (getattr(account, "media_seed_url", "") or "").strip()
+        if not seed_url:
+            return
+        stored_cookies = list(getattr(account, "cookies", []) or [])
+        if not stored_cookies:
             return
         ulog(
             f"Lazy media keepalive for {account_id}: "
@@ -516,6 +523,32 @@ class RefreshScheduler:
                     await self._inject_cookies_one(account_id, stored_cookies, allow_nudge=True)
                 except Exception as exc:
                     elog(f"Lazy media keepalive failed for {account_id}: {exc}")
+
+    async def _try_mint_media_token(self, account_id: str, *, is_designer: bool) -> bool:
+        """Mint one media/designer token from the stored RT. No browser involved.
+
+        Returns False (quietly, for a missing RT) so the caller falls back to the
+        cookie/CDP capture that browser-session accounts still depend on.
+        """
+        account = self._accounts.get(account_id)
+        if account is None or not (getattr(account, "refresh_token", "") or "").strip():
+            return False
+        kind = "designer" if is_designer else "media"
+        async with self._account_lock(account_id):
+            token, error = await mint_scoped_token(
+                self._accounts,
+                account_id,
+                M365_DESIGNER_SCOPE if is_designer else M365_MEDIA_SCOPE,
+            )
+            if error:
+                elog(f"Minting {kind} token for {account_id} from the stored RT failed: {error}")
+                return False
+            if is_designer:
+                self._accounts.set_designer_auth_token(account_id, token)
+            else:
+                self._accounts.set_media_auth_token(account_id, token)
+        ulog(f"Lazy media keepalive for {account_id}: minted a {kind} token from the stored RT")
+        return True
 
     async def _try_rt_refresh(self, account_id: str, *, force: bool = False) -> bool:
         """Attempt the fast HTTP refresh_token exchange (no browser).

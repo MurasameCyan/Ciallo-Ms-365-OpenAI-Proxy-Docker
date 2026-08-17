@@ -13,7 +13,7 @@ from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
 from .refresh_via_rt import (
-    M365_REFRESH_CLIENT_ID,
+    M365_REFRESH_CLIENT_IDS,
     account_matches_refresh_subject,
     normalize_m365_authority,
     normalize_microsoft_id,
@@ -337,7 +337,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         if len(rt) > 8192:
             return _json_err(400, "Refresh token is implausibly long")
         client_id = str(body.get("client_id", "") or "").strip().lower()
-        if client_id != M365_REFRESH_CLIENT_ID:
+        if client_id not in M365_REFRESH_CLIENT_IDS:
             return _json_err(400, "Refresh token was not issued to the M365 Copilot client")
         authority = normalize_m365_authority(body.get("authority"))
         tenant_id = normalize_microsoft_id(body.get("tenant_id"))

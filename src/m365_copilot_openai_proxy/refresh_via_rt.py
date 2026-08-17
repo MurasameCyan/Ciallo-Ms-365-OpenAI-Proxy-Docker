@@ -15,9 +15,22 @@ Recipe (validated against a real account):
     scope         = https://substrate.office.com/sydney/.default openid profile offline_access
 
 The response may carry a rotated refresh_token, but SPA RTs retain the original
-absolute lifetime (normally about 24 hours). CDP remains the long-term session
-renewal path. Media and designer tokens are a different client/flow and are NOT
-produced here; they are kept alive lazily by the CDP media capture path.
+absolute lifetime (normally about 24 hours), so for the SPA client CDP remains
+the long-term session renewal path.
+
+Two clients can issue the RT we store, and the difference matters:
+
+* ``4765445b`` is the m365.cloud.microsoft SPA. AAD applies SPA rules (fixed
+  ~24h absolute RT lifetime, redemption must look cross-origin), which is why an
+  SPA-only deployment still needs cookies/CDP to survive past a day.
+* ``c0ab8ce9`` is the Office web Copilot *native* public client -- the same appid
+  our CDP-captured substrate tokens already carry. Its RT is a normal sliding
+  refresh token, so one interactive PKCE login can be kept alive by HTTP alone.
+  Native redemption must NOT carry an Origin header, or AAD treats it as an SPA
+  request.
+
+Media and designer tokens are the same client with a different audience, so
+``mint_scoped_token`` produces them from the same RT -- no browser needed.
 """
 from __future__ import annotations
 
@@ -31,13 +44,24 @@ from .runtime_flags import elog, ulog
 # The Copilot SPA's public client id (same one seen in our capture logs and in
 # the MSAL refresh-token cache key). Public client => no secret needed.
 M365_REFRESH_CLIENT_ID = "4765445b-32c6-49b0-83e6-1d93765276ca"
+# The Office web Copilot native public client. Measured 2026-08-17: this is the
+# appid on the substrate/media tokens our own CDP capture already yields, and it
+# is the client the interactive PKCE login uses.
+M365_NATIVE_CLIENT_ID = "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"
+M365_REFRESH_CLIENT_IDS = frozenset({M365_REFRESH_CLIENT_ID, M365_NATIVE_CLIENT_ID})
 # Match the browser/MSAL flow. offline_access is what permits a rotated RT in
 # the response; openid/profile keep the request aligned with the issuing flow.
 M365_REFRESH_SCOPE = (
     "https://substrate.office.com/sydney/.default openid profile offline_access"
 )
+# Media/designer audiences, read off real captured tokens: the Teams media token
+# is aud=ic3.teams.office.com, and Designer image downloads want a
+# designerappservice token (returned as an opaque JWE, not a JWT).
+M365_MEDIA_SCOPE = "https://ic3.teams.office.com/.default"
+M365_DESIGNER_SCOPE = "https://designerappservice.officeapps.live.com/.default"
 _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 # Origin header mirrors the SPA so AAD treats the request like the real client.
+# Native clients must not send it (see module docstring).
 _ORIGIN = "https://m365.cloud.microsoft"
 _HTTP_TIMEOUT_SECONDS = 20
 _RETRYABLE_ERROR_BACKOFF_SECONDS = 15 * 60
@@ -72,7 +96,7 @@ def account_matches_refresh_subject(account, tenant_id: str, object_id: str) -> 
     )
 
 
-def _stored_binding(account) -> tuple[str, str, str] | None:
+def _stored_binding(account) -> tuple[str, str, str, str] | None:
     client_id = str(getattr(account, "refresh_token_client_id", "") or "").lower()
     authority = normalize_m365_authority(
         getattr(account, "refresh_token_authority", "")
@@ -84,14 +108,87 @@ def _stored_binding(account) -> tuple[str, str, str] | None:
         getattr(account, "refresh_token_object_id", "")
     )
     if (
-        client_id != M365_REFRESH_CLIENT_ID
+        client_id not in M365_REFRESH_CLIENT_IDS
         or not authority
         or not tenant_id
         or not object_id
         or not account_matches_refresh_subject(account, tenant_id, object_id)
     ):
         return None
-    return authority, tenant_id, object_id
+    return client_id, authority, tenant_id, object_id
+
+
+def _token_request_headers(client_id: str) -> dict[str, str]:
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    if client_id == M365_REFRESH_CLIENT_ID:
+        headers["Origin"] = _ORIGIN
+    return headers
+
+
+async def _post_token(
+    *, authority: str, client_id: str, refresh_token: str, scope: str
+):
+    import httpx
+
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+        return await client.post(
+            _TOKEN_URL.format(tenant=authority),
+            data={
+                "client_id": client_id,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "scope": scope,
+            },
+            headers=_token_request_headers(client_id),
+        )
+
+
+async def mint_scoped_token(
+    accounts: AccountStore, account_id: str, scope: str
+) -> tuple[str, str]:
+    """Redeem the stored RT for a token on another audience (media/designer).
+
+    Returns ``(access_token, error)``; exactly one is non-empty. The token is
+    returned rather than stored because each audience has its own setter, and it
+    is deliberately NOT validated as a JWT: Designer hands back an opaque JWE.
+    A rotated RT is persisted here, since dropping it would strand the chain.
+    """
+    account = accounts.get(account_id)
+    if account is None:
+        return "", "unknown account"
+    rt = (getattr(account, "refresh_token", "") or "").strip()
+    if not rt:
+        return "", "no stored refresh_token"
+    binding = _stored_binding(account)
+    if binding is None:
+        return "", "stored RT has no verified client/authority/subject binding"
+    client_id, authority, _tenant_id, _object_id = binding
+    try:
+        resp = await _post_token(
+            authority=authority,
+            client_id=client_id,
+            refresh_token=rt,
+            # offline_access keeps the chain alive: without it AAD returns no
+            # rotated RT and this audience hop would consume the grant silently.
+            scope=f"{scope} offline_access",
+        )
+    except Exception as exc:  # noqa: BLE001 - network failure is just a miss
+        return "", f"HTTP error: {exc}"
+    if resp.status_code != 200:
+        _oauth_error, _codes, detail = _error_info(resp)
+        return "", f"HTTP {resp.status_code} {detail}".strip()
+    try:
+        payload = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return "", f"cannot parse token response: {exc}"
+    access_token = str(payload.get("access_token", "") or "")
+    if not access_token:
+        return "", "no access_token in response"
+    rotated = payload.get("refresh_token")
+    if isinstance(rotated, str) and rotated and rotated != rt:
+        # None binding args preserve the verified client/authority/subject.
+        accounts.set_refresh_token(account_id, rotated, expected_refresh_token=rt)
+    return access_token, ""
 
 
 async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
@@ -119,26 +216,16 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
         )
         return False
 
-    authority, tenant_id, object_id = binding
+    client_id, authority, tenant_id, object_id = binding
     expected_access_token = account.token
-    data = {
-        "client_id": M365_REFRESH_CLIENT_ID,
-        "grant_type": "refresh_token",
-        "refresh_token": rt,
-        "scope": M365_REFRESH_SCOPE,
-    }
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": _ORIGIN,
-    }
-
-    import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                _TOKEN_URL.format(tenant=authority), data=data, headers=headers
-            )
+        resp = await _post_token(
+            authority=authority,
+            client_id=client_id,
+            refresh_token=rt,
+            scope=M365_REFRESH_SCOPE,
+        )
     except Exception as exc:
         _defer_rt(accounts, account_id, rt)
         elog(

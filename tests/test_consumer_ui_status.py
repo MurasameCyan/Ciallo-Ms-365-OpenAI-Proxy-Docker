@@ -90,6 +90,9 @@ def _admin_accounts_render_script(assertions: str) -> str:
             "function _pageFoot(){return ''}",
             "function initGlassSelect(){}",
             "function renderDashboard(){}",
+            # Cross-module render helpers are stubbed here the same way
+            # renderDashboard is: the real page concatenates every template.
+            "function _pkcePanel(){return ''}",
             _admin_status_helpers(),
             _ADMIN_ACCOUNTS_JS,
             "__accounts=[{id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',cookie_valid:true,cookie_updated_at:0,cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}];",

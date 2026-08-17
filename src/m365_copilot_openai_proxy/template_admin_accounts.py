@@ -87,6 +87,7 @@ async function loadAccounts(localOnly=false){
         +'<button onclick="submitAccountToken(\\''+a.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('kf_create')+'</button>'
         +'<button onclick="toggleAccountToken(\\''+a.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
         +'</div><div id="atok-msg-'+a.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
+        +_pkcePanel(a)
         +'</td></tr>';
     });
     h+='</tbody></table></div>'+_pageFoot('accounts',__pg);
