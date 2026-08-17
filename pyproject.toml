@@ -17,6 +17,10 @@ dependencies = [
     "httpx[socks]>=0.28.0,<1.0.0",
     "jsonschema>=4.23.0,<5.0.0",
     "pydantic-settings>=2.10.0,<3.0.0",
+    # zoneinfo has no database of its own on hosts that ship none (Windows, a
+    # future slim image): without this the per-turn timeZoneOffset silently
+    # falls back to +8 for every zone. Data only, no code.
+    "tzdata>=2025.1",
     # python-socks is what gives websockets its socks5 support; HTTP CONNECT
     # tunnelling is built in.
     "python-socks[asyncio]>=2.4.0,<3.0.0",

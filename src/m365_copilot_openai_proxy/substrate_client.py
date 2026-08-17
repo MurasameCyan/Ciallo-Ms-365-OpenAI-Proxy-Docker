@@ -5,7 +5,9 @@ import json
 import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import websockets
 
@@ -70,6 +72,7 @@ _VARIANTS = (
     "feature.enableChatCIQPlugin,EnableRequestPlugins,feature.EnableSensitivityLabels,"
     "EnableUnsupportedUrlDetector,feature.IsCustomEngineCopilotEnabled,feature.bizchatfluxv3,"
     "feature.enablechatpages,feature.enableCodeCanvas,feature.turnOnWorkTabRecommendation,"
+    "turnOffWorkTabUpsellFromClient,"
     "feature.turnOnDARecommendation,feature.IsStreamingModeInChatRequestEnabled,"
     "IncludeSourceAttributionsConcise,SkipPublishEmptyMessage,"
     "feature.EnableDeduplicatingSourceAttributions,Enable3PActionProgressMessages,"
@@ -106,7 +109,10 @@ _OPTIONS_SETS = [
     "gptvnorm2048",
     "cwc_code_interpreter_citation_fix",
     "code_interpreter_interactive_charts",
-    "cwc_code_interpreter_interactive_charts_inline_image",
+    # Bare `code_interpreter_` prefix, like its two siblings above/below: the
+    # `cwc_`-prefixed spelling this line used to carry appears in no browser
+    # capture or upstream reference, i.e. it was a silently ignored no-op.
+    "code_interpreter_interactive_charts_inline_image",
     "code_interpreter_matplotlib_patching",
     "cwc_fileupload_odb",
     "update_memory_plugin",
@@ -129,6 +135,26 @@ _OPTIONS_SETS = [
     "enable_structured_output",
     "precise_mode",
 ]
+
+
+def _tz_offset_hours(time_zone: str) -> int:
+    """Hours east of UTC for ``time_zone``, right now.
+
+    Sent next to the zone name in every turn's ``locationInfo``. It used to be a
+    hardcoded 9 while the name beside it was configurable, so an account on the
+    default Asia/Shanghai told the model its local clock was an hour ahead of the
+    zone it had just named.
+
+    ponytail: whole hours, truncated, so a half-hour zone (Asia/Kolkata) loses
+    the :30 -- the browser field is an integer and no capture shows a fractional
+    value. An unknown zone name falls back to +8, matching the default zone.
+    """
+    try:
+        offset = datetime.now(ZoneInfo(time_zone)).utcoffset()
+    except (ZoneInfoNotFoundError, ValueError, KeyError, OSError):
+        return 8
+    return int(offset.total_seconds() // 3600) if offset else 0
+
 
 _ALLOWED_MESSAGE_TYPES = [
     "Chat", "Suggestion", "InternalSearchQuery", "Disengaged",
@@ -258,6 +284,7 @@ class SubstrateCopilotClient:
                 "allowedMessageTypes": _ALLOWED_MESSAGE_TYPES,
                 "sliceIds": [],
                 "threadLevelGptId": {},
+                "productThreadType": "Office",
                 "traceId": req_id,
                 "isStartOfSession": is_start_of_session,
                 "clientInfo": {
@@ -275,7 +302,10 @@ class SubstrateCopilotClient:
                     "text": tool_reminder + text,
                     "entityAnnotationTypes": ["People", "File", "Event", "Email", "TeamsMessage"],
                     "requestId": req_id,
-                    "locationInfo": {"timeZoneOffset": 9, "timeZone": self._time_zone},
+                    "locationInfo": {
+                        "timeZoneOffset": _tz_offset_hours(self._time_zone),
+                        "timeZone": self._time_zone,
+                    },
                     "locale": "en-us",
                     "messageType": "Chat",
                     "experienceType": "Default",
