@@ -7,7 +7,11 @@ _GLASS_SELECT_CSS = """select.glass-native{position:absolute!important;opacity:0
 .glass-select-trigger{width:100%;min-height:30px;margin:0!important;padding:.42rem 2rem .42rem .7rem!important;border-radius:12px!important;color:var(--strong)!important;text-align:left!important;background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(96,242,255,.08),rgba(140,107,255,.08))!important;border:1px solid rgba(96,242,255,.28)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(0,0,0,.12)!important;backdrop-filter:blur(14px);position:relative;overflow:hidden;transition:none!important}
 .glass-select-trigger:after{content:"";position:absolute;right:.72rem;top:50%;width:.46rem;height:.46rem;border-right:2px solid var(--cyan);border-bottom:2px solid var(--cyan);transform:translateY(-65%) rotate(45deg);opacity:.9}
 .glass-select.open .glass-select-trigger{border-color:rgba(96,242,255,.58)!important;box-shadow:0 0 0 2px rgba(96,242,255,.12),0 0 20px rgba(96,242,255,.18),inset 0 1px 0 rgba(255,255,255,.24)!important}
-.glass-select-menu{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(460px,calc(100vw - 32px));overflow:visible;border-radius:14px;padding:.28rem;background:linear-gradient(180deg,rgba(13,19,45,.82),rgba(7,11,27,.78));border:1px solid rgba(96,242,255,.28);box-shadow:0 18px 44px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(145%);display:none}
+/* Near-opaque on purpose: the menu opens inside a `.card`, and a card carrying
+   `backdrop-filter` is its own backdrop root, so the menu's own blur never
+   samples the card content behind it. At .82 alpha the card text read straight
+   through the option list. */
+.glass-select-menu{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(460px,calc(100vw - 32px));overflow:visible;border-radius:14px;padding:.28rem;background:linear-gradient(180deg,rgba(13,19,45,.97),rgba(7,11,27,.96));border:1px solid rgba(96,242,255,.28);box-shadow:0 18px 44px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px) saturate(145%);display:none}
 .glass-select-scroll{max-height:min(60vh,420px);overflow-y:auto;border-radius:10px;scrollbar-width:none;-ms-overflow-style:none}
 .glass-select-scroll::-webkit-scrollbar{width:0;height:0;display:none}
 .tone-select+.glass-select .glass-select-menu{left:auto;right:0}
@@ -17,7 +21,7 @@ _GLASS_SELECT_CSS = """select.glass-native{position:absolute!important;opacity:0
 .glass-select-option:hover{background:linear-gradient(135deg,rgba(96,242,255,.18),rgba(140,107,255,.13))!important;color:var(--text)!important;transform:none!important}
 .glass-select-option.active{color:var(--text)!important;background:linear-gradient(135deg,rgba(96,242,255,.24),rgba(255,94,219,.12))!important;box-shadow:inset 3px 0 0 rgba(96,242,255,.82)!important}
 body[data-theme="light"] .glass-select-trigger{color:#1c1c1e!important;background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(0,122,255,.06))!important;border-color:rgba(60,60,67,.14)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 4px 12px rgba(0,0,0,.04)!important}
-body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(242,243,247,.9));border-color:rgba(60,60,67,.12);box-shadow:0 16px 36px rgba(0,0,0,.1),inset 0 1px 0 rgba(255,255,255,.92)}
+body[data-theme="light"] .glass-select-menu{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(242,243,247,.97));border-color:rgba(60,60,67,.12);box-shadow:0 16px 36px rgba(0,0,0,.1),inset 0 1px 0 rgba(255,255,255,.92)}
 body[data-theme="light"] .glass-select-option{color:#6b6b70!important}
 body[data-theme="light"] .glass-select-option:hover,body[data-theme="light"] .glass-select-option.active{color:#1c1c1e!important}"""
 
@@ -122,7 +126,11 @@ _GLASS_SELECT_JS = """function initGlassSelect(root){
     const wrap=document.createElement('span');wrap.className='glass-select';
     if(sel.classList.contains('page-select'))wrap.style.minWidth='76px';
     if(sel.classList.contains('tone-select'))wrap.style.minWidth='180px';
-    if(sel.id==='rebind-select')wrap.style.width='100%';
+    // A select asking for width:100% is sized by its container, so the wrapper
+    // that replaces it has to fill that container too -- otherwise the trigger
+    // and its menu sit narrower than the box drawn around them (the sessions
+    // user filter measured 180px inside a 200px .flow-box).
+    if(sel.style.width==='100%')wrap.style.width='100%';
     const trigger=document.createElement('button');trigger.type='button';trigger.className='glass-select-trigger';
     const menu=document.createElement('div');menu.className='glass-select-menu';
     wrap.appendChild(trigger);wrap.appendChild(menu);sel.parentNode.insertBefore(wrap,sel.nextSibling);

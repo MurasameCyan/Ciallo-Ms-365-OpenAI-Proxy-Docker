@@ -158,6 +158,12 @@ body[data-lang="en"] .card h2{font-size:.95rem}
 .status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding:.5rem 0}
 .status-line:first-child{border-top:1px solid rgba(255,255,255,.08)}
 .status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
+/* The session list is as long as the store allows (1000 rows), so it scrolls
+   instead of stretching the card: a `.card` taller than the compositor's max
+   texture (16384px in Chrome) silently stops painting its `backdrop-filter`,
+   and the whole viewport went flat grey-white from ~600 rows on. Same 520px
+   cap the admin session table uses. */
+#my-sessions-content{max-height:520px;overflow:auto;border-radius:8px;scrollbar-gutter:stable}
 .status-mark{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border-radius:50%;font-size:.55rem;font-weight:900;color:#050815;border:none;background:linear-gradient(135deg,var(--cyan),#d6fbff 52%,var(--gold));box-shadow:0 4px 10px rgba(96,242,255,.24),inset 0 1px 0 rgba(255,255,255,.4);line-height:1;position:relative;overflow:hidden}
 .status-mark:before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.32),transparent 55%);pointer-events:none}
 .status-mark:after{display:none}
