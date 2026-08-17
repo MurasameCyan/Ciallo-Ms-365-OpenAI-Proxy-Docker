@@ -532,6 +532,29 @@ def test_cloud_management_refuses_an_opaque_token_it_cannot_attribute(admin, aad
         asyncio.run(_cloud_token(app.state.account_store, account.id))
 
 
+def test_cloud_unavailable_reasons_are_written_in_chinese(admin):
+    """These strings land verbatim in the session view's warning tooltip.
+
+    ``routes_sessions._cloud_note`` builds "<account>: <str(exc)>" and both pages
+    show it as-is, so the message IS the user-facing copy -- an English cause
+    line is a UI regression, not just a log detail.
+    """
+    app, _client, account = admin
+    _TOKEN_CACHE.clear()
+
+    with pytest.raises(CloudSessionError) as no_rt:
+        asyncio.run(_cloud_token(app.state.account_store, account.id))
+
+    app.state.account_store.get(account.id).provider = "consumer"
+    with pytest.raises(CloudSessionError) as consumer:
+        asyncio.run(_cloud_token(app.state.account_store, account.id))
+
+    assert "个人版" in str(consumer.value), str(consumer.value)
+    for raised in (no_rt, consumer):
+        message = str(raised.value)
+        assert any("一" <= ch <= "鿿" for ch in message), f"not Chinese: {message}"
+
+
 def test_cloud_management_keeps_the_rotated_refresh_token(admin, aad):
     """AAD rotates it even though this hop never asks for offline_access."""
     app, _client, account = admin

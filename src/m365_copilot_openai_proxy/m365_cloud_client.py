@@ -64,7 +64,13 @@ _TOKEN_CACHE_MISSES = 0
 
 
 class CloudSessionError(RuntimeError):
-    """Cloud conversation management is unavailable or failed for one account."""
+    """Cloud conversation management is unavailable or failed for one account.
+
+    The message is shown verbatim in the /admin and /user session views (one
+    line per account behind the warning icon), so it is written in Chinese for
+    the operator rather than in English for the log. Interpolated technical
+    detail -- HTTP status, action name, upstream exception -- stays as-is.
+    """
 
 
 def token_cache_stats() -> dict:
@@ -104,15 +110,15 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     """Mint (or reuse) an m365.cloud.microsoft access token for one account."""
     account = accounts.get(account_id)
     if account is None:
-        raise CloudSessionError("account not found")
+        raise CloudSessionError("账户不存在")
     if getattr(account, "provider", "m365") != "m365":
-        raise CloudSessionError("cloud conversations are M365-only (this account is personal Copilot)")
+        raise CloudSessionError("云端对话只有 M365 账户支持（该账户是个人版 Copilot）")
     rt = (getattr(account, "refresh_token", "") or "").strip()
     if not rt:
-        raise CloudSessionError("no refresh token stored for this account; push a token from the user page first")
+        raise CloudSessionError("该账户没有存储 refresh token，请先在用户页完成一次授权登录")
     binding = _stored_binding(account)
     if binding is None:
-        raise CloudSessionError("stored refresh token has no verified client/authority/subject binding")
+        raise CloudSessionError("存储的 refresh token 没有已验证的 client / authority / subject 绑定")
     client_id, authority, tenant_id, object_id = binding
 
     # Cache key carries the identity, so an account rebound to a different
@@ -134,16 +140,16 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
             scope=_CLOUD_SCOPE,
         )
     except Exception as exc:  # noqa: BLE001 - any transport error is just "unavailable"
-        raise CloudSessionError(f"token exchange failed: {exc}") from exc
+        raise CloudSessionError(f"换取云端令牌失败：{exc}") from exc
     if resp.status_code != 200:
-        raise CloudSessionError(f"token exchange failed: HTTP {resp.status_code}")
+        raise CloudSessionError(f"换取云端令牌失败：HTTP {resp.status_code}")
     try:
         payload = resp.json()
     except Exception as exc:  # noqa: BLE001
-        raise CloudSessionError(f"token exchange returned an unusable response: {exc}") from exc
+        raise CloudSessionError(f"换取云端令牌的响应无法解析：{exc}") from exc
     token = str(payload.get("access_token") or "")
     if not token:
-        raise CloudSessionError("token exchange returned no access_token")
+        raise CloudSessionError("换取云端令牌没有返回 access_token")
     # Same subject check the substrate path makes: never act on a conversation
     # list belonging to a different Microsoft identity than this account. The
     # native client gets this audience as an encrypted JWE (RSA-OAEP, five
@@ -151,12 +157,12 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     # a Bearer token -- so fall back to the id_token minted alongside it.
     claims = _readable_claims(token) or _readable_claims(str(payload.get("id_token") or ""))
     if not claims:
-        raise CloudSessionError("token exchange returned no readable subject to verify")
+        raise CloudSessionError("换取云端令牌没有返回可校验的身份信息")
     if (
         normalize_microsoft_id(claims.get("tid")) != tenant_id
         or normalize_microsoft_id(claims.get("oid")) != object_id
     ):
-        raise CloudSessionError("token exchange returned a different Microsoft identity")
+        raise CloudSessionError("换取云端令牌返回的是另一个微软身份")
 
     # AAD rotates the refresh token even without offline_access, and the old one
     # keeps working, but persisting the new one is what keeps a native client's
@@ -192,24 +198,24 @@ async def _cloud_action(token: str, action: str, state: dict | None = None, **ex
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
             resp = await client.post(_CHAT_URL, json=body, headers=headers)
     except Exception as exc:  # noqa: BLE001
-        raise CloudSessionError(f"{action} failed: {exc}") from exc
+        raise CloudSessionError(f"{action} 调用失败：{exc}") from exc
     if resp.status_code < 200 or resp.status_code >= 300:
         retry_after = resp.headers.get("Retry-After", "")
-        suffix = f" (retry after {retry_after}s)" if retry_after else ""
-        raise CloudSessionError(f"{action} failed: HTTP {resp.status_code}{suffix}")
+        suffix = f"（{retry_after}s 后重试）" if retry_after else ""
+        raise CloudSessionError(f"{action} 调用失败：HTTP {resp.status_code}{suffix}")
     try:
         parsed = resp.json()
     except Exception as exc:  # noqa: BLE001 - Cloudflare/login HTML lands here
-        raise CloudSessionError(f"{action} returned a non-JSON response") from exc
+        raise CloudSessionError(f"{action} 返回了非 JSON 响应") from exc
     if not isinstance(parsed, dict):
-        raise CloudSessionError(f"{action} returned an unexpected response shape")
+        raise CloudSessionError(f"{action} 返回的响应结构不符合预期")
     return parsed
 
 
 def _parse_chats(result: dict) -> list[dict]:
     store = result.get("store")
     if not isinstance(store, dict):
-        raise CloudSessionError("RefreshNavPane returned no store (protocol changed?)")
+        raise CloudSessionError("RefreshNavPane 没有返回 store（上游协议变了？）")
     history = store.get("conversationPageHistoryList")
     chats = history.get("chats") if isinstance(history, dict) else None
     if not isinstance(chats, list):
