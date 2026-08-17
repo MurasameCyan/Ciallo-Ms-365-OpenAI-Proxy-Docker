@@ -726,10 +726,12 @@ class RefreshScheduler:
         # from the URL that STILL carries the fileToken (so it can be lifted into the
         # header), then request the stripped URL. The Chromium fallback receives the
         # unstripped URL and strips it internally for the same reason.
-        # Lazy media keepalive: media/designer auth tokens are not produced by the
-        # RT/HTTP substrate refresh, so top them up on demand right before we need
-        # them (only fires when stale + a media_seed_url + cookies exist). Runs
-        # before auth-header computation so a freshly captured token is used.
+        # Lazy media keepalive: the substrate refresh does not carry these two
+        # audiences, so top them up on demand right before we need them. Only
+        # fires when stale, and prefers the RT scope hop (plain HTTP, needs
+        # nothing but a stored refresh token); the seed-URL capture that does
+        # need cookies is only the fallback. Runs before auth-header computation
+        # so a freshly minted token is used.
         await self.ensure_media_fresh(account_id, fetch_url)
         account = self._accounts.get(account_id) or account
         auth_headers, auth_source = _auth_headers_for_account(account, fetch_url)
