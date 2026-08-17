@@ -141,6 +141,7 @@ function renderAccountInfo(d){
   acc+='<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"><button class="btn-ghost account-action" onclick="logout(this)">'+t('logout')+'</button><button class="btn-ghost account-action" onclick="unbindAccount(this)">'+t('unbind_account')+'</button></div>';
   const info=document.getElementById('account-info');if(info)info.innerHTML=acc;
   const upx=document.getElementById('user-proxy-url');if(upx&&document.activeElement!==upx)upx.value=(d.account&&d.account.proxy_url)||'';
+  renderUserPkce(d.account||null);
   renderAccountStatus(d);
 }
 function applyUserLangDynamic(){

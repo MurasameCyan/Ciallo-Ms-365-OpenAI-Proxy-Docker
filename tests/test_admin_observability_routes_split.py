@@ -105,7 +105,6 @@ def test_admin_dialog_javascript_is_split_into_dialogs_module():
 
 def test_admin_accounts_javascript_is_split_into_accounts_module():
     assert "async function loadAccounts(localOnly=false)" in _ADMIN_ACCOUNTS_JS
-    assert "function renderSelectedStatus()" in _ADMIN_ACCOUNTS_JS
     assert "async function submitAccount()" in _ADMIN_ACCOUNTS_JS
     assert "async function batchDeleteAccounts()" in _ADMIN_ACCOUNTS_JS
     assert "const __page={keys:1,accounts:1};" not in _ADMIN_ACCOUNTS_JS
@@ -254,8 +253,10 @@ def test_admin_debug_logs_include_copy_all_buttons():
 
 
 def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scrollbar():
-    assert ".accounts-main-card{position:relative;padding-bottom:64px;height:450px}" in _ADMIN_HTML
-    assert ".accounts-main-card .accounts-table-scroll{height:260px;max-height:260px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML
+    # Same box as the users view, which is the other single-card view.
+    assert ".view-users{height:800px;display:none;position:relative;padding-bottom:64px}" in _ADMIN_HTML
+    assert ".accounts-main-card{position:relative;padding-bottom:64px;height:800px}" in _ADMIN_HTML
+    assert ".accounts-main-card .accounts-table-scroll{height:610px;max-height:610px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML
     assert ".accounts-main-card .accounts-table-scroll::-webkit-scrollbar{width:0;height:0;display:none}" in _ADMIN_HTML
     assert ".accounts-main-card .accounts-table thead th{position:sticky;top:0;z-index:5;background:var(--card)}" in _ADMIN_HTML
     assert '<div class="tbl-scroll accounts-table-scroll"><table class="admin-tbl accounts-table">' in _ADMIN_ACCOUNTS_JS

@@ -10,30 +10,6 @@ function acctRefresh(a,cookieValid){
   const auto=a.provider==='consumer'||!!a.has_refresh_token||(a.token_source==='cdp'&&cookieValid);
   return {auto:auto,available:auto||a.token_source==='cdp'};
 }
-function renderSelectedStatus(){
-  const card=document.getElementById('status-card');
-  const box=document.getElementById('status-content');
-  if(!card||!box)return;
-  const a=__accounts.find(x=>x.id===__selectedAccount);
-  if(!a){card.classList.add('hide-card');return}
-  card.classList.remove('hide-card');
-  const st=liveTokenStatus(a.token_status||{});
-  const v=st.valid;
-  const row=(label,val,vcls)=>'<div class="status-row"><span class="status-label">'+label+'</span><span class="status-value '+(vcls||'')+'">'+val+'</span></div>';
-  let html='';
-  html+=row(t('col_account'),esc(a.name||a.id),'valid');
-  if(a.email)html+=row('Email',esc(a.email),'');
-  html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
-  const cv=liveCookieValid(a);
-  html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
-  const refreshAutomatic=acctRefresh(a,cv).auto;
-  const refreshAvailable=acctRefresh(a,cv).available;
-  html+=row(t('col_refresh_mode'),refreshAutomatic?t('refresh_auto'):(refreshAvailable?t('refresh_unavailable'):t('refresh_manual')),refreshAutomatic?'valid':'warn');
-  html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
-  html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),'');
-  if(st.error)html+=row(t('error'),esc(st.error),'invalid');
-  box.innerHTML=html;
-}
 function selectAccount(id){
   __selectedAccount=(__selectedAccount===id)?'':id;
   localStorage.setItem('admin_sel_account',__selectedAccount);
@@ -81,7 +57,7 @@ async function loadAccounts(localOnly=false){
       const loadedAt=Date.now()/1000;
       __accounts=(d.accounts||[]).map(a=>({...a,token_status:{...(a.token_status||{}),_loaded_at:loadedAt}}));
     }
-    if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderSelectedStatus();renderDashboard();return}
+    if(!__accounts.length){box.innerHTML='<span style="color:var(--faint)">'+t('no_accounts')+'</span>';renderDashboard();return}
     const __pg=_slicePage(__accounts,'accounts');
     let h='<div class="tbl-tools"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
       +'<div class="tbl-scroll accounts-table-scroll"><table class="admin-tbl accounts-table"><thead><tr style="color:var(--muted);text-align:left">'
@@ -134,7 +110,6 @@ async function loadAccounts(localOnly=false){
     box.querySelectorAll('.cookie-refresh-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();refreshAccountCookie(btn.dataset.id)});
     __refreshingAccountIds.forEach(id=>setAccountRefreshBusy(id,true));
     initGlassSelect(box);
-    renderSelectedStatus();
     renderDashboard();
   }catch(e){}
 }

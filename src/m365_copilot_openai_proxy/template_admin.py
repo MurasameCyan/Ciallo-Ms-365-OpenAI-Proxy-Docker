@@ -7,13 +7,13 @@ from .template_admin_dialogs import _ADMIN_DIALOGS_JS
 from .template_admin_i18n import _ADMIN_I18N_JS
 from .template_admin_keys import _ADMIN_KEYS_JS
 from .template_admin_modeltest import _ADMIN_MODELTEST_JS
-from .template_admin_pkce import _ADMIN_PKCE_JS
 from .template_admin_sessions import _ADMIN_SESSIONS_JS
 from .template_admin_settings_js import _ADMIN_SETTINGS_JS
 from .template_admin_tables import _ADMIN_TABLES_JS
 from .template_admin_css import _ADMIN_CSS
 from .template_admin_shell import _ADMIN_SHELL_HTML
 from .template_assets import _GLASS_SELECT_JS
+from .template_pkce import _ADMIN_PKCE_JS
 
 _ADMIN_HTML = """<!DOCTYPE html>
 <html lang="en">

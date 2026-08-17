@@ -119,11 +119,6 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <div id="sessions-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
 
-<div id="status-card" class="card view-accounts hide-card">
-<h2 style="margin:0 0 .5rem"><span data-i18n="title_status">Token 与 登录状态</span></h2>
-<div id="status-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
-</div>
-
 <div class="card view-settings">
 <details id="runtime-settings-details" style="cursor:pointer">
 <summary style="font-size:1.1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">

@@ -78,9 +78,15 @@ class _Response:
 
 
 class _AsyncClient:
-    """Stands in for httpx.AsyncClient; `response` drives the next exchange."""
+    """Stands in for httpx.AsyncClient.
+
+    ``responses`` is drained first when set (a sign-in now makes three calls in a
+    row: the code exchange, then one scope hop per media key); ``response``
+    answers everything else.
+    """
 
     response = _Response(500, {})
+    responses: list = []
     calls: list[tuple[str, dict, dict]] = []
 
     def __init__(self, *args, **kwargs):
@@ -94,12 +100,14 @@ class _AsyncClient:
 
     async def post(self, url: str, *, data: dict, headers: dict):
         type(self).calls.append((url, data, headers))
-        return type(self).response
+        queued = type(self).responses
+        return queued.pop(0) if queued else type(self).response
 
 
 @pytest.fixture
 def aad(monkeypatch):
     _AsyncClient.calls = []
+    _AsyncClient.responses = []
     _AsyncClient.response = _Response(500, {})
     monkeypatch.setattr(httpx, "AsyncClient", _AsyncClient)
     return _AsyncClient
@@ -222,7 +230,9 @@ def test_pkce_code_exchange_is_a_native_public_client_redemption(admin, aad):
         json={"callback_url": f"{NATIVE_REDIRECT_URI}?code=abc123&state={started['state']}"},
     )
 
-    _url, data, headers = aad.calls[-1]
+    # calls[0], not calls[-1]: completing a sign-in goes straight on to mint the
+    # two media keys, which are refresh_token grants on the same stub.
+    _url, data, headers = aad.calls[0]
     assert data["grant_type"] == "authorization_code"
     assert data["client_id"] == M365_NATIVE_CLIENT_ID
     assert data["redirect_uri"] == NATIVE_REDIRECT_URI
@@ -449,23 +459,169 @@ def test_mint_scoped_token_needs_a_stored_rt(tmp_path):
     assert token == "" and "no stored refresh_token" in error
 
 
-# --- the admin panel -----------------------------------------------------
+# --- both media keys come with the sign-in -------------------------------
+
+
+def test_completing_a_sign_in_mints_both_media_keys_in_one_go(admin, aad):
+    """Nothing else mints them until a media fetch needs one -- by which time a
+    real request is already failing -- so the sign-in takes both up front."""
+    app, client, account = admin
+    started = client.post("/admin/pkce/start", json={"account_id": account.id}).json()
+    media, jwe = _jwt(aud="https://ic3.teams.office.com"), "eyJhbGciOiJSU0EtT0FFUCJ9.a.b.c.d"
+    aad.responses = [
+        _Response(200, {"access_token": _jwt(), "refresh_token": RT}),
+        _Response(200, {"access_token": media}),
+        _Response(200, {"access_token": jwe}),
+    ]
+
+    r = client.post(
+        "/admin/pkce/complete",
+        json={"callback_url": f"{NATIVE_REDIRECT_URI}?code=abc123&state={started['state']}"},
+    )
+
+    assert r.status_code == 200
+    stored = app.state.account_store.get(account.id)
+    assert stored.media_auth_token == media
+    assert stored.designer_auth_token == jwe
+    keys = r.json()["media_keys"]
+    assert keys["media"]["status"] == "ok" and keys["media"]["aud"] == "https://ic3.teams.office.com"
+    assert keys["designer"]["status"] == "ok" and keys["designer"]["format"] == "opaque"
+    assert media not in r.text and jwe not in r.text
+    scopes = [data["scope"] for _url, data, _headers in aad.calls[1:]]
+    assert scopes[0].startswith(M365_MEDIA_SCOPE)
+    assert scopes[1].startswith(M365_DESIGNER_SCOPE)
+
+
+def test_a_media_key_that_cannot_be_minted_does_not_undo_the_sign_in(admin, aad):
+    """The account is already usable for chat; only media is missing."""
+    app, client, account = admin
+    started = client.post("/admin/pkce/start", json={"account_id": account.id}).json()
+    aad.responses = [
+        _Response(200, {"access_token": _jwt(), "refresh_token": RT}),
+        _Response(400, {"error": "invalid_grant", "error_description": "AADSTS65001: no consent"}),
+        _Response(200, {"access_token": "eyJhbGciOiJSU0EtT0FFUCJ9.a.b.c.d"}),
+    ]
+
+    r = client.post(
+        "/admin/pkce/complete",
+        json={"callback_url": f"{NATIVE_REDIRECT_URI}?code=abc123&state={started['state']}"},
+    )
+
+    assert r.status_code == 200 and r.json()["has_refresh_token"] is True
+    assert app.state.account_store.get(account.id).refresh_token == RT
+    keys = r.json()["media_keys"]
+    assert keys["media"]["status"] == "error" and "AADSTS65001" in keys["media"]["error"]
+    assert keys["designer"]["status"] == "ok"  # one refusal does not skip the other
+
+
+# --- the same three steps on /user ---------------------------------------
+
+
+def _user(app, account_id: str) -> dict:
+    key = app.state.key_store.add(name="Proxy User", account_id=account_id)
+    return {"Authorization": f"Bearer {key.key}"}
+
+
+def test_a_user_signs_in_their_own_bound_account_without_naming_it(admin, aad):
+    app, client, account = admin
+    headers = _user(app, account.id)
+    started = client.post("/user/pkce/start", headers=headers).json()
+    aad.responses = [_Response(200, {"access_token": _jwt(), "refresh_token": RT})]
+
+    r = client.post(
+        "/user/pkce/complete",
+        headers=headers,
+        json={"callback_url": f"{NATIVE_REDIRECT_URI}?code=abc123&state={started['state']}"},
+    )
+
+    assert started["authority"] == TENANT
+    assert r.status_code == 200 and r.json()["account_id"] == account.id
+    assert app.state.account_store.get(account.id).refresh_token_client_id == M365_NATIVE_CLIENT_ID
+
+
+def test_a_user_cannot_finish_somebody_elses_sign_in(admin, aad):
+    """A bare code has no state, so completing it falls back to the single
+    outstanding login -- which must not be another account's."""
+    app, client, account = admin
+    other = app.state.account_store.add(name="Colleague", token=_jwt(oid=OTHER_OBJECT_ID))
+    headers = _user(app, other.id)
+    client.post("/admin/pkce/start", json={"account_id": account.id})  # not theirs
+    aad.response = _Response(200, {"access_token": _jwt(), "refresh_token": RT})
+
+    r = client.post("/user/pkce/complete", headers=headers, json={"callback_url": "A" * 40})
+
+    assert r.status_code == 400
+    assert aad.calls == []  # rejected before AAD, and the login is still pending
+    assert app.state.account_store.get(account.id).refresh_token == ""
+    assert client.post("/admin/pkce/complete", json={"callback_url": "A" * 40}).status_code == 200
+
+
+def test_the_user_endpoints_need_a_key_bound_to_an_m365_account(admin, aad):
+    app, client, account = admin
+    unbound = _user(app, "")
+    consumer = app.state.account_store.add(name="Personal")
+    app.state.account_store.set_consumer_auth(consumer.id, [{"name": "c"}], "consumer-token")
+
+    assert client.post("/user/pkce/start").status_code == 401
+    assert client.post("/user/pkce/start", headers=unbound).status_code == 400
+    assert client.post("/user/pkce/start", headers=_user(app, consumer.id)).status_code == 400
+    assert client.post("/user/pkce/mint", headers=_user(app, account.id), json={"kind": "graph"}).status_code == 400
+    assert aad.calls == []
+
+
+def test_a_user_mints_media_keys_for_their_own_account_only(admin, aad):
+    app, client, account = admin
+    _bind_rt(app, account.id)
+    media = _jwt(aud="https://ic3.teams.office.com")
+    aad.response = _Response(200, {"access_token": media})
+
+    r = client.post(
+        "/user/pkce/mint",
+        headers=_user(app, account.id),
+        # An account_id in the body is ignored: the key decides whose account it is.
+        json={"kind": "media", "account_id": "acct_somebody_else"},
+    )
+
+    assert r.status_code == 200 and r.json()["aud"] == "https://ic3.teams.office.com"
+    assert media not in r.text
+    assert app.state.account_store.get(account.id).media_auth_token == media
+
+
+# --- the panel, on both consoles -----------------------------------------
+
+_PKCE_KEYS = (
+    "pkce_start", "pkce_finish", "pkce_paste_ph", "pkce_hint", "pkce_mint_media",
+    "pkce_mint_designer", "pkce_started", "pkce_done", "pkce_minted", "pkce_opaque",
+    "pkce_starting", "pkce_finishing", "pkce_minting", "pkce_need_paste",
+    "pkce_open_manually", "pkce_keys_ok", "pkce_keys_failed",
+)
 
 
 def test_the_login_panel_is_wired_into_the_account_drawer():
     from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
-    from m365_copilot_openai_proxy.template_admin_pkce import _ADMIN_PKCE_JS
+    from m365_copilot_openai_proxy.template_pkce import _ADMIN_PKCE_JS
 
     assert _ADMIN_PKCE_JS in _ADMIN_HTML
     assert "+_pkcePanel(a)" in _ADMIN_HTML  # rendered inside the existing drawer
     # Both languages label every string the panel can show.
-    for key in (
-        "pkce_start", "pkce_finish", "pkce_paste_ph", "pkce_hint", "pkce_mint_media",
-        "pkce_mint_designer", "pkce_started", "pkce_done", "pkce_minted", "pkce_opaque",
-        "pkce_starting", "pkce_finishing", "pkce_minting", "pkce_need_paste",
-        "pkce_open_manually",
-    ):
+    for key in _PKCE_KEYS:
         assert _ADMIN_HTML.count(f"{key}:'") == 2, key
+
+
+def test_the_same_login_panel_is_offered_on_the_user_page():
+    from m365_copilot_openai_proxy.template_pkce import _PKCE_JS, _USER_PKCE_JS
+    from m365_copilot_openai_proxy.template_user import _USER_HTML
+    from m365_copilot_openai_proxy.template_user_account_js import _USER_ACCOUNT_JS
+
+    assert _USER_PKCE_JS in _USER_HTML
+    assert _PKCE_JS in _USER_PKCE_JS  # one implementation, not a second copy
+    assert "'/user/pkce'" in _USER_PKCE_JS
+    # The panel is only ever filled in by the account render, so that call is the
+    # whole wiring: without it the container stays empty.
+    assert 'id="pkce-panel"' in _USER_HTML
+    assert "renderUserPkce(d.account||null)" in _USER_ACCOUNT_JS
+    for key in _PKCE_KEYS + ("pkce_section_title", "pkce_no_account"):
+        assert _USER_HTML.count(f"{key}:'") == 2, key
 
 
 def test_the_panel_is_offered_for_m365_accounts_only(tmp_path):
@@ -473,7 +629,7 @@ def test_the_panel_is_offered_for_m365_accounts_only(tmp_path):
     import shutil
     import subprocess
 
-    from m365_copilot_openai_proxy.template_admin_pkce import _ADMIN_PKCE_JS
+    from m365_copilot_openai_proxy.template_pkce import _ADMIN_PKCE_JS
 
     node = shutil.which("node")
     if node is None:
@@ -494,6 +650,54 @@ def test_the_panel_is_offered_for_m365_accounts_only(tmp_path):
         ]
     )
     path = tmp_path / "pkce-panel.js"
+    path.write_text(script, encoding="utf-8")
+    result = subprocess.run([node, str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+    assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
+
+
+def test_the_user_panel_is_not_rebuilt_under_a_half_pasted_url(tmp_path):
+    """loadMe() reloads the card after every credential change, and the /user
+    panel has no drawer-state snapshot to fall back on -- so a re-render while a
+    callback URL is being pasted would throw the paste away."""
+    import shutil
+    import subprocess
+
+    from m365_copilot_openai_proxy.template_pkce import _USER_PKCE_JS
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for inline UI behavior tests")
+    script = "\n".join(
+        [
+            "const assert=require('assert');",
+            "let lang='zh';",
+            "function t(k){return k}",
+            "function esc(v){return String(v??'')}",
+            "function authHeaders(){return {}}",
+            "function loadMe(){}",
+            "const box={dataset:{},innerHTML:''};",
+            "global.document={getElementById:id=>id==='pkce-panel'?box:null};",
+            _USER_PKCE_JS,
+            "renderUserPkce({id:'acct_1',provider:'m365'});",
+            "assert.ok(box.innerHTML.includes('pkce-cb-acct_1'),box.innerHTML);",
+            "box.innerHTML='<!--being typed into-->';",
+            "renderUserPkce({id:'acct_1',provider:'m365'});",
+            "assert.strictEqual(box.innerHTML,'<!--being typed into-->','panel rebuilt');",
+            # A real change must still re-render: new account, or new language.
+            "renderUserPkce({id:'acct_2',provider:'m365'});",
+            "assert.ok(box.innerHTML.includes('pkce-cb-acct_2'),box.innerHTML);",
+            "box.innerHTML='stale';lang='en';",
+            "renderUserPkce({id:'acct_2',provider:'m365'});",
+            "assert.ok(box.innerHTML.includes('pkce-cb-acct_2'),'language switch left it stale');",
+            # No account, or a consumer one: a hint, never a sign-in button.
+            "renderUserPkce(null);",
+            "assert.ok(box.innerHTML.includes('pkce_no_account'),box.innerHTML);",
+            "renderUserPkce({id:'acct_3',provider:'consumer'});",
+            "assert.ok(box.innerHTML.includes('pkce_no_account'),box.innerHTML);",
+        ]
+    )
+    path = tmp_path / "user-pkce-panel.js"
     path.write_text(script, encoding="utf-8")
     result = subprocess.run([node, str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
 
@@ -632,7 +836,7 @@ def test_the_preserved_ids_are_the_ids_the_markup_emits():
     """Guards the drift that would silently un-fix the reload: the state helpers
     address rows by id, so a renamed id in the markup makes them no-ops."""
     from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
-    from m365_copilot_openai_proxy.template_admin_pkce import _ADMIN_PKCE_JS
+    from m365_copilot_openai_proxy.template_pkce import _ADMIN_PKCE_JS
 
     markup = _ADMIN_ACCOUNTS_JS + _ADMIN_PKCE_JS
     for prefix in ("atok-", "atok-val-", "atok-msg-", "pkce-cb-", "pkce-msg-"):

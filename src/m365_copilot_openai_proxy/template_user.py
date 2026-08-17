@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS, _STILL_DECOR_CSS
+from .template_pkce import _USER_PKCE_JS
 from .template_user_account_js import _USER_ACCOUNT_JS
 from .template_user_config_js import _USER_CONFIG_JS
 from .template_user_i18n import _USER_I18N_JS
@@ -63,6 +64,11 @@ button{color:#050815;border:none;border-radius:10px;padding:.55rem 1rem;font-siz
 button:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(96,242,255,.34)}
 button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-ghost{background:var(--chip);background-image:none;color:var(--strong);border:1px solid var(--chip-border);box-shadow:none}
+/* The sign-in panel markup is shared with /admin, which styles its secondary
+   buttons with an inline chip background and has no per-button top margin. */
+.pkce-panel button{margin-top:0}
+.pkce-panel button[style*="background:var(--chip)"]{background-image:none;color:var(--strong);border:1px solid var(--chip-border);box-shadow:none}
+.pkce-panel input{margin-top:0;border-radius:6px}
 .compact-action{width:58px;margin:0;padding:.2rem .55rem!important;font-size:.75rem!important;text-align:center;display:inline-flex;align-items:center;justify-content:center}
 .call-param-box{background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--text);padding:.6rem .7rem;font-size:.9rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
 .call-param-row{display:grid;grid-template-columns:72px minmax(0,1fr) 58px;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
@@ -263,6 +269,8 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
         <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。&#10;access_token / wss://substrate.office.com/..."></textarea>
+        <label class="section-title" data-i18n="pkce_section_title">浏览器登录</label>
+        <div id="pkce-panel"></div>
       </div>
       <div class="account-side" id="account-status-panel"></div>
     </div>
@@ -383,6 +391,7 @@ function applyTheme(){const theme=localStorage.getItem('user_theme')||'dark';doc
 function toggleTheme(){localStorage.setItem('user_theme',(localStorage.getItem('user_theme')||'dark')==='dark'?'light':'dark');applyTheme()}
 """ + _USER_CONFIG_JS + """
 """ + _USER_ACCOUNT_JS + """
+""" + _USER_PKCE_JS + """
 """ + _USER_SESSIONS_JS + """
 applyTheme();
 applyLang();

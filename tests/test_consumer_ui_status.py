@@ -183,6 +183,9 @@ def _user_status_script(assertions: str) -> str:
             "const labels={status_unknown:'Unknown',status_account:'Account',status_login:'Login',status_refresh:'Refresh',status_valid:'Valid',status_remaining:'Remaining',status_expire:'Expires',account_none:'None',account_none_token:'None (Token)',bound_account:'Bound',token_valid:'Valid',token_invalid:'Invalid',remaining:'Remaining',logout:'Logout',unbind_account:'Unbind',change_password:'Change password',console_logout:'Console logout'};",
             "function t(key){return labels[key]||key}",
             "function esc(value){return String(value??'')}",
+            # Stubbed for the same reason as _pkcePanel above: the real page
+            # concatenates the sign-in panel module after this one.
+            "function renderUserPkce(){}",
             _USER_ACCOUNT_JS,
             "const account={id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',binding_state:'cookie',cookie_valid:true,has_token:false,token_status:{valid:true,expires_at:null,seconds_remaining:0}};",
             assertions,
