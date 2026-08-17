@@ -10,7 +10,11 @@ carries a ``docId`` that is then attached to the outgoing chat message as a
 links an uploaded image to a turn.
 """
 
+import asyncio
+import ipaddress
 import logging
+import socket
+from urllib.parse import urlparse
 
 import httpx
 
@@ -24,18 +28,76 @@ _UPLOAD_TIMEOUT_SECONDS = 30.0
 _DOWNLOAD_TIMEOUT_SECONDS = 20.0
 # Cap remote image downloads so a hostile/huge URL can't exhaust memory.
 _MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024
+_ALLOWED_SCHEMES = ("http", "https")
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+_MAX_REDIRECT_HOPS = 3
+
+
+async def _refusal_reason(url: str) -> str:
+    """Why this URL must not be fetched, or "" when it is safe to GET.
+
+    The image URL comes from the API caller, so this is the trust boundary that
+    keeps a chat request from turning the proxy into a client on its own network:
+    http(s) only, and every address the host resolves to has to be publicly
+    routable. ``is_global`` already excludes loopback, private, link-local
+    (169.254.169.254 cloud metadata included), CGNAT and reserved space.
+
+    ponytail: this resolves the host and httpx resolves it again, so a DNS answer
+    that changes between the two wins (DNS rebinding). Closing that needs a
+    transport that dials the exact address checked here; the cheap version covers
+    the whole class of fixed internal targets, which is what a caller can aim at.
+
+    Rule reference: HEXUXIU/M365-Copilot2API (MIT), internal/chathub/ssrf.go.
+    """
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in _ALLOWED_SCHEMES:
+        return f"scheme {scheme or '(none)'} is not http(s)"
+    try:
+        host, port = parsed.hostname, parsed.port
+    except ValueError as exc:  # a non-numeric port
+        return f"unusable authority ({exc})"
+    if not host:
+        return "no host"
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(
+            host, port or (443 if scheme == "https" else 80), type=socket.SOCK_STREAM
+        )
+    except OSError as exc:
+        return f"host does not resolve ({exc})"
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if not address.is_global:
+            return f"resolves to non-public address {address}"
+    return ""
 
 
 async def _fetch_remote_image(url: str) -> tuple[str, str] | None:
     """Download a remote http(s) image, returning (base64, media_type).
 
-    Returns None (and logs a warning) on any failure or if the payload is not an
-    image / exceeds the size cap, so the caller can skip it gracefully."""
+    Returns None (and logs a warning) on any failure, if the target is not a
+    public http(s) address, or if the payload is not an image / exceeds the size
+    cap, so the caller can skip it gracefully."""
     import base64 as _b64
 
     try:
-        async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            resp = await client.get(url)
+        # Redirects are followed by hand: httpx's own following would dial each
+        # target before this module ever sees it, so a public URL could bounce
+        # the download onto an internal address unchecked.
+        async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=False) as client:
+            for _hop in range(_MAX_REDIRECT_HOPS + 1):
+                reason = await _refusal_reason(url)
+                if reason:
+                    _log.warning("remote image download refused (%s) url=%s", reason, url[:200])
+                    return None
+                resp = await client.get(url)
+                location = resp.headers.get("location", "") if resp.status_code in _REDIRECT_STATUSES else ""
+                if not location:
+                    break
+                url = str(httpx.URL(url).join(location))
+            else:
+                _log.warning("remote image download exceeded %d redirects", _MAX_REDIRECT_HOPS)
+                return None
     except Exception as exc:  # noqa: BLE001 - network/transport failures
         _log.warning("remote image download failed (transport): %s", exc)
         return None
