@@ -269,7 +269,7 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
         <label class="section-title" data-i18n="manual_update_title">手动更新</label>
         <div class="row action-row"><button onclick="pushToken(this)" data-i18n="push_token_btn">更新 Token</button><span id="token-msg" class="msg"></span></div>
         <textarea id="acct-token" data-i18n-ph="push_token_ph" placeholder="粘贴 access_token 值或完整 wss:// URL。仅推送 Token 可临时使用，推送 Cookie 后才算绑定 Microsoft 账户。&#10;access_token / wss://substrate.office.com/..."></textarea>
-        <label class="section-title" data-i18n="pkce_section_title">浏览器登录</label>
+        <label class="section-title" data-i18n="pkce_section_title">授权登录 ( M365 Only )</label>
         <div id="pkce-panel"></div>
       </div>
       <div class="account-side" id="account-status-panel"></div>

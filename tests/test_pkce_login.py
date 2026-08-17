@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
+from m365_copilot_openai_proxy.m365_cloud_client import _TOKEN_CACHE, _cloud_token
 from m365_copilot_openai_proxy.pkce_login import (
     NATIVE_REDIRECT_URI,
     PENDING_TTL_SECONDS,
@@ -459,6 +460,47 @@ def test_mint_scoped_token_needs_a_stored_rt(tmp_path):
     assert token == "" and "no stored refresh_token" in error
 
 
+# --- cloud session management is another hop off the same RT -------------
+
+
+def test_cloud_management_redeems_the_rt_with_the_client_that_issued_it(admin, aad):
+    """Regression: the stored binding is a 4-tuple, and its client id matters.
+
+    Unpacking it as three values raised "too many values to unpack (expected 3)"
+    for every bound account, which the consoles showed as "cloud session
+    management unavailable" and which also left cleanup deleting local rows only.
+    Hardcoding the SPA client instead breaks it the other way: AAD applies SPA
+    rules to any redemption carrying Origin.
+    """
+    app, _client, account = admin
+    _bind_rt(app, account.id)
+    _TOKEN_CACHE.clear()
+    aad.response = _Response(200, {"access_token": _jwt(aud="https://m365.cloud.microsoft/v2/")})
+
+    token = asyncio.run(_cloud_token(app.state.account_store, account.id))
+
+    assert token
+    _url, data, headers = aad.calls[-1]
+    assert data["client_id"] == M365_NATIVE_CLIENT_ID
+    assert "Origin" not in headers
+    # No offline_access: this hop must not rotate the RT the substrate path owns.
+    assert data["scope"] == "https://m365.cloud.microsoft/v2/.default"
+    assert app.state.account_store.get(account.id).refresh_token == RT
+
+
+def test_cloud_management_keeps_the_spa_origin_for_an_spa_bound_account(admin, aad):
+    app, _client, account = admin
+    _bind_rt(app, account.id, client_id=M365_REFRESH_CLIENT_ID)
+    _TOKEN_CACHE.clear()
+    aad.response = _Response(200, {"access_token": _jwt(aud="https://m365.cloud.microsoft/v2/")})
+
+    asyncio.run(_cloud_token(app.state.account_store, account.id))
+
+    _url, data, headers = aad.calls[-1]
+    assert data["client_id"] == M365_REFRESH_CLIENT_ID
+    assert headers["Origin"] == "https://m365.cloud.microsoft"
+
+
 # --- both media keys come with the sign-in -------------------------------
 
 
@@ -590,9 +632,8 @@ def test_a_user_mints_media_keys_for_their_own_account_only(admin, aad):
 # --- the panel, on both consoles -----------------------------------------
 
 _PKCE_KEYS = (
-    "pkce_start", "pkce_finish", "pkce_paste_ph", "pkce_hint", "pkce_mint_media",
-    "pkce_mint_designer", "pkce_started", "pkce_done", "pkce_minted", "pkce_opaque",
-    "pkce_starting", "pkce_finishing", "pkce_minting", "pkce_need_paste",
+    "pkce_start", "pkce_finish", "pkce_paste_ph", "pkce_started", "pkce_done",
+    "pkce_starting", "pkce_finishing", "pkce_need_paste",
     "pkce_open_manually", "pkce_keys_ok", "pkce_keys_failed",
 )
 
@@ -642,8 +683,12 @@ def test_the_panel_is_offered_for_m365_accounts_only(tmp_path):
             _ADMIN_PKCE_JS,
             "const m365=_pkcePanel({id:'acct_1',provider:'m365'});",
             "assert.ok(m365.includes(\"pkceStart('acct_1')\"),m365);",
-            "assert.ok(m365.includes(\"pkceMint('acct_1','designer')\"),m365);",
+            "assert.ok(m365.includes(\"pkceComplete('acct_1')\"),m365);",
             "assert.ok(m365.includes('pkce-cb-acct_1'),m365);",
+            # Two steps only: signing in mints both media keys server-side, so a
+            # "mint key" button (and the hint that explained it) would be noise.
+            "assert.ok(!m365.includes('pkceMint'),m365);",
+            "assert.ok(!m365.includes('pkce_hint'),m365);",
             "assert.strictEqual(_pkcePanel({id:'acct_2',provider:'consumer'}),'');",
             # A missing provider is the historical M365 default, not a hole.
             "assert.ok(_pkcePanel({id:'acct_3'}).length>0);",
@@ -776,8 +821,9 @@ def test_the_drawer_survives_the_reload_that_used_to_close_it(tmp_path):
     ends in loadAccounts(), and the drawer's open state, the callback URL being
     pasted into it and the result message all live only in that markup. So
     "start sign-in" -> switch to the Microsoft tab -> come back found the drawer
-    shut (the operator's report), and pkceMint's own reload wiped the "minted"
-    line it had just written, leaving the mint with no visible outcome.
+    shut (the operator's report), and pkceComplete's own reload wiped the
+    "signed in" line it had just written, leaving the sign-in with no visible
+    outcome.
     """
     import shutil
     import subprocess

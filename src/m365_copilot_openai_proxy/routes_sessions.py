@@ -109,6 +109,20 @@ def register_session_routes(app: FastAPI, require_admin: Callable[[Request], obj
             })
         return rows
 
+    def _cloud_note(account_id: str, exc: BaseException) -> str:
+        """One warning line for a failed cloud call, naming the account.
+
+        ``CloudSessionError`` is the expected "this account has no cloud
+        management" signal; anything else is a bug or a broken upstream. Both
+        degrade to a warning here rather than a 500, so a cloud failure can never
+        hide (or silently discard) the local half of a list/delete/cleanup.
+        """
+        if not isinstance(exc, CloudSessionError):
+            elog(f"Cloud conversation call failed for {account_id}: {exc!r}")
+        account = app.state.account_store.get(account_id)
+        label = (account.email or account.name or account_id) if account is not None else account_id
+        return f"{label}: {exc}"
+
     async def _cloud_by_account(account_ids: set[str]) -> tuple[dict[str, list[dict]], list[str]]:
         """Cloud conversation lists per account, plus one warning per account
         whose cloud management is unavailable (no verified refresh token, HTTP
@@ -121,14 +135,8 @@ def register_session_routes(app: FastAPI, require_admin: Callable[[Request], obj
         chats: dict[str, list[dict]] = {}
         notes: list[str] = []
         for account_id, result in zip(ordered, results):
-            if isinstance(result, CloudSessionError):
-                account = app.state.account_store.get(account_id)
-                label = (account.email or account.name or account_id) if account is not None else account_id
-                notes.append(f"{label}: {result}")
-                continue
             if isinstance(result, BaseException):
-                elog(f"Cloud conversation list failed for {account_id}: {result!r}")
-                notes.append(f"{account_id}: {result}")
+                notes.append(_cloud_note(account_id, result))
                 continue
             chats[account_id] = result
         return chats, notes
@@ -209,8 +217,8 @@ def register_session_routes(app: FastAPI, require_admin: Callable[[Request], obj
             try:
                 await delete_conversation(app.state.account_store, account_id, conversation_id)
                 deleted_cloud = True
-            except CloudSessionError as exc:
-                notes.append(str(exc))
+            except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                notes.append(_cloud_note(account_id, exc))
         removed: list[str] = []
         if store_key and app.state.session_store.remove(store_key):
             removed.append(store_key)
@@ -269,10 +277,8 @@ def register_session_routes(app: FastAPI, require_admin: Callable[[Request], obj
                         protected=protected,
                     )
                     deleted_cloud.extend(ids)
-                except CloudSessionError as exc:
-                    account = app.state.account_store.get(account_id)
-                    label = (account.email or account.name or account_id) if account is not None else account_id
-                    notes.append(f"{label}: {exc}")
+                except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                    notes.append(_cloud_note(account_id, exc))
         return {
             "removed_local": removed,
             "deleted_cloud": deleted_cloud,
@@ -427,8 +433,8 @@ def register_session_routes(app: FastAPI, require_admin: Callable[[Request], obj
                 try:
                     await delete_conversation(app.state.account_store, key.account_id, conversation_id)
                     deleted_cloud.append(conversation_id)
-                except CloudSessionError as exc:
-                    notes.append(str(exc))
+                except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                    notes.append(_cloud_note(key.account_id, exc))
                     break  # one broken account fails them all; do not hammer it
         return {
             "removed_local": removed,

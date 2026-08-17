@@ -19,9 +19,9 @@ function selectAccount(id){
 // mutation that ends in loadAccounts() -- while the token drawer's open state,
 // its half-typed values and its result messages live only in that markup. So
 // starting a PKCE sign-in and coming back from the Microsoft tab found the
-// drawer collapsed, and pkceMint's own reload ate the "minted" line it had just
-// written. Snapshot the transient state around the innerHTML swap once here
-// rather than in each caller, because every caller loses it the same way.
+// drawer collapsed, and pkceComplete's own reload ate the "signed in" line it
+// had just written. Snapshot the transient state around the innerHTML swap once
+// here rather than in each caller, because every caller loses it the same way.
 const _DRAWER_TEXT_IDS=['atok-val-','pkce-cb-'];
 const _DRAWER_MSG_IDS=['atok-msg-','pkce-msg-'];
 function _grabDrawerState(box){

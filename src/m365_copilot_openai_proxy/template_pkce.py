@@ -1,16 +1,20 @@
-"""Shared JS for the interactive PKCE sign-in and the RT-derived media tokens.
+"""Shared JS for the interactive PKCE sign-in.
 
-The same three steps -- open the Microsoft sign-in, paste the redirect URL back,
-mint the media/image keys off the resulting refresh token -- are offered on both
-consoles, so the flow lives here once and each page supplies three bindings:
+The same two steps -- open the Microsoft sign-in, paste the redirect URL back --
+are offered on both consoles, so the flow lives here once and each page supplies
+three bindings:
 
   ``_PKCE_BASE``    where to post ("/admin/pkce" vs "/user/pkce")
   ``_pkceInit()``   how the request is authorised (admin cookie vs API key)
   ``_pkceReload()`` what to refresh afterwards (accounts table vs user card)
 
+There are no "mint media key" buttons: completing a sign-in mints both media keys
+server-side, and the keepalive renews them off the same refresh token, so the
+manual ``/pkce/mint`` endpoints are only a debugging escape hatch now.
+
 On /admin the panel is injected into the existing per-account "push token"
-drawer rather than a new card: pasting a token, signing in and minting media
-keys are the same job -- give this account credentials.
+drawer rather than a new card: pasting a token and signing in are the same job --
+give this account credentials.
 """
 
 _PKCE_JS = r"""
@@ -25,14 +29,7 @@ function _pkcePanel(a){
     +'<button onclick="pkceStart(\''+id+'\')" style="'+btn+'">'+t('pkce_start')+'</button>'
     +'<input id="pkce-cb-'+id+'" placeholder="'+t('pkce_paste_ph')+'" style="flex:1;min-width:240px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">'
     +'<button onclick="pkceComplete(\''+id+'\')" style="'+btn+'">'+t('pkce_finish')+'</button>'
-    // Kept together: on the narrower /user card the row wraps, and a lone mint
-    // button on the next line reads as if it belonged to something else.
-    +'<span style="display:flex;gap:.5rem;align-items:center">'
-    +'<button onclick="pkceMint(\''+id+'\',\'media\')" style="'+btn+';background:var(--chip)">'+t('pkce_mint_media')+'</button>'
-    +'<button onclick="pkceMint(\''+id+'\',\'designer\')" style="'+btn+';background:var(--chip)">'+t('pkce_mint_designer')+'</button>'
-    +'</span>'
     +'</div>'
-    +'<div style="color:var(--faint);font-size:.72rem;margin-top:.4rem">'+t('pkce_hint')+'</div>'
     +'<div id="pkce-msg-'+id+'" style="font-size:.78rem;margin-top:.4rem;word-break:break-all"></div>'
     +'</div>';
 }
@@ -77,15 +74,6 @@ async function pkceComplete(id){
     let text=t('pkce_done').replace('{email}',d.email||'-');
     text+=' '+(bad.length?t('pkce_keys_failed').replace('{kinds}',bad.join(', ')):t('pkce_keys_ok'));
     _pkceMsg(id,text,bad.length?'#f59e0b':'#22c55e');
-    _pkceReload();
-  }catch(e){_pkceMsg(id,String(e.message||e),'#ef4444')}
-}
-async function pkceMint(id,kind){
-  _pkceMsg(id,t('pkce_minting'));
-  try{
-    const d=await _pkcePost('/mint',{account_id:id,kind:kind});
-    const shape=d.format==='jwt'?(d.aud||''):t('pkce_opaque');
-    _pkceMsg(id,t('pkce_minted').replace('{kind}',kind).replace('{shape}',shape),'#22c55e');
     _pkceReload();
   }catch(e){_pkceMsg(id,String(e.message||e),'#ef4444')}
 }

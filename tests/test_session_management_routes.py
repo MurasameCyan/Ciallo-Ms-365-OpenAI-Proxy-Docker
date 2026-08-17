@@ -234,6 +234,29 @@ def test_admin_delete_of_a_cloud_only_row_clears_matching_local_bindings(env):
     assert app.state.session_store.get_existing(f"{env['bob'].id}:auto:b") is None
 
 
+def test_a_broken_cloud_call_is_a_warning_not_a_failed_cleanup(env, monkeypatch):
+    """Only CloudSessionError used to be caught here.
+
+    Anything else (e.g. the 4-tuple binding unpacked as three values) escaped
+    *after* the local prune had already run, so the request 500'd and the console
+    showed the local sessions gone with nothing said about the cloud half.
+    """
+    app = env["app"]
+    _session(app, f"{env['alice'].id}:auto:old", "cid-old", last_accessed=time.time() - 7200)
+
+    async def boom(accounts, account_id, older_than=0.0, keep_newest=0, protected=None):
+        raise ValueError("too many values to unpack (expected 3)")
+
+    monkeypatch.setattr(routes_sessions, "cleanup_conversations", boom)
+
+    response = env["admin"].post("/admin/sessions/cleanup", json={"ttl_hours": 1, "cloud": True})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["removed_local"] == [f"{env['alice'].id}:auto:old"]
+    assert any("expected 3" in note for note in body["warnings"])
+
+
 def test_session_routes_require_authentication(env):
     anonymous = TestClient(env["app"])
 

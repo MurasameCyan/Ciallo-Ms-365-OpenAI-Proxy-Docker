@@ -24,14 +24,13 @@ import time
 
 from .account_store import AccountStore
 from .refresh_via_rt import (
-    M365_REFRESH_CLIENT_ID,
+    _post_token,
     _stored_binding,
     normalize_microsoft_id,
 )
 from .runtime_flags import elog
 from .token_store import decode_jwt_payload
 
-_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 # No offline_access on purpose: this exchange must not rotate the refresh token
 # that the substrate refresh path owns and persists.
 _CLOUD_SCOPE = "https://m365.cloud.microsoft/v2/.default"
@@ -99,7 +98,7 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     binding = _stored_binding(account)
     if binding is None:
         raise CloudSessionError("stored refresh token has no verified client/authority/subject binding")
-    authority, tenant_id, object_id = binding
+    client_id, authority, tenant_id, object_id = binding
 
     # Cache key carries the identity, so an account rebound to a different
     # Microsoft user can never keep listing/deleting the previous user's
@@ -109,23 +108,16 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     if cached:
         return cached
 
-    import httpx
-
     try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                _TOKEN_URL.format(tenant=authority),
-                data={
-                    "client_id": M365_REFRESH_CLIENT_ID,
-                    "grant_type": "refresh_token",
-                    "refresh_token": rt,
-                    "scope": _CLOUD_SCOPE,
-                },
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Origin": _ORIGIN,
-                },
-            )
+        # Same poster as the substrate/media hops: it redeems the RT with the
+        # client that issued it and only sends the SPA Origin header for the SPA
+        # client (a native-client redemption must not carry it).
+        resp = await _post_token(
+            authority=authority,
+            client_id=client_id,
+            refresh_token=rt,
+            scope=_CLOUD_SCOPE,
+        )
     except Exception as exc:  # noqa: BLE001 - any transport error is just "unavailable"
         raise CloudSessionError(f"token exchange failed: {exc}") from exc
     if resp.status_code != 200:
