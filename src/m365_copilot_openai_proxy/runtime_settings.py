@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .atomic_write import write_text_atomic
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 
 _log = logging.getLogger("copilot_proxy")
@@ -463,6 +464,9 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
 
 
 def _write_runtime_settings(token_dir: str, data: dict) -> None:
-    path = _runtime_settings_path(token_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Atomic: a torn write here reads back as unparseable on the next start, which
+    # silently reverts every runtime setting to its default.
+    write_text_atomic(
+        _runtime_settings_path(token_dir),
+        json.dumps(data, ensure_ascii=False, indent=2),
+    )

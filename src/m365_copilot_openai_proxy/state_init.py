@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from .account_concurrency import AccountConcurrency
 from .account_store import AccountStore
+from .atomic_write import write_text_atomic
 from .call_log_store import load_call_log
 from .config import Settings
 from .history_index import HistoryDigestIndex
@@ -52,12 +53,7 @@ def _resolve_media_proxy_secret(settings: Settings, token_dir: str) -> str:
         pass
     generated = secrets.token_urlsafe(32)
     try:
-        secret_path.parent.mkdir(parents=True, exist_ok=True)
-        secret_path.write_text(generated, encoding="utf-8")
-        try:
-            secret_path.chmod(0o600)
-        except OSError:
-            pass
+        write_text_atomic(secret_path, generated, mode=0o600)
     except OSError:
         # Persistence is best-effort; a per-process random secret still beats a
         # public constant even if it cannot be written to disk.
