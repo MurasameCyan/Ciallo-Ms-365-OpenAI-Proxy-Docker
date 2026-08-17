@@ -76,7 +76,10 @@ def _admin_status_helpers() -> str:
     )
 
 
-def _admin_accounts_render_script(assertions: str) -> str:
+_CONSUMER_ACCOUNT_JS = "{id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',cookie_valid:true,cookie_updated_at:0,cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
+
+
+def _admin_accounts_render_script(assertions: str, account: str = _CONSUMER_ACCOUNT_JS) -> str:
     return "\n".join(
         [
             "const assert=require('assert');",
@@ -95,7 +98,7 @@ def _admin_accounts_render_script(assertions: str) -> str:
             "function _pkcePanel(){return ''}",
             _admin_status_helpers(),
             _ADMIN_ACCOUNTS_JS,
-            "__accounts=[{id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',cookie_valid:true,cookie_updated_at:0,cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}];",
+            f"__accounts=[{account}];",
             "(async()=>{await loadAccounts(true);" + assertions + "})().catch(e=>{console.error(e);process.exit(1)});",
         ]
     )
@@ -117,6 +120,42 @@ def test_admin_consumer_refresh_mode_is_automatic(tmp_path: Path):
         _admin_accounts_render_script(
             "assert.ok(box.innerHTML.includes('>Auto</span>'),box.innerHTML);"
             "assert.ok(!box.innerHTML.includes('>Manual</span>'),box.innerHTML);"
+        ),
+    )
+
+
+def test_admin_pkce_account_refresh_mode_is_automatic(tmp_path: Path):
+    """A PKCE sign-in leaves token_source='manual' plus a refresh token, and
+    that account really is refreshed for us -- the badge must not say Manual."""
+    account = (
+        "{id:'acct_m365',name:'Work Alice',email:'alice@contoso.com',provider:'m365',"
+        "token_source:'manual',has_refresh_token:true,cookie_valid:false,cookie_updated_at:0,"
+        "cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},"
+        "bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
+    )
+    _run_node(
+        tmp_path,
+        _admin_accounts_render_script(
+            "assert.ok(box.innerHTML.includes('>Auto</span>'),box.innerHTML);"
+            "assert.ok(!box.innerHTML.includes('>Manual</span>'),box.innerHTML);",
+            account,
+        ),
+    )
+
+
+def test_admin_manual_account_without_refresh_token_stays_manual(tmp_path: Path):
+    account = (
+        "{id:'acct_m365',name:'Work Alice',email:'alice@contoso.com',provider:'m365',"
+        "token_source:'manual',has_refresh_token:false,cookie_valid:false,cookie_updated_at:0,"
+        "cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},"
+        "bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
+    )
+    _run_node(
+        tmp_path,
+        _admin_accounts_render_script(
+            "assert.ok(box.innerHTML.includes('>Manual</span>'),box.innerHTML);"
+            "assert.ok(!box.innerHTML.includes('>Auto</span>'),box.innerHTML);",
+            account,
         ),
     )
 
@@ -173,7 +212,23 @@ def test_user_consumer_refresh_capability_uses_provider(tmp_path: Path):
     )
 
 
+def test_user_refresh_capability_follows_the_stored_refresh_token(tmp_path: Path):
+    """/user shows the same truth as /admin: an RT means we refresh for them."""
+    _run_node(
+        tmp_path,
+        _user_status_script(
+            "account.provider='m365';account.token_source='manual';"
+            "renderAccountStatus({account});"
+            "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark bad\"></span></b>'),elements['account-status-panel'].innerHTML);"
+            "account.has_refresh_token=true;"
+            "renderAccountStatus({account});"
+            "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark ok\"></span></b>'),elements['account-status-panel'].innerHTML);"
+        ),
+    )
+
+
 def _admin_keys_render_script(key: str, assertions: str) -> str:
+
     return "\n".join(
         [
             "const assert=require('assert');",

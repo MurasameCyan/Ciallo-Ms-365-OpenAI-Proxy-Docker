@@ -103,7 +103,7 @@ function renderAccountStatus(d){
   const a=d.account||null,st=a?(a.token_status||{}):{};
   const valid=!!st.valid;
   const login=!!(a&&a.cookie_valid);
-  const refresh=!!(a&&(a.provider==='consumer'||a.token_source==='cdp'));
+  const refresh=!!(a&&(a.provider==='consumer'||a.token_source==='cdp'||a.has_refresh_token));
   const expiryKnown=!!st.expires_at;
   const name=boundAccountName(a);
   const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';

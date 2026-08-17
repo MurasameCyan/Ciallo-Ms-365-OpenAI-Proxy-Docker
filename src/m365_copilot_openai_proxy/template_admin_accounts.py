@@ -4,6 +4,12 @@ _ADMIN_ACCOUNTS_JS = """let __accounts=[];
 let __selectedAccountIds=new Set();
 let __refreshingAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
+// A stored refresh token refreshes over plain HTTP, so it counts as automatic
+// even for token_source==='manual' (that is what a PKCE sign-in leaves behind).
+function acctRefresh(a,cookieValid){
+  const auto=a.provider==='consumer'||!!a.has_refresh_token||(a.token_source==='cdp'&&cookieValid);
+  return {auto:auto,available:auto||a.token_source==='cdp'};
+}
 function renderSelectedStatus(){
   const card=document.getElementById('status-card');
   const box=document.getElementById('status-content');
@@ -20,8 +26,8 @@ function renderSelectedStatus(){
   html+=row(t('col_token'),v?t('valid_short'):t('invalid_short'),v?'valid':'invalid');
   const cv=liveCookieValid(a);
   html+=row(t('col_cookie'),cv?t('cookie_valid_short'):t('cookie_invalid_short'),cv?'valid':'warn');
-  const refreshAutomatic=a.provider==='consumer'||(a.token_source==='cdp'&&cv);
-  const refreshAvailable=a.provider==='consumer'||a.token_source==='cdp';
+  const refreshAutomatic=acctRefresh(a,cv).auto;
+  const refreshAvailable=acctRefresh(a,cv).available;
   html+=row(t('col_refresh_mode'),refreshAutomatic?t('refresh_auto'):(refreshAvailable?t('refresh_unavailable'):t('refresh_manual')),refreshAutomatic?'valid':'warn');
   html+=row(t('cookie_updated_label'),fmtTs(a.cookie_updated_at),'');
   html+=row(t('cookie_expires_label'),fmtTs(a.cookie_expires_at),'');
@@ -62,8 +68,8 @@ async function loadAccounts(localOnly=false){
       const boundMain=boundNames[0]||a.name||'name';
       const boundTitle=boundNames.length?boundNames.join(String.fromCharCode(10)):boundMain;
       const boundMore=boundNames.length>1?' +'+(boundNames.length-1):'';
-      const refreshAutomatic=a.provider==='consumer'||(a.token_source==='cdp'&&cookieValid);
-      const refreshAvailable=a.provider==='consumer'||a.token_source==='cdp';
+      const refreshAutomatic=acctRefresh(a,cookieValid).auto;
+      const refreshAvailable=acctRefresh(a,cookieValid).available;
       const refreshMode=refreshAutomatic?t('refresh_auto'):(refreshAvailable?t('refresh_unavailable'):t('refresh_manual'));
       const refreshColor=refreshAutomatic?'#a78bfa':(refreshAvailable?'#f59e0b':'var(--faint)');
       const refreshBadge='<span style="padding:.15rem .6rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
