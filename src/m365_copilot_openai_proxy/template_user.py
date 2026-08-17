@@ -4,6 +4,7 @@ from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS, 
 from .template_user_account_js import _USER_ACCOUNT_JS
 from .template_user_config_js import _USER_CONFIG_JS
 from .template_user_i18n import _USER_I18N_JS
+from .template_user_sessions_js import _USER_SESSIONS_JS
 
 _USER_HTML = """<!DOCTYPE html>
 <html lang="zh">
@@ -291,6 +292,28 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
     </div>
 
     <div class="card">
+      <details id="my-sessions-details" style="cursor:pointer" ontoggle="if(this.open)loadMySessions()">
+      <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
+      <span data-i18n="my_sessions_title">我的会话</span>
+      <span id="sess-msg" class="msg"></span>
+      <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
+      </summary>
+      <div style="margin-top:.75rem">
+      <div class="hint" data-i18n="my_sessions_hint">这里列出你自己的会话，以及它们在 M365 云端对应的对话。删除会同时删掉云端对话，不可恢复。</div>
+      <div id="my-sessions-warn" class="hint hidden" style="color:#fbbf24"></div>
+      <div class="row" style="flex-wrap:wrap;gap:.5rem;margin:.6rem 0 .35rem">
+        <input id="my-sess-ttl" type="number" min="0" style="width:150px">
+        <input id="my-sess-keep" type="number" min="0" style="width:150px">
+        <button class="btn-ghost" onclick="cleanupMySessions(this)" data-i18n="sess_cleanup_btn">执行清理</button>
+        <button class="btn-ghost" onclick="loadMySessions()" data-i18n="sess_refresh">刷新</button>
+      </div>
+      <div class="hint" data-i18n="sess_cleanup_hint">留空或 0 表示不启用该条件；勾选的会话永不被清理。</div>
+      <div id="my-sessions-content"></div>
+      </div>
+      </details>
+    </div>
+
+    <div class="card">
       <details id="tool-prompt-details" style="cursor:pointer">
       <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
       <span data-i18n="tool_prompt_title">提示词增强</span>
@@ -342,6 +365,7 @@ function applyLang(){
   document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(i18n[lang][k]!=null)el.placeholder=i18n[lang][k]});
   document.querySelectorAll('[data-i18n-html]').forEach(el=>{const k=el.getAttribute('data-i18n-html');if(i18n[lang][k]!=null)el.innerHTML=i18n[lang][k]});
   renderToneOptions();
+  try{if(typeof renderMySessions==='function')renderMySessions()}catch(e){}
   try{
     if(typeof applyUserLangDynamic==='function' && _userMeCache){applyUserLangDynamic()}
     else if(getKey()){loadMe()}
@@ -353,6 +377,7 @@ function applyTheme(){const theme=localStorage.getItem('user_theme')||'dark';doc
 function toggleTheme(){localStorage.setItem('user_theme',(localStorage.getItem('user_theme')||'dark')==='dark'?'light':'dark');applyTheme()}
 """ + _USER_CONFIG_JS + """
 """ + _USER_ACCOUNT_JS + """
+""" + _USER_SESSIONS_JS + """
 applyTheme();
 applyLang();
 setInterval(tickUserCountdown,1000);

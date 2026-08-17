@@ -8,6 +8,7 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <a class="nav-item active" data-nav="home" onclick="switchView('home')"><span class="nav-ico">&#128202;</span><span data-i18n="nav_home">首页总览</span></a>
 <a class="nav-item" data-nav="users" onclick="switchView('users')"><span class="nav-ico">&#128100;</span><span data-i18n="nav_users">用户管理</span></a>
 <a class="nav-item" data-nav="accounts" onclick="switchView('accounts')"><span class="nav-ico">&#128273;</span><span data-i18n="nav_accounts">账户管理</span></a>
+<a class="nav-item" data-nav="sessions" onclick="switchView('sessions')"><span class="nav-ico">&#128172;</span><span data-i18n="nav_sessions">会话管理</span></a>
 <a class="nav-item" data-nav="settings" onclick="switchView('settings')"><span class="nav-ico">&#9881;&#65039;</span><span data-i18n="nav_settings">全局设置</span></a>
 <a class="nav-item" data-nav="debug" onclick="switchView('debug')"><span class="nav-ico">&#128295;</span><span data-i18n="nav_debug">调试</span></a>
 </nav>
@@ -96,6 +97,24 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <div id="kf-msg" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>
 </div>
 <div id="keys-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
+</div>
+
+<div class="card view-sessions">
+<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+<div class="flow-box" style="position:relative;border-radius:8px;min-width:200px"><select id="sess-key-filter" class="tone-select" onchange="loadSessions()" style="width:100%"></select></div>
+<label class="auto-toggle" title="cloud"><span data-i18n="sess_cloud">云端</span><input id="sess-cloud" type="checkbox" checked onchange="loadSessions()"><span class="role-track"></span></label>
+<button onclick="loadSessions()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
+</div>
+<div style="font-size:.8rem;color:var(--faint);margin-bottom:.5rem" data-i18n="sess_hint">本地会话绑定与 M365 云端对话历史合并显示。删除云端对话会同时清掉指向它的本地绑定，否则该会话的下一轮必定失败。</div>
+<div id="sessions-warn" class="hide-card" style="margin-bottom:.75rem;padding:.6rem .9rem;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.45);color:#fbbf24;font-size:.85rem;box-shadow:0 0 22px rgba(245,158,11,.12)"></div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;background:var(--inner);border:1px solid var(--inner-border);border-radius:8px;padding:.6rem;margin-bottom:.6rem">
+<span style="font-size:.78rem;color:var(--muted)" data-i18n="sess_cleanup_label">批量清理</span>
+<input id="sess-ttl" type="number" min="0" style="width:120px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
+<input id="sess-keep" type="number" min="0" style="width:120px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none">
+<button onclick="cleanupSessions()" style="font-size:.8rem;padding:6px 14px;background:linear-gradient(135deg,#f59e0b,#b45309)" data-i18n="sess_cleanup_btn">执行清理</button>
+<span style="font-size:.75rem;color:var(--faint)" data-i18n="sess_cleanup_hint">留空或 0 表示不启用该条件；勾选的行永不被清理。</span>
+</div>
+<div id="sessions-content"><span style="color:var(--faint)" data-i18n="loading">加载中...</span></div>
 </div>
 
 <div id="status-card" class="card view-accounts hide-card">

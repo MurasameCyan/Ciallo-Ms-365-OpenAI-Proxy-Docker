@@ -6,6 +6,7 @@ from .template_admin_dashboard import _ADMIN_DASHBOARD_JS
 from .template_admin_dialogs import _ADMIN_DIALOGS_JS
 from .template_admin_i18n import _ADMIN_I18N_JS
 from .template_admin_keys import _ADMIN_KEYS_JS
+from .template_admin_sessions import _ADMIN_SESSIONS_JS
 from .template_admin_settings_js import _ADMIN_SETTINGS_JS
 from .template_admin_tables import _ADMIN_TABLES_JS
 from .template_admin_css import _ADMIN_CSS
@@ -69,6 +70,7 @@ function applyLang(){
   try{if(typeof renderCapture==='function'&&window.__capItems)renderCapture(window.__capItems)}catch(e){}
   try{if(typeof renderMediaProxyEvents==='function'&&window.__mediaProxyEvents)renderMediaProxyEvents(window.__mediaProxyEvents)}catch(e){}
   try{if(typeof renderStatus==='function')renderStatus()}catch(e){}
+  try{if(typeof renderSessions==='function'&&__sessions)renderSessions()}catch(e){}
 }
 applyLang();
 
@@ -195,7 +197,7 @@ function switchView(view){
   localStorage.setItem('admin_view',view);
   document.querySelectorAll('.nav-item').forEach(el=>{el.classList.toggle('active',el.getAttribute('data-nav')===view)});
   const vt=document.getElementById('view-title');
-  const map={home:'nav_home',users:'nav_users',accounts:'nav_accounts',settings:'nav_settings',debug:'nav_debug'};
+  const map={home:'nav_home',users:'nav_users',accounts:'nav_accounts',sessions:'nav_sessions',settings:'nav_settings',debug:'nav_debug'};
   const vk=map[view]||'nav_home';
   if(vt){vt.setAttribute('data-i18n',vk);vt.textContent=(i18n[lang]&&i18n[lang][vk])||vt.textContent}
   loadViewData(view);
@@ -204,6 +206,7 @@ function loadViewData(view){
   if(view==='home'){loadSummary();loadTrend();loadStats();return}
   if(view==='accounts'){loadAccounts();loadStats();return}
   if(view==='users'){loadKeys();loadAccounts();return}
+  if(view==='sessions'){loadSessions();return}
   if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
   if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadMediaProxyEvents();loadCapture()}
 }
@@ -498,6 +501,7 @@ let __runtimeSettings={};
 """ + _ADMIN_ACCOUNTS_JS + """
 """ + _ADMIN_COPY_JS + """
 """ + _ADMIN_KEYS_JS + """
+""" + _ADMIN_SESSIONS_JS + """
 function initDetailsCards(){
   document.querySelectorAll('.view-settings,.view-debug').forEach(card=>{
     const details=[...card.querySelectorAll('details')];

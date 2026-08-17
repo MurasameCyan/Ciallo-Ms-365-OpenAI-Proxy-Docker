@@ -61,18 +61,23 @@ def _spawn_post_push_refresh(scheduler, account_id: str, *, force: bool = False)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
+def resolve_bearer_key(app: FastAPI, request: Request) -> ApiKey | None:
+    """Resolve the caller's own ApiKey from the Authorization header.
+
+    /user/* paths bypass the auth middleware, so they authenticate here by their
+    own API key instead of an admin cookie. Module-level so the session routes
+    authenticate exactly the same way.
+    """
+    auth = request.headers.get("Authorization", "")
+    m = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
+    if not m:
+        return None
+    return app.state.key_store.resolve(m.group(1).strip())
+
+
 def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options: list[dict]) -> None:
     def _resolve_user_key(request: Request) -> ApiKey | None:
-        """Resolve the caller's own ApiKey from the Authorization header.
-
-        /user/* paths bypass the auth middleware, so they authenticate here by
-        their own API key instead of an admin cookie.
-        """
-        auth = request.headers.get("Authorization", "")
-        m = re.match(r"^Bearer\s+(.+)$", auth, re.IGNORECASE)
-        if not m:
-            return None
-        return app.state.key_store.resolve(m.group(1).strip())
+        return resolve_bearer_key(app, request)
 
     def _effective_run_permission(k: ApiKey | None) -> str:
         value = ((getattr(k, "run_permission", "") if k is not None else "") or "").strip()

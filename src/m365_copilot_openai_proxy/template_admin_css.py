@@ -59,8 +59,13 @@ button[style*="background:var(--chip)"]{color:var(--strong)!important;border:1px
 .view-users{height:800px;display:none;position:relative;padding-bottom:64px}
 body[data-view="users"] .view-users{display:block}
 .view-users .tbl-scroll{max-height:605px}
-body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug{position:relative;top:auto}
-.view-home,.view-users,.view-accounts,.view-settings,.view-debug{margin-top:0;margin-bottom:10px}
+body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,body[data-view="settings"] .view-settings,body[data-view="debug"] .view-debug,body[data-view="sessions"] .view-sessions{position:relative;top:auto}
+.view-home,.view-users,.view-accounts,.view-settings,.view-debug,.view-sessions{margin-top:0;margin-bottom:10px}
+/* Sessions grow with the table instead of a fixed height: the row count depends
+   on how many conversations exist upstream, so .tbl-scroll caps it instead. */
+.view-sessions{display:none}
+body[data-view="sessions"] .view-sessions{display:block}
+.view-sessions .tbl-scroll{max-height:520px}
 body[data-view="debug"] .debug-gate-card{height:250px;min-height:250px;display:flex;align-items:center;justify-content:center}
 body[data-view="debug"] .debug-guide-card{height:200px!important;min-height:200px!important;overflow:hidden}
 body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!important;min-height:200px!important;overflow:visible}

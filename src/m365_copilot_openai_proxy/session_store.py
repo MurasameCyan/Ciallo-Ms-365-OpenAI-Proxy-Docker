@@ -290,6 +290,60 @@ class PersistentSessionStore:
                 session.last_accessed = time.time()
             return session
 
+    def items(self) -> list[tuple[str, PersistentSession]]:
+        """Snapshot of (key, session) pairs, newest-used last (LRU order).
+
+        Returned as a list so the management views can iterate without holding
+        the store lock while they do slow work (e.g. cloud lookups).
+        """
+        with self._lock:
+            return list(self._sessions.items())
+
+    def remove(self, key: str) -> bool:
+        """Forget one session. Returns False when the key was already gone."""
+        with self._lock:
+            if self._sessions.pop(key, None) is None:
+                return False
+            self._save()
+            return True
+
+    def prune(
+        self,
+        prefix: str = "",
+        older_than: float = 0.0,
+        keep_newest: int = 0,
+        protected: set[str] | None = None,
+    ) -> list[str]:
+        """Drop sessions under `prefix` by idle age and/or count, keeping the
+        newest ones. Returns the removed keys.
+
+        `older_than` (seconds since last use) and `keep_newest` are independent:
+        0 disables that rule, so passing neither removes nothing. Keys listed in
+        `protected` are never removed -- that is the whitelist a caller uses to
+        pin a conversation it still wants. `prefix` is what scopes a cleanup to
+        one tenant ("<key_id>:"); empty means every tenant.
+        """
+        keep = protected or set()
+        now = time.time()
+        with self._lock:
+            scoped = [
+                (key, session)
+                for key, session in self._sessions.items()
+                if key.startswith(prefix) and key not in keep
+            ]
+            scoped.sort(key=lambda item: item[1].last_accessed, reverse=True)
+            removed = [
+                key
+                for index, (key, session) in enumerate(scoped)
+                if (older_than > 0 and now - session.last_accessed > older_than)
+                or (keep_newest > 0 and index >= keep_newest)
+            ]
+            for key in removed:
+                del self._sessions[key]
+            if removed:
+                self._save()
+            return removed
+
     def reset(self, key: str) -> PersistentSession:
         """Discard any existing session under key and start a fresh one.
 
