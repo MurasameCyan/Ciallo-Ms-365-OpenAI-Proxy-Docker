@@ -90,6 +90,10 @@ def register_admin_settings_routes(
             "ws_idle_timeout_minutes": int_setting("ws_idle_timeout_minutes", 1),
             "keepalive_check_minutes": int_setting("keepalive_check_minutes", 1),
             "cookie_keepalive_before_hours": int_setting("cookie_keepalive_before_hours", 1),
+            # 0 parks the reclaim loop / disables one of its two passes.
+            "auto_cleanup_minutes": int_setting("auto_cleanup_minutes", 0),
+            "session_idle_hours": int_setting("session_idle_hours", 0),
+            "cloud_cleanup_idle_hours": int_setting("cloud_cleanup_idle_hours", 0),
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             # 0 is a valid value here (disables limiting), hence minimum 0.
@@ -125,6 +129,10 @@ def register_admin_settings_routes(
         app.state.ws_idle_timeout_minutes = data["ws_idle_timeout_minutes"]
         app.state.keepalive_check_minutes = data["keepalive_check_minutes"]
         app.state.cookie_keepalive_before_hours = data["cookie_keepalive_before_hours"]
+        # The reclaim loop re-reads these every tick, so no restart is needed.
+        app.state.auto_cleanup_minutes = data["auto_cleanup_minutes"]
+        app.state.session_idle_hours = data["session_idle_hours"]
+        app.state.cloud_cleanup_idle_hours = data["cloud_cleanup_idle_hours"]
         scheduler = getattr(app.state, "refresh_scheduler", None)
         if scheduler is not None:
             scheduler.set_keepalive_params(

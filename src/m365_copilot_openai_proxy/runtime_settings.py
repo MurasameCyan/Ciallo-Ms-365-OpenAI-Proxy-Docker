@@ -100,6 +100,17 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # (hours). Refreshes are serialised (one Chromium at a time). See RefreshScheduler.
     "keepalive_check_minutes": 5,
     "cookie_keepalive_before_hours": 2,
+    # Background reclaim of cold sessions / cloud conversations (see
+    # session_autoclean.py). `auto_cleanup_minutes` is only how often the loop
+    # wakes up; both thresholds default to 0, i.e. it does nothing until an
+    # administrator opts in. session_idle_hours drops local sessions nobody
+    # continued (the next turn of one then opens a fresh upstream thread with no
+    # history). cloud_cleanup_idle_hours deletes cloud conversations no surviving
+    # local session points at -- which on a real person's work account includes
+    # the chats they had in the Copilot web UI themselves, hence opt-in.
+    "auto_cleanup_minutes": 30,
+    "session_idle_hours": 0,
+    "cloud_cleanup_idle_hours": 0,
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
     # Self-imposed per-key request ceiling for /v1/ endpoints. M365 publishes no
@@ -377,6 +388,17 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["ws_idle_timeout_minutes"] = max(1, int(data.get("ws_idle_timeout_minutes") or _RUNTIME_SETTINGS_DEFAULTS["ws_idle_timeout_minutes"]))
     data["keepalive_check_minutes"] = max(1, int(data.get("keepalive_check_minutes") or _RUNTIME_SETTINGS_DEFAULTS["keepalive_check_minutes"]))
     data["cookie_keepalive_before_hours"] = max(1, int(data.get("cookie_keepalive_before_hours") or _RUNTIME_SETTINGS_DEFAULTS["cookie_keepalive_before_hours"]))
+    # 0 disables each of these, so they must not fall through to the default the
+    # way the `or`-guarded ints above do.
+    for field_name, minimum in (
+        ("auto_cleanup_minutes", 0),
+        ("session_idle_hours", 0),
+        ("cloud_cleanup_idle_hours", 0),
+    ):
+        try:
+            data[field_name] = max(minimum, int(data.get(field_name)))
+        except (TypeError, ValueError):
+            data[field_name] = _RUNTIME_SETTINGS_DEFAULTS[field_name]
     data["cdp_port"] = max(1, int(data.get("cdp_port") or _RUNTIME_SETTINGS_DEFAULTS["cdp_port"]))
     data["account_cdp_port_base"] = max(1, int(data.get("account_cdp_port_base") or _RUNTIME_SETTINGS_DEFAULTS["account_cdp_port_base"]))
     # 0 is meaningful here (disables limiting), so it must not fall through to the

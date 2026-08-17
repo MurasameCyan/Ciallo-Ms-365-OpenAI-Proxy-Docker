@@ -154,6 +154,9 @@ def init_app_state(
         check_interval_seconds=runtime_settings["keepalive_check_minutes"] * 60,
         cookie_before_seconds=runtime_settings["cookie_keepalive_before_hours"] * 3600,
     )
+    app.state.auto_cleanup_minutes = runtime_settings["auto_cleanup_minutes"]
+    app.state.session_idle_hours = runtime_settings["session_idle_hours"]
+    app.state.cloud_cleanup_idle_hours = runtime_settings["cloud_cleanup_idle_hours"]
     app.state.username = read_username()
     app.state.current_tone = read_tone() or "Magic"
     app.state.tool_prompt = read_tool_prompt()
