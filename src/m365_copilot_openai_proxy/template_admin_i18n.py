@@ -117,6 +117,13 @@ _ADMIN_I18N_JS = """const i18n={
     title_media_proxy:'媒体代理日志',
     no_media_proxy_yet:'暂无媒体代理日志',
     media_proxy_hint:'记录媒体代理请求的签名、直连 HTTP、Chromium fallback、超时和最终状态；当前覆盖 /v1/m365-media，后续可扩展到视频、音频和文件。',
+    title_model_test:'模型连通性测试',
+    model_test_hint:'用所选账号真发一轮请求，判断这个模式对该账号是否可用（可用/空回复/被拒/限额/故障）。走的是 /v1 同一条链路，因此结果与真实调用一致；每次测试会新建一个上游会话，可在「会话管理」里删掉。',
+    mt_col_model:'模型',mt_col_verdict:'结果',mt_col_latency:'耗时',mt_col_detail:'回复 / 错误',
+    mt_prompt:'测试提问',mt_prompt_ph:'留空＝用默认探测语句',mt_run:'测试所选模型',mt_run_all:'测试全部模型',mt_running:'测试中…',
+    mt_none:'尚未测试',mt_no_account:'请先选择账号。',mt_no_model:'该账号没有可测的模型（个人版请先在「全局设置」里配置模型映射）。',
+    mt_v_ok:'可用',mt_v_empty:'空回复',mt_v_refused:'被拒',mt_v_throttled:'限额',mt_v_error:'故障',mt_v_running:'测试中',
+    mt_legend:'可用＝上游正常回复；空回复＝接受了这一轮但什么都没说（多数是该模式没对这个账号放开）；被拒＝上游直接拒绝；限额＝配额问题，与模式可用性无关；故障＝传输或凭据错误，据此判断不了模式。',
   },
   en:{
     multi_badge:'Multi',
@@ -234,6 +241,13 @@ _ADMIN_I18N_JS = """const i18n={
     title_media_proxy:'Media proxy log',
     no_media_proxy_yet:'No media proxy logs yet',
     media_proxy_hint:'Records media-proxy signature checks, direct HTTP, Chromium fallback, timeouts and final status for /v1/m365-media; can extend to video/audio/files later.',
+    title_model_test:'Model connectivity test',
+    model_test_hint:'Sends one real turn with the selected account to see whether this mode works for it (ok / empty / refused / throttled / error). It rides the same path as /v1, so the result matches real traffic; each test starts one upstream conversation, which you can delete under Sessions.',
+    mt_col_model:'Model',mt_col_verdict:'Verdict',mt_col_latency:'Latency',mt_col_detail:'Reply / error',
+    mt_prompt:'Test prompt',mt_prompt_ph:'Empty = default probe prompt',mt_run:'Test selected model',mt_run_all:'Test all models',mt_running:'Testing...',
+    mt_none:'Not tested yet',mt_no_account:'Select an account first.',mt_no_model:'This account has no testable model (for the personal edition, configure the model mapping under Settings first).',
+    mt_v_ok:'OK',mt_v_empty:'Empty',mt_v_refused:'Refused',mt_v_throttled:'Throttled',mt_v_error:'Error',mt_v_running:'Testing',
+    mt_legend:'OK = upstream answered. Empty = the turn was accepted but nothing was said (usually the mode is not rolled out to this account). Refused = upstream declined the turn. Throttled = quota, unrelated to mode availability. Error = transport/credential failure, which says nothing about the mode.',
   }
 };
 """

@@ -317,3 +317,21 @@ def test_admin_settings_javascript_is_split_into_settings_module():
     assert _ADMIN_SETTINGS_JS in _ADMIN_HTML
     assert _ADMIN_HTML.index("let __runtimeSettings={};") < _ADMIN_HTML.index(_ADMIN_SETTINGS_JS)
 
+
+def test_first_view_switch_runs_after_the_module_state_it_reads():
+    """View loaders read module-level `let`s, so the first switchView must come last.
+
+    Called earlier, `loadSessions`/`loadModelTest` hit `__keys`/`__accounts` in the
+    temporal dead zone; the ReferenceError is swallowed by the async function and
+    the view silently never renders after a reload.
+    """
+    first_switch = _ADMIN_HTML.index("switchView(localStorage.getItem('admin_view')||'home')")
+
+    assert first_switch > _ADMIN_HTML.index("let __accounts=[];")
+    assert first_switch > _ADMIN_HTML.index("let __keys=[];")
+    assert first_switch > _ADMIN_HTML.index("let __sessions=null;")
+    assert first_switch > _ADMIN_HTML.index("let __runtimeSettings={};")
+    # And the debug view no longer reads tone options off a window property that
+    # nothing ever sets (__runtimeSettings is a script-scope binding).
+    assert "return (__runtimeSettings&&__runtimeSettings.tone_options)||window.__toneOpts||[];" in _ADMIN_HTML
+

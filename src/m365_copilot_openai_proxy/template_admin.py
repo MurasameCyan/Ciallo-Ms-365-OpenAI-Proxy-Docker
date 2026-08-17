@@ -6,6 +6,7 @@ from .template_admin_dashboard import _ADMIN_DASHBOARD_JS
 from .template_admin_dialogs import _ADMIN_DIALOGS_JS
 from .template_admin_i18n import _ADMIN_I18N_JS
 from .template_admin_keys import _ADMIN_KEYS_JS
+from .template_admin_modeltest import _ADMIN_MODELTEST_JS
 from .template_admin_sessions import _ADMIN_SESSIONS_JS
 from .template_admin_settings_js import _ADMIN_SETTINGS_JS
 from .template_admin_tables import _ADMIN_TABLES_JS
@@ -71,6 +72,7 @@ function applyLang(){
   try{if(typeof renderMediaProxyEvents==='function'&&window.__mediaProxyEvents)renderMediaProxyEvents(window.__mediaProxyEvents)}catch(e){}
   try{if(typeof renderStatus==='function')renderStatus()}catch(e){}
   try{if(typeof renderSessions==='function'&&__sessions)renderSessions()}catch(e){}
+  try{if(typeof renderModelTest==='function')renderModelTest()}catch(e){}
 }
 applyLang();
 
@@ -208,9 +210,13 @@ function loadViewData(view){
   if(view==='users'){loadKeys();loadAccounts();return}
   if(view==='sessions'){loadSessions();return}
   if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
-  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadCallLog();loadMediaProxyEvents();loadCapture()}
+  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadModelTest();loadCallLog();loadMediaProxyEvents();loadCapture()}
 }
-switchView(localStorage.getItem('admin_view')||'home');
+// The first switchView() call lives at the very bottom of this script, after the
+// module blocks: view loaders read module-level `let`s (__accounts, __keys,
+// __sessions), and calling one before those declarations are evaluated throws a
+// TDZ ReferenceError that an async loader swallows into a silent rejection --
+// the view then never renders on a reload.
 
 function showInlineLogin(){location.replace('/admin')}
 function toggleInlineLang(){localStorage.setItem('lang',localStorage.getItem('lang')==='zh'?'en':'zh');showInlineLogin()}
@@ -502,6 +508,7 @@ let __runtimeSettings={};
 """ + _ADMIN_COPY_JS + """
 """ + _ADMIN_KEYS_JS + """
 """ + _ADMIN_SESSIONS_JS + """
+""" + _ADMIN_MODELTEST_JS + """
 function initDetailsCards(){
   document.querySelectorAll('.view-settings,.view-debug').forEach(card=>{
     const details=[...card.querySelectorAll('details')];
@@ -523,6 +530,7 @@ function updateAccountCountdownText(){
 initDetailsCards();
 loadStatus();
 initGlassSelect(document);
+switchView(localStorage.getItem('admin_view')||'home');
 setInterval(loadStatus,60000);
 setInterval(()=>{if(document.body.dataset.view==='debug')loadCallLog()},5000);
 setInterval(()=>{if(document.body.dataset.view==='debug')loadMediaProxyEvents()},5000);
@@ -591,8 +599,10 @@ document.addEventListener('click',e=>{
 });
 function _toneOptsSource(){
   // Debug view loads runtime-settings (not /admin/tone), so prefer its tone_options;
-  // fall back to the picker's __toneOpts, then empty.
-  return (window.__runtimeSettings&&window.__runtimeSettings.tone_options)||window.__toneOpts||[];
+  // fall back to the picker's __toneOpts, then empty. __runtimeSettings is a
+  // script-scope `let`, NOT window.__runtimeSettings — reading it off window
+  // always missed, which left the debug view with unlabelled raw tone values.
+  return (__runtimeSettings&&__runtimeSettings.tone_options)||window.__toneOpts||[];
 }
 function _toneLabel(v){
   const o=_toneOptsSource().find(x=>x.value===v);

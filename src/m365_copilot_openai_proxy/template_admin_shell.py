@@ -275,6 +275,27 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 </div>
 
 <div class="card view-debug details-card" style="padding:20px">
+<details id="model-test-details" style="cursor:pointer;margin-bottom:20px">
+<summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
+<span data-i18n="title_model_test">模型连通性测试</span>
+<span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
+</summary>
+<div style="margin-top:20px">
+<div style="font-size:.75rem;color:var(--faint);line-height:1.5;margin-bottom:.75rem" data-i18n="model_test_hint">用所选账号真发一轮请求，判断这个模式对该账号是否可用（可用/空回复/被拒/限额/故障）。走的是 /v1 同一条链路，因此结果与真实调用一致；每次测试会新建一个上游会话，可在「会话管理」里删掉。</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem 1.1rem;align-items:end">
+<label style="font-size:.95rem;font-weight:800;color:var(--strong);display:flex;flex-direction:column;gap:.6rem"><span data-i18n="col_account">账号</span><select id="model-test-account" onchange="renderModelTest()" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></select></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong);display:flex;flex-direction:column;gap:.6rem"><span data-i18n="mt_col_model">模型</span><select id="model-test-model" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></select></label>
+<label style="font-size:.95rem;font-weight:800;color:var(--strong);display:flex;flex-direction:column;gap:.6rem"><span data-i18n="mt_prompt">测试提问</span><input id="model-test-prompt" style="width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700" placeholder=""></label>
+</div>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:20px;flex-wrap:wrap">
+<button id="model-test-run" onclick="runModelTest(false)" data-i18n="mt_run">测试所选模型</button>
+<button id="model-test-run-all" onclick="runModelTest(true)" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="mt_run_all">测试全部模型</button>
+</div>
+<div id="model-test-result" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-size:.8rem">
+<span style="color:var(--faint)" data-i18n="mt_none">尚未测试</span>
+</div>
+</div>
+</details>
 <details id="call-log-details" style="cursor:pointer;margin-bottom:20px">
 <summary style="font-size:1.1rem;font-weight:700;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border)">
 <span data-i18n="title_call_log">API 调用日志</span>
