@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from .account_concurrency import AccountConcurrency
 from .account_store import AccountStore
 from .call_log_store import load_call_log
 from .config import Settings
@@ -157,6 +158,8 @@ def init_app_state(
     app.state.auto_cleanup_minutes = runtime_settings["auto_cleanup_minutes"]
     app.state.session_idle_hours = runtime_settings["session_idle_hours"]
     app.state.cloud_cleanup_idle_hours = runtime_settings["cloud_cleanup_idle_hours"]
+    app.state.account_concurrency = runtime_settings["account_concurrency"]
+    app.state.account_concurrency_gate = AccountConcurrency()
     app.state.username = read_username()
     app.state.current_tone = read_tone() or "Magic"
     app.state.tool_prompt = read_tool_prompt()

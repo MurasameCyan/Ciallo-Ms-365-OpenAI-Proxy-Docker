@@ -4,12 +4,34 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request
 
+from .account_concurrency import ThrottledClient
 from .account_store import resolve_account_proxy
 from .config import Settings
 from .substrate_client import SubstrateCopilotClient
 
 
 _CAPTURE_LIMIT = 20
+
+
+def _throttled(app: FastAPI, account, client):
+    """Cap how many turns this account may run at once.
+
+    Wrapping here rather than at the eleven ``client.chat``/``chat_stream`` call
+    sites is the whole reason the dispatch below is a single funnel. A request
+    with no account bound is handed back untouched -- there is no shared
+    identity to protect -- and so is one on a deployment whose state was never
+    initialised (hand-built test apps).
+    """
+    gate = getattr(app.state, "account_concurrency_gate", None)
+    if account is None or gate is None:
+        return client
+    account_id = account.id
+    # Read the limit per turn, so an /admin change applies to the next request
+    # without a restart.
+    return ThrottledClient(
+        client,
+        lambda: gate.hold(account_id, int(getattr(app.state, "account_concurrency", 0) or 0)),
+    )
 
 
 def _attach_response_debug_sink(app: FastAPI, client: SubstrateCopilotClient) -> None:
@@ -119,14 +141,14 @@ def create_api_dependencies(
                     proxy=resolve_account_proxy(account) or None,
                     gate=_consumer_gate_for(app, account.id),
                 )
-                return ConsumerClientAdapter(
+                return _throttled(app, account, ConsumerClientAdapter(
                     consumer,
                     max_prompt_chars=getattr(
                         getattr(app.state, "settings", None),
                         "consumer_prompt_max_chars",
                         8000,
                     ),
-                )
+                ))
             try:
                 client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
             except TypeError:
@@ -138,7 +160,7 @@ def create_api_dependencies(
                 # unrelated M365 error that named nothing about the real cause.
                 client = app.state.copilot_client_factory()
             _attach_response_debug_sink(app, client)
-            return client
+            return _throttled(app, account, client)
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

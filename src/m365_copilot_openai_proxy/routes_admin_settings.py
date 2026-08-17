@@ -94,6 +94,8 @@ def register_admin_settings_routes(
             "auto_cleanup_minutes": int_setting("auto_cleanup_minutes", 0),
             "session_idle_hours": int_setting("session_idle_hours", 0),
             "cloud_cleanup_idle_hours": int_setting("cloud_cleanup_idle_hours", 0),
+            # 0 lifts the per-account turn ceiling entirely.
+            "account_concurrency": int_setting("account_concurrency", 0),
             "cdp_port": int_setting("cdp_port", 1),
             "account_cdp_port_base": int_setting("account_cdp_port_base", 1),
             # 0 is a valid value here (disables limiting), hence minimum 0.
@@ -133,6 +135,8 @@ def register_admin_settings_routes(
         app.state.auto_cleanup_minutes = data["auto_cleanup_minutes"]
         app.state.session_idle_hours = data["session_idle_hours"]
         app.state.cloud_cleanup_idle_hours = data["cloud_cleanup_idle_hours"]
+        # Read per turn by the gate, so this applies from the next request on.
+        app.state.account_concurrency = data["account_concurrency"]
         scheduler = getattr(app.state, "refresh_scheduler", None)
         if scheduler is not None:
             scheduler.set_keepalive_params(

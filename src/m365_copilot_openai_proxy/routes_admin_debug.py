@@ -27,6 +27,7 @@ def _cache_stats(app: FastAPI, logs: list) -> dict:
     resumable = incremental_hits + fresh_starts
     store = getattr(app.state, "session_store", None)
     index = getattr(app.state, "history_index", None)
+    gate = getattr(app.state, "account_concurrency_gate", None)
     return {
         "incremental_hits": incremental_hits,
         "fresh_starts": fresh_starts,
@@ -35,6 +36,9 @@ def _cache_stats(app: FastAPI, logs: list) -> dict:
         ),
         "sessions": store.stats() if store is not None else {},
         "history_index": index.stats() if index is not None else {},
+        # Per-account turns running/queued right now: the one place to see that a
+        # slow request is waiting on the concurrency cap rather than on upstream.
+        "concurrency": gate.stats() if gate is not None else {},
         "cloud_token": token_cache_stats(),
     }
 

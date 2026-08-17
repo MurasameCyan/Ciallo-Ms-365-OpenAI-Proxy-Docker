@@ -111,6 +111,11 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "auto_cleanup_minutes": 30,
     "session_idle_hours": 0,
     "cloud_cleanup_idle_hours": 0,
+    # Ceiling on simultaneous upstream turns per account (0 = unlimited). One
+    # account is one Microsoft identity no matter how many keys are bound to it,
+    # and it starts refusing turns well before it starts queueing them. Requests
+    # over the ceiling wait for a slot; none are ever rejected.
+    "account_concurrency": 8,
     "cdp_port": 9222,
     "account_cdp_port_base": 9322,
     # Self-imposed per-key request ceiling for /v1/ endpoints. M365 publishes no
@@ -394,6 +399,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
         ("auto_cleanup_minutes", 0),
         ("session_idle_hours", 0),
         ("cloud_cleanup_idle_hours", 0),
+        ("account_concurrency", 0),
     ):
         try:
             data[field_name] = max(minimum, int(data.get(field_name)))
