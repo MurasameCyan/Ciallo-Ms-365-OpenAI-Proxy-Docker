@@ -29,7 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
-from m365_copilot_openai_proxy.m365_cloud_client import _TOKEN_CACHE, _cloud_token
+from m365_copilot_openai_proxy.m365_cloud_client import (
+    _TOKEN_CACHE,
+    CloudSessionError,
+    _cloud_token,
+)
 from m365_copilot_openai_proxy.pkce_login import (
     NATIVE_REDIRECT_URI,
     PENDING_TTL_SECONDS,
@@ -499,6 +503,51 @@ def test_cloud_management_keeps_the_spa_origin_for_an_spa_bound_account(admin, a
     _url, data, headers = aad.calls[-1]
     assert data["client_id"] == M365_REFRESH_CLIENT_ID
     assert headers["Origin"] == "https://m365.cloud.microsoft"
+
+
+def test_cloud_management_accepts_the_encrypted_token_the_native_client_gets(admin, aad):
+    """Measured 2026-08-17: for this audience the native client is handed a
+    five-segment RSA-OAEP JWE, not a JWT. POST /chat takes it as a Bearer token
+    verbatim, so the identity check has to read the id_token minted alongside it
+    instead of the access token -- decoding the access token raised a UnicodeDecodeError
+    and every cloud call reported "token exchange returned an unusable response".
+    """
+    app, _client, account = admin
+    _bind_rt(app, account.id)
+    _TOKEN_CACHE.clear()
+    jwe = "eyJhbGciOiJSU0EtT0FFUCJ9.a.b.c.d"
+    aad.response = _Response(200, {"access_token": jwe, "id_token": _jwt(), "expires_in": 5239})
+
+    assert asyncio.run(_cloud_token(app.state.account_store, account.id)) == jwe
+
+
+def test_cloud_management_refuses_an_opaque_token_it_cannot_attribute(admin, aad):
+    """No id_token either: an unverifiable subject must not be acted on."""
+    app, _client, account = admin
+    _bind_rt(app, account.id)
+    _TOKEN_CACHE.clear()
+    aad.response = _Response(200, {"access_token": "eyJhbGciOiJSU0EtT0FFUCJ9.a.b.c.d", "expires_in": 5239})
+
+    with pytest.raises(CloudSessionError):
+        asyncio.run(_cloud_token(app.state.account_store, account.id))
+
+
+def test_cloud_management_keeps_the_rotated_refresh_token(admin, aad):
+    """AAD rotates it even though this hop never asks for offline_access."""
+    app, _client, account = admin
+    _bind_rt(app, account.id)
+    _TOKEN_CACHE.clear()
+    rotated = "1.AT4A" + "n" * 200
+    aad.response = _Response(
+        200,
+        {"access_token": _jwt(aud="https://m365.cloud.microsoft/v2/"), "refresh_token": rotated, "expires_in": 5239},
+    )
+
+    asyncio.run(_cloud_token(app.state.account_store, account.id))
+
+    stored = app.state.account_store.get(account.id)
+    assert stored.refresh_token == rotated
+    assert stored.refresh_token_client_id == M365_NATIVE_CLIENT_ID  # binding survives
 
 
 # --- both media keys come with the sign-in -------------------------------

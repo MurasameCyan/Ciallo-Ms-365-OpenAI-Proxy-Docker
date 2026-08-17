@@ -14,6 +14,11 @@ Everything here is per account. An account with no verified refresh-token
 binding simply has no cloud management (the caller surfaces that as a warning and
 still shows the local sessions), rather than borrowing another account's client.
 
+The token comes back in two shapes depending on which client issued the RT: a
+readable JWT for the SPA client, an encrypted JWE for the native one. Both are
+accepted by ``POST /chat`` as ``Bearer`` verbatim, so nothing here may assume it
+can read the access token's claims.
+
 Protocol reference: HEXUXIU/M365-Copilot2API (MIT), internal/web/m365cloud.go.
 """
 from __future__ import annotations
@@ -31,8 +36,9 @@ from .refresh_via_rt import (
 from .runtime_flags import elog
 from .token_store import decode_jwt_payload
 
-# No offline_access on purpose: this exchange must not rotate the refresh token
-# that the substrate refresh path owns and persists.
+# No offline_access on purpose: this exchange asks for nothing but the audience
+# it needs. AAD rotates the refresh token anyway (measured 2026-08-17), so the
+# rotation is persisted rather than dropped.
 _CLOUD_SCOPE = "https://m365.cloud.microsoft/v2/.default"
 _CHAT_URL = "https://m365.cloud.microsoft/chat"
 _ORIGIN = "https://m365.cloud.microsoft"
@@ -85,6 +91,15 @@ def _cached_token(cache_key: str) -> str:
     return token if fresh else ""
 
 
+def _readable_claims(token: str) -> dict:
+    """JWT claims, or ``{}`` when the token is opaque (an encrypted JWE)."""
+    try:
+        claims = decode_jwt_payload(token)
+    except Exception:  # noqa: BLE001 - a JWE's second segment is binary, not JSON
+        return {}
+    return claims if isinstance(claims, dict) else {}
+
+
 async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     """Mint (or reuse) an m365.cloud.microsoft access token for one account."""
     account = accounts.get(account_id)
@@ -124,21 +139,36 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
         raise CloudSessionError(f"token exchange failed: HTTP {resp.status_code}")
     try:
         payload = resp.json()
-        token = str(payload.get("access_token") or "")
-        claims = decode_jwt_payload(token) if token else {}
     except Exception as exc:  # noqa: BLE001
         raise CloudSessionError(f"token exchange returned an unusable response: {exc}") from exc
+    token = str(payload.get("access_token") or "")
     if not token:
         raise CloudSessionError("token exchange returned no access_token")
     # Same subject check the substrate path makes: never act on a conversation
-    # list belonging to a different Microsoft identity than this account.
+    # list belonging to a different Microsoft identity than this account. The
+    # native client gets this audience as an encrypted JWE (RSA-OAEP, five
+    # segments) whose claims we cannot read -- the service accepts it verbatim as
+    # a Bearer token -- so fall back to the id_token minted alongside it.
+    claims = _readable_claims(token) or _readable_claims(str(payload.get("id_token") or ""))
+    if not claims:
+        raise CloudSessionError("token exchange returned no readable subject to verify")
     if (
         normalize_microsoft_id(claims.get("tid")) != tenant_id
         or normalize_microsoft_id(claims.get("oid")) != object_id
     ):
         raise CloudSessionError("token exchange returned a different Microsoft identity")
 
-    expires_at = float(claims.get("exp") or 0) or time.time() + 300
+    # AAD rotates the refresh token even without offline_access, and the old one
+    # keeps working, but persisting the new one is what keeps a native client's
+    # sliding window sliding. Same CAS as the media hops: None binding args
+    # preserve the verified client/authority/subject.
+    rotated = payload.get("refresh_token")
+    if isinstance(rotated, str) and rotated and rotated != rt:
+        accounts.set_refresh_token(account_id, rotated, expected_refresh_token=rt)
+
+    # expires_in describes the access token; the claims exp may be the id_token's.
+    lifetime = float(payload.get("expires_in") or 0)
+    expires_at = (time.time() + lifetime) if lifetime > 0 else (float(claims.get("exp") or 0) or time.time() + 300)
     with _TOKEN_CACHE_LOCK:
         _TOKEN_CACHE[cache_key] = (token, expires_at)
     return token
