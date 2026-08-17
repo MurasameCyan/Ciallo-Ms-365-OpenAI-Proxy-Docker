@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .runtime_flags import elog
+
 
 @dataclass(frozen=True)
 class CopilotTurn:
@@ -347,6 +349,12 @@ class PersistentSessionStore:
             self.writes += 1
             self.last_write_at = time.time()
 
+    def _evict_overflow(self) -> None:
+        """Drop least-recently-used sessions over the cap. Caller holds the lock."""
+        while len(self._sessions) > self._max_sessions:
+            evicted, _ = self._sessions.popitem(last=False)
+            elog(f"session dropped: {evicted} (LRU, over max_sessions={self._max_sessions})")
+
     def get(self, key: str) -> PersistentSession:
         with self._lock:
             session = self._sessions.get(key)
@@ -355,8 +363,7 @@ class PersistentSessionStore:
                 session._on_change = self._save
                 self._sessions[key] = session
                 # Evict oldest session if over limit
-                while len(self._sessions) > self._max_sessions:
-                    self._sessions.popitem(last=False)
+                self._evict_overflow()
                 self._save()
             else:
                 # Move to end (most recently used)
@@ -396,6 +403,7 @@ class PersistentSessionStore:
             if self._sessions.pop(key, None) is None:
                 return False
             self._save()
+            elog(f"session dropped: {key} (explicit delete)")
             return True
 
     def prune(
@@ -433,6 +441,21 @@ class PersistentSessionStore:
                 del self._sessions[key]
             if removed:
                 self._save()
+                rules = " ".join(
+                    part
+                    for part in (
+                        f"idle>{older_than:.0f}s" if older_than > 0 else "",
+                        f"keep_newest={keep_newest}" if keep_newest > 0 else "",
+                    )
+                    if part
+                )
+                # A session that simply vanishes is indistinguishable from a bug
+                # after the fact, so every removal path says who went and why:
+                # scope, rule, how many were in scope, and the keys themselves.
+                elog(
+                    f"session prune: dropped {len(removed)}/{len(scoped)} under "
+                    f"{prefix or '*'} by [{rules}], {len(keep)} protected: {removed}"
+                )
             return removed
 
     def reset(self, key: str) -> PersistentSession:
@@ -449,7 +472,6 @@ class PersistentSessionStore:
             session._on_change = self._save
             self._sessions[key] = session
             self._sessions.move_to_end(key)
-            while len(self._sessions) > self._max_sessions:
-                self._sessions.popitem(last=False)
+            self._evict_overflow()
             self._save()
             return session
