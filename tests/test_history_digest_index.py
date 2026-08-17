@@ -123,3 +123,27 @@ def test_normalize_history_drops_system_messages_and_collapses_whitespace():
     )
 
     assert pairs == [("user", "hello world")]
+
+
+def test_stats_counts_lookups_so_the_admin_page_can_show_the_hit_rate():
+    """A miss means a continuing turn fell back to the legacy first-message key."""
+    index = HistoryDigestIndex(max_entries=9)
+    turn1 = normalize_history(_chat(("user", "a")).messages)
+    turn2 = normalize_history(_chat(("user", "a"), ("assistant", "b"), ("user", "c")).messages)
+
+    assert index.stats() == {
+        "entries": 0,
+        "max_entries": 9,
+        "hits": 0,
+        "misses": 0,
+        "hit_rate": None,
+    }
+
+    index.record("t", turn1, "session-1")
+    index.match("t", turn2)  # hit: turn1 is a strict prefix
+    index.match("t", turn1)  # miss: first turn of a conversation
+    index.match("other", turn2)  # miss: another tenant cannot match into ours
+
+    stats = index.stats()
+    assert (stats["entries"], stats["hits"], stats["misses"]) == (1, 1, 2)
+    assert stats["hit_rate"] == round(1 / 3, 4)

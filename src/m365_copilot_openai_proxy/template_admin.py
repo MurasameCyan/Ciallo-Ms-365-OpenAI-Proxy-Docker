@@ -73,6 +73,7 @@ function applyLang(){
   try{if(typeof renderStatus==='function')renderStatus()}catch(e){}
   try{if(typeof renderSessions==='function'&&__sessions)renderSessions()}catch(e){}
   try{if(typeof renderModelTest==='function')renderModelTest()}catch(e){}
+  try{if(typeof renderCacheStats==='function')renderCacheStats()}catch(e){}
 }
 applyLang();
 

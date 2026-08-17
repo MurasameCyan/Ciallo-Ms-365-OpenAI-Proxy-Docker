@@ -51,18 +51,39 @@ _TOKEN_EXPIRY_SKEW_SECONDS = 120
 # ever runs multi-worker the only cost is one extra mint per worker.
 _TOKEN_CACHE: dict[str, tuple[str, float]] = {}
 _TOKEN_CACHE_LOCK = threading.Lock()
+# Hit/miss counters for the admin cache panel. A miss is one full token exchange
+# against login.microsoftonline.com, so the ratio is what says whether the cache
+# is doing its job on an "all users" page load.
+_TOKEN_CACHE_HITS = 0
+_TOKEN_CACHE_MISSES = 0
 
 
 class CloudSessionError(RuntimeError):
     """Cloud conversation management is unavailable or failed for one account."""
 
 
+def token_cache_stats() -> dict:
+    with _TOKEN_CACHE_LOCK:
+        looked_up = _TOKEN_CACHE_HITS + _TOKEN_CACHE_MISSES
+        return {
+            "entries": len(_TOKEN_CACHE),
+            "hits": _TOKEN_CACHE_HITS,
+            "misses": _TOKEN_CACHE_MISSES,
+            "hit_rate": round(_TOKEN_CACHE_HITS / looked_up, 4) if looked_up else None,
+            "ttl_skew_seconds": _TOKEN_EXPIRY_SKEW_SECONDS,
+        }
+
+
 def _cached_token(cache_key: str) -> str:
+    global _TOKEN_CACHE_HITS, _TOKEN_CACHE_MISSES
     with _TOKEN_CACHE_LOCK:
         token, expires_at = _TOKEN_CACHE.get(cache_key, ("", 0.0))
-    if token and time.time() < expires_at - _TOKEN_EXPIRY_SKEW_SECONDS:
-        return token
-    return ""
+        fresh = bool(token) and time.time() < expires_at - _TOKEN_EXPIRY_SKEW_SECONDS
+        if fresh:
+            _TOKEN_CACHE_HITS += 1
+        else:
+            _TOKEN_CACHE_MISSES += 1
+    return token if fresh else ""
 
 
 async def _cloud_token(accounts: AccountStore, account_id: str) -> str:

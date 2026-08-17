@@ -57,6 +57,8 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <div id="dash-stat-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem;margin-bottom:1rem"></div>
 <div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_tone_share">对话模式占比</div>
 <div id="dash-tone-share"></div>
+<div style="font-size:.8rem;color:var(--muted);margin:1.1rem 0 .5rem" data-i18n="dash_cache_title">会话复用与落盘</div>
+<div id="dash-cache"></div>
 </div>
 
 <div class="card view-accounts accounts-main-card">

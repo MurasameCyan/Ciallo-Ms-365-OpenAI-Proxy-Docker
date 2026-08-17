@@ -71,6 +71,29 @@ async function clearMediaProxyEvents(){
   loadMediaProxyEvents();
 }
 let __expiryWarnTimer=null;
+// What the caches are buying. The headline is the incremental rate: a turn that
+// continued a remembered upstream conversation sent only the new message, a fresh
+// start resent the whole transcript. The rest is the two in-memory caches behind
+// it plus how many disk writes the coalescing window saved.
+function _cachePct(v){return v==null?'—':Math.round(v*100)+'%'}
+function renderCacheStats(){
+  const box=document.getElementById('dash-cache');
+  if(!box)return;
+  const c=window.__cacheStats;
+  if(!c){box.innerHTML='<span style="color:var(--faint)">'+t('dash_cache_none')+'</span>';return}
+  const s=c.sessions||{},hi=c.history_index||{},tok=c.cloud_token||{};
+  box.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem">'
+    +kpiCard(t('dash_cache_reuse'),_cachePct(c.incremental_hit_rate),'#22c55e')
+    +kpiCard(t('dash_cache_index'),_cachePct(hi.hit_rate),'#38bdf8')
+    +kpiCard(t('dash_cache_token'),_cachePct(tok.hit_rate),'#a78bfa')
+    +kpiCard(t('dash_cache_saved'),s.coalesced==null?'—':s.coalesced,'#f59e0b')
+    +'</div><div style="font-size:.72rem;color:var(--faint);margin-top:.5rem">'
+    +t('dash_cache_detail').replace('{inc}',c.incremental_hits||0).replace('{fresh}',c.fresh_starts||0)
+      .replace('{sessions}',s.sessions||0).replace('{max}',s.max_sessions||0)
+      .replace('{changes}',s.changes||0).replace('{writes}',s.writes||0)
+      .replace('{interval}',s.flush_interval==null?'-':s.flush_interval)
+    +'</div>';
+}
 async function loadStats(){
   const kpi=document.getElementById('dash-stat-kpi');
   try{
@@ -78,6 +101,8 @@ async function loadStats(){
     if(!r.ok)return;
     const d=await r.json();
     if(kpi)kpi.innerHTML=kpiCard(t('dash_calls_24h'),d.calls_24h||0,'#38bdf8')+kpiCard(t('dash_calls_total'),d.calls_total||0,'#a78bfa');
+    window.__cacheStats=d.cache||null;
+    renderCacheStats();
     // tone share as horizontal bars
     const tc=d.tone_counts||{};const total=Object.values(tc).reduce((s,v)=>s+v,0);
     const share=document.getElementById('dash-tone-share');

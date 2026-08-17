@@ -44,10 +44,18 @@ def create_app(
         if scheduler is not None:
             await scheduler.stop_keepalive()
 
+    async def _flush_sessions() -> None:
+        # Session writes are coalesced, so a graceful stop must push the pending
+        # one out; otherwise a restart resumes conversations a turn behind.
+        store = getattr(app.state, "session_store", None)
+        if store is not None:
+            store.flush()
+
     # Starlette 1.x dropped app.add_event_handler; append to the router's
     # startup/shutdown hook lists directly (the on_event decorator delegates here too).
     app.router.on_startup.append(_start_keepalive)
     app.router.on_shutdown.append(_stop_keepalive)
+    app.router.on_shutdown.append(_flush_sessions)
 
     return app
 

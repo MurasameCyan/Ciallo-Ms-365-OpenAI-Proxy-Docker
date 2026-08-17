@@ -73,7 +73,11 @@ def init_app_state(
     app.state.settings = settings
     app.state.token_store = AccessTokenStore(settings.access_token)
     app.state.session_store = PersistentSessionStore(
-        persist_path=Path(settings.token_dir) / "sessions.json"
+        persist_path=Path(settings.token_dir) / "sessions.json",
+        # Coalesce disk writes: one write rewrites every session, and every turn
+        # of every conversation triggers one. Two seconds of turn bookkeeping is
+        # the only thing a hard kill can lose (a graceful stop flushes).
+        flush_interval=2.0,
     )
     # Exact-history -> session map, so two conversations that open with the same
     # text (an agent framework's templated first message) keep separate upstream

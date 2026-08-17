@@ -6,10 +6,37 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, Request
 
+from .m365_cloud_client import token_cache_stats
 from .response_helpers import _json_err
 
 
 _CAPTURE_MAX_BYTES = 256 * 1024
+
+
+def _cache_stats(app: FastAPI, logs: list) -> dict:
+    """What the session/token caches are actually buying.
+
+    ``incremental`` is already recorded per call: True means the turn continued a
+    remembered upstream conversation and only the new message was sent, False
+    means the whole transcript had to be resent. That ratio is the one number that
+    says whether session reuse is working; the rest exposes the two in-memory
+    caches behind it and how many disk writes the coalescing window saved.
+    """
+    incremental_hits = sum(1 for entry in logs if entry.get("incremental") is True)
+    fresh_starts = sum(1 for entry in logs if entry.get("incremental") is False)
+    resumable = incremental_hits + fresh_starts
+    store = getattr(app.state, "session_store", None)
+    index = getattr(app.state, "history_index", None)
+    return {
+        "incremental_hits": incremental_hits,
+        "fresh_starts": fresh_starts,
+        "incremental_hit_rate": (
+            round(incremental_hits / resumable, 4) if resumable else None
+        ),
+        "sessions": store.stats() if store is not None else {},
+        "history_index": index.stats() if index is not None else {},
+        "cloud_token": token_cache_stats(),
+    }
 
 
 def register_admin_debug_routes(app: FastAPI, require_admin: Callable[[Request], object | None]) -> None:
@@ -38,6 +65,7 @@ def register_admin_debug_routes(app: FastAPI, require_admin: Callable[[Request],
             "calls_24h": calls_24h,
             "tone_counts": tone_counts,
             "expiring_accounts": expiring_accounts,
+            "cache": _cache_stats(app, logs),
         }
 
     @app.post("/admin/capture-payload")

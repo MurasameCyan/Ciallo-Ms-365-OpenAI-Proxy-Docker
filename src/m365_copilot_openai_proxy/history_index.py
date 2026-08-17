@@ -75,11 +75,27 @@ class HistoryDigestIndex:
         self._entries: OrderedDict[str, str] = OrderedDict()
         self._lock = threading.Lock()
         self._max_entries = max_entries
+        # Counters for the admin cache panel: a miss is a continuing turn that
+        # had to fall back to the legacy first-message key, which is exactly the
+        # case where two same-opener conversations can still collide.
+        self.hits = 0
+        self.misses = 0
 
     @staticmethod
     def _entry(tenant: str, digest: str) -> str:
         # NUL cannot appear in a tenant id, so the join is unambiguous.
         return f"{tenant}\0{digest}"
+
+    def stats(self) -> dict:
+        with self._lock:
+            looked_up = self.hits + self.misses
+            return {
+                "entries": len(self._entries),
+                "max_entries": self._max_entries,
+                "hits": self.hits,
+                "misses": self.misses,
+                "hit_rate": round(self.hits / looked_up, 4) if looked_up else None,
+            }
 
     def match(self, tenant: str, pairs: list[tuple[str, str]]) -> str | None:
         """Store key owning the longest *strict* prefix of this history.
@@ -94,7 +110,9 @@ class HistoryDigestIndex:
                 key = self._entries.get(entry)
                 if key is not None:
                     self._entries.move_to_end(entry)
+                    self.hits += 1
                     return key
+            self.misses += 1
         return None
 
     def record(self, tenant: str, pairs: list[tuple[str, str]], store_key: str) -> None:

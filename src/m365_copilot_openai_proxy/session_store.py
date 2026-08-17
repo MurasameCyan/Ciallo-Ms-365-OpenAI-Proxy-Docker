@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import threading
 import time
@@ -19,6 +20,12 @@ class CopilotTurn:
 
 
 _MAX_SESSIONS = 1000
+
+# Write-coalescing window in seconds. Every turn of every conversation mutates a
+# session, and one write rewrites the WHOLE map, so a busy pool was rewriting up
+# to _MAX_SESSIONS sessions' worth of JSON per turn. 0 keeps the historical
+# write-through behaviour; production passes a real interval (see state_init).
+_FLUSH_INTERVAL_SECONDS = 0.0
 
 
 @dataclass
@@ -162,13 +169,31 @@ class PersistentSession:
 
 
 class PersistentSessionStore:
-    def __init__(self, max_sessions: int = _MAX_SESSIONS, persist_path: str | Path | None = None):
+    def __init__(
+        self,
+        max_sessions: int = _MAX_SESSIONS,
+        persist_path: str | Path | None = None,
+        flush_interval: float = _FLUSH_INTERVAL_SECONDS,
+    ):
         self._sessions: OrderedDict[str, PersistentSession] = OrderedDict()
         self._lock = threading.RLock()
         self._max_sessions = max_sessions
         self._persist_path = Path(persist_path) if persist_path else None
+        self._flush_interval = max(0.0, float(flush_interval))
+        self._dirty = False
+        self._flush_timer: threading.Timer | None = None
+        # Counters for the admin cache panel: `changes` is how many times a
+        # session asked to be persisted, `writes` how many disk writes that cost.
+        self.changes = 0
+        self.writes = 0
+        self.last_write_at = 0.0
         if self._persist_path is not None:
             self._load()
+        if self._persist_path is not None and self._flush_interval > 0:
+            # A coalesced write is still pending when the process exits, so flush
+            # there too: that keeps the loss window at "the last flush_interval"
+            # instead of "everything since the last timer fired".
+            atexit.register(self.flush)
 
     def _load(self) -> None:
         """Restore sessions from disk so conversations survive container restarts."""
@@ -231,6 +256,64 @@ class PersistentSessionStore:
             self._sessions[key] = session
 
     def _save(self) -> None:
+        """Note that the map changed and get it to disk, coalescing bursts.
+
+        ponytail: with a coalescing window, a hard kill (SIGKILL skips atexit)
+        can lose up to `flush_interval` seconds of turn bookkeeping -- at worst a
+        conversation resumes a turn behind, or a session created inside the
+        window starts over. The alternative was rewriting the entire session map
+        on every single turn, so the trade is deliberate; flush_interval=0
+        restores write-through for anyone who wants it.
+        """
+        if self._persist_path is None:
+            return
+        with self._lock:
+            self.changes += 1
+            self._dirty = True
+            if self._flush_interval > 0:
+                self._schedule_flush()
+                return
+        self.flush()
+
+    def _schedule_flush(self) -> None:
+        """Arm the single pending flush timer. Caller holds the lock."""
+        if self._flush_timer is not None:
+            return
+        timer = threading.Timer(self._flush_interval, self._on_flush_timer)
+        timer.daemon = True
+        self._flush_timer = timer
+        timer.start()
+
+    def _on_flush_timer(self) -> None:
+        with self._lock:
+            self._flush_timer = None
+        self.flush()
+
+    def flush(self) -> None:
+        """Write pending changes now. A no-op when nothing changed."""
+        with self._lock:
+            timer, self._flush_timer = self._flush_timer, None
+            if timer is not None:
+                timer.cancel()
+            if not self._dirty:
+                return
+            self._dirty = False
+        self._write_now()
+
+    def stats(self) -> dict:
+        """Persistence/occupancy counters for the admin cache panel."""
+        with self._lock:
+            return {
+                "sessions": len(self._sessions),
+                "max_sessions": self._max_sessions,
+                "changes": self.changes,
+                "writes": self.writes,
+                "coalesced": max(0, self.changes - self.writes),
+                "flush_interval": self._flush_interval,
+                "pending": self._dirty,
+            }
+
+    def _write_now(self) -> None:
         """Atomically write the session map to disk (best-effort)."""
         if self._persist_path is None:
             return
@@ -254,7 +337,15 @@ class PersistentSessionStore:
             tmp.write_text(json.dumps(data), encoding="utf-8")
             tmp.replace(self._persist_path)
         except OSError:
-            pass  # Persistence is best-effort; never break a request over a disk error
+            # Persistence is best-effort; never break a request over a disk error.
+            # Stay dirty so the next change (or flush) retries instead of dropping
+            # everything written since the last successful write.
+            with self._lock:
+                self._dirty = True
+            return
+        with self._lock:
+            self.writes += 1
+            self.last_write_at = time.time()
 
     def get(self, key: str) -> PersistentSession:
         with self._lock:
