@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -51,6 +52,7 @@ __all__ = [
 
 SIGNALR_SEP = "\x1e"
 _WS_BASE = "wss://substrate.office.com/m365Copilot/Chathub"
+_log = logging.getLogger(__name__)
 
 # Chat-only WebSocket timeouts (do NOT affect cookie/CDP refresh in refresh_scheduler).
 # _WS_OPEN_TIMEOUT: cap the TCP+TLS+HTTP-upgrade handshake.
@@ -66,6 +68,13 @@ _WS_OPEN_TIMEOUT = 15.0
 # per-client via the idle_timeout constructor arg (admin global / per-user setting).
 _WS_IDLE_TIMEOUT = 300.0
 _SESSION_LOCK_TIMEOUT = 300.0
+
+# Images per turn a caller may hand us. The count is caller-controlled and every
+# image costs a serial upload (a remote one costs a download of up to 20 MiB plus
+# ~1.37x that as base64 in memory), so an uncapped list turns one request into an
+# arbitrarily long fetch-and-buffer loop. 10 matches the multi-image-in-turn
+# ceiling the reference implementation uses.
+_MAX_IMAGES_PER_TURN = 10
 
 _VARIANTS = (
     "EnableMcpServerWidgets,feature.EnableMcpServerWidgets,feature.EnableLuForChatCIQ,"
@@ -333,6 +342,16 @@ class SubstrateCopilotClient:
         skipped so the turn can still proceed as text-only."""
         if not images:
             return []
+        if len(images) > _MAX_IMAGES_PER_TURN:
+            # Never silently: the turn proceeds without the dropped images, so the
+            # log line is the only way to tell "the model ignored image 11" apart
+            # from "the model answered badly".
+            _log.warning(
+                "turn carries %d images; uploading the first %d and dropping the rest",
+                len(images),
+                _MAX_IMAGES_PER_TURN,
+            )
+            images = images[:_MAX_IMAGES_PER_TURN]
         from .substrate_upload import upload_image
         upload_conv_id = str(uuid.uuid4())
         annotations: list[dict] = []

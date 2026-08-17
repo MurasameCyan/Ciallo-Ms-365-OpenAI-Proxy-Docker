@@ -48,7 +48,7 @@
 |-----------|---------|------------|
 | **H1** 工具完成守卫恒真放行 | ➖ 不适用 | 我方没有 `agent_ledger` 这类「完成证据」守卫；工具调用原样转给客户端执行（`tool_call_parser.py`），不代为判定「已完成」 |
 | **H2** SSE 写无背压/无取消，坏客户端悬挂 goroutine + 上游 WS | ✅ 无此问题 | 结构性差异：客户端断开 → Starlette 关闭异步生成器 → 在 `yield` 处抛 `GeneratorExit` → `async with connect(...)` 退出并关闭上游 WS。我方无 `except BaseException`/`except GeneratorExit` 吞掉它（仅 `consumer_gate.py:105` 捕获 `CancelledError` 且立即 `raise`）。另有 WS idle 超时（可按 key 配置）兜底 |
-| **H3** 附件无数量/总量上限，单请求可到 GB 级 | ❗ 部分待办 | 单张有 20 MiB 上限（`substrate_upload.py:30`）、SSRF 已修、串行下载；但**每轮图片数量无上限**（`substrate_client.py:339` 直接遍历 `images`）→ 见待办 1 |
+| **H3** 附件无数量/总量上限，单请求可到 GB 级 | ✅ 已修 | 单张 20 MiB 上限（`substrate_upload.py:30`）、SSRF 已修（`6eabf04`）、串行下载；本轮补上**每轮数量上限** `_MAX_IMAGES_PER_TURN = 10`（`substrate_client.py`，超出截断并打 warning），见待办 1 |
 | **H4** token 到期并发刷新惊群 → 大面积 502 + 误标 expired | ✅ 无此问题 | `refresh_scheduler.ensure_fresh` 按账号 `asyncio.Lock`（`:425-430, :569`），且进锁后比对凭据快照：若并发者已换出新 token 就**直接复用**，不会二次兑换同一个 RT（`:573-580`）。另有 `refresh_token_retry_after` 退避，不会一次失败就落盘 expired |
 | **M1** mcp 包竞态/泄漏（死代码） | ➖ 不适用 | 无 mcp 包 |
 | **M2** 持久化非原子覆盖写 | ✅ 无此问题（一处残留） | 所有 JSON store 都是临时文件 + `Path.replace()` 原子替换：`key_store.py:182-184`、`account_store.py:294-296`、`session_store.py:337-340`、`call_log_store.py:21-23`、`metrics_store.py:24-26`。残留：`token_store.py:145-210` 的 profile 小文件（token/tone/prompt 各一个文件）是直接 `write_text` → 见待办 4 |
@@ -79,7 +79,7 @@
 
 ## 四、本轮新发现的待办（我方自己的问题，按建议顺序）
 
-1. **每轮图片数量无上限**（对应他们 H3 的另一半）。`substrate_client.py:339` 直接遍历客户端给的 `images`，单张 20 MiB 上限管不住数量：一个请求带 50 个远端 URL 就是 50 次串行下载 + 每张约 27 MiB 的 base64 驻留。SSRF 已挡内网，但「拿网关当下载器 + 撑内存」这条还开着。修法一行（截断到 N 张并记日志），属信任边界输入校验，优先做。
+1. ~~**每轮图片数量无上限**~~ ✅ **本轮已修**。`substrate_client._upload_images` 加 `_MAX_IMAGES_PER_TURN = 10`：超出的截断并打 warning（不静默）。此前 `substrate_client.py` 直接遍历客户端给的 `images`，单张 20 MiB 上限管不住数量——一个请求带 50 个远端 URL 就是 50 次串行下载 + 每张约 27 MiB 的 base64 驻留；SSRF 已挡内网，但「拿网关当下载器 + 撑内存」这条一直开着。回归：`tests/test_substrate_image_cap.py`
 2. **无任何安全响应头**。admin / user 页全内联 JS，没有 CDN 供应链面，但也没有 CSP / X-Frame-Options / X-Content-Type-Options / Referrer-Policy。内联 JS 意味着严格 CSP 需要 nonce 改造，成本不为零；先加 frame-ancestors / nosniff / Referrer-Policy 这几个零成本的。
 3. **`call_log.json` 明文存响应正文**（每条上限 8000 字符、共 100 条）。仅 admin 可读、原子写、有上限，但和加密的 `accounts.json` / `keys.json` 不是同一等级：数据卷或备份泄漏时这是唯一能直接读到业务对话内容的文件。选项：只存长度不存正文（默认）＋开关；或复用 `AccountCipher` 加密该字段。
 4. **`token_store.py` 的 profile 小文件非原子写**（`:145-210`，token / username / tone / tool_prompt / system_prompt 各一个文件）。断电/kill 撞上写入只会损坏单个字段文件而不是整个 store，危害远小于他们的 M2；但既然 JSON store 都走 tmp+replace 了，这几处顺手统一即可。
