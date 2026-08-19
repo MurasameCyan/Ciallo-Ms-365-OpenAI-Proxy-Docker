@@ -25,6 +25,7 @@
 - [个人版（消费者版 Copilot）账户](#个人版消费者版-copilot账户)
 - [企业版与个人版的差异](#企业版与个人版的差异)
 - [架构](#架构)
+- [开发与调试](#开发与调试)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -261,6 +262,8 @@ Web 页面显示 Token 有效性与刷新相关状态。
 | `GET POST /admin/capture-payload` | 查询 / 接收模式抓包数据 |
 | `POST /admin/capture-payload/clear` | 清空抓包数据 |
 | `GET POST /admin/capture-toggle` | 查询 / 切换抓包开关 |
+
+> `POST /admin/capture-payload` 是唯一**不校验管理员 cookie** 的管理端点：油猴脚本跨源推送带不了 cookie，所以由「抓包开关」把门 —— 开关关闭时一律 403。开着的时候任何人都能往这块面板里塞数据，抓完请关掉。收下的内容限 20 条 / 256 KB，展示前做 HTML 转义；`optionsSets` 不是数组也照常渲染（数组拼成 `a, b`，其他形状按 JSON / 原文显示），不会再让整块面板空白。
 
 ### 管理端点 — 共享 CDP（仅 `ENABLE_ADMIN_CDP=true` 时注册）
 
@@ -578,6 +581,15 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 指定工具名时会把工具列表**收窄到那一个**，因此模型即使照做也无法挑错工具。名字不存在时保留完整列表而非清空——客户端要的东西我们看不到，清空会让请求看起来像压根没带工具。
 
+### 运行权限（只读 / 完全）
+
+拦住模型主动交出的**改写类**工具调用。判定用工具名的大小写不敏感启发式：`Read`、`Grep`、`Glob`、`ls`、`SearchCodebase` 算只读，其余（写文件、跑命令等）在「只读」下被丢弃，并在回复里附一句说明本轮为什么没有 tool_call。它判不了自定义函数的真实副作用，**不是安全边界**，工具执行器那边仍要自己做权限与审批。
+
+- **全局默认** — `/admin` → 运行设置 → 「运行权限」。
+- **单 Key 覆盖** — 使用者在 `/` 用户自助页的「默认配置」里自己改，选「继承全局」＝跟随全局。
+- **全局值是上限，不是默认值**：per-key 值只能**收紧**。全局设成「只读」时，Key 上钉「完全」也照「只读」执行——这一栏唯一的写入口是用户自己的页面，若按普通覆盖解析，一条 `POST /user/tone` 就把运营方的策略解掉了。反过来全局「完全」时，Key 可以自己钉「只读」。
+- 想只给某个 Key 放宽，只能把全局放到「完全」再让其余 Key 各自钉「只读」：同一个字段里分不出「管理员批的例外」和「用户自己钉的」，所以放宽这件事刻意不做成可表达的。
+
 ## 个人版（消费者版 Copilot）账户
 
 除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。ChatAI Token 与 Cookie 可以自动保活（需 `-camoufox` 镜像，见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)），也可以手动重推。
@@ -706,6 +718,26 @@ Consumer refresh for <account-id>: re-minted <N> cookies
           └─ Consumer：账户专属 Camoufox profile → ChatAI Token + Cookie
               两条路径共享全局浏览器锁，同一时刻最多一个浏览器，峰值内存接近单租户
 ```
+
+## 开发与调试
+
+```bash
+uv sync --extra dev
+uv run pytest -q          # 全量约 1.3k 条，25s 左右
+```
+
+模板里的内联 JS 由多个 `template_*.py` 拼出来，`tests/test_template_inline_js_syntax.py` 用 `node --check` 兜住拼错；单个渲染函数的行为（例如抓包面板对畸形字段的容忍）可以像 `tests/test_admin_capture_options_sets.py` 那样把函数抠出来丢给 node 跑。装了 node 才跑，没装自动 skip。
+
+**临时文件一律放 `.probe/`**，该目录整个在 `.gitignore` 里，不要再散到仓库根目录：
+
+| 目录 | 放什么 |
+| ---- | ------ |
+| `.probe/` | 协议探针脚本（上游抓包、活体轮次、代理出口扫描等） |
+| `.probe/ui/` | 浏览器布局探针（Playwright，需 `channel="chrome"` + headed，headless 布局不一样） |
+| `.probe/shots/` | 探针截图 |
+| `.probe/out/` | 抓下来的请求 / 响应体、日志 |
+
+值得留下来复用的诊断脚本放 `tests/manual/`（进仓库；文件名不以 `test_` 开头，`pytest` 不会收集它们）；`.probe/` 只放用完就扔的。
 
 ## License
 
