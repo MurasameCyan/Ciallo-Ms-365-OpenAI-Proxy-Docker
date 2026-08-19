@@ -155,8 +155,7 @@ function applyUserLangDynamic(){
     if(ums){const dg=(_userMeCache.default_media_proxy_suffixes||[]).join(' ');ums.placeholder=dg?(t('user_media_suffix_inherit')+dg):''}
     renderToneOptions();
     const tone=document.getElementById('tone');if(tone){tone.value=_userMeCache.tone||tone.value||'Magic';refreshGlassSelect(tone)}
-    renderRunPermissionOptions();
-    const rp=document.getElementById('user-run-permission');if(rp){rp.value=_userMeCache.run_permission||_userMeCache.effective_run_permission||rp.value||'full';refreshGlassSelect(rp)}
+    setRunPermission(_userMeCache.run_permission,_userMeCache.default_run_permission);
     setToolPlanning(_userMeCache.tool_planning_mode,_userMeCache.default_tool_planning_mode);
   }catch(e){}
 }
@@ -175,9 +174,7 @@ async function loadMe(){
     renderToneOptions();
     document.getElementById('tone').value=d.tone||'Magic';
     refreshGlassSelect(document.getElementById('tone'));
-    renderRunPermissionOptions();
-    document.getElementById('user-run-permission').value=d.run_permission||d.effective_run_permission||'full';
-    refreshGlassSelect(document.getElementById('user-run-permission'));
+    setRunPermission(d.run_permission,d.default_run_permission);
     setToolPlanning(d.tool_planning_mode,d.default_tool_planning_mode);
     document.getElementById('user-model-alias').value=d.model_alias||'';
     userTimeZone=d.time_zone||'';

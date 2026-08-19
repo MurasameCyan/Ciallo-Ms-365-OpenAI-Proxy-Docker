@@ -10,6 +10,7 @@ from .account_serializers import account_public
 from .auth_helpers import _validate_password, _validate_username
 from .key_store import ApiKey
 from .response_helpers import _json_err
+from .routes_api_common import effective_run_permission
 from .runtime_settings import _RUN_PERMISSIONS
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
@@ -18,10 +19,6 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
     def _account_public(acc, bound_keys: list[ApiKey] | None = None) -> dict:
         keys = bound_keys if bound_keys is not None else app.state.key_store.list_for_account(acc.id)
         return account_public(acc, keys)
-
-    def _effective_run_permission(k: ApiKey | None) -> str:
-        value = ((getattr(k, "run_permission", "") if k is not None else "") or "").strip()
-        return value if value in _RUN_PERMISSIONS else getattr(app.state, "run_permission", "full")
 
     def _key_public(k: ApiKey) -> dict:
         """Serialize an API key for the admin UI (raw key shown so admin can copy)."""
@@ -39,7 +36,7 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             "tool_prompt": k.tool_prompt,
             "system_prompt": k.system_prompt,
             "run_permission": getattr(k, "run_permission", ""),
-            "effective_run_permission": _effective_run_permission(k),
+            "effective_run_permission": effective_run_permission(app, k),
             # 0 => inherit the global ceiling, negative => this key is unlimited.
             # Admin-only: exposing it on the user page would let a user lift their
             # own ceiling, which defeats the point of having one.

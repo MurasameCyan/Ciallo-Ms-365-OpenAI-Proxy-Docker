@@ -12,6 +12,7 @@ from .account_store import _normalize_consumer_account_id, extract_identity
 from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
+from .routes_api_common import effective_run_permission
 from .refresh_via_rt import (
     M365_REFRESH_CLIENT_IDS,
     account_matches_refresh_subject,
@@ -80,10 +81,6 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
     def _resolve_user_key(request: Request) -> ApiKey | None:
         return resolve_bearer_key(app, request)
 
-    def _effective_run_permission(k: ApiKey | None) -> str:
-        value = ((getattr(k, "run_permission", "") if k is not None else "") or "").strip()
-        return value if value in _RUN_PERMISSIONS else getattr(app.state, "run_permission", "full")
-
     @app.post("/user/login")
     async def user_login(request: Request) -> dict:
         """Exchange a username + password for the caller's raw API key.
@@ -150,7 +147,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             "model_alias": getattr(k, "model_alias", "") or getattr(app.state, "model_alias", resolved_settings.model_alias),
             "time_zone": getattr(k, "time_zone", "") or getattr(app.state, "time_zone", "Asia/Shanghai"),
             "run_permission": getattr(k, "run_permission", ""),
-            "effective_run_permission": _effective_run_permission(k),
+            "effective_run_permission": effective_run_permission(app, k),
             "default_run_permission": getattr(app.state, "run_permission", "full"),
             # "" => inherit; the page shows the global default next to that choice.
             "tool_planning_mode": getattr(k, "tool_planning_mode", ""),
@@ -207,7 +204,7 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         else:
             ws_idle_timeout_minutes = int(getattr(k, "ws_idle_timeout_minutes", 0) or 0)
         app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission, tool_planning_mode=planning, ws_idle_timeout_minutes=ws_idle_timeout_minutes, media_proxy_suffixes=media_proxy_suffixes)
-        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "tool_planning_mode": planning, "default_tool_planning_mode": tool_planning_mode(getattr(app.state, "tool_planning_mode", "auto")), "ws_idle_timeout_minutes": ws_idle_timeout_minutes, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
+        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "default_run_permission": getattr(app.state, "run_permission", "full"), "tool_planning_mode": planning, "default_tool_planning_mode": tool_planning_mode(getattr(app.state, "tool_planning_mode", "auto")), "ws_idle_timeout_minutes": ws_idle_timeout_minutes, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": effective_run_permission(app, app.state.key_store.get(k.id))}
 
     @app.post("/user/tool-prompt")
     async def user_set_tool_prompt(request: Request) -> dict:

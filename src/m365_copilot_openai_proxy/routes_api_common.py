@@ -376,9 +376,25 @@ def build_consumer_models_list(
 
 
 def effective_run_permission(app: FastAPI, k: ApiKey | None) -> str:
-    """Resolve the run permission for a key, falling back to the global setting."""
+    """Resolve the run permission for a key, bounded by the global setting.
+
+    The global value is a ceiling, not a default the key overrides: ``read_only``
+    is the admin's "this proxy never hands a client a mutating tool call", and the
+    per-key value is written by the caller's own /user page. Resolved as a plain
+    override, a user escaped that policy with one POST /user/tone -- and the
+    picker used to pin ``full`` on every save of the mode card, so a global later
+    tightened to ``read_only`` applied to nobody who had ever saved it.
+
+    Tightening still works in both directions, so a key may pin itself
+    ``read_only`` under a ``full`` global. What it cannot do is widen: a per-key
+    exception above a read-only global is deliberately not expressible, because
+    nothing distinguishes an admin's grant from the user's own pin.
+    """
     value = ((getattr(k, "run_permission", "") if k is not None else "") or "").strip()
-    return value if value in _RUN_PERMISSIONS else getattr(app.state, "run_permission", "full")
+    global_value = getattr(app.state, "run_permission", "full")
+    if value not in _RUN_PERMISSIONS:
+        return global_value
+    return "read_only" if "read_only" in (value, global_value) else value
 
 
 def effective_tool_planning_mode(app: FastAPI, k: ApiKey | None) -> str:

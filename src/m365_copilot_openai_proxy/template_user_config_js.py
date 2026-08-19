@@ -16,14 +16,31 @@ _USER_CONFIG_JS = """function renderToneOptions(){
   renderRunPermissionOptions();
   renderToolPlanningOptions();
 }
+// Same shape as tool planning below: '' means inherit. Without that option every
+// save of this card pinned a concrete value, so a global later tightened to
+// read_only applied to nobody who had ever touched the card -- and the pinned
+// value was 'full', i.e. the card handed out the very grant the global withheld.
+// Widening is refused server-side (effective_run_permission), so a 'full' pin
+// under a read_only global is not an escalation, just a lie on screen.
+let _defaultRunPermission='full';
 function renderRunPermissionOptions(){
   const sel=document.getElementById('user-run-permission');if(!sel)return;
   const cur=sel.value;
-  sel.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';
-  sel.value=cur==='read_only'||cur==='full'?cur:'full';
+  const opts=['read_only','full'];
+  sel.innerHTML='<option value="">'+t('run_permission_inherit')+'</option>'+opts.map(m=>'<option value="'+m+'">'+t('run_permission_'+m)+'</option>').join('');
+  sel.value=opts.indexOf(cur)>=0?cur:'';
+  const dl=document.getElementById('user-run-permission-default');
+  if(dl)dl.textContent=t('run_permission_'+(_defaultRunPermission||'full'));
   sel.dataset.glassReady='';
   const old=sel.nextElementSibling;if(old&&old.classList.contains('glass-select'))old.remove();
   initGlassSelect(sel.parentElement);
+  refreshGlassSelect(sel);
+}
+function setRunPermission(value,fallbackDefault){
+  if(fallbackDefault)_defaultRunPermission=fallbackDefault;
+  const sel=document.getElementById('user-run-permission');if(!sel)return;
+  renderRunPermissionOptions();
+  sel.value=value||'';
   refreshGlassSelect(sel);
 }
 // The global template's current value, so the "inherit" option can say what it
@@ -56,14 +73,14 @@ async function saveTone(){
   const tone=document.getElementById('tone').value;
   const model_alias=document.getElementById('user-model-alias')?.value||'';
   const time_zone=document.getElementById('user-time-zone')?.value||'';
-  const run_permission=document.getElementById('user-run-permission')?.value||'full';
+  const run_permission=document.getElementById('user-run-permission')?.value||'';
   const tool_planning_mode=document.getElementById('user-tool-planning')?.value||'';
   const media_proxy_suffixes=document.getElementById('user-media-suffix')?.value||'';
   const ws_idle_timeout_minutes=Number(document.getElementById('user-ws-idle-timeout')?.value||0);
   userTimeZone=time_zone;
   try{
     const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone,run_permission:run_permission,tool_planning_mode:tool_planning_mode,ws_idle_timeout_minutes:ws_idle_timeout_minutes,media_proxy_suffixes:media_proxy_suffixes})});
-    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const uwit=document.getElementById('user-ws-idle-timeout');if(uwit&&document.activeElement!==uwit)uwit.value=(d.ws_idle_timeout_minutes>0)?d.ws_idle_timeout_minutes:'';const rp=document.getElementById('user-run-permission');if(rp){rp.value=d.run_permission||d.effective_run_permission||'full';refreshGlassSelect(rp)}setToolPlanning(d.tool_planning_mode,d.default_tool_planning_mode);const ums=document.getElementById('user-media-suffix');if(ums&&document.activeElement!==ums)ums.value=(d.media_proxy_suffixes||[]).join('\\n');flash('tone-msg')}
+    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const uwit=document.getElementById('user-ws-idle-timeout');if(uwit&&document.activeElement!==uwit)uwit.value=(d.ws_idle_timeout_minutes>0)?d.ws_idle_timeout_minutes:'';setRunPermission(d.run_permission,d.default_run_permission);setToolPlanning(d.tool_planning_mode,d.default_tool_planning_mode);const ums=document.getElementById('user-media-suffix');if(ums&&document.activeElement!==ums)ums.value=(d.media_proxy_suffixes||[]).join('\\n');flash('tone-msg')}
   }catch(e){}
 }
 async function saveToolPrompt(){
