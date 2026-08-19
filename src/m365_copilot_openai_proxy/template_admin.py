@@ -663,6 +663,29 @@ function renderCallLog(logs){
       const toneBadge=l.tone?'<span class="tone-badge" title="'+esc(l.tone)+'">'+esc(_toneLabel(l.tone))+'</span>':'';
       const tr=l.tool_calls_result&&l.tool_calls_result.length?
         '<span style="color:#22c55e">'+t('tool_calls_parsed')+': '+l.tool_calls_result.join(', ')+'</span>':'';
+      // Tools were declared but this tone is measured to ignore the contract, and
+      // none came back: the one case where an ordinary-looking 200 was actually a
+      // degraded turn. Say so here, where a "it's broken" report gets diagnosed.
+      // "flaky" gets its own line because the follow-up differs -- retry, not
+      // switch models (Consumer mode smart complied 1 turn in 6).
+      // Not shown for a declined or a routed turn: the measured native status did
+      // not decide either outcome, and tcSkip/tcPlan below already name what did.
+      // The raw status stays in the copyable record either way.
+      const tcNone=!(l.tool_calls_result&&l.tool_calls_result.length)&&!l.tool_declined&&l.tool_planning!=='router'&&(l.tool_calling==='unsupported'||l.tool_calling==='flaky')?
+        '<span style="color:#f59e0b">'+t(l.tool_calling==='flaky'?'tool_calling_flaky':'tool_calling_unsupported')+'</span>':'';
+      // A call was produced and then thrown away for not matching the client's own
+      // tool definition. Red, not orange: unlike the note above this is a concrete
+      // defect in one turn, and the reason names the offending argument.
+      const tcBad=l.tool_calls_rejected&&l.tool_calls_rejected.length?
+        '<span style="color:#ef4444">'+t('tool_calls_rejected')+': '+esc(l.tool_calls_rejected.join(' / '))+'</span>':'';
+      // The model said outright that no tool was needed, which is why this turn has
+      // no tool_calls. Distinguishes a correct no-action turn from a broken one.
+      const tcSkip=l.tool_declined?
+        '<span style="color:var(--faint)">'+t('tool_declined')+'</span>':'';
+      // Which injection shape planned this turn. Only shown when it was the router,
+      // because that is the one that costs an extra upstream turn.
+      const tcPlan=l.tool_planning==='router'?
+        '<span style="color:var(--faint)">'+t('tool_planning_label')+': router</span>':'';
       const fullKey='f'+i;
       // Full single-record text: call info + repr + text
       const fullParts=[];
@@ -672,6 +695,10 @@ function renderCallLog(logs){
       fullParts.push('mode: '+(l.stream?'stream':'sync'));
       fullParts.push('tools: '+tc);
       if(l.tool_calls_result&&l.tool_calls_result.length)fullParts.push('tool_calls_result: '+l.tool_calls_result.join(', '));
+      if(l.tool_calling)fullParts.push('tool_calling: '+l.tool_calling);
+      if(l.tool_calls_rejected&&l.tool_calls_rejected.length)fullParts.push('tool_calls_rejected: '+l.tool_calls_rejected.join(' / '));
+      if(l.tool_declined)fullParts.push('tool_declined: yes');
+      if(l.tool_planning)fullParts.push('tool_planning: '+l.tool_planning);
       if(l.response_len!=null)fullParts.push('resp: '+l.response_len+' chars');
       if(l.response_repr!=null)fullParts.push('repr:\\n'+l.response_repr);
       if(l.response_text!=null)fullParts.push('text:\\n'+l.response_text);
@@ -684,6 +711,10 @@ function renderCallLog(logs){
         '<div style="color:var(--strong);margin-top:2px">tools: <span style="color:#38bdf8">'+tc+'</span></div>'+
         (l.incremental!=null?'<div style="color:var(--faint);margin-top:2px">incremental: <span style="color:'+(l.incremental?'#22c55e':'#f59e0b')+'">'+(l.incremental?'yes':'no')+'</span> &nbsp; turn: '+(l.turn_count==null?'-':l.turn_count)+'</div>':'')+
         (tr?'<div style="margin-top:2px">'+tr+'</div>':'')+
+        (tcNone?'<div style="margin-top:2px">'+tcNone+'</div>':'')+
+        (tcBad?'<div style="margin-top:2px">'+tcBad+'</div>':'')+
+        (tcSkip?'<div style="margin-top:2px">'+tcSkip+'</div>':'')+
+        (tcPlan?'<div style="margin-top:2px">'+tcPlan+'</div>':'')+
         (l.response_len?'<div style="color:var(--faint);margin-top:2px">resp: '+l.response_len+' chars</div>':'')+
         rawView+
         '</div>';

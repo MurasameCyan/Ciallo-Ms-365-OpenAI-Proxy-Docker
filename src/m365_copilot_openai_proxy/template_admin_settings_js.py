@@ -22,7 +22,20 @@ function renderTone(){
   if(sig===window.__toneSig)return;
   window.__toneSig=sig;
   const lbl=o=>(lang==='en'?(o.label_en||o.label):(o.label_zh||o.label))||o.label;
-  sel.innerHTML=opts.map(o=>'<option value="'+o.value+'">'+lbl(o)+'</option>').join('');
+  // Tool-calling status: a coloured wrench (green verified / amber routed-or-flaky
+  // / red unsupported), painted by the glass select from data-tc. It used to be a
+  // symbol glued onto the label -- ' 🔧✕' -- which sat exactly where a select's
+  // clear button sits and was read as one, and the status has a tooltip either way
+  // because colour on its own is not a signal everyone can see.
+  // Unmarked means "not measured" (server sends 'unknown'), never "measured fine".
+  const TIPS={verified:'tc_tip_verified',router:'tc_tip_router',flaky:'tc_tip_flaky',unsupported:'tc_tip_unsupported'};
+  sel.innerHTML='';
+  opts.forEach(o=>{
+    const op=document.createElement('option');
+    op.value=o.value;op.textContent=lbl(o);
+    if(TIPS[o.tool_calling]){op.dataset.tc=o.tool_calling;op.title=t(TIPS[o.tool_calling])}
+    sel.appendChild(op);
+  });
   sel.value=opts.some(o=>o.value===cur)?cur:(opts[0]?opts[0].value:'');
   initGlassSelect(sel.parentElement);
   refreshGlassSelect(sel);
@@ -50,7 +63,7 @@ function renderRuntimeSettings(s){
   try{
     s=s||{};
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??''};
-    set('runtime-time-zone',s.time_zone);set('runtime-model-alias',s.model_alias);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-auto-cleanup-minutes',s.auto_cleanup_minutes);set('runtime-session-idle-hours',s.session_idle_hours);set('runtime-cloud-cleanup-idle-hours',s.cloud_cleanup_idle_hours);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-rate-limit-rpm',s.rate_limit_rpm);set('runtime-rate-limit-burst',s.rate_limit_burst);set('runtime-account-concurrency',s.account_concurrency);set('runtime-proxy-url',s.proxy_url);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
+    set('runtime-time-zone',s.time_zone);set('runtime-refresh-before',s.refresh_before_seconds);set('runtime-idle-timeout',s.idle_timeout_minutes);set('runtime-ws-idle-timeout',s.ws_idle_timeout_minutes);set('runtime-keepalive-check',s.keepalive_check_minutes);set('runtime-cookie-keepalive-before',s.cookie_keepalive_before_hours);set('runtime-auto-cleanup-minutes',s.auto_cleanup_minutes);set('runtime-session-idle-hours',s.session_idle_hours);set('runtime-cloud-cleanup-idle-hours',s.cloud_cleanup_idle_hours);set('runtime-account-cdp-port-base',s.account_cdp_port_base);set('runtime-rate-limit-rpm',s.rate_limit_rpm);set('runtime-rate-limit-burst',s.rate_limit_burst);set('runtime-account-concurrency',s.account_concurrency);set('runtime-proxy-url',s.proxy_url);set('runtime-log-level',s.log_level);set('runtime-call-log-limit',s.call_log_limit);
     const ll=document.getElementById('runtime-log-level');if(ll)refreshGlassSelect(ll);
     const ms=document.getElementById('media-suffix-input');if(ms&&document.activeElement!==ms)ms.value=(s.media_proxy_suffixes||[]).join('\\n');
     const to=document.getElementById('tone-options-input');if(to&&document.activeElement!==to)to.value=_toneOptionsToText(s.tone_options||[]);
@@ -58,6 +71,7 @@ function renderRuntimeSettings(s){
     const mt=document.getElementById('media-proxy-ttl-input');if(mt&&document.activeElement!==mt)mt.value=s.media_proxy_ttl_seconds?Math.max(1,Math.round(s.media_proxy_ttl_seconds/86400)):'';
     const ar=document.getElementById('runtime-auto-refresh');if(ar){ar.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ar.value=s.auto_refresh?'true':'false';initGlassSelect(ar.parentElement);refreshGlassSelect(ar)};
     const rp=document.getElementById('runtime-run-permission');if(rp){rp.innerHTML='<option value="read_only">'+t('run_permission_read_only')+'</option><option value="full">'+t('run_permission_full')+'</option>';rp.value=s.run_permission||'full';initGlassSelect(rp.parentElement);refreshGlassSelect(rp)};
+    const tp=document.getElementById('runtime-tool-planning-mode');if(tp){tp.innerHTML='<option value="auto">'+t('tool_planning_auto')+'</option><option value="native">'+t('tool_planning_native')+'</option><option value="router">'+t('tool_planning_router')+'</option>';tp.value=s.tool_planning_mode||'auto';initGlassSelect(tp.parentElement);refreshGlassSelect(tp)};
     const uv=document.getElementById('runtime-user-log-verbose');if(uv){uv.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';uv.value=s.user_log_verbose?'true':'false';initGlassSelect(uv.parentElement);refreshGlassSelect(uv)};
     const ue=document.getElementById('runtime-user-log-errors');if(ue){ue.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ue.value=s.user_log_errors?'true':'false';initGlassSelect(ue.parentElement);refreshGlassSelect(ue)};
     const sa=document.getElementById('runtime-suppress-access-log');if(sa){sa.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';sa.value=s.suppress_access_log?'true':'false';initGlassSelect(sa.parentElement);refreshGlassSelect(sa)};
@@ -69,9 +83,10 @@ async function saveRuntimeSettings(btnId){
   if(btn){btn.disabled=true;btn.textContent='...'}
   const body={...__runtimeSettings};
   const put=(key,id,cast)=>{const el=document.getElementById(id);if(el)body[key]=cast?cast(el.value):el.value};
-  put('time_zone','runtime-time-zone');put('model_alias','runtime-model-alias');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('auto_cleanup_minutes','runtime-auto-cleanup-minutes',v=>Number(v||0));put('session_idle_hours','runtime-session-idle-hours',v=>Number(v||0));put('cloud_cleanup_idle_hours','runtime-cloud-cleanup-idle-hours',v=>Number(v||0));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('rate_limit_rpm','runtime-rate-limit-rpm',v=>Number(v||0));put('rate_limit_burst','runtime-rate-limit-burst',v=>Number(v||15));put('account_concurrency','runtime-account-concurrency',v=>Number(v||0));put('proxy_url','runtime-proxy-url');put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
+  put('time_zone','runtime-time-zone');put('refresh_before_seconds','runtime-refresh-before',v=>Number(v||0));put('idle_timeout_minutes','runtime-idle-timeout',v=>Number(v||1));put('ws_idle_timeout_minutes','runtime-ws-idle-timeout',v=>Number(v||1));put('keepalive_check_minutes','runtime-keepalive-check',v=>Number(v||1));put('cookie_keepalive_before_hours','runtime-cookie-keepalive-before',v=>Number(v||1));put('auto_cleanup_minutes','runtime-auto-cleanup-minutes',v=>Number(v||0));put('session_idle_hours','runtime-session-idle-hours',v=>Number(v||0));put('cloud_cleanup_idle_hours','runtime-cloud-cleanup-idle-hours',v=>Number(v||0));put('account_cdp_port_base','runtime-account-cdp-port-base',v=>Number(v||9322));put('rate_limit_rpm','runtime-rate-limit-rpm',v=>Number(v||0));put('rate_limit_burst','runtime-rate-limit-burst',v=>Number(v||15));put('account_concurrency','runtime-account-concurrency',v=>Number(v||0));put('proxy_url','runtime-proxy-url');put('log_level','runtime-log-level');put('call_log_limit','runtime-call-log-limit',v=>Number(v||100));
   const ar=document.getElementById('runtime-auto-refresh');if(ar)body.auto_refresh=ar.value==='true';
   const rp=document.getElementById('runtime-run-permission');if(rp)body.run_permission=rp.value;
+  const tp=document.getElementById('runtime-tool-planning-mode');if(tp)body.tool_planning_mode=tp.value;
   const uv=document.getElementById('runtime-user-log-verbose');if(uv)body.user_log_verbose=uv.value==='true';
   const ue=document.getElementById('runtime-user-log-errors');if(ue)body.user_log_errors=ue.value==='true';
   const sa=document.getElementById('runtime-suppress-access-log');if(sa)body.suppress_access_log=sa.value==='true';
@@ -84,6 +99,10 @@ async function saveRuntimeSettings(btnId){
     if(!r.ok){const d=await r.json().catch(()=>({}));const sp=document.getElementById('runtime-settings-saved');if(sp){sp.style.display='';sp.style.color='#ef4444';sp.style.fontSize='.75rem';sp.textContent=(d.error&&d.error.message)||'error'}if(btn){btn.disabled=false;btn.textContent=oldText}return;}
     const sp0=document.getElementById('runtime-settings-saved');if(sp0){sp0.textContent='';sp0.style.display='none'}
     const d=await r.json();if(d.settings)__runtimeSettings={...d.settings};
+    // Tool planning is one of the fields just saved, and it decides each mode's
+    // effective tool-calling status -- so re-pull the picker rather than leave its
+    // wrenches showing the previous mode's answer until the next page load.
+    window.__toneSig='';loadTone();
     if(btn){btn.textContent=t('tone_saved');setTimeout(()=>{btn.disabled=false;btn.textContent=oldText},1500)}
   }catch(e){if(btn){btn.disabled=false;btn.textContent=oldText}}
 }

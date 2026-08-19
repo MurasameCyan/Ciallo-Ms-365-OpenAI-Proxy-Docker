@@ -24,6 +24,7 @@ from .models import (
     ToolFunction,
     TranslatedRequest,
 )
+from .tool_call_parser import _NO_TOOL_MARKER
 
 
 def flatten_content(content: str | list[ContentPart] | None) -> str:
@@ -310,18 +311,13 @@ def _tool_choice_instruction(mode: str, name: str | None, allow_parallel: bool) 
     return "\n".join(lines) if lines else None
 
 
-def _format_tools_prompt(
-    tools,
-    system_override: str | None = None,
-    choice: tuple[str, str | None, bool] | None = None,
-) -> str | None:
-    """Format tool definitions into a system-level prompt so the model knows about available tools.
+def tool_description_lines(tools) -> list[str]:
+    """One human-readable block per tool: name, description, parameter signatures.
 
-    The static instruction block can be overridden by the user (system_override); the
-    dynamic tool list is always appended automatically.
+    Shared by the two injection shapes -- the native fenced-block contract below
+    and the router prompt in ``tool_router`` -- so a tool reads identically to the
+    model whichever mode is planning the turn.
     """
-    if not tools:
-        return None
     tool_descriptions = []
     for tool in tools:
         func = tool.function
@@ -356,10 +352,34 @@ def _format_tools_prompt(
             if param_parts:
                 desc += "\n  Parameters:\n" + "\n".join(param_parts)
         tool_descriptions.append(desc)
+    return tool_descriptions
+
+
+def _format_tools_prompt(
+    tools,
+    system_override: str | None = None,
+    choice: tuple[str, str | None, bool] | None = None,
+) -> str | None:
+    """Format tool definitions into a system-level prompt so the model knows about available tools.
+
+    The static instruction block can be overridden by the user (system_override); the
+    dynamic tool list is always appended automatically.
+    """
+    if not tools:
+        return None
+    tool_descriptions = tool_description_lines(tools)
     base = (system_override or "").strip() or _DEFAULT_TOOL_SYSTEM_PROMPT
     out = (
         base + "\n\n"
         "Available action types (tool_name and arguments):\n" + "\n".join(tool_descriptions)
+    )
+    # Appended outside the admin-overridable base so the signal survives a custom
+    # system prompt. Without it, "no tool_call in the reply" is ambiguous between a
+    # deliberate no-action answer and a model that ignored the contract.
+    out += (
+        "\n\nIf the request needs no action at all, answer it normally and end your "
+        f"reply with the single token {_NO_TOOL_MARKER} on its own line, so the host "
+        "can tell a deliberate no-action answer apart from a missed action request."
     )
     # A forced choice goes last so it sits closest to the prompt, matching where
     # the [FORMAT] block puts the instructions the model follows most reliably.

@@ -157,6 +157,7 @@ function applyUserLangDynamic(){
     const tone=document.getElementById('tone');if(tone){tone.value=_userMeCache.tone||tone.value||'Magic';refreshGlassSelect(tone)}
     renderRunPermissionOptions();
     const rp=document.getElementById('user-run-permission');if(rp){rp.value=_userMeCache.run_permission||_userMeCache.effective_run_permission||rp.value||'full';refreshGlassSelect(rp)}
+    setToolPlanning(_userMeCache.tool_planning_mode,_userMeCache.default_tool_planning_mode);
   }catch(e){}
 }
 async function loadMe(){
@@ -177,6 +178,7 @@ async function loadMe(){
     renderRunPermissionOptions();
     document.getElementById('user-run-permission').value=d.run_permission||d.effective_run_permission||'full';
     refreshGlassSelect(document.getElementById('user-run-permission'));
+    setToolPlanning(d.tool_planning_mode,d.default_tool_planning_mode);
     document.getElementById('user-model-alias').value=d.model_alias||'';
     userTimeZone=d.time_zone||'';
     document.getElementById('user-time-zone').value=userTimeZone;

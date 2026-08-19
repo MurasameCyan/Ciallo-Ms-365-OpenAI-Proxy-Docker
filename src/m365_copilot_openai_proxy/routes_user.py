@@ -19,6 +19,7 @@ from .refresh_via_rt import (
     normalize_microsoft_id,
 )
 from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
+from .tone_options import TOOL_PLANNING_MODES, tool_planning_mode
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 from .translator import default_tool_system_prompt
 from .runtime_flags import elog
@@ -151,6 +152,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             "run_permission": getattr(k, "run_permission", ""),
             "effective_run_permission": _effective_run_permission(k),
             "default_run_permission": getattr(app.state, "run_permission", "full"),
+            # "" => inherit; the page shows the global default next to that choice.
+            "tool_planning_mode": getattr(k, "tool_planning_mode", ""),
+            "default_tool_planning_mode": tool_planning_mode(getattr(app.state, "tool_planning_mode", "auto")),
             "ws_idle_timeout_minutes": int(getattr(k, "ws_idle_timeout_minutes", 0) or 0),
             "default_ws_idle_timeout_minutes": int(getattr(app.state, "ws_idle_timeout_minutes", 0) or 0),
             "media_proxy_suffixes": list(getattr(k, "media_proxy_suffixes", []) or []),
@@ -178,6 +182,12 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         run_permission = str(body.get("run_permission", getattr(k, "run_permission", ""))).strip()
         if run_permission and run_permission not in _RUN_PERMISSIONS:
             return _json_err(400, "Invalid run permission")
+        # Per-user tool planning: "" => inherit the global template. A plain
+        # override, not a ceiling like run_permission -- see
+        # routes_api_common.effective_tool_planning_mode for why.
+        planning = str(body.get("tool_planning_mode", getattr(k, "tool_planning_mode", ""))).strip().lower()
+        if planning and planning not in TOOL_PLANNING_MODES:
+            return _json_err(400, "Invalid tool planning mode")
         # Per-user media suffix override: empty => inherit global; non-empty =>
         # fully replace the global suffixes for this user's signed media URLs.
         if "media_proxy_suffixes" in body:
@@ -196,8 +206,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                 ws_idle_timeout_minutes = max(1, ws_idle_timeout_minutes)
         else:
             ws_idle_timeout_minutes = int(getattr(k, "ws_idle_timeout_minutes", 0) or 0)
-        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission, ws_idle_timeout_minutes=ws_idle_timeout_minutes, media_proxy_suffixes=media_proxy_suffixes)
-        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "ws_idle_timeout_minutes": ws_idle_timeout_minutes, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
+        app.state.key_store.update(k.id, tone=tone, model_alias=model_alias, time_zone=time_zone, run_permission=run_permission, tool_planning_mode=planning, ws_idle_timeout_minutes=ws_idle_timeout_minutes, media_proxy_suffixes=media_proxy_suffixes)
+        return {"status": "ok", "tone": tone, "model_alias": model_alias, "time_zone": time_zone, "run_permission": run_permission, "tool_planning_mode": planning, "default_tool_planning_mode": tool_planning_mode(getattr(app.state, "tool_planning_mode", "auto")), "ws_idle_timeout_minutes": ws_idle_timeout_minutes, "media_proxy_suffixes": media_proxy_suffixes, "effective_run_permission": _effective_run_permission(app.state.key_store.get(k.id))}
 
     @app.post("/user/tool-prompt")
     async def user_set_tool_prompt(request: Request) -> dict:

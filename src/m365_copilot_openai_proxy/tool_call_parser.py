@@ -3,6 +3,13 @@ from __future__ import annotations
 import json
 import re as _re
 import uuid
+from collections.abc import Mapping
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError, best_match
+from jsonschema.validators import validator_for
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 _READ_ONLY_INTENT_RE = _re.compile(
     r"(只分析|仅分析|只读|不要修改|不要改|不要写|不要保存|不要创建|不要删除|不要执行|不要运行|不修改文件|不改文件|"
@@ -25,6 +32,97 @@ def _tool_call_name(tool_call: dict) -> str:
 
 def _filter_read_only_tool_calls(tool_calls: list[dict]) -> list[dict]:
     return [tc for tc in tool_calls if _tool_call_name(tc).lower() in _READ_ONLY_TOOL_NAMES]
+
+
+def _filter_schema_valid_tool_calls(
+    tool_calls: list[dict], schemas: Mapping[str, dict | None]
+) -> tuple[list[dict], list[str]]:
+    """Drop calls the client cannot execute, returning ``(kept, reasons)``.
+
+    Both checks are against what the client itself declared: the function has to
+    be one it offered, and the arguments have to satisfy its own JSON Schema. Our
+    tool_calls are *parsed out of prose*, so a hallucinated name or a missing
+    required argument is routine -- and forwarding one just moves the failure to
+    the client, where it surfaces as a validation error with no hint that the
+    model, not the client, got it wrong. ``reasons`` exists so the caller reports
+    the drop instead of turning it into another silent degradation.
+
+    Deliberately permissive about anything it cannot judge: a tool with no
+    declared schema, and a schema jsonschema refuses to compile or resolve, both
+    pass through. Rejecting on our own uncertainty would break tool calling for a
+    client whose schema we merely failed to understand. The Responses route makes
+    the opposite call in ``_resolve_responses_tool_calls`` and is right to: it
+    gates schemas at request time (400 on unresolvable/too-deep) and only enforces
+    tools the client marked ``strict``, so there a compile failure is impossible
+    rather than unjudgeable.
+
+    ponytail: arguments that are not JSON at all are kept unchecked -- an
+    unusable call, but a different defect from this one. Fix it by making
+    _coerce_tool_call reject non-object arguments outright.
+    """
+    kept: list[dict] = []
+    reasons: list[str] = []
+    for call in tool_calls:
+        name = _tool_call_name(call)
+        if name not in schemas:
+            offered = ", ".join(sorted(schemas)) or "（本轮未声明任何工具）"
+            reasons.append(
+                f"{name or '(未命名)'} 不在本轮声明的工具里（可用：{offered}）"
+            )
+            continue
+        schema = schemas.get(name)
+        if not isinstance(schema, dict) or not schema:
+            kept.append(call)
+            continue
+        try:
+            arguments = json.loads(call.get("function", {}).get("arguments") or "")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            kept.append(call)
+            continue
+        try:
+            validator = validator_for(schema, default=Draft202012Validator)(
+                schema, registry=Registry()
+            )
+            error = best_match(validator.iter_errors(arguments))
+        except (RecursionError, Unresolvable, SchemaError, TypeError, AttributeError):
+            kept.append(call)
+            continue
+        if error is None:
+            kept.append(call)
+            continue
+        where = "/".join(str(part) for part in error.absolute_path) or "arguments"
+        reasons.append(f"{name} 的参数不符合声明的 schema（{where}：{error.message}）")
+    return kept, reasons
+
+
+# Explicit "I considered the tools and none is needed" signal, borrowed from
+# HEXUXIU/M365-Copilot2API's router prompt. Absence of tool_calls alone cannot
+# tell a deliberate no-action answer apart from a tone that ignored the injected
+# contract entirely, and those two need opposite advice: the first is a correct
+# turn, the second means "switch models". Models decorate the token
+# (**NO_TOOL_NEEDED**, trailing period), so match loosely and strip what we match.
+_NO_TOOL_MARKER = "NO_TOOL_NEEDED"
+_NO_TOOL_MARKER_RE = _re.compile(
+    r"[*_`\s]*\b" + _NO_TOOL_MARKER + r"\b[*_`]*[.。!！]?", _re.IGNORECASE
+)
+
+
+def split_no_tool_marker(text: str) -> tuple[str, bool]:
+    """Split the explicit no-action signal off a turn: ``(text_without, declined)``.
+
+    ``declined`` is only ever additional certainty -- a model that forgets the
+    token leaves us exactly where we were before, i.e. "unknown".
+    """
+    if not text or _NO_TOOL_MARKER.lower() not in text.lower():
+        return text, False
+    stripped = _NO_TOOL_MARKER_RE.sub("", text).strip()
+    # A reply that is *nothing but* the token is not a deliberate no-action answer,
+    # it is a malformed turn (the model answered the protocol instead of the user).
+    # Leave it visible so the existing shortfall reporting still fires.
+    if not stripped:
+        return text, False
+    return stripped, True
+
 
 # Primary: fenced ```tool_call blocks. Fallback: ```json blocks that look like a tool call.
 # We only match the OPENING fence + optional language tag with a regex; the JSON

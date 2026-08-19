@@ -245,3 +245,24 @@ def test_user_log_flags_web_override_persists_and_updates_flags(tmp_path):
     assert reloaded.get("/admin/runtime-settings").json()["settings"]["user_log_verbose"] is False
 
     runtime_flags.set_flags(verbose=True, errors=True)
+
+
+def test_run_permission_web_override_applies_without_restart(tmp_path):
+    from m365_copilot_openai_proxy.routes_api_common import effective_run_permission
+
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
+    client = TestClient(app)
+    assert effective_run_permission(app, None) == "full"
+
+    response = client.post("/admin/runtime-settings", json={"run_permission": "read_only"})
+
+    assert response.status_code == 200
+    # Asserted through the reader every turn actually calls: the saved value used
+    # to reach runtime_settings while app.state kept the boot value, so a switch
+    # to read_only persisted, displayed, and still executed writes until restart.
+    assert effective_run_permission(app, None) == "read_only"
+
+    rejected = client.post("/admin/runtime-settings", json={"run_permission": "read-only"})
+
+    assert rejected.status_code == 400
+    assert effective_run_permission(app, None) == "read_only"

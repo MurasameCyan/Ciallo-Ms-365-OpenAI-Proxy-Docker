@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .template_assets import _DONUT_SPIN_CSS, _GLASS_SELECT_CSS, _NO_SPIN_CSS, _STILL_DECOR_CSS
+from .template_assets import _DONUT_SPIN_CSS, _FIELD_TIP_CSS, _GLASS_SELECT_CSS, _NO_SPIN_CSS, _STILL_DECOR_CSS
 
 _ADMIN_CSS = """:root{--cyan:#60f2ff;--violet:#8c6bff;--pink:#ff5edb;--gold:#ffd76f;--muted:#9aa7d1;--line:rgba(108,137,255,.24);
 --bg:radial-gradient(circle at 18% 12%,rgba(96,242,255,.16),transparent 26%),radial-gradient(circle at 84% 10%,rgba(140,107,255,.2),transparent 24%),radial-gradient(circle at 50% 92%,rgba(255,94,219,.14),transparent 26%),linear-gradient(135deg,#040612 0%,#090d1f 45%,#03050d 100%);
@@ -154,12 +154,13 @@ body[data-theme="light"] .tone-select{color:#1c1c1e;background-color:rgba(255,25
 body[data-theme="light"] .tone-select option{background:#fff;color:#1c1c1e}
 """ + _GLASS_SELECT_CSS + _NO_SPIN_CSS + """
 .view-settings .tone-select+.glass-select{margin-left:auto}
-.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(3,minmax(180px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.75rem!important;align-items:start!important;max-width:1080px!important}
+.runtime-settings-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))!important;gap:1rem 1.1rem!important;margin-top:.75rem!important;align-items:start!important;max-width:1180px!important}
 .runtime-settings-grid>div{display:grid!important;gap:1rem!important}
-.runtime-settings-grid .runtime-field-label{display:flex!important;flex-direction:column!important;gap:.55rem!important;min-width:0!important;font-size:.95rem!important;font-weight:800!important;color:var(--strong)!important}
+.runtime-settings-grid .runtime-field-label{position:relative!important;display:flex!important;flex-direction:column!important;gap:.55rem!important;min-width:0!important;font-size:.95rem!important;font-weight:800!important;color:var(--strong)!important}
 .runtime-settings-grid input{min-height:44px!important;margin-top:0!important;padding:11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important;background:var(--inner)!important;border:1px solid var(--inner-border)!important;color:var(--strong)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.12)!important}
 .runtime-settings-grid .glass-select{display:block!important;width:100%!important;min-width:0!important;margin-left:0!important}
 .runtime-settings-grid .glass-select-trigger{min-height:44px!important;padding:11px 36px 11px 13px!important;border-radius:10px!important;font-size:.95rem!important;font-weight:700!important}
+""" + _FIELD_TIP_CSS + """
 .ports-logs-card{overflow:visible!important;z-index:10}
 .ports-logs-card:has(.glass-select.open){z-index:3000!important}
 .ports-logs-card label{font-size:.875rem!important;font-weight:800!important;color:var(--strong)!important}

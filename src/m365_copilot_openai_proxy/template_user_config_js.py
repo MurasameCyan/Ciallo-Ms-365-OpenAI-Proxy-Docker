@@ -14,6 +14,7 @@ _USER_CONFIG_JS = """function renderToneOptions(){
   initGlassSelect(sel.parentElement);
   refreshGlassSelect(sel);
   renderRunPermissionOptions();
+  renderToolPlanningOptions();
 }
 function renderRunPermissionOptions(){
   const sel=document.getElementById('user-run-permission');if(!sel)return;
@@ -25,18 +26,44 @@ function renderRunPermissionOptions(){
   initGlassSelect(sel.parentElement);
   refreshGlassSelect(sel);
 }
+// The global template's current value, so the "inherit" option can say what it
+// resolves to -- /user is the only place a user ever sees the global setting.
+let _defaultToolPlanning='auto';
+function renderToolPlanningOptions(){
+  const sel=document.getElementById('user-tool-planning');if(!sel)return;
+  const cur=sel.value;
+  const opts=['auto','native','router'];
+  sel.innerHTML='<option value="">'+t('tool_planning_inherit')+'</option>'+opts.map(m=>'<option value="'+m+'">'+t('tool_planning_'+m)+'</option>').join('');
+  sel.value=opts.indexOf(cur)>=0?cur:'';
+  // The global's own value goes in the tip, not in the option label: spelled out
+  // there it wrapped out of a 180px trigger, and the tip has room to name it.
+  const dl=document.getElementById('user-tool-planning-default');
+  if(dl)dl.textContent=t('tool_planning_'+(_defaultToolPlanning||'auto'));
+  sel.dataset.glassReady='';
+  const old=sel.nextElementSibling;if(old&&old.classList.contains('glass-select'))old.remove();
+  initGlassSelect(sel.parentElement);
+  refreshGlassSelect(sel);
+}
+function setToolPlanning(value,fallbackDefault){
+  if(fallbackDefault)_defaultToolPlanning=fallbackDefault;
+  const sel=document.getElementById('user-tool-planning');if(!sel)return;
+  renderToolPlanningOptions();
+  sel.value=value||'';
+  refreshGlassSelect(sel);
+}
 function flash(id){const s=document.getElementById(id);if(!s)return;s.textContent=t('saved');s.style.opacity='1';setTimeout(()=>{s.style.opacity='0'},1500)}
 async function saveTone(){
   const tone=document.getElementById('tone').value;
   const model_alias=document.getElementById('user-model-alias')?.value||'';
   const time_zone=document.getElementById('user-time-zone')?.value||'';
   const run_permission=document.getElementById('user-run-permission')?.value||'full';
+  const tool_planning_mode=document.getElementById('user-tool-planning')?.value||'';
   const media_proxy_suffixes=document.getElementById('user-media-suffix')?.value||'';
   const ws_idle_timeout_minutes=Number(document.getElementById('user-ws-idle-timeout')?.value||0);
   userTimeZone=time_zone;
   try{
-    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone,run_permission:run_permission,ws_idle_timeout_minutes:ws_idle_timeout_minutes,media_proxy_suffixes:media_proxy_suffixes})});
-    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const uwit=document.getElementById('user-ws-idle-timeout');if(uwit&&document.activeElement!==uwit)uwit.value=(d.ws_idle_timeout_minutes>0)?d.ws_idle_timeout_minutes:'';const rp=document.getElementById('user-run-permission');if(rp){rp.value=d.run_permission||d.effective_run_permission||'full';refreshGlassSelect(rp)}const ums=document.getElementById('user-media-suffix');if(ums&&document.activeElement!==ums)ums.value=(d.media_proxy_suffixes||[]).join('\\n');flash('tone-msg')}
+    const r=await fetch('/user/tone',{method:'POST',headers:authHeaders(),body:JSON.stringify({tone:tone,model_alias:model_alias,time_zone:time_zone,run_permission:run_permission,tool_planning_mode:tool_planning_mode,ws_idle_timeout_minutes:ws_idle_timeout_minutes,media_proxy_suffixes:media_proxy_suffixes})});
+    if(r.ok){const d=await r.json();document.getElementById('user-model-alias').value=d.model_alias||'';userTimeZone=d.time_zone||'';document.getElementById('user-time-zone').value=userTimeZone;const uwit=document.getElementById('user-ws-idle-timeout');if(uwit&&document.activeElement!==uwit)uwit.value=(d.ws_idle_timeout_minutes>0)?d.ws_idle_timeout_minutes:'';const rp=document.getElementById('user-run-permission');if(rp){rp.value=d.run_permission||d.effective_run_permission||'full';refreshGlassSelect(rp)}setToolPlanning(d.tool_planning_mode,d.default_tool_planning_mode);const ums=document.getElementById('user-media-suffix');if(ums&&document.activeElement!==ums)ums.value=(d.media_proxy_suffixes||[]).join('\\n');flash('tone-msg')}
   }catch(e){}
 }
 async function saveToolPrompt(){

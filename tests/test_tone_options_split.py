@@ -25,6 +25,7 @@ EXPECTED_TONE_VALUES = {
     "Gpt_5_4_Chat",
     "Gpt_5_4_Reasoning",
     "Gpt_5_3_Chat",
+    "Gpt_5_3_Reasoning",
     "Gpt_5_2_Chat",
     "Gpt_5_2_Reasoning",
 }
@@ -43,6 +44,7 @@ EXPECTED_TONE_OPTIONS = [
     ("Gpt_5_4_Chat", "gpt-5.4_Chat"),
     ("Gpt_5_4_Reasoning", "gpt-5.4"),
     ("Gpt_5_3_Chat", "gpt-5.3_Chat"),
+    ("Gpt_5_3_Reasoning", "gpt-5.3"),
     ("Gpt_5_2_Chat", "gpt-5.2_Chat"),
     ("Gpt_5_2_Reasoning", "gpt-5.2"),
 ]
@@ -55,12 +57,38 @@ PREVIOUS_DEFAULT_LABELS = {
     "Gpt_5_2_Reasoning": "gpt-5.2_Reasoning",
 }
 
+# The historical on-disk default, pinned by value+order. This must NOT be
+# derived from the live TONE_OPTIONS: the migration in
+# runtime_settings fires only on an *exact* match against the bytes an older
+# release persisted, so adding a tone to the current catalogue must leave this
+# list untouched. Rebuilding it here (rather than importing
+# _PREVIOUS_BUILTIN_TONE_OPTIONS) keeps the double-entry check that would catch
+# a typo in that production constant.
+PREVIOUS_DEFAULT_VALUES = [
+    "Magic",
+    "Chat",
+    "Reasoning",
+    "Claude_Sonnet",
+    "Claude_Sonnet_Reasoning",
+    "Claude_Fable",
+    "Claude_Opus",
+    "Gpt_5_6_Reasoning",
+    "Gpt_5_5_Chat",
+    "Gpt_5_5_Reasoning",
+    "Gpt_5_4_Chat",
+    "Gpt_5_4_Reasoning",
+    "Gpt_5_3_Chat",
+    "Gpt_5_2_Chat",
+    "Gpt_5_2_Reasoning",
+]
+
 
 def _previous_default_tone_options():
+    by_value = {option["value"]: option for option in TONE_OPTIONS}
     options = []
-    for option in TONE_OPTIONS:
-        old = dict(option)
-        label = PREVIOUS_DEFAULT_LABELS.get(old["value"], old["label"])
+    for value in PREVIOUS_DEFAULT_VALUES:
+        old = dict(by_value[value])
+        label = PREVIOUS_DEFAULT_LABELS.get(value, old["label"])
         old.update(label=label, label_zh=label, label_en=label)
         options.append(old)
     return options

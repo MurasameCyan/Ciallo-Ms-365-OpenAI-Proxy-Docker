@@ -127,6 +127,7 @@ def init_app_state(
     app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
     app.state.log_level = runtime_settings["log_level"]
     app.state.run_permission = runtime_settings["run_permission"]
+    app.state.tool_planning_mode = runtime_settings["tool_planning_mode"]
     app.state.tone_options = runtime_settings["tone_options"]
     app.state.consumer_mode_options = runtime_settings["consumer_mode_options"]
     # User/account log toggles: sync process-wide flags from the resolved settings.

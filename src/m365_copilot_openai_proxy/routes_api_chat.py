@@ -14,16 +14,22 @@ from .config import Settings
 from .models import OpenAIChatRequest
 from .response_helpers import _openai_stream
 from .routes_api_common import (
+    TOOL_CALLING_HEADER,
     apply_request_model,
     _consumer_mode_options,
     build_consumer_models_list,
     effective_run_permission,
+    effective_tool_planning_mode,
+    no_tool_calls_note,
+    prose_with_reason,
     request_model_alias,
+    required_tool_call_error,
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
 from .session_helpers import _persistent_session
 from .tone_resolver import build_models_list, normalized_session_model
+from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
 from .tool_call_parser import (
@@ -31,11 +37,14 @@ from .tool_call_parser import (
     _extract_prose_write,
     _extract_tool_calls,
     _filter_read_only_tool_calls,
+    _filter_schema_valid_tool_calls,
     _has_read_only_intent,
     _looks_like_fake_file_claim,
     _strip_tool_call_blocks,
+    split_no_tool_marker,
 )
-from .translator import effective_tools, flatten_content, normalize_tool_choice, translate_openai_request
+from .translator import effective_tools, flatten_content, normalize_tool_choice, tool_description_lines, translate_openai_request
+from .tool_router import build_router_prompt, routed_or_answered, routed_or_streamed, router_applies
 
 
 def register_chat_routes(
@@ -47,13 +56,19 @@ def register_chat_routes(
     async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> dict:
         created = int(time.time())
         account = getattr(raw_request.state, "account", None)
+        # Per-key override first: the list advertises what THIS key's tools-bearing
+        # turns will actually do, so a user who picked router mode is not told the
+        # global default's (pessimistic) status.
+        planning_mode = effective_tool_planning_mode(
+            app, getattr(raw_request.state, "api_key_obj", None)
+        )
         if getattr(account, "provider", "m365") == "consumer":
             models = build_consumer_models_list(
-                _consumer_mode_options(app), created,
+                _consumer_mode_options(app), created, planning_mode,
             )
         else:
             tone_options = getattr(app.state, "tone_options", None) or []
-            models = build_models_list(tone_options, created)
+            models = build_models_list(tone_options, created, planning_mode)
         return {
             "object": "list",
             "data": models,
@@ -130,6 +145,51 @@ def register_chat_routes(
             read_only_guard = run_permission == "read_only" or _has_read_only_intent(*(flatten_content(m.content) for m in request.messages if m.role == "user"))
             call_record["run_permission"] = run_permission
             call_record["read_only_guard"] = read_only_guard
+            # Tool calling is tone-dependent (see tone_options.TONE_TOOL_CALLING),
+            # so record and advertise the status: a degraded turn used to be
+            # indistinguishable from a working one that merely answered in prose.
+            # The header carries the EFFECTIVE status while the log and call record
+            # keep the measured one -- the client needs to know whether tools work
+            # this turn (they do, via the router), the operator needs to know which
+            # of the two shapes got them there.
+            planning_mode = effective_tool_planning_mode(app, _key_obj)
+            tool_status = tone_tool_calling(resolved_tone) if tools else ""
+            extra_headers = (
+                {TOOL_CALLING_HEADER: effective_tool_calling(resolved_tone, planning_mode)}
+                if tools else None
+            )
+            shortfall_note = ""
+            declined_note = ""
+            tool_schemas: dict[str, dict | None] = {}
+            if tools:
+                # name -> declared JSON Schema, for validating what we parse back
+                # out of prose. Doubles as the set of offered names.
+                tool_schemas = {
+                    t.function.name: t.function.parameters for t in tools if t.function
+                }
+                shortfall_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tools),
+                    read_only_guard=read_only_guard,
+                    planning_mode=planning_mode,
+                )
+                # Both variants are computed up front because only the generator
+                # learns whether the model declined, and by then app/tone are gone.
+                declined_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tools),
+                    read_only_guard=read_only_guard,
+                    declined=True,
+                    planning_mode=planning_mode,
+                )
+            if tools:
+                call_record["tool_calling"] = tool_status
             translated = translate_openai_request(
                 request,
                 incremental=incremental,
@@ -139,6 +199,37 @@ def register_chat_routes(
                 ),
             )
             media_rewriter = request_media_rewriter(app, raw_request)
+            # Router mode: plan the turn with a dedicated classification prompt
+            # instead of asking a tone that ignores the inline contract to embed a
+            # fenced block mid-answer. The conversation handed to the router is a
+            # NON-incremental view with the tool contract stripped -- the router
+            # turn is a throwaway fresh conversation, so it has no server-side
+            # history to build on, and it must not also be told to answer in the
+            # native shape it is replacing.
+            # Consumer included: its hard prompt ceiling is already enforced one
+            # layer down (ConsumerClientAdapter.chat compacts anything over the
+            # budget), so the router needs no size handling of its own.
+            router_prompt = ""
+            if tools and router_applies(planning_mode, resolved_tone):
+                full_view = translate_openai_request(
+                    request.model_copy(update={"tools": None, "tool_choice": None})
+                )
+                router_prompt = build_router_prompt(
+                    "\n\n".join([*full_view.additional_context, f"User: {full_view.prompt}"]),
+                    tool_description_lines(tools),
+                    choice,
+                )
+                call_record["tool_planning"] = "router"
+            if tool_status in {"unsupported", "flaky"}:
+                # Logged after planning, so the operator sees whether the measured
+                # shortfall was actually routed around this turn.
+                _log.warning(
+                    "  %s is measured %s the tool-calling contract "
+                    "(%d tool(s) requested)%s", resolved_tone,
+                    "NOT to honour" if tool_status == "unsupported" else "to honour only sometimes",
+                    len(tools),
+                    "; planning this turn with a router turn instead" if router_prompt else "",
+                )
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
                 call_record["streaming"] = True
@@ -155,11 +246,16 @@ def register_chat_routes(
                             call_log=app.state.call_log,
                             call_record=call_record,
                             tool_names={t.function.name for t in tools if t.function},
+                            tool_schemas=tool_schemas,
                             read_only_guard=read_only_guard,
                             text_transform=media_rewriter,
                             images=translated.images,
+                            shortfall_note=shortfall_note,
+                            declined_note=declined_note,
+                            router_prompt=router_prompt,
                         ),
                         media_type="text/event-stream",
+                        headers=extra_headers,
                     )
                 return StreamingResponse(
                     _openai_stream(
@@ -180,20 +276,33 @@ def register_chat_routes(
             # _looks_like_fake_file_claim needs to detect a natively generated
             # file, so the corrective retry never fired. Deferring it also keeps
             # the rewriter away from a Write tool_call's file content.
-            text = await client.chat(translated.prompt, translated.additional_context, session, translated.images)
+            text = await routed_or_answered(
+                client,
+                router_prompt,
+                translated.prompt,
+                translated.additional_context,
+                session,
+                translated.images,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
             raise upstream_http_error(exc) from exc
 
         # If request included tools, parse model output for tool_call blocks
+        # The explicit no-action token is stripped before anything else reads the
+        # text: it is protocol chatter, not part of the answer, and `declined`
+        # decides below whether the fallbacks are even appropriate.
+        declined = False
+        if tools:
+            text, declined = split_no_tool_marker(text)
         tool_calls = _extract_tool_calls(text) if tools else []
         if read_only_guard and tool_calls:
             blocked = len(tool_calls)
             tool_calls = _filter_read_only_tool_calls(tool_calls)
             if len(tool_calls) != blocked:
                 _log.info("  read-only guard filtered mutating tool_call(s)")
-        if not tool_calls and tools and not read_only_guard:
+        if not tool_calls and tools and not read_only_guard and not declined:
             # Prose fallback: model described "save as <path>" + code block
             tool_names = {t.function.name for t in tools if t.function}
             tool_calls = _extract_prose_write(text, tool_names)
@@ -202,7 +311,9 @@ def register_chat_routes(
         # Corrective retry: M365 sometimes "creates" a file via its native
         # attachment feature (hosted URL) instead of a tool_call. If it claims a
         # file but emitted none, force one retry demanding a real tool_call.
-        if not tool_calls and tools and not read_only_guard and _looks_like_fake_file_claim(text):
+        # A model that explicitly declined is exempt: it did answer the contract,
+        # so re-asking would only bully it into a call the user never wanted.
+        if not tool_calls and tools and not read_only_guard and not declined and _looks_like_fake_file_claim(text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
                 retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
@@ -216,6 +327,13 @@ def register_chat_routes(
                     call_record["retried"] = True
             except SubstrateCopilotError:
                 pass  # Keep original response if retry fails
+        # Last: only calls we would otherwise deliver are worth judging, and a
+        # synthesized Write has to clear the client's schema like any other call.
+        rejected: list[str] = []
+        if tool_calls:
+            tool_calls, rejected = _filter_schema_valid_tool_calls(tool_calls, tool_schemas)
+            if rejected:
+                _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
         _log.info("[/v1/chat/completions] response len=%d tool_calls=%d", len(text), len(tool_calls))
         if tool_calls:
             _log.info("  parsed tool_calls: %s", [tc["function"]["name"] for tc in tool_calls])
@@ -224,7 +342,26 @@ def register_chat_routes(
         call_record["response_text"] = text[:8000]
         call_record["response_repr"] = repr(text[:2000])
         call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
+        if declined:
+            call_record["tool_declined"] = True
+        if rejected:
+            call_record["tool_calls_rejected"] = rejected
         append_call_log(app.state, call_record)
+        # The client demanded a call that never came: a 200 with prose would be the
+        # silent failure this whole path exists to remove.
+        required_error = required_tool_call_error(
+            app,
+            model_str=request.model,
+            tone=resolved_tone,
+            choice=choice,
+            tool_calls=tool_calls,
+            read_only_guard=read_only_guard,
+            declined=declined,
+            rejected=rejected,
+            planning_mode=planning_mode,
+        )
+        if required_error:
+            raise HTTPException(status_code=400, detail=required_error)
         if tool_calls:
             remaining = media_rewriter(_strip_tool_call_blocks(text))
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
@@ -241,8 +378,18 @@ def register_chat_routes(
                     }
                 ],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            })
+            }, headers=extra_headers)
 
+        # Tools were offered but no call is being delivered: say why -- a dropped
+        # call, a deliberate decline, or a tone that ignores the contract. Appended,
+        # never substituted: the model's own answer is still the response.
+        delivered = prose_with_reason(
+            media_rewriter(text),
+            shortfall_note=shortfall_note,
+            declined_note=declined_note,
+            declined=declined,
+            rejected=rejected,
+        )
         return JSONResponse({
             "id": f"chatcmpl_{uuid.uuid4().hex}",
             "object": "chat.completion",
@@ -251,12 +398,12 @@ def register_chat_routes(
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": media_rewriter(text)},
+                    "message": {"role": "assistant", "content": delivered},
                     "finish_reason": "stop",
                 }
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        })
+        }, headers=extra_headers)
 
 
 async def _openai_stream_with_tools(
@@ -268,16 +415,27 @@ async def _openai_stream_with_tools(
     call_log: list | None = None,
     call_record: dict | None = None,
     tool_names: set | None = None,
+    tool_schemas: dict | None = None,
     read_only_guard: bool = False,
     text_transform: Callable[[str], str] | None = None,
     images: list | None = None,
+    shortfall_note: str = "",
+    declined_note: str = "",
+    router_prompt: str = "",
 ) -> AsyncIterator[str]:
-    """Buffer full stream, then emit as tool_calls if found, else normal content stream."""
+    """Buffer full stream, then emit as tool_calls if found, else normal content stream.
+
+    ``shortfall_note``/``declined_note`` are appended to the delivered text only
+    when the turn ends up with no tool_calls: headers are long gone by then, so the
+    reason a tools-bearing request produced prose has to travel as readable
+    content. Which one applies depends on the turn itself, so the caller precomputes
+    both and this generator picks.
+    """
     _log = logging.getLogger("copilot_proxy")
     chunks: list[str] = []
     try:
-        async for delta in client.chat_stream(
-            prompt, additional_context, session, images
+        async for delta in routed_or_streamed(
+            client, router_prompt, prompt, additional_context, session, images
         ):
             chunks.append(delta)
     except SubstrateCopilotError as exc:
@@ -309,19 +467,21 @@ async def _openai_stream_with_tools(
     # clients unrewritten.
     full_text = "".join(chunks)
 
+    full_text, declined = split_no_tool_marker(full_text)
     tool_calls = _extract_tool_calls(full_text)
     if read_only_guard and tool_calls:
         blocked = len(tool_calls)
         tool_calls = _filter_read_only_tool_calls(tool_calls)
         if len(tool_calls) != blocked:
             _log.info("  read-only guard filtered mutating tool_call(s)")
-    if not tool_calls and tool_names and not read_only_guard:
+    if not tool_calls and tool_names and not read_only_guard and not declined:
         # Prose fallback: model described "save as <path>" + code block
         tool_calls = _extract_prose_write(full_text, tool_names)
         if tool_calls:
             _log.info("  prose fallback synthesized Write tool_call")
     # Corrective retry: M365 native file-gen (hosted URL) instead of a tool_call.
-    if not tool_calls and tool_names and not read_only_guard and _looks_like_fake_file_claim(full_text):
+    # Skipped when the model explicitly declined -- it answered the contract.
+    if not tool_calls and tool_names and not read_only_guard and not declined and _looks_like_fake_file_claim(full_text):
         _log.info("  fake file claim detected, forcing corrective retry")
         try:
             retry_chunks: list[str] = []
@@ -338,6 +498,11 @@ async def _openai_stream_with_tools(
                     call_record["retried"] = True
         except SubstrateCopilotError:
             pass  # Keep original response if retry fails
+    rejected: list[str] = []
+    if tool_calls and tool_schemas is not None:
+        tool_calls, rejected = _filter_schema_valid_tool_calls(tool_calls, tool_schemas)
+        if rejected:
+            _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
     _log.info("[stream_with_tools] full_text len=%d tool_calls=%d", len(full_text), len(tool_calls))
     if tool_calls:
         _log.info("  parsed tool_calls: %s", [tc["function"]["name"] for tc in tool_calls])
@@ -347,6 +512,10 @@ async def _openai_stream_with_tools(
         call_record["response_text"] = full_text[:8000]
         call_record["response_repr"] = repr(full_text[:2000])
         call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
+        if declined:
+            call_record["tool_declined"] = True
+        if rejected:
+            call_record["tool_calls_rejected"] = rejected
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
 
@@ -368,7 +537,13 @@ async def _openai_stream_with_tools(
         yield "data: [DONE]\n\n"
     else:
         # No tool calls found — re-stream as normal content
-        delivered = text_transform(full_text) if text_transform is not None else full_text
+        delivered = prose_with_reason(
+            text_transform(full_text) if text_transform is not None else full_text,
+            shortfall_note=shortfall_note,
+            declined_note=declined_note,
+            declined=declined,
+            rejected=rejected,
+        )
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"

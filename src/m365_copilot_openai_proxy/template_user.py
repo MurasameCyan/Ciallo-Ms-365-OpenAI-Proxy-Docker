@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .template_assets import _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS, _STILL_DECOR_CSS
+from .template_assets import _FIELD_TIP_CSS, _GLASS_SELECT_CSS, _GLASS_SELECT_JS, _NO_SPIN_CSS, _STILL_DECOR_CSS
 from .template_pkce import _USER_PKCE_JS
 from .template_user_account_js import _USER_ACCOUNT_JS
 from .template_user_config_js import _USER_CONFIG_JS
@@ -89,7 +89,7 @@ select option:checked{background:#1e40af;color:#fff}
 @keyframes userSelectGlow{50%{box-shadow:0 0 0 3px rgba(96,242,255,.22),0 0 30px rgba(255,94,219,.2),inset 0 1px 0 rgba(255,255,255,.14)}}
 .account-main select option{background:#10162f;color:#f3f6ff}
 body[data-theme="light"] .account-main select option{background:#fff;color:#1c1c1e}
-""" + _GLASS_SELECT_CSS + _NO_SPIN_CSS + """
+""" + _GLASS_SELECT_CSS + _NO_SPIN_CSS + _FIELD_TIP_CSS + """
 .account-main .glass-select.open{z-index:2000}
 .account-main .tone-select+.glass-select .glass-select-menu{left:0;right:auto;width:100%;max-width:100%;min-width:100%;overflow-x:hidden;overflow-y:auto}
 .account-main textarea{margin-top:.65rem}
@@ -131,9 +131,12 @@ body[data-theme="light"] .status-line,body[data-theme="light"] .status-line:firs
 .account-card{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:10px;align-items:start;min-height:600px;overflow:visible}
 .account-card:has(.glass-select.open){z-index:2000}
 .user-default-grid{display:grid;grid-template-columns:repeat(4,minmax(0,180px));gap:1rem;align-items:end;margin-top:.25rem}
-.user-config-field{display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
+.user-config-field{position:relative;display:flex;flex-direction:column;gap:.35rem;color:var(--strong);font-size:.86rem;font-weight:800;min-width:0}
 body[data-lang="en"] .user-config-field,body[data-lang="en"] .user-media-suffix .user-config-label{font-size:.72rem;line-height:1.2;font-weight:700}
-body[data-lang="en"] .user-config-field>span,body[data-lang="en"] .user-config-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* English labels are long enough to need an ellipsis, but the rule must skip a
+   label wrapped in a .field-row: `display:block` would collapse the row and
+   `overflow:hidden` would clip the tip bubble out of existence. */
+body[data-lang="en"] .user-config-field>span:not(.field-row),body[data-lang="en"] .field-row>span:not(.field-tip),body[data-lang="en"] .user-config-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body[data-lang="en"] .user-default-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}
 body[data-lang="en"] .user-config-field input,body[data-lang="en"] .user-default-grid .glass-select-trigger{font-size:.78rem!important}
 body[data-lang="en"] button{font-size:.72rem!important;letter-spacing:0}
@@ -153,6 +156,9 @@ body[data-lang="en"] .card h2{font-size:.95rem}
 .user-default-grid .glass-select-trigger{height:38px!important;width:100%!important;box-sizing:border-box!important;padding:9px 34px 9px 14px!important;border-radius:14px!important;font-size:.86rem!important;font-weight:700!important}
 .mode-profile-card:has(.glass-select.open){overflow:visible;z-index:2000}
 .mode-profile-card .user-default-grid .glass-select-menu{left:0;right:auto;width:100%;min-width:100%;max-width:100%}
+/* One 180px column is too narrow to read three explanations in, and unlike the
+   admin grid this one never reflows, so a fixed wider bubble stays in the card. */
+.user-default-grid .field-tip-bubble{right:auto;width:290px}
 .user-media-suffix{margin-top:1.1rem}
 .user-media-suffix .user-config-label{font-size:.86rem;font-weight:800;color:var(--strong)}
 .user-media-suffix textarea{width:100%;box-sizing:border-box;min-height:60px;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.85rem;font-family:monospace;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16);resize:vertical;scrollbar-width:none;-ms-overflow-style:none}
@@ -287,6 +293,7 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
       <div class="user-default-grid">
         <label class="user-config-field" style="display:none"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
         <label class="user-config-field"><span data-i18n="run_permission_label">运行权限</span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>
+        <label class="user-config-field"><span class="field-row"><span data-i18n="tool_planning_label">工具调用规划</span><span class="field-tip" tabindex="0" role="note"><span class="field-tip-bubble"><span class="tip-line"><b data-i18n="tool_planning_inherit">继承全局</b><span id="user-tool-planning-default"></span></span><span class="tip-line"><b data-i18n="tool_planning_auto">自动</b><span data-i18n="tool_planning_hint_auto">只对实测不遵守契约的模式加一轮路由判定，其余模式不额外花轮数（默认）。</span></span><span class="tip-line"><b data-i18n="tool_planning_native">内联契约</b><span data-i18n="tool_planning_hint_native">契约写进提示词，永不多花轮数；模式不遵守时这一轮就没有工具调用。</span></span><span class="tip-line"><b data-i18n="tool_planning_router">路由模式</b><span data-i18n="tool_planning_hint_router">每轮先判定要不要调工具，判「不需要」也要多花一次上游往返。</span></span></span></span></span><select id="user-tool-planning" class="tone-select" onchange="saveTone()"></select></label>
         <label class="user-config-field" style="display:none"><span data-i18n="model_alias_label">模型别名</span><input id="user-model-alias" onchange="saveTone()"></label>
         <label class="user-config-field"><span data-i18n="user_time_zone_label">更改时区</span><input id="user-time-zone" onchange="saveTone()"></label>
         <label class="user-config-field"><span data-i18n="ws_idle_timeout_label">对话响应超时分钟</span><input id="user-ws-idle-timeout" type="number" min="0" onchange="saveTone()"></label>
@@ -303,12 +310,10 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
       </div>
       </div>
       </details>
-    </div>
-
-    <div class="card">
+      <hr style="border:none;border-top:1px solid #334155;margin:1.1rem 0">
       <details id="my-sessions-details" style="cursor:pointer" ontoggle="if(this.open)loadMySessions()">
       <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
-      <span data-i18n="my_sessions_title">我的会话</span>
+      <span data-i18n="my_sessions_title">会话管理</span>
       <span id="sess-msg" class="msg"></span>
       <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
       </summary>
@@ -325,9 +330,7 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
       <div id="my-sessions-content"></div>
       </div>
       </details>
-    </div>
-
-    <div class="card">
+      <hr style="border:none;border-top:1px solid #334155;margin:1.1rem 0">
       <details id="tool-prompt-details" style="cursor:pointer">
       <summary style="font-size:1rem;font-weight:600;color:var(--strong);list-style:none;display:flex;align-items:center;gap:.5rem">
       <span data-i18n="tool_prompt_title">提示词增强</span>

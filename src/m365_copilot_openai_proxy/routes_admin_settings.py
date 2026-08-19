@@ -22,6 +22,8 @@ from .runtime_settings import (
 )
 from .runtime_flags import set_flags as _set_log_flags
 from .token_store import write_system_prompt, write_tone, write_tool_prompt
+from .tone_options import effective_tool_calling
+from .tool_router import TOOL_PLANNING_MODES
 from .translator import default_tool_system_prompt
 
 
@@ -40,7 +42,22 @@ def register_admin_settings_routes(
     async def get_tone(request: Request) -> dict:
         err = require_admin(request)
         if err: return err
-        return {"tone": getattr(app.state, 'current_tone', 'Magic'), "options": _current_tone_options()}
+        # Annotate rather than store: whether a tone honours the injected
+        # tool-calling contract is a measured property of the tone (see
+        # tone_options.TONE_TOOL_CALLING), not an admin-editable setting, so the
+        # picker can warn without the value ever reaching the saved options.
+        # EFFECTIVE, like /v1/models: under the default "auto" the measured-broken
+        # tones are the routed ones, so reporting the bare measurement marked a
+        # tone unusable for tools while it was demonstrably producing them.
+        planning_mode = getattr(app.state, "tool_planning_mode", "auto")
+        options = [
+            {
+                **option,
+                "tool_calling": effective_tool_calling(option.get("value"), planning_mode),
+            }
+            for option in _current_tone_options()
+        ]
+        return {"tone": getattr(app.state, 'current_tone', 'Magic'), "options": options}
 
     @app.post("/admin/tone")
     async def set_tone(request: Request) -> dict:
@@ -105,6 +122,7 @@ def register_admin_settings_routes(
             "log_level": str(body.get("log_level", current["log_level"])).strip().upper() or _RUNTIME_SETTINGS_DEFAULTS["log_level"],
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
+            "tool_planning_mode": str(body.get("tool_planning_mode", current.get("tool_planning_mode", ""))).strip().lower() or _RUNTIME_SETTINGS_DEFAULTS["tool_planning_mode"],
             "user_log_verbose": bool(body.get("user_log_verbose", current.get("user_log_verbose", True))),
             "user_log_errors": bool(body.get("user_log_errors", current.get("user_log_errors", True))),
             "suppress_access_log": bool(body.get("suppress_access_log", current.get("suppress_access_log", True))),
@@ -117,6 +135,8 @@ def register_admin_settings_routes(
             return _json_err(400, "Invalid log level")
         if data["run_permission"] not in _RUN_PERMISSIONS:
             return _json_err(400, "Invalid run permission")
+        if data["tool_planning_mode"] not in TOOL_PLANNING_MODES:
+            return _json_err(400, "Invalid tool planning mode. Expected auto, native or router")
         # Reject rather than silently blank a typo'd proxy: a saved-but-ignored
         # proxy looks identical to a working one in the UI while every upstream
         # call still goes direct.
@@ -151,6 +171,12 @@ def register_admin_settings_routes(
         app.state.account_cdp_port_base = data["account_cdp_port_base"]
         app.state.account_store.set_cdp_port_base(app.state.account_cdp_port_base)
         app.state.log_level = data["log_level"]
+        # Read per turn by effective_run_permission, so both of these apply from the
+        # next request on. run_permission used to be set at boot only, so a saved
+        # "read_only" kept executing writes until a restart -- a security setting
+        # that silently does not apply is worse than one that visibly failed.
+        app.state.run_permission = data["run_permission"]
+        app.state.tool_planning_mode = data["tool_planning_mode"]
         app.state.tone_options = data["tone_options"]
         app.state.consumer_mode_options = data["consumer_mode_options"]
         app.state.user_log_verbose = data["user_log_verbose"]

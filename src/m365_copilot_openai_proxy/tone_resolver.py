@@ -14,6 +14,8 @@ legacy ":persist" model suffix mark the persistent variant. When a model name
 matches no tone, the caller falls back to the global default tone.
 """
 
+from .tone_options import effective_tool_calling, tone_tool_calling
+
 # Persistent-session markers accepted on an incoming model name. ":persist" is
 # the legacy/underlying suffix already understood by _persistent_session; the
 # "-持续" suffix is the human-facing variant shown in /v1/models.
@@ -57,7 +59,9 @@ def resolve_tone(
     return default_tone, is_persist
 
 
-def build_models_list(tone_options: list[dict], created: int) -> list[dict]:
+def build_models_list(
+    tone_options: list[dict], created: int, planning_mode: str | None = None,
+) -> list[dict]:
     """Produce the /v1/models data list: each tone yields a normal and a
     persistent (-持续) model entry, addressed by display name."""
     data: list[dict] = []
@@ -67,6 +71,7 @@ def build_models_list(tone_options: list[dict], created: int) -> list[dict]:
         if not label or label in seen:
             continue
         seen.add(label)
+        tool_calling = effective_tool_calling(option.get("value"), planning_mode)
         for model_id in (label, f"{label}{PERSIST_DISPLAY_SUFFIX}"):
             data.append({
                 "id": model_id,
@@ -87,9 +92,26 @@ def build_models_list(tone_options: list[dict], created: int) -> list[dict]:
                     "input_modalities": ["text", "image"],
                     "output_modalities": ["text"],
                 },
-                "capabilities": {"vision": True},
+                # Tool calling, unlike vision, is NOT uniform across tones: only
+                # the Claude Sonnet ones honour the injected contract. Advertising
+                # it here is what lets a client avoid the mismatch instead of
+                # discovering it as a prose answer that looks like a broken proxy.
+                # Only measured-broken tones claim False (see TONE_TOOL_CALLING) --
+                # and not even those once the router plans their turns, because
+                # then sending tools really does produce calls.
+                "capabilities": {"vision": True, "tools": tool_calling != "unsupported"},
+                "tool_calling": tool_calling,
             })
     return data
+
+
+def verified_tool_tone_labels(tone_options: list[dict]) -> list[str]:
+    """Display labels of the tones measured to honour the tool-calling contract."""
+    return [
+        str(option.get("label") or option.get("value") or "").strip()
+        for option in tone_options
+        if tone_tool_calling(option.get("value")) == "verified"
+    ]
 
 
 def normalized_session_model(model_str: str | None) -> str:

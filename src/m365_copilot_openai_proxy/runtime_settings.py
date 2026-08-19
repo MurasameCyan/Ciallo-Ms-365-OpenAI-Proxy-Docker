@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from .atomic_write import write_text_atomic
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
+from .tone_options import tool_planning_mode
 
 _log = logging.getLogger("copilot_proxy")
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
@@ -135,6 +136,10 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     "log_level": "INFO",
     "call_log_limit": 100,
     "run_permission": "full",
+    # How a tools-bearing turn is planned (see tool_router.py). "auto" spends the
+    # extra router turn only on tones measured not to honour the inline contract,
+    # "native"/"router" pin one shape for diagnosing a report.
+    "tool_planning_mode": "auto",
     # User/account runtime log toggles (see runtime_flags.py). verbose gates normal
     # progress logs, errors gates failure logs. Seeded from .env on first boot; the
     # persisted file wins once written, and the admin UI can flip them at runtime.
@@ -426,6 +431,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["run_permission"] = str(data.get("run_permission") or _RUNTIME_SETTINGS_DEFAULTS["run_permission"]).strip()
     if data["run_permission"] not in _RUN_PERMISSIONS:
         data["run_permission"] = _RUNTIME_SETTINGS_DEFAULTS["run_permission"]
+    data["tool_planning_mode"] = tool_planning_mode(data.get("tool_planning_mode"))
     data["user_log_verbose"] = bool(data.get("user_log_verbose"))
     data["user_log_errors"] = bool(data.get("user_log_errors"))
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
