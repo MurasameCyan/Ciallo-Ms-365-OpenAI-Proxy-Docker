@@ -747,7 +747,11 @@ function renderCapture(ps){
     let html='';
     for(let i=0;i<ps.length;i++){
       const p=ps[i];
-      const opts=(p.optionsSets||[]).join(', ');
+      // Not necessarily a list: the capture endpoint takes whatever the userscript
+      // pushed, and .join on a string/object threw inside loadCapture's catch --
+      // the whole panel went blank with nothing logged, and it stayed blank because
+      // __capVersion had already advanced so every later poll answered "unchanged".
+      const opts=Array.isArray(p.optionsSets)?p.optionsSets.join(', '):formatRawText(p.optionsSets);
       const gpt=p.gptId&&Object.keys(p.gptId).length?JSON.stringify(p.gptId):'-';
       const capKey='c'+i;
       window.__capTexts[capKey]=JSON.stringify(p);
