@@ -22,8 +22,10 @@ from .response_helpers import (
     _responses_stream_with_tools,
 )
 from .routes_api_common import (
+    TOOL_CALLING_HEADER,
     apply_request_model,
     effective_run_permission,
+    effective_tool_planning_mode,
     request_model_alias,
     upstream_http_error,
 )
@@ -44,13 +46,65 @@ from .tool_call_parser import (
     _has_read_only_intent,
     _looks_like_fake_file_claim,
     _strip_tool_call_blocks,
+    split_no_tool_marker,
 )
 from .translator import (
     _responses_content_text,
     _responses_last_action_index,
     responses_tool_config,
+    tool_description_lines,
     translate_responses_request,
 )
+from .tool_router import build_router_prompt, routed_or_answered
+
+
+def _router_context_from_view(view, parent: dict | None = None) -> dict:
+    """Private, encrypted context needed to close a Router-planned tool loop."""
+    prompt = str(view.prompt or "")
+    additional_context = [
+        str(item) for item in view.additional_context if isinstance(item, str)
+    ]
+    if not isinstance(parent, dict):
+        return {"prompt": prompt, "additional_context": additional_context}
+    parent_prompt = str(parent.get("prompt") or "")
+    parent_context = parent.get("additional_context")
+    merged = [
+        str(item)
+        for item in (parent_context if isinstance(parent_context, list) else [])
+        if isinstance(item, str)
+    ]
+    if parent_prompt:
+        merged.append(f"Previous task or continuation:\n{parent_prompt}")
+    merged.extend(additional_context)
+    return {"prompt": prompt, "additional_context": merged}
+
+
+def _router_context_conversation(context: dict) -> str:
+    prompt = str(context.get("prompt") or "")
+    additional_context = context.get("additional_context")
+    parts = [
+        str(item)
+        for item in (additional_context if isinstance(additional_context, list) else [])
+        if isinstance(item, str) and item
+    ]
+    if prompt:
+        parts.append(f"User: {prompt}")
+    return "\n\n".join(parts)
+
+
+def _restore_router_answer_context(translated, parent: dict):
+    """Give the answer turn the original request as well as the new tool output."""
+    restored = _router_context_conversation(parent)
+    if not restored:
+        return translated
+    return translated.model_copy(
+        update={
+            "additional_context": [
+                f"Original routed task context:\n{restored}",
+                *translated.additional_context,
+            ]
+        }
+    )
 
 
 class _ResponsesStreamingResponse(StreamingResponse):
@@ -206,6 +260,44 @@ def register_responses_routes(
                     previous_session is not None
                 ),
             )
+            planning_mode = effective_tool_planning_mode(app, key_obj)
+            studio_unsupported = bool(tool_names) and planning_mode == "studio"
+            router_prompt = ""
+            router_response_context: dict | None = None
+            if studio_unsupported:
+                # Studio agents are wired only for Chat Completions.  Responses
+                # keeps the same account/client and uses the established router
+                # classifier so the endpoint remains useful without pretending
+                # that it reached the bound Studio agent.
+                full_view = translate_responses_request(
+                    request.model_copy(update={"tools": None, "tool_choice": None}),
+                    system_override=system_override,
+                    consumer_tool_max_chars=(
+                        settings.consumer_prompt_max_chars if is_consumer else None
+                    ),
+                    allow_unmatched_function_call_outputs=(
+                        previous_session is not None
+                    ),
+                )
+                parent_router_context = (
+                    previous_session.response_context(
+                        request.previous_response_id or ""
+                    )
+                    if previous_session is not None
+                    else None
+                )
+                if parent_router_context is not None:
+                    translated = _restore_router_answer_context(
+                        translated, parent_router_context
+                    )
+                router_response_context = _router_context_from_view(
+                    full_view, parent_router_context
+                )
+                router_prompt = build_router_prompt(
+                    _router_context_conversation(router_response_context),
+                    tool_description_lines(tools),
+                    choice,
+                )
             required_tool_retry_prompt = _responses_required_tool_retry_prompt(
                 choice,
                 tool_names,
@@ -263,7 +355,13 @@ def register_responses_routes(
             else f"resp_{uuid.uuid4().hex}"
         )
         pending_response_calls: list[str] | None = None
+        pending_response_context: dict | None = None
         continuation_reservation: str | None = None
+        router_classified_call = False
+
+        def mark_router_classified_call() -> None:
+            nonlocal router_classified_call
+            router_classified_call = True
         response_lock = session.response_lock if session is not None else None
         lock_owned = False
 
@@ -331,13 +429,24 @@ def register_responses_routes(
                     )
 
             def record_issued_response(response_id: str, call_ids: list[str]) -> None:
-                nonlocal pending_response_calls
+                nonlocal pending_response_calls, pending_response_context
                 if session is None:
                     return
+                response_context = (
+                    router_response_context
+                    if router_classified_call and call_ids
+                    else None
+                )
                 if continuation_id is None:
-                    session.record_response(response_id, call_ids, read_only_guard)
+                    session.record_response(
+                        response_id,
+                        call_ids,
+                        read_only_guard,
+                        response_context=response_context,
+                    )
                     return
                 pending_response_calls = list(call_ids)
+                pending_response_context = response_context
 
             def finish_continuation(success: bool) -> None:
                 if continuation_id is None or continuation_reservation is None:
@@ -349,6 +458,7 @@ def register_responses_routes(
                         resp_id,
                         pending_response_calls,
                         read_only_guard,
+                        child_response_context=pending_response_context,
                     )
                     return
                 previous_session.finish_response_continuation(
@@ -373,6 +483,9 @@ def register_responses_routes(
                 "read_only_guard": read_only_guard,
                 "tool_calls_result": None if request.stream else [],
             }
+            if studio_unsupported:
+                call_record["tool_planning"] = "router"
+                call_record["studio_fallback"] = "unsupported_endpoint"
 
             # Echo the canonical Responses value. Input validation accepts harmless
             # case/whitespace variations, but the SDK only accepts the lower-case
@@ -413,6 +526,8 @@ def register_responses_routes(
                         required_tool_retry_prompt=required_tool_retry_prompt,
                         on_response_issued=record_issued_response,
                         on_request_done=finish_continuation,
+                        router_prompt=router_prompt,
+                        on_router_call=mark_router_classified_call,
                     )
                 else:
                     stream = _responses_stream(
@@ -441,11 +556,16 @@ def register_responses_routes(
                     on_request_done=finish_continuation,
                     response_lock=response_lock,
                     media_type="text/event-stream",
+                    headers=(
+                        {TOOL_CALLING_HEADER: "router"}
+                        if studio_unsupported
+                        else None
+                    ),
                 )
                 lock_owned = False
                 return response
 
-            return await _complete_nonstream_response(
+            response = await _complete_nonstream_response(
                 app=app,
                 client=client,
                 translated=translated,
@@ -466,7 +586,12 @@ def register_responses_routes(
                 record_issued_response=record_issued_response,
                 finish_continuation=finish_continuation,
                 log=log,
+                router_prompt=router_prompt,
+                on_router_call=mark_router_classified_call,
             )
+            if studio_unsupported:
+                response.headers[TOOL_CALLING_HEADER] = "router"
+            return response
         finally:
             if lock_owned:
                 if continuation_id is not None and continuation_reservation is not None:
@@ -500,13 +625,24 @@ async def _complete_nonstream_response(
     record_issued_response,
     finish_continuation,
     log,
+    router_prompt,
+    on_router_call,
 ):
+    router_decided = False
+
+    def note_router_decision() -> None:
+        nonlocal router_decided
+        router_decided = True
+
     try:
-        raw_text = await client.chat(
+        raw_text = await routed_or_answered(
+            client,
+            router_prompt,
             translated.prompt,
             translated.additional_context,
             session,
             translated.images,
+            on_router_call=note_router_decision,
         )
     except SubstrateCopilotError as exc:
         finish_continuation(False)
@@ -516,6 +652,7 @@ async def _complete_nonstream_response(
         append_call_log(app.state, call_record)
         raise upstream_http_error(exc) from exc
 
+    raw_text, _declined = split_no_tool_marker(raw_text)
     tool_calls = _resolve_responses_tool_calls(
         raw_text,
         tool_names,
@@ -524,6 +661,8 @@ async def _complete_nonstream_response(
         strict_tool_schemas,
         tool_namespaces,
     )
+    if router_decided and tool_calls:
+        on_router_call()
     if not tool_calls and required_tool_retry_prompt:
         try:
             raw_text = await client.chat(
@@ -540,6 +679,7 @@ async def _complete_nonstream_response(
             record_response_text(app.state, call_record, raw_text)
             append_call_log(app.state, call_record)
             raise upstream_http_error(exc) from exc
+        raw_text, _declined = split_no_tool_marker(raw_text)
         tool_calls = _resolve_responses_tool_calls(
             raw_text,
             tool_names,

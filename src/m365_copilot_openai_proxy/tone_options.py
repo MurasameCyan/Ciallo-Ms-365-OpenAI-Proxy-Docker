@@ -98,7 +98,7 @@ def tone_tool_calling(tone: str | None) -> str:
 # Kept in this leaf module rather than next to the router because runtime_settings
 # needs to normalize the persisted value, and importing the router there would
 # close a cycle (runtime_settings <- media_proxy <- substrate_client <- router).
-TOOL_PLANNING_MODES = {"auto", "native", "router"}
+TOOL_PLANNING_MODES = {"auto", "native", "router", "studio"}
 
 
 def tool_planning_mode(raw: str | None) -> str:
@@ -120,7 +120,7 @@ def router_applies(mode: str | None, tone: str) -> bool:
     normalized = tool_planning_mode(mode)
     if normalized == "native":
         return False
-    if normalized == "router":
+    if normalized in {"router", "studio"}:
         return True
     return tone_tool_calling(tone) in {"unsupported", "flaky"}
 

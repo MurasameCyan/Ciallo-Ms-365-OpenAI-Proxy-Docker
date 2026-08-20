@@ -22,10 +22,11 @@ _RESP_ID_PREFIX = "resp_"
 def _request_tenant(raw_request: Request) -> str:
     key_obj = getattr(raw_request.state, "api_key_obj", None)
     account = getattr(raw_request.state, "account", None)
-    return (
-        (key_obj.id if key_obj is not None else None)
-        or (account.id if account is not None else "global")
-    )
+    key_id = str(getattr(key_obj, "id", "") or "")
+    account_id = str(getattr(account, "id", "") or "")
+    if key_id and account_id:
+        return f"{key_id}:{account_id}"
+    return key_id or account_id or "global"
 
 
 def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
@@ -197,8 +198,12 @@ def _persistent_session(
     model: str,
     fallback_key: str | None = None,
     request: OpenAIChatRequest | AnthropicMessagesRequest | None = None,
+    namespace: str = "",
 ) -> PersistentSession | None:
     tenant = _request_tenant(raw_request)
+    namespace = str(namespace or "").strip()
+    if namespace:
+        tenant = f"{tenant}:{namespace}"
     header_key = (raw_request.headers.get(_SESSION_ID_HEADER) or "").strip()
     if header_key:
         return app.state.session_store.get(f"{tenant}:header:{header_key}")

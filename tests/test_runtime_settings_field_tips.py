@@ -17,7 +17,12 @@ _TIPS = (
     (
         "runtime-tool-planning-mode",
         "tool_planning_label",
-        ("tool_planning_hint_auto", "tool_planning_hint_native", "tool_planning_hint_router"),
+        (
+            "tool_planning_hint_auto",
+            "tool_planning_hint_native",
+            "tool_planning_hint_router",
+            "tool_planning_hint_studio",
+        ),
     ),
 )
 

@@ -30,10 +30,17 @@ def _app() -> SimpleNamespace:
     )
 
 
-def _raw_request(tenant: str = "key_a") -> SimpleNamespace:
+def _raw_request(
+    tenant: str = "key_a", account_id: str | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         headers={},
-        state=SimpleNamespace(api_key_obj=SimpleNamespace(id=tenant), account=None),
+        state=SimpleNamespace(
+            api_key_obj=SimpleNamespace(id=tenant),
+            account=(
+                SimpleNamespace(id=account_id) if account_id is not None else None
+            ),
+        ),
     )
 
 
@@ -91,6 +98,33 @@ def test_history_never_matches_across_tenants():
     )
 
     assert theirs is not mine
+
+
+def test_same_key_rebound_to_another_account_gets_a_distinct_session():
+    app = _app()
+    request = _chat(("user", "shared opening"))
+    first_request = _raw_request("key_a", "account_a")
+    first_request.headers["x-m365-session-id"] = "same-conversation"
+    rebound_request = _raw_request("key_a", "account_b")
+    rebound_request.headers["x-m365-session-id"] = "same-conversation"
+
+    first = _persistent_session(
+        app,
+        first_request,
+        "gpt-4o",
+        request=request,
+    )
+    rebound = _persistent_session(
+        app,
+        rebound_request,
+        "gpt-4o",
+        request=request,
+    )
+
+    assert rebound is not first
+    keys = [key for key, _session in app.state.session_store.items()]
+    assert any(key.startswith("key_a:account_a:") for key in keys)
+    assert any(key.startswith("key_a:account_b:") for key in keys)
 
 
 def test_resending_the_same_first_turn_keeps_the_same_key():

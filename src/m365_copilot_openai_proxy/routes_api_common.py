@@ -19,6 +19,7 @@ from .tone_options import (
     CONSUMER_MODE_TOOL_CALLING,
     TOOL_PLANNING_MODES,
     effective_tool_calling,
+    tool_planning_mode,
     tone_tool_calling,
 )
 from .tone_resolver import resolve_tone, verified_tool_tone_labels
@@ -27,6 +28,9 @@ from .tone_resolver import resolve_tone, verified_tool_tone_labels
 # status, so an operator can tell a degraded turn from a working one without
 # reading the body.
 TOOL_CALLING_HEADER = "X-M365-Tool-Calling"
+TOOL_OUTCOME_HEADER = "X-M365-Tool-Outcome"
+REQUIRED_NO_CALL_OUTCOME = "required_no_call"
+REQUIRED_REJECTED_CALL_OUTCOME = "required_rejected_call"
 
 
 def upstream_http_error(
@@ -133,6 +137,12 @@ def tool_calling_note(
     "上面返回的是普通回复" pointing at an empty response is its own small lie.
     ``prose_with_reason`` states the empty case, which is the only place that knows.
     """
+    if tool_planning_mode(planning_mode) == "studio":
+        return (
+            f"⚠️ 模型 '{model_str or ''}'（{tone}）本轮声明的 {tool_count} 个工具没有被调用："
+            f"本轮由绑定的 Studio Agent 规划，但它没有给出可用的工具调用。"
+            f"重试可能就好；如果这轮本该调用工具，请检查 Studio Agent 的工具说明、参数约束和发布状态。"
+        )
     status = effective_tool_calling(tone, planning_mode)
     if status == "router":
         return (
@@ -195,10 +205,20 @@ def required_tool_call_error(
     if rejected:
         return f"{demanded}，但{rejected_calls_note(rejected)}"
     if declined:
+        planner = (
+            "绑定的 Studio Agent"
+            if tool_planning_mode(planning_mode) == "studio"
+            else f"模型 '{model_str or ''}'（tone={tone}）"
+        )
         return (
-            f"{demanded}，但模型 '{model_str or ''}'（tone={tone}）明确判断本轮不需要任何"
+            f"{demanded}，但{planner}明确判断本轮不需要任何"
             f"工具（返回 NO_TOOL_NEEDED）。它遵守了调用契约，所以换模型不一定有用："
             f"先检查工具描述是否说明了该在什么时候调用，以及本轮请求是否真的需要工具。"
+        )
+    if tool_planning_mode(planning_mode) == "studio":
+        return (
+            f"{demanded}，但绑定的 Studio Agent 本轮没有产出任何 tool_call，只回了普通文本。"
+            f"请检查 Studio Agent 的工具说明、参数约束和发布状态；重试也可能恢复。"
         )
     if effective_tool_calling(tone, planning_mode) == "router":
         # Checked before the measured statuses: under ``auto`` the routed selectors

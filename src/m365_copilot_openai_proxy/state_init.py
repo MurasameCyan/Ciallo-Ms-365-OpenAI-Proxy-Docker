@@ -71,6 +71,7 @@ def init_app_state(
     app.state.token_store = AccessTokenStore(settings.access_token)
     app.state.session_store = PersistentSessionStore(
         persist_path=Path(settings.token_dir) / "sessions.json",
+        encryption_key_path=Path(settings.token_dir) / ".enc_key",
         # Coalesce disk writes: one write rewrites every session, and every turn
         # of every conversation triggers one. Two seconds of turn bookkeeping is
         # the only thing a hard kill can lose (a graceful stop flushes).
@@ -162,11 +163,12 @@ def init_app_state(
     app.state.tool_prompt = read_tool_prompt()
     app.state.system_prompt = read_system_prompt()
     app.state.copilot_client_factory = copilot_client_factory or (
-        lambda token=None, tone=None, tool_prompt=None, time_zone=None, idle_timeout=None: SubstrateCopilotClient(
+        lambda token=None, tone=None, tool_prompt=None, time_zone=None, idle_timeout=None, studio_agent_id=None: SubstrateCopilotClient(
             token if token is not None else app.state.token_store.get(),
             time_zone if time_zone is not None else getattr(app.state, "time_zone", "Asia/Shanghai"),
             tone if tone is not None else getattr(app.state, "current_tone", "Magic"),
             tool_prompt if tool_prompt is not None else getattr(app.state, "tool_prompt", ""),
             idle_timeout=idle_timeout,
+            studio_agent_id=studio_agent_id,
         )
     )

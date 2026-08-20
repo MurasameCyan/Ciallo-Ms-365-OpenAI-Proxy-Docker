@@ -24,11 +24,46 @@ _EMAIL_RE = re.compile(
     re.IGNORECASE,
 )
 _CONSUMER_ACCOUNT_ID_RE = re.compile(r"^(?:home|local):[a-z0-9._-]{1,512}$")
+_STUDIO_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{3,512}$")
 
 
 def _normalize_consumer_account_id(value: object) -> str:
     account_id = str(value or "").strip().lower()
     return account_id if _CONSUMER_ACCOUNT_ID_RE.fullmatch(account_id) else ""
+
+
+def normalize_studio_agent_id(value: object) -> str:
+    agent_id = str(value or "").strip()
+    return agent_id if _STUDIO_AGENT_ID_RE.fullmatch(agent_id) else ""
+
+
+def _studio_subject(token: str) -> tuple[str, str]:
+    try:
+        claims = decode_jwt_payload(token)
+    except Exception:
+        return "", ""
+    if not is_substrate_token_claims(claims):
+        return "", ""
+    tenant_id = str(claims.get("tid") or "").strip()
+    object_id = str(claims.get("oid") or "").strip()
+    return (tenant_id, object_id) if tenant_id and object_id else ("", "")
+
+
+def _clear_studio_agent_binding(account: "Account") -> None:
+    account.studio_agent_id = ""
+    account.studio_agent_tenant_id = ""
+    account.studio_agent_object_id = ""
+
+
+def _clear_studio_binding_if_subject_changed(account: "Account", token: str) -> None:
+    if not account.studio_agent_id:
+        return
+    tenant_id, object_id = _studio_subject(token)
+    if (
+        tenant_id != account.studio_agent_tenant_id
+        or object_id != account.studio_agent_object_id
+    ):
+        _clear_studio_agent_binding(account)
 
 
 def extract_identity(token: str) -> tuple[str, str]:
@@ -107,6 +142,11 @@ class Account:
     # consumer Copilot, while M365 works direct. A process-global env var cannot
     # express that split.
     proxy_url: str = ""
+    # Explicitly provisioned Copilot Studio agent for this real AAD subject.
+    # All three values are encrypted at rest; serializers expose only readiness.
+    studio_agent_id: str = ""
+    studio_agent_tenant_id: str = ""
+    studio_agent_object_id: str = ""
     # "m365" = enterprise Substrate account (everything above applies).
     # "consumer" = personal-account Copilot, authenticated by the ChatAI access
     # token + browser cookies below instead of a substrate JWT. None of the M365
@@ -125,6 +165,18 @@ class Account:
     token_source: str = "manual"
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+
+    @property
+    def studio_agent_ready(self) -> bool:
+        if self.provider != "m365" or not normalize_studio_agent_id(self.studio_agent_id):
+            return False
+        tenant_id, object_id = _studio_subject(self.token)
+        return bool(
+            tenant_id
+            and object_id
+            and tenant_id == self.studio_agent_tenant_id
+            and object_id == self.studio_agent_object_id
+        )
 
     def token_status(self) -> dict[str, Any]:
         """Decode the JWT and report validity / expiry, mirroring AccessTokenStore.status()."""
@@ -244,6 +296,15 @@ class AccountStore:
                     # proxy env) rather than failing the whole account: one bad
                     # field must not cost the user this account's credentials.
                     proxy_url=normalize_proxy_url(raw.get("proxy_url", "")),
+                    studio_agent_id=normalize_studio_agent_id(
+                        raw.get("studio_agent_id", "")
+                    ),
+                    studio_agent_tenant_id=str(
+                        raw.get("studio_agent_tenant_id", "") or ""
+                    ),
+                    studio_agent_object_id=str(
+                        raw.get("studio_agent_object_id", "") or ""
+                    ),
                     token_source=raw.get("token_source", "manual"),
                     provider=str(raw.get("provider", "m365") or "m365"),
                     consumer_token=str(raw.get("consumer_token", "") or ""),
@@ -302,6 +363,14 @@ class AccountStore:
         with self._lock:
             return self._accounts.get(acc_id)
 
+    def studio_client_snapshot(self, acc_id: str) -> tuple[str, str] | None:
+        """Return one locked, subject-verified (token, agent id) snapshot."""
+        with self._lock:
+            account = self._accounts.get(acc_id)
+            if account is None or not account.studio_agent_ready:
+                return None
+            return account.token, account.studio_agent_id
+
     def list(self) -> list[Account]:
         with self._lock:
             return list(self._accounts.values())
@@ -353,6 +422,7 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = token
+            _clear_studio_binding_if_subject_changed(acc, token)
             ident_name, email = extract_identity(token)
             if email:
                 acc.email = email
@@ -388,6 +458,7 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = ""
+            _clear_studio_agent_binding(acc)
             acc.updated_at = time.time()
             self._save()
             return acc
@@ -441,6 +512,37 @@ class AccountStore:
             self._save()
             return acc
 
+    def set_studio_agent_id(self, acc_id: str, agent_id: str) -> Account | None:
+        """Bind an already-published Studio agent to this account's AAD subject.
+
+        This stores metadata only. Provisioning and management-scope token minting
+        deliberately live outside the request path.
+        """
+        raw = str(agent_id or "").strip()
+        normalized = normalize_studio_agent_id(raw)
+        if raw and not normalized:
+            raise ValueError("Invalid Studio agent ID")
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            if not normalized:
+                _clear_studio_agent_binding(acc)
+                acc.updated_at = time.time()
+                self._save()
+                return acc
+            if acc.provider != "m365":
+                raise ValueError("Studio agent binding requires a valid M365 subject")
+            tenant_id, object_id = _studio_subject(acc.token)
+            if not tenant_id or not object_id:
+                raise ValueError("Studio agent binding requires a valid M365 subject")
+            acc.studio_agent_id = normalized
+            acc.studio_agent_tenant_id = tenant_id
+            acc.studio_agent_object_id = object_id
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
     def set_consumer_auth(
         self,
         acc_id: str,
@@ -477,6 +579,7 @@ class AccountStore:
                     consumer_account_id
                 )
             acc.provider = "consumer"
+            _clear_studio_agent_binding(acc)
             acc.cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
             acc.consumer_token = access_token.strip()
             acc.consumer_identity_type = (identity_type or "").strip()
@@ -617,6 +720,7 @@ class AccountStore:
                 acc.refresh_token_updated_at = time.time()
             acc.refresh_token_retry_after = 0.0
             acc.token = access_token
+            _clear_studio_binding_if_subject_changed(acc, access_token)
             ident_name, email = extract_identity(access_token)
             if email:
                 acc.email = email
@@ -643,6 +747,7 @@ class AccountStore:
             acc.refresh_token_tenant_id = ""
             acc.refresh_token_object_id = ""
             acc.refresh_token_retry_after = 0.0
+            _clear_studio_agent_binding(acc)
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
             acc.cookie_expires_at = 0.0

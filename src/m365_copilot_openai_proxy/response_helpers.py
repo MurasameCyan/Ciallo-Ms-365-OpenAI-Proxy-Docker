@@ -20,8 +20,10 @@ from .tool_call_parser import (
     _extract_tool_calls,
     _filter_read_only_tool_calls,
     _looks_like_fake_file_claim,
+    split_no_tool_marker,
     _strip_tool_call_blocks,
 )
+from .tool_router import routed_or_streamed
 
 
 def _transform_complete_text(full_text: str, text_transform: Callable[[str], str] | None) -> str:
@@ -510,6 +512,8 @@ async def _responses_stream_with_tools(
     required_tool_retry_prompt: str | None = None,
     on_response_issued: Callable[[str, list[str]], None] | None = None,
     on_request_done: Callable[[bool], None] | None = None,
+    router_prompt: str = "",
+    on_router_call: Callable[[], None] | None = None,
 ) -> AsyncIterator[str]:
     resp_id = response_id or f"resp_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -530,9 +534,24 @@ async def _responses_stream_with_tools(
     sequence += 1
 
     try:
+        router_decided = False
+
+        def note_router_decision() -> None:
+            nonlocal router_decided
+            router_decided = True
+
         full_text = await _collect_deduped_stream(
-            client.chat_stream(prompt, additional_context, session, images)
+            routed_or_streamed(
+                client,
+                router_prompt,
+                prompt,
+                additional_context,
+                session,
+                images,
+                on_router_call=note_router_decision,
+            )
         )
+        full_text, _declined = split_no_tool_marker(full_text)
         tool_calls = _resolve_responses_tool_calls(
             full_text,
             names,
@@ -541,6 +560,8 @@ async def _responses_stream_with_tools(
             strict_tool_schemas,
             tool_namespaces,
         )
+        if router_decided and tool_calls and on_router_call is not None:
+            on_router_call()
         if not tool_calls and required_tool_retry_prompt:
             if call_record is not None:
                 call_record["retried"] = True
@@ -552,6 +573,7 @@ async def _responses_stream_with_tools(
                     images,
                 )
             )
+            full_text, _declined = split_no_tool_marker(full_text)
             tool_calls = _resolve_responses_tool_calls(
                 full_text,
                 names,

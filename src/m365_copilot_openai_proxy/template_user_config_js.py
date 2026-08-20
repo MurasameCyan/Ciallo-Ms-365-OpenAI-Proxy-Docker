@@ -49,7 +49,7 @@ let _defaultToolPlanning='auto';
 function renderToolPlanningOptions(){
   const sel=document.getElementById('user-tool-planning');if(!sel)return;
   const cur=sel.value;
-  const opts=['auto','native','router'];
+  const opts=['auto','native','router','studio'];
   sel.innerHTML='<option value="">'+t('tool_planning_inherit')+'</option>'+opts.map(m=>'<option value="'+m+'">'+t('tool_planning_'+m)+'</option>').join('');
   sel.value=opts.indexOf(cur)>=0?cur:'';
   // The global's own value goes in the tip, not in the option label: spelled out

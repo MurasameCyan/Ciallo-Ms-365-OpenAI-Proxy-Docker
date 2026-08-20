@@ -16,6 +16,7 @@ ordinary answer instead of failing the request.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -28,6 +29,8 @@ from m365_copilot_openai_proxy.tool_call_parser import _extract_tool_calls
 from m365_copilot_openai_proxy.tool_router import (
     build_router_prompt,
     parse_router_decision,
+    routed_or_answered,
+    routed_or_streamed,
     router_applies,
     router_text,
     tool_planning_mode,
@@ -209,6 +212,66 @@ def test_the_decision_is_rewritten_into_the_shape_the_native_parser_reads():
         return [(c["function"]["name"], json.loads(c["function"]["arguments"])) for c in calls]
 
     assert shape(_extract_tool_calls(router_text(DECISION))) == shape(parse_router_decision(DECISION))
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_router_call_observer_fires_only_for_a_classification_call(stream):
+    observed: list[str] = []
+
+    async def run(decision: str, answer: str):
+        fake = FakeClient(decision, answer)
+        if stream:
+            return "".join([
+                chunk async for chunk in routed_or_streamed(
+                    fake,
+                    "You are a tool-use router",
+                    "ordinary prompt",
+                    [],
+                    on_router_call=lambda: observed.append("router"),
+                )
+            ])
+        return await routed_or_answered(
+            fake,
+            "You are a tool-use router",
+            "ordinary prompt",
+            [],
+            on_router_call=lambda: observed.append("router"),
+        )
+
+    asyncio.run(run(DECISION, PROSE))
+    assert observed == ["router"]
+
+    observed.clear()
+    asyncio.run(run(DECLINED, "```tool_call\n{}\n```"))
+    assert observed == []
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_router_call_observer_failure_never_breaks_the_request(stream):
+    def broken_observer():
+        raise RuntimeError("observer failed")
+
+    async def run():
+        fake = FakeClient(DECISION, PROSE)
+        if stream:
+            return "".join([
+                chunk async for chunk in routed_or_streamed(
+                    fake,
+                    "You are a tool-use router",
+                    "ordinary prompt",
+                    [],
+                    on_router_call=broken_observer,
+                )
+            ])
+        return await routed_or_answered(
+            fake,
+            "You are a tool-use router",
+            "ordinary prompt",
+            [],
+            on_router_call=broken_observer,
+        )
+
+    assert "```tool_call" in asyncio.run(run())
 
 
 def test_a_forced_choice_reaches_the_router_prompt():

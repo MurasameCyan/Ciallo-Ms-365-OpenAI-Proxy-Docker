@@ -28,7 +28,10 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.routes_api_chat import _openai_stream_with_tools
 from m365_copilot_openai_proxy.routes_api_common import (
+    REQUIRED_NO_CALL_OUTCOME,
+    REQUIRED_REJECTED_CALL_OUTCOME,
     TOOL_CALLING_HEADER,
+    TOOL_OUTCOME_HEADER,
     build_consumer_models_list,
     required_tool_call_error,
     tool_calling_note,
@@ -201,16 +204,43 @@ def test_verified_tone_gets_no_note(tmp_path):
     assert r.json()["choices"][0]["message"]["content"] == PROSE
 
 
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        (UNSUPPORTED_MODEL, "router"),
+        (UNKNOWN_MODEL, "unknown"),
+        (VERIFIED_MODEL, "verified"),
+    ],
+)
+def test_auto_header_keeps_effective_tool_calling_status(
+    stream, model, expected, tmp_path
+):
+    client = _client(tmp_path, PROSE)
+    client.app.state.tool_planning_mode = "auto"
+
+    r = _chat(client, model, stream=stream)
+
+    assert r.status_code == 200
+    assert r.headers[TOOL_CALLING_HEADER] == expected
+
+
 # --- required/named: hard failure --------------------------------------------
 
 @pytest.mark.parametrize(
-    "tool_choice",
-    ["required", {"type": "function", "function": {"name": "Read"}}],
+    ("tool_choice", "expected_outcome"),
+    [
+        ("required", REQUIRED_NO_CALL_OUTCOME),
+        ({"type": "function", "function": {"name": "Read"}}, None),
+    ],
 )
-def test_demanded_tool_call_that_never_came_is_a_400(tmp_path, tool_choice):
+def test_demanded_tool_call_that_never_came_is_a_400(
+    tmp_path, tool_choice, expected_outcome
+):
     r = _chat(_client(tmp_path, PROSE), UNSUPPORTED_MODEL, tool_choice=tool_choice)
 
     assert r.status_code == 400
+    assert r.headers.get(TOOL_OUTCOME_HEADER) == expected_outcome
     detail = r.json()["error"]["message"]
     assert "Magic" in detail                  # names the tone actually used
     assert UNSUPPORTED_MODEL in detail        # and the model the client asked for
@@ -229,6 +259,18 @@ def test_demanded_tool_call_that_did_arrive_is_fine(tmp_path):
 
     assert r.status_code == 200
     assert r.json()["choices"][0]["finish_reason"] == "tool_calls"
+
+
+def test_required_outcome_header_requires_a_nonempty_tool_list(tmp_path):
+    r = _chat(
+        _client(tmp_path, PROSE),
+        VERIFIED_MODEL,
+        reply_tools=(),
+        tool_choice="required",
+    )
+
+    assert r.status_code == 400
+    assert TOOL_OUTCOME_HEADER not in r.headers
 
 
 def test_read_only_guard_is_exempt_from_the_hard_failure(tmp_path):
@@ -679,6 +721,7 @@ def test_a_dropped_call_under_required_is_a_400_naming_the_reason(tmp_path):
     )
 
     assert r.status_code == 400
+    assert r.headers[TOOL_OUTCOME_HEADER] == REQUIRED_REJECTED_CALL_OUTCOME
     assert "file_path" in r.json()["error"]["message"]
 
 

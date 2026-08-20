@@ -24,6 +24,7 @@ def _provider_fields(acc: Account) -> dict:
         # the value. Credentials in a proxy URL are the user's own and were
         # supplied through this same endpoint.
         "proxy_url": getattr(acc, "proxy_url", ""),
+        "studio_agent_ready": bool(getattr(acc, "studio_agent_ready", False)),
     }
 
 

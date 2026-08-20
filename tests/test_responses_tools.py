@@ -1436,6 +1436,68 @@ def test_session_store_persists_response_read_only_state(tmp_path):
     assert restored.response_is_read_only("resp_read_only")
 
 
+def test_session_store_persists_encrypted_router_continuation_context(tmp_path):
+    persist_path = tmp_path / "sessions.json"
+    key_path = tmp_path / ".enc_key"
+    store = PersistentSessionStore(
+        persist_path=persist_path,
+        encryption_key_path=key_path,
+    )
+    session = store.get("tenant:session")
+    context = {
+        "prompt": "original-task-sentinel",
+        "additional_context": ["System instructions:\nkeep constraints"],
+    }
+
+    session.record_response(
+        "resp_router",
+        ["call_1"],
+        response_context=context,
+    )
+
+    assert "original-task-sentinel" not in persist_path.read_text(encoding="utf-8")
+    restored = PersistentSessionStore(
+        persist_path=persist_path,
+        encryption_key_path=key_path,
+    ).get_existing("tenant:session")
+    assert restored is not None
+    assert restored.response_context("resp_router") == context
+
+
+def test_session_context_moves_to_child_call_and_clears_on_completion():
+    session = PersistentSession()
+    parent_context = {"prompt": "first", "additional_context": []}
+    child_context = {"prompt": "continue", "additional_context": ["first"]}
+    session.record_response(
+        "resp_parent",
+        ["call_parent"],
+        response_context=parent_context,
+    )
+    parent_reservation = session.begin_response_continuation("resp_parent")
+    assert parent_reservation
+
+    assert session.complete_response_continuation(
+        "resp_parent",
+        parent_reservation,
+        "resp_child",
+        ["call_child"],
+        child_response_context=child_context,
+    )
+    assert session.response_context("resp_parent") is None
+    assert session.response_context("resp_child") == child_context
+
+    child_reservation = session.begin_response_continuation("resp_child")
+    assert child_reservation
+    assert session.complete_response_continuation(
+        "resp_child",
+        child_reservation,
+        "resp_done",
+        [],
+    )
+    assert session.response_context("resp_child") is None
+    assert session.response_context("resp_done") is None
+
+
 def test_session_store_migrates_latest_response_head(tmp_path):
     persist_path = tmp_path / "sessions.json"
     persist_path.write_text(json.dumps({

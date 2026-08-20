@@ -94,15 +94,24 @@ def _consumer_gate_for(app: FastAPI, account_id: str):
 
 def create_api_dependencies(
     app: FastAPI,
-) -> tuple[Callable[[], Settings], Callable[[Request], SubstrateCopilotClient]]:
+) -> tuple[Callable[[], Settings], Callable[..., SubstrateCopilotClient]]:
     def get_settings() -> Settings:
         return app.state.settings
 
-    def get_copilot_client(raw_request: Request) -> SubstrateCopilotClient:
+    def get_copilot_client(
+        raw_request: Request,
+        *,
+        studio_agent_id: str = "",
+        token_override: str | None = None,
+    ) -> SubstrateCopilotClient:
         try:
             key_obj = getattr(raw_request.state, "api_key_obj", None)
             account = getattr(raw_request.state, "account", None)
-            token = account.token if account is not None else None
+            token = (
+                token_override
+                if token_override is not None
+                else (account.token if account is not None else None)
+            )
             tone = key_obj.tone if key_obj is not None else None
             global_tp = (getattr(app.state, "tool_prompt", "") or "").strip()
             key_tp = ((key_obj.tool_prompt if key_obj is not None else "") or "").strip()
@@ -149,9 +158,20 @@ def create_api_dependencies(
                         8000,
                     ),
                 ))
+            factory_kwargs = {
+                "token": token,
+                "tone": tone,
+                "tool_prompt": tool_prompt,
+                "time_zone": time_zone,
+                "idle_timeout": idle_timeout,
+            }
+            if studio_agent_id:
+                factory_kwargs["studio_agent_id"] = studio_agent_id
             try:
-                client = app.state.copilot_client_factory(token=token, tone=tone, tool_prompt=tool_prompt, time_zone=time_zone, idle_timeout=idle_timeout)
+                client = app.state.copilot_client_factory(**factory_kwargs)
             except TypeError:
+                if studio_agent_id:
+                    raise
                 # A factory that accepts no kwargs still has to work. Scoped to
                 # this one call on purpose: while the whole body was covered, any
                 # TypeError raised building the *consumer* client -- a renamed

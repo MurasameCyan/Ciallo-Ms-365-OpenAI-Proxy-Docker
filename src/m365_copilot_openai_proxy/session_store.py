@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import copy
 import json
 import threading
 import time
@@ -11,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .account_crypto import AccountCipher, load_or_create_key
 from .runtime_flags import elog
 
 
@@ -40,6 +42,7 @@ class PersistentSession:
     last_accessed: float = field(default_factory=time.time)
     issued_response_calls: dict[str, list[str]] = field(default_factory=dict)
     issued_response_read_only: dict[str, bool] = field(default_factory=dict)
+    issued_response_contexts: dict[str, dict[str, Any]] = field(default_factory=dict)
     consumed_response_ids: list[str] = field(default_factory=list)
     latest_response_id: str | None = None
     pending_response_ids: dict[str, str] = field(default_factory=dict, repr=False)
@@ -83,15 +86,21 @@ class PersistentSession:
         response_id: str,
         call_ids: list[str],
         read_only: bool = False,
+        response_context: dict[str, Any] | None = None,
     ) -> None:
         """Remember issued Responses ids and their function calls for continuation."""
         self.issued_response_calls[response_id] = list(dict.fromkeys(call_ids))
         self.issued_response_read_only[response_id] = read_only
+        if call_ids and isinstance(response_context, dict):
+            self.issued_response_contexts[response_id] = copy.deepcopy(response_context)
+        else:
+            self.issued_response_contexts.pop(response_id, None)
         self.latest_response_id = response_id
         while len(self.issued_response_calls) > 64:
             expired = next(iter(self.issued_response_calls))
             self.issued_response_calls.pop(expired)
             self.issued_response_read_only.pop(expired, None)
+            self.issued_response_contexts.pop(expired, None)
         self.last_accessed = time.time()
         if self._on_change is not None:
             self._on_change()
@@ -106,6 +115,11 @@ class PersistentSession:
 
     def response_is_read_only(self, response_id: str) -> bool:
         return self.issued_response_read_only.get(response_id, False)
+
+    def response_context(self, response_id: str) -> dict[str, Any] | None:
+        """Return an isolated copy of private continuation context, if any."""
+        context = self.issued_response_contexts.get(response_id)
+        return copy.deepcopy(context) if context is not None else None
 
     def begin_response_continuation(self, response_id: str) -> str | None:
         """Reserve an issued response id for one in-flight continuation."""
@@ -147,6 +161,7 @@ class PersistentSession:
         child_response_id: str,
         child_call_ids: list[str],
         child_read_only: bool = False,
+        child_response_context: dict[str, Any] | None = None,
     ) -> bool:
         """Atomically record the child response and consume its linear parent."""
         if self.pending_response_ids.get(parent_response_id) != reservation:
@@ -155,15 +170,23 @@ class PersistentSession:
         self.consumed_response_ids.append(parent_response_id)
         while len(self.consumed_response_ids) > 64:
             self.consumed_response_ids.pop(0)
+        self.issued_response_contexts.pop(parent_response_id, None)
         self.issued_response_calls[child_response_id] = list(
             dict.fromkeys(child_call_ids)
         )
         self.issued_response_read_only[child_response_id] = child_read_only
+        if child_call_ids and isinstance(child_response_context, dict):
+            self.issued_response_contexts[child_response_id] = copy.deepcopy(
+                child_response_context
+            )
+        else:
+            self.issued_response_contexts.pop(child_response_id, None)
         self.latest_response_id = child_response_id
         while len(self.issued_response_calls) > 64:
             expired = next(iter(self.issued_response_calls))
             self.issued_response_calls.pop(expired)
             self.issued_response_read_only.pop(expired, None)
+            self.issued_response_contexts.pop(expired, None)
         self.last_accessed = time.time()
         if self._on_change is not None:
             self._on_change()
@@ -176,11 +199,17 @@ class PersistentSessionStore:
         max_sessions: int = _MAX_SESSIONS,
         persist_path: str | Path | None = None,
         flush_interval: float = _FLUSH_INTERVAL_SECONDS,
+        encryption_key_path: str | Path | None = None,
     ):
         self._sessions: OrderedDict[str, PersistentSession] = OrderedDict()
         self._lock = threading.RLock()
         self._max_sessions = max_sessions
         self._persist_path = Path(persist_path) if persist_path else None
+        self._cipher = AccountCipher(
+            load_or_create_key(encryption_key_path)
+            if encryption_key_path is not None
+            else None
+        )
         self._flush_interval = max(0.0, float(flush_interval))
         self._dirty = False
         self._flush_timer: threading.Timer | None = None
@@ -223,6 +252,24 @@ class PersistentSessionStore:
             issued_response_read_only = s.get("issued_response_read_only", {}) or {}
             if not isinstance(issued_response_read_only, dict):
                 issued_response_read_only = {}
+            issued_response_contexts = s.get("issued_response_contexts", {}) or {}
+            if not isinstance(issued_response_contexts, dict):
+                issued_response_contexts = {}
+            clean_issued_response_contexts: dict[str, dict[str, Any]] = {}
+            for response_id, encrypted_context in issued_response_contexts.items():
+                if (
+                    not self._cipher.enabled
+                    or not self._cipher.is_envelope(encrypted_context)
+                    or not isinstance(response_id, str)
+                    or response_id not in clean_issued_response_calls
+                ):
+                    continue
+                try:
+                    context = self._cipher.decrypt_value(encrypted_context)
+                except ValueError:
+                    continue
+                if isinstance(context, dict):
+                    clean_issued_response_contexts[response_id] = context
             consumed_response_ids = s.get("consumed_response_ids", []) or []
             if not isinstance(consumed_response_ids, list):
                 consumed_response_ids = []
@@ -245,6 +292,7 @@ class PersistentSessionStore:
                             and isinstance(value, bool)
                         )
                     },
+                    issued_response_contexts=clean_issued_response_contexts,
                     consumed_response_ids=[
                         str(response_id)
                         for response_id in consumed_response_ids
@@ -328,6 +376,7 @@ class PersistentSessionStore:
                     "last_accessed": s.last_accessed,
                     "issued_response_calls": s.issued_response_calls,
                     "issued_response_read_only": s.issued_response_read_only,
+                    "issued_response_contexts": self._encrypted_response_contexts(s),
                     "consumed_response_ids": s.consumed_response_ids,
                     "latest_response_id": s.latest_response_id,
                 }
@@ -348,6 +397,22 @@ class PersistentSessionStore:
         with self._lock:
             self.writes += 1
             self.last_write_at = time.time()
+
+    def _encrypted_response_contexts(
+        self, session: PersistentSession
+    ) -> dict[str, Any]:
+        """Serialize private Responses context without risking request failure."""
+        if not self._cipher.enabled:
+            return {}
+        encrypted: dict[str, Any] = {}
+        for response_id, context in session.issued_response_contexts.items():
+            try:
+                encrypted[response_id] = self._cipher.encrypt_value(context)
+            except (TypeError, ValueError):
+                # Context is auxiliary continuation state. If an unexpected
+                # non-JSON value slips in, omit it instead of breaking chat.
+                continue
+        return encrypted
 
     def _evict_overflow(self) -> None:
         """Drop least-recently-used sessions over the cap. Caller holds the lock."""

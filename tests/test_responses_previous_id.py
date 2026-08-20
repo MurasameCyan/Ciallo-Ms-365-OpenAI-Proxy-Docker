@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from m365_copilot_openai_proxy.models import OpenAIResponsesRequest
 from m365_copilot_openai_proxy.session_helpers import (
     _decode_responses_session_id,
     _encode_responses_session_id,
     _responses_session_key,
+    _responses_store_key_belongs_to_request,
 )
 
 
@@ -61,3 +64,20 @@ def test_session_key_falls_back_to_input_hash_without_previous_id():
     req = OpenAIResponsesRequest(model="m365-copilot", input="hello world")
     key = _responses_session_key(req)
     assert key is not None and key.startswith("responses_")
+
+
+def test_previous_response_session_from_old_account_is_rejected_after_key_rebind():
+    old_store_key = "key_a:account_a:auto:responses_old"
+    previous_response_id = _encode_responses_session_id(old_store_key)
+    decoded = _decode_responses_session_id(previous_response_id)
+    rebound_request = SimpleNamespace(
+        state=SimpleNamespace(
+            api_key_obj=SimpleNamespace(id="key_a"),
+            account=SimpleNamespace(id="account_b"),
+        )
+    )
+
+    assert decoded == old_store_key
+    assert not _responses_store_key_belongs_to_request(
+        rebound_request, decoded
+    )

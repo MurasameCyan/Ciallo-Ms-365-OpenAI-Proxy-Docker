@@ -121,6 +121,30 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             return _json_err(404, "Account not found")
         return {"status": "ok", "account": _account_public(acc)}
 
+    @app.post("/admin/accounts/{acc_id}/studio-agent")
+    async def bind_account_studio_agent(acc_id: str, request: Request) -> dict:
+        err = require_admin(request)
+        if err:
+            return err
+        try:
+            body = await request.json()
+        except ValueError:
+            return _json_err(400, "JSON object required")
+        if not isinstance(body, dict):
+            return _json_err(400, "JSON object required")
+        if "agent_id" not in body:
+            return _json_err(400, "agent_id is required")
+        agent_id = body["agent_id"]
+        if not isinstance(agent_id, str):
+            return _json_err(400, "agent_id must be a string")
+        try:
+            acc = app.state.account_store.set_studio_agent_id(acc_id, agent_id)
+        except ValueError as exc:
+            return _json_err(400, str(exc))
+        if acc is None:
+            return _json_err(404, "Account not found")
+        return {"status": "ok", "account": _account_public(acc)}
+
     @app.post("/admin/accounts/{acc_id}/refresh")
     async def refresh_account(acc_id: str, request: Request) -> dict:
         err = require_admin(request)

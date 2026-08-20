@@ -14,7 +14,10 @@ from .config import Settings
 from .models import OpenAIChatRequest
 from .response_helpers import _openai_stream
 from .routes_api_common import (
+    REQUIRED_NO_CALL_OUTCOME,
+    REQUIRED_REJECTED_CALL_OUTCOME,
     TOOL_CALLING_HEADER,
+    TOOL_OUTCOME_HEADER,
     apply_request_model,
     _consumer_mode_options,
     build_consumer_models_list,
@@ -32,6 +35,7 @@ from .tone_resolver import build_models_list, normalized_session_model
 from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
+from .studio_planner import PlannerTurn, planned_or_answered, planned_or_streamed
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
     _extract_prose_write,
@@ -50,7 +54,7 @@ from .tool_router import build_router_prompt, routed_or_answered, routed_or_stre
 def register_chat_routes(
     app: FastAPI,
     get_settings: Callable[[], Settings],
-    get_copilot_client: Callable[[Request], SubstrateCopilotClient],
+    get_copilot_client: Callable[..., SubstrateCopilotClient],
 ) -> None:
     @app.get("/v1/models")
     async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> dict:
@@ -154,10 +158,43 @@ def register_chat_routes(
             # of the two shapes got them there.
             planning_mode = effective_tool_planning_mode(app, _key_obj)
             tool_status = tone_tool_calling(resolved_tone) if tools else ""
-            extra_headers = (
-                {TOOL_CALLING_HEADER: effective_tool_calling(resolved_tone, planning_mode)}
-                if tools else None
-            )
+            actual_planning = planning_mode
+            studio_client = None
+            studio_session = None
+            studio_translated = None
+            studio_snapshot = None
+            if tools and planning_mode == "studio":
+                account = getattr(raw_request.state, "account", None)
+                if is_consumer:
+                    actual_planning = "router"
+                    call_record["studio_fallback"] = "unsupported_provider"
+                else:
+                    studio_snapshot = (
+                        app.state.account_store.studio_client_snapshot(account.id)
+                        if account is not None
+                        else None
+                    )
+                if not is_consumer and studio_snapshot is None:
+                    actual_planning = "router"
+                    call_record["studio_fallback"] = "not_ready"
+                elif not is_consumer:
+                    studio_token, studio_agent_id = studio_snapshot
+                    studio_client = get_copilot_client(
+                        raw_request,
+                        studio_agent_id=studio_agent_id,
+                        token_override=studio_token,
+                    )
+                    studio_client._tone = resolved_tone
+                    studio_session = _persistent_session(
+                        app,
+                        raw_request,
+                        normalized_session_model(request.model),
+                        request.user,
+                        request,
+                        namespace="studio",
+                    )
+                    call_record["tool_planning"] = "studio"
+            extra_headers = None
             shortfall_note = ""
             declined_note = ""
             tool_schemas: dict[str, dict | None] = {}
@@ -174,7 +211,7 @@ def register_chat_routes(
                     choice=choice,
                     tool_count=len(tools),
                     read_only_guard=read_only_guard,
-                    planning_mode=planning_mode,
+                    planning_mode=actual_planning,
                 )
                 # Both variants are computed up front because only the generator
                 # learns whether the model declined, and by then app/tone are gone.
@@ -186,7 +223,7 @@ def register_chat_routes(
                     tool_count=len(tools),
                     read_only_guard=read_only_guard,
                     declined=True,
-                    planning_mode=planning_mode,
+                    planning_mode=actual_planning,
                 )
             if tools:
                 call_record["tool_calling"] = tool_status
@@ -198,6 +235,15 @@ def register_chat_routes(
                     settings.consumer_prompt_max_chars if is_consumer else None
                 ),
             )
+            if studio_client is not None:
+                studio_translated = translate_openai_request(
+                    request,
+                    incremental=(
+                        studio_session is not None
+                        and studio_session.turn_count > 0
+                    ),
+                    system_override=_system_override,
+                )
             media_rewriter = request_media_rewriter(app, raw_request)
             # Router mode: plan the turn with a dedicated classification prompt
             # instead of asking a tone that ignores the inline contract to embed a
@@ -210,7 +256,7 @@ def register_chat_routes(
             # layer down (ConsumerClientAdapter.chat compacts anything over the
             # budget), so the router needs no size handling of its own.
             router_prompt = ""
-            if tools and router_applies(planning_mode, resolved_tone):
+            if tools and router_applies(actual_planning, resolved_tone):
                 full_view = translate_openai_request(
                     request.model_copy(update={"tools": None, "tool_choice": None})
                 )
@@ -219,7 +265,13 @@ def register_chat_routes(
                     tool_description_lines(tools),
                     choice,
                 )
-                call_record["tool_planning"] = "router"
+                if studio_client is None:
+                    # ``auto`` also resolves to a real router turn for measured
+                    # unsupported/flaky tones.  Record the path that actually ran,
+                    # while a ready Studio turn keeps "studio" until/unless its
+                    # buffered planner fallback changes the record later.
+                    actual_planning = "router"
+                    call_record["tool_planning"] = "router"
             if tool_status in {"unsupported", "flaky"}:
                 # Logged after planning, so the operator sees whether the measured
                 # shortfall was actually routed around this turn.
@@ -235,25 +287,70 @@ def register_chat_routes(
                 call_record["streaming"] = True
                 append_call_log(app.state, call_record)
                 if tools:
+                    stream = _openai_stream_with_tools(
+                        model_alias,
+                        client,
+                        translated.prompt,
+                        translated.additional_context,
+                        session,
+                        call_log=app.state.call_log,
+                        call_record=call_record,
+                        on_record_update=lambda text: record_response_text(
+                            app.state, call_record, text
+                        ),
+                        tool_names={t.function.name for t in tools if t.function},
+                        tool_schemas=tool_schemas,
+                        read_only_guard=read_only_guard,
+                        text_transform=media_rewriter,
+                        images=translated.images,
+                        shortfall_note=shortfall_note,
+                        declined_note=declined_note,
+                        router_shortfall_note=no_tool_calls_note(
+                            app,
+                            model_str=request.model,
+                            tone=resolved_tone,
+                            choice=choice,
+                            tool_count=len(tools),
+                            read_only_guard=read_only_guard,
+                            planning_mode="router",
+                        ),
+                        router_declined_note=no_tool_calls_note(
+                            app,
+                            model_str=request.model,
+                            tone=resolved_tone,
+                            choice=choice,
+                            tool_count=len(tools),
+                            read_only_guard=read_only_guard,
+                            declined=True,
+                            planning_mode="router",
+                        ),
+                        router_prompt=router_prompt,
+                        studio_turn=(
+                            PlannerTurn(
+                                studio_client,
+                                studio_translated.prompt,
+                                studio_translated.additional_context,
+                                studio_session,
+                                studio_translated.images,
+                            )
+                            if studio_client is not None
+                            else None
+                        ),
+                    )
+                    if studio_client is not None:
+                        stream = await _prefetch_stream(stream)
+                        actual_planning = call_record.get(
+                            "tool_planning", actual_planning
+                        )
+                    header_status = (
+                        actual_planning
+                        if planning_mode == "studio"
+                        else effective_tool_calling(resolved_tone, planning_mode)
+                    )
+                    extra_headers = {TOOL_CALLING_HEADER: header_status}
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
-                        _openai_stream_with_tools(
-                            model_alias,
-                            client,
-                            translated.prompt,
-                            translated.additional_context,
-                            session,
-                            call_log=app.state.call_log,
-                            call_record=call_record,
-                            tool_names={t.function.name for t in tools if t.function},
-                            tool_schemas=tool_schemas,
-                            read_only_guard=read_only_guard,
-                            text_transform=media_rewriter,
-                            images=translated.images,
-                            shortfall_note=shortfall_note,
-                            declined_note=declined_note,
-                            router_prompt=router_prompt,
-                        ),
+                        stream,
                         media_type="text/event-stream",
                         headers=extra_headers,
                     )
@@ -276,14 +373,61 @@ def register_chat_routes(
             # _looks_like_fake_file_claim needs to detect a natively generated
             # file, so the corrective retry never fired. Deferring it also keeps
             # the rewriter away from a Write tool_call's file content.
-            text = await routed_or_answered(
-                client,
-                router_prompt,
-                translated.prompt,
-                translated.additional_context,
-                session,
-                translated.images,
+            async def router_answer() -> str:
+                return await routed_or_answered(
+                    client,
+                    router_prompt,
+                    translated.prompt,
+                    translated.additional_context,
+                    session,
+                    translated.images,
+                )
+
+            async def studio_fallback_answer() -> str:
+                nonlocal actual_planning, shortfall_note, declined_note
+                actual_planning = "router"
+                call_record["tool_planning"] = "router"
+                call_record["studio_fallback"] = "upstream_error"
+                shortfall_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tools),
+                    read_only_guard=read_only_guard,
+                    planning_mode=actual_planning,
+                )
+                declined_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tools),
+                    read_only_guard=read_only_guard,
+                    declined=True,
+                    planning_mode=actual_planning,
+                )
+                return await router_answer()
+
+            if studio_client is not None:
+                text = await planned_or_answered(
+                    studio_turn=PlannerTurn(
+                        studio_client,
+                        studio_translated.prompt,
+                        studio_translated.additional_context,
+                        studio_session,
+                        studio_translated.images,
+                    ),
+                    fallback_turn=studio_fallback_answer,
+                )
+            else:
+                text = await router_answer()
+            header_status = (
+                actual_planning
+                if planning_mode == "studio"
+                else effective_tool_calling(resolved_tone, planning_mode)
             )
+            extra_headers = {TOOL_CALLING_HEADER: header_status} if tools else None
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
@@ -316,7 +460,20 @@ def register_chat_routes(
         if not tool_calls and tools and not read_only_guard and not declined and _looks_like_fake_file_claim(text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
-                retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
+                retry_uses_studio = (
+                    studio_client is not None and actual_planning == "studio"
+                )
+                retry_text = await (
+                    studio_client if retry_uses_studio else client
+                ).chat(
+                    _RETRY_INSTRUCTION,
+                    (
+                        studio_translated.additional_context
+                        if retry_uses_studio
+                        else translated.additional_context
+                    ),
+                    studio_session if retry_uses_studio else session,
+                )
                 retry_calls = _extract_tool_calls(retry_text)
                 if not retry_calls:
                     tool_names = {t.function.name for t in tools if t.function}
@@ -358,10 +515,26 @@ def register_chat_routes(
             read_only_guard=read_only_guard,
             declined=declined,
             rejected=rejected,
-            planning_mode=planning_mode,
+            planning_mode=actual_planning,
         )
         if required_error:
-            raise HTTPException(status_code=400, detail=required_error)
+            error_headers = dict(extra_headers or {})
+            if tools and choice[0] == "required":
+                error_headers[TOOL_OUTCOME_HEADER] = (
+                    REQUIRED_REJECTED_CALL_OUTCOME
+                    if rejected
+                    else REQUIRED_NO_CALL_OUTCOME
+                )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "message": required_error,
+                        "type": "invalid_request_error",
+                    }
+                },
+                headers=error_headers,
+            )
         if tool_calls:
             remaining = media_rewriter(_strip_tool_call_blocks(text))
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
@@ -414,6 +587,7 @@ async def _openai_stream_with_tools(
     session: PersistentSession | None = None,
     call_log: list | None = None,
     call_record: dict | None = None,
+    on_record_update: Callable[[str], None] | None = None,
     tool_names: set | None = None,
     tool_schemas: dict | None = None,
     read_only_guard: bool = False,
@@ -421,7 +595,10 @@ async def _openai_stream_with_tools(
     images: list | None = None,
     shortfall_note: str = "",
     declined_note: str = "",
+    router_shortfall_note: str = "",
+    router_declined_note: str = "",
     router_prompt: str = "",
+    studio_turn: PlannerTurn | None = None,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream.
 
@@ -434,9 +611,27 @@ async def _openai_stream_with_tools(
     _log = logging.getLogger("copilot_proxy")
     chunks: list[str] = []
     try:
-        async for delta in routed_or_streamed(
-            client, router_prompt, prompt, additional_context, session, images
-        ):
+        async def router_stream() -> AsyncIterator[str]:
+            nonlocal shortfall_note, declined_note
+            if studio_turn is not None and call_record is not None:
+                call_record["tool_planning"] = "router"
+                call_record["studio_fallback"] = "upstream_error"
+                shortfall_note = router_shortfall_note
+                declined_note = router_declined_note
+            async for delta in routed_or_streamed(
+                client, router_prompt, prompt, additional_context, session, images
+            ):
+                yield delta
+
+        stream = (
+            planned_or_streamed(
+                studio_turn=studio_turn,
+                fallback_turn=router_stream,
+            )
+            if studio_turn is not None
+            else router_stream()
+        )
+        async for delta in stream:
             chunks.append(delta)
     except SubstrateCopilotError as exc:
         # Deliver the upstream failure as readable assistant text rather than a
@@ -455,6 +650,8 @@ async def _openai_stream_with_tools(
             call_record["response_text"] = delivered[:8000]
             call_record["response_repr"] = repr(delivered[:2000])
             call_record["error"] = str(exc)
+        if on_record_update is not None:
+            on_record_update(delivered)
         err_id = f"chatcmpl_{uuid.uuid4().hex}"
         err_created = int(time.time())
         yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
@@ -485,7 +682,23 @@ async def _openai_stream_with_tools(
         _log.info("  fake file claim detected, forcing corrective retry")
         try:
             retry_chunks: list[str] = []
-            async for delta in client.chat_stream(_RETRY_INSTRUCTION, additional_context, session):
+            retry_uses_studio = (
+                studio_turn is not None
+                and (
+                    call_record is None
+                    or call_record.get("tool_planning") == "studio"
+                )
+            )
+            retry_client = studio_turn.client if retry_uses_studio else client
+            retry_context = (
+                studio_turn.additional_context
+                if retry_uses_studio
+                else additional_context
+            )
+            retry_session = studio_turn.session if retry_uses_studio else session
+            async for delta in retry_client.chat_stream(
+                _RETRY_INSTRUCTION, retry_context, retry_session
+            ):
                 retry_chunks.append(delta)
             retry_text = "".join(retry_chunks)
             retry_calls = _extract_tool_calls(retry_text)
@@ -516,6 +729,8 @@ async def _openai_stream_with_tools(
             call_record["tool_declined"] = True
         if rejected:
             call_record["tool_calls_rejected"] = rejected
+    if on_record_update is not None:
+        on_record_update(full_text)
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
 
@@ -548,3 +763,23 @@ async def _openai_stream_with_tools(
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
         yield "data: [DONE]\n\n"
+
+
+async def _prefetch_stream(stream: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Resolve the planner path before response headers are committed.
+
+    Studio planning can fall back to the router only after the async iterator is
+    advanced.  Buffer exactly the first SSE frame, then replay it so the caller
+    can advertise the actual path without dropping or duplicating data.
+    """
+    try:
+        first = await anext(stream)
+    except StopAsyncIteration:
+        return stream
+
+    async def replay() -> AsyncIterator[str]:
+        yield first
+        async for item in stream:
+            yield item
+
+    return replay()

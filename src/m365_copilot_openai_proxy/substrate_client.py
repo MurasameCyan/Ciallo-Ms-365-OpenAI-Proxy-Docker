@@ -210,7 +210,7 @@ class SubstrateCopilotError(RuntimeError):
 
 
 class SubstrateCopilotClient:
-    def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic", extra_tool_prompt: str = "", idle_timeout: float | None = None):
+    def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic", extra_tool_prompt: str = "", idle_timeout: float | None = None, studio_agent_id: str = ""):
         if not access_token:
             raise SubstrateCopilotError(
                 "M365_ACCESS_TOKEN is missing. Start the debug Edge window and let startup token capture complete, "
@@ -222,6 +222,7 @@ class SubstrateCopilotClient:
         self._idle_timeout = float(idle_timeout) if idle_timeout else _WS_IDLE_TIMEOUT
         self._tone = tone or "Magic"
         self._extra_tool_prompt = extra_tool_prompt or ""
+        self._studio_agent_id = str(studio_agent_id or "")
         self._response_debug_sink = None
         try:
             claims = decode_jwt_payload(access_token)
@@ -331,6 +332,23 @@ class SubstrateCopilotClient:
             "target": "chat",
             "type": 4,
         }
+        studio_agent_id = getattr(self, "_studio_agent_id", "")
+        if studio_agent_id:
+            argument = payload["arguments"][0]
+            argument["threadLevelGptId"] = {
+                "id": studio_agent_id,
+                "source": "MOS3",
+            }
+            argument["gpts"] = [{
+                "id": studio_agent_id,
+                "source": "MOS3",
+                "version": "1.0.0",
+                "clientOverrides": {
+                    "capabilities": [],
+                    "deepResearchModels@odata.type": "Collection(String)",
+                },
+            }]
+            argument.pop("plugins", None)
         return json.dumps(payload, ensure_ascii=False) + SIGNALR_SEP
 
     async def _upload_images(self, images: list | None) -> list[dict]:

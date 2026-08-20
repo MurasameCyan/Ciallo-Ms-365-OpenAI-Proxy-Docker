@@ -62,6 +62,12 @@ SENSITIVE_FIELDS = (
     # An outbound proxy URL may embed credentials (http://user:pass@host:port),
     # which normalize_proxy_url explicitly accepts -- so it is at-rest sensitive.
     "proxy_url",
+    # A Studio binding is an account-scoped cloud resource reference. Keep both
+    # the opaque agent id and the AAD subject it was bound under out of backups
+    # and accidental diffs; public serializers expose a presence boolean only.
+    "studio_agent_id",
+    "studio_agent_tenant_id",
+    "studio_agent_object_id",
 )
 
 

@@ -140,6 +140,12 @@ def register_messages_routes(
             # same Consumer handling (its prompt ceiling is the adapter's job).
             router_prompt = ""
             planning_mode = effective_tool_planning_mode(app, _key_obj)
+            studio_unsupported = bool(_tools) and planning_mode == "studio"
+            if studio_unsupported:
+                # Studio planning is intentionally Chat-Completions-only.  Keep
+                # Messages on the same account's ordinary client and make the
+                # fallback explicit instead of silently reporting "studio".
+                planning_mode = "router"
             if _tools and router_applies(planning_mode, resolved_tone):
                 full_view = translate_anthropic_request(
                     request.model_copy(update={"tools": None, "tool_choice": None})
@@ -173,7 +179,13 @@ def register_messages_routes(
         # effective status, log and call record the measured one -- see the chat route.
         tool_status = tone_tool_calling(resolved_tone) if tool_names else ""
         extra_headers = (
-            {TOOL_CALLING_HEADER: effective_tool_calling(resolved_tone, planning_mode)}
+            {
+                TOOL_CALLING_HEADER: (
+                    "router"
+                    if studio_unsupported
+                    else effective_tool_calling(resolved_tone, planning_mode)
+                )
+            }
             if tool_names else None
         )
         shortfall_note = ""
@@ -211,6 +223,8 @@ def register_messages_routes(
             call_record["tool_calling"] = tool_status
         if router_prompt:
             call_record["tool_planning"] = "router"
+        if studio_unsupported:
+            call_record["studio_fallback"] = "unsupported_endpoint"
 
         if request.stream:
             call_record["streaming"] = True

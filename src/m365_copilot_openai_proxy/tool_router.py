@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from .substrate_client import SubstrateCopilotError
 from .tone_options import TOOL_PLANNING_MODES, router_applies, tool_planning_mode
@@ -168,6 +168,7 @@ async def routed_or_answered(
     additional_context: list[str],
     session=None,
     images: list | None = None,
+    on_router_call: Callable[[], None] | None = None,
 ) -> str:
     """One turn's text: the router's decision if it produced a call, else an answer.
 
@@ -180,6 +181,7 @@ async def routed_or_answered(
     if router_prompt:
         decided, declined = await _router_decision(client, router_prompt)
         if decided:
+            _notify_router_call(on_router_call)
             return decided
     text = await client.chat(prompt, additional_context, session, images)
     return text + _marker_suffix(text, declined)
@@ -192,6 +194,7 @@ async def routed_or_streamed(
     additional_context: list[str],
     session=None,
     images: list | None = None,
+    on_router_call: Callable[[], None] | None = None,
 ) -> AsyncIterator[str]:
     """chat_stream, with the same router pre-step, yielding the decision as one chunk.
 
@@ -202,6 +205,7 @@ async def routed_or_streamed(
     if router_prompt:
         decided, declined = await _router_decision(client, router_prompt)
         if decided:
+            _notify_router_call(on_router_call)
             yield decided
             return
     text = ""
@@ -227,6 +231,20 @@ def _marker_suffix(text: str, declined: bool) -> str:
     a malformed turn -- which is exactly what an empty answer is.
     """
     return f"\n\n{_NO_TOOL_MARKER}" if declined and text.strip() else ""
+
+
+def _notify_router_call(observer: Callable[[], None] | None) -> None:
+    """Best-effort signal that the classification turn produced the call.
+
+    The observer exists only for request bookkeeping. A metrics/persistence
+    failure must never turn a valid upstream tool decision into an API failure.
+    """
+    if observer is None:
+        return
+    try:
+        observer()
+    except Exception:  # noqa: BLE001 - observers are deliberately non-fatal
+        _log.warning("[router] call observer failed", exc_info=True)
 
 
 async def _router_decision(client, router_prompt: str) -> tuple[str, bool]:

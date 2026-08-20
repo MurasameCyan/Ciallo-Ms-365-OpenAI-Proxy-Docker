@@ -499,7 +499,13 @@ def test_m365_responses_allows_incremental_tool_output_for_proxy_response_id(
     provider_app,
 ):
     app, _consumer_key, m365_key, _made_consumers, made_m365 = provider_app
-    session_key = f"{m365_key.id}:auto:responses-history"
+    # Keyed requests include the currently bound account in their tenant
+    # prefix.  Build the fixture's issued response id from the same scope so
+    # the test exercises continuation authorization rather than an orphaned
+    # legacy key.
+    session_key = (
+        f"{m365_key.id}:{m365_key.account_id}:auto:responses-history"
+    )
     session = app.state.session_store.get(session_key)
     previous_response_id = _encode_responses_session_id(
         session_key,
