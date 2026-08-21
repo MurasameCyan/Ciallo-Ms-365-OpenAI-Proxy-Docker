@@ -18,6 +18,7 @@ from m365_copilot_openai_proxy.substrate_client import (
     SIGNALR_SEP,
     SubstrateCopilotClient,
     SubstrateCopilotError,
+    SubstrateThrottled,
 )
 from m365_copilot_openai_proxy.studio_planner import (
     PlannerTurn,
@@ -204,6 +205,43 @@ def test_answer_falls_back_once_on_zero_output_substrate_error():
         "router answer"
     )
     assert calls == 1
+
+
+def test_answer_does_not_turn_throttled_into_router_fallback():
+    calls = 0
+
+    async def fallback():
+        nonlocal calls
+        calls += 1
+        return "router answer"
+
+    with pytest.raises(SubstrateThrottled, match="throttled"):
+        asyncio.run(_answer([SubstrateThrottled("throttled")], fallback))
+    assert calls == 0
+
+
+def test_stream_does_not_turn_throttled_into_router_fallback():
+    calls = 0
+
+    async def fallback_stream():
+        nonlocal calls
+        calls += 1
+        yield "router"
+
+    async def run():
+        stream = planned_or_streamed(
+            studio_turn=PlannerTurn(
+                ScriptedClient([SubstrateThrottled("throttled")]),
+                "prompt",
+                [],
+            ),
+            fallback_turn=fallback_stream,
+        )
+        with pytest.raises(SubstrateThrottled, match="throttled"):
+            await anext(stream)
+
+    asyncio.run(run())
+    assert calls == 0
 
 
 def test_answer_keeps_fallback_lazy_when_studio_succeeds():

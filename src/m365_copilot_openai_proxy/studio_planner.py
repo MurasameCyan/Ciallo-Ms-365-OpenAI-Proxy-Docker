@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .session_store import PersistentSession
-from .substrate_client import SubstrateCopilotError
+from .substrate_client import SubstrateCopilotError, SubstrateThrottled
 
 
 class ChatStreamClient(Protocol):
@@ -46,6 +46,8 @@ async def planned_or_answered(
             if chunk:
                 yielded_any = True
             chunks.append(chunk)
+    except SubstrateThrottled:
+        raise
     except SubstrateCopilotError:
         if yielded_any:
             raise
@@ -69,6 +71,8 @@ async def planned_or_streamed(
             if chunk:
                 yielded_any = True
             yield chunk
+    except SubstrateThrottled:
+        raise
     except SubstrateCopilotError:
         if yielded_any:
             raise

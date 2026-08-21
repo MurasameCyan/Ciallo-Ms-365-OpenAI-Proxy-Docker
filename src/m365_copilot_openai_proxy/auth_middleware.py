@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import Settings
+from .error_handlers import rate_limit_error_payload
 from .ratelimit import RateLimiterRegistry
 from .session_helpers import _SESSION_ID_HEADER
 
@@ -70,12 +71,10 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
             if allowed:
                 return None
             seconds = max(1, math.ceil(retry_after))
+            message = f"Rate limit exceeded ({int(rpm)} requests/minute). Retry after {seconds}s."
             resp = JSONResponse(
                 status_code=429,
-                content={"error": {
-                    "message": f"Rate limit exceeded ({int(rpm)} requests/minute). Retry after {seconds}s.",
-                    "type": "rate_limit_error",
-                }},
+                content=rate_limit_error_payload(path, message),
             )
             resp.headers["Retry-After"] = str(seconds)
             return resp

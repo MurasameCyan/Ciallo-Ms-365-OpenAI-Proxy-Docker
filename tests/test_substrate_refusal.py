@@ -10,6 +10,7 @@ from m365_copilot_openai_proxy.substrate_client import (
     SIGNALR_SEP,
     SubstrateCopilotClient,
     SubstrateCopilotError,
+    SubstrateThrottled,
 )
 
 REFUSAL = "Sorry, I wasn't able to respond to that. Is there something else I can help with?"
@@ -135,6 +136,27 @@ def test_failed_turn_state_raises_even_if_the_line_is_reworded(monkeypatch):
 
     assert "Claude_Opus" in str(excinfo.value)
     assert "InternalError" in str(excinfo.value)
+
+
+def test_throttled_turn_raises_typed_upstream_error(monkeypatch):
+    complete = {
+        "type": 2,
+        "item": {
+            "turnState": "Failed",
+            "result": {"value": "Throttled"},
+        },
+    }
+    monkeypatch.setattr(
+        substrate_client.websockets,
+        "connect",
+        lambda *a, **k: _fake_ws([complete])(),
+    )
+
+    with pytest.raises(SubstrateThrottled) as excinfo:
+        _collect(_client("Claude_Sonnet"))
+
+    assert "Throttled" in str(excinfo.value)
+    assert "Claude_Sonnet" in str(excinfo.value)
 
 
 def test_failed_turn_after_real_deltas_is_passed_through(monkeypatch):

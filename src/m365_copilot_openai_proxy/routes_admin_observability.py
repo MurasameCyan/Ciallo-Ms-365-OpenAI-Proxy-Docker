@@ -31,6 +31,13 @@ def register_admin_observability_routes(app: FastAPI, require_admin: Callable[[R
         clear_call_log_store(app.state)
         return {"status": "ok", "version": int(getattr(app.state, 'call_log_version', 0))}
 
+    @app.post("/admin/usage/clear")
+    async def clear_usage(request: Request) -> dict:
+        err = require_admin(request)
+        if err: return err
+        app.state.usage_store.clear()
+        return {"status": "ok"}
+
     @app.get("/admin/media-proxy/events")
     async def get_admin_media_proxy_events(request: Request, version: int | None = None) -> dict:
         err = require_admin(request)

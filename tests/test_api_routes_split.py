@@ -19,6 +19,7 @@ def test_v1_api_routes_are_registered_by_api_routes_module(tmp_path):
     assert "/v1/chat/completions" in paths
     assert "/v1/responses" in paths
     assert "/v1/messages" in paths
+    assert "/v1/images/generations" in paths
 
 
 def test_chat_completions_uses_reloaded_bound_account_token_without_global_token(tmp_path):

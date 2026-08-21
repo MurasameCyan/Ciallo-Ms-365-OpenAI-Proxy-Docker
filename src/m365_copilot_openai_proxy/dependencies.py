@@ -179,6 +179,23 @@ def create_api_dependencies(
                 # anonymous M365 client instead, and the turn then failed with an
                 # unrelated M365 error that named nothing about the real cause.
                 client = app.state.copilot_client_factory()
+            profile_store = getattr(app.state, "protocol_profile_store", None)
+            if profile_store is not None:
+                tenant_id = ""
+                if account is not None:
+                    try:
+                        tenant_id = str(
+                            decode_jwt_payload(getattr(account, "token", "") or "").get("tid")
+                            or ""
+                        ).strip()
+                    except Exception:
+                        tenant_id = ""
+                profile = profile_store.active(
+                    account_id=str(getattr(account, "id", "") or ""),
+                    tenant_id=tenant_id,
+                )
+                client._variants = ",".join(profile["variants"])
+                client._options_sets = list(profile["options_sets"])
             _attach_response_debug_sink(app, client)
             return _throttled(app, account, client)
         except Exception as exc:

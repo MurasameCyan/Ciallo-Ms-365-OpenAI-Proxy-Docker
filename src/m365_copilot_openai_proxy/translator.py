@@ -1181,6 +1181,8 @@ def translate_responses_request(
     system_override: str | None = None,
     consumer_tool_max_chars: int | None = None,
     allow_unmatched_function_call_outputs: bool = False,
+    *,
+    incremental: bool = False,
 ) -> TranslatedRequest:
     instructions = (request.instructions or "").strip()
     choice, tools = responses_tool_config(
@@ -1218,6 +1220,34 @@ def translate_responses_request(
         return TranslatedRequest(prompt=prompt, additional_context=additional_context)
 
     items = request.input
+    if incremental and isinstance(items, list):
+        # A persistent Studio conversation already contains the prior response.
+        # Some Responses clients nevertheless resend the complete local history
+        # together with the new function_call_output (or follow-up user message).
+        # Keep the current continuation, but do not send the old user turn and
+        # assistant function_call back to the upstream Studio conversation.
+        last_assistant_index = -1
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "function_call":
+                last_assistant_index = index
+            elif (
+                item.get("type") in (None, "message")
+                and item.get("role") == "assistant"
+            ):
+                last_assistant_index = index
+        if last_assistant_index >= 0:
+            items = [
+                item
+                for index, item in enumerate(items)
+                if index > last_assistant_index
+                or (
+                    isinstance(item, dict)
+                    and item.get("type") in (None, "message")
+                    and item.get("role") in {"system", "developer"}
+                )
+            ]
     parsed_items: list[tuple[str, dict]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -1349,6 +1379,7 @@ def translate_responses_request(
 
 def translate_anthropic_request(
     request: AnthropicMessagesRequest,
+    incremental: bool = False,
     system_override: str | None = None,
     consumer_tool_max_chars: int | None = None,
 ) -> TranslatedRequest:
@@ -1385,6 +1416,16 @@ def translate_anthropic_request(
         if message.role != "system":
             last_content_index = index
 
+    # A persistent Studio conversation already contains every turn through its
+    # last assistant response.  On a continuation, only preserve content after
+    # that response (plus the current final user/tool-result message); sending
+    # the original user and tool_use again can make the upstream repeat work.
+    last_assistant_index = -1
+    if incremental:
+        for index, message in enumerate(request.messages):
+            if message.role == "assistant":
+                last_assistant_index = index
+
     for index, message in enumerate(request.messages):
         text = flatten_content(message.content).strip()
         if message.role == "system":
@@ -1392,6 +1433,12 @@ def translate_anthropic_request(
                 system_lines.append(text)
             continue
         is_last = index == last_content_index
+        skip_transcript = (
+            incremental
+            and index <= last_assistant_index
+            and not is_last
+            and message.role not in {"system", "developer"}
+        )
         tool_uses, tool_results = _anthropic_tool_blocks(message.content)
         if is_last:
             if message.role != "user":
@@ -1411,11 +1458,13 @@ def translate_anthropic_request(
                         "emit the next tool_call; otherwise give the user your final answer."
                     )
             continue
-        for line in (*tool_uses, *tool_results):
-            transcript_lines.append(line)
+        if not skip_transcript:
+            for line in (*tool_uses, *tool_results):
+                transcript_lines.append(line)
         if not text:
             continue
-        transcript_lines.append(f"{message.role.capitalize()}: {text}")
+        if not skip_transcript:
+            transcript_lines.append(f"{message.role.capitalize()}: {text}")
 
     if not prompt and not images:
         raise ValueError("A final user message is required.")

@@ -13,7 +13,11 @@ from .runtime_settings import (
     _BUILTIN_CONSUMER_MODE_OPTIONS,
     _RUN_PERMISSIONS,
 )
-from .substrate_client import _EMPTY_TURN_MARKER, _REFUSED_TURN_MARKER
+from .substrate_client import (
+    _EMPTY_TURN_MARKER,
+    _REFUSED_TURN_MARKER,
+    SubstrateThrottled,
+)
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 from .tone_options import (
     CONSUMER_MODE_TOOL_CALLING,
@@ -53,6 +57,11 @@ def upstream_http_error(
     because the substrate client does not expose typed subclasses for them.
     """
     detail = str(exc)
+    throttled = exc if isinstance(exc, SubstrateThrottled) else exc.__cause__
+    if isinstance(throttled, SubstrateThrottled):
+        # M365 does not currently include a reset timestamp in this frame. Do not
+        # invent Retry-After; the typed status lets clients apply their own backoff.
+        return HTTPException(status_code=429, detail=detail)
     throttled = exc if isinstance(exc, AccountThrottled) else exc.__cause__
     if isinstance(throttled, AccountThrottled):
         headers = None

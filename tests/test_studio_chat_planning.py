@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
 import time
 
@@ -10,12 +11,20 @@ from fastapi.testclient import TestClient
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.models import OpenAIChatRequest, OpenAIMessage
-from m365_copilot_openai_proxy.session_helpers import _persistent_session
+from m365_copilot_openai_proxy.routes_api_chat import _openai_stream_with_tools
+from m365_copilot_openai_proxy.sse_stream import keepalive_stream
+from m365_copilot_openai_proxy.usage_store import estimate_upstream_input_tokens
+from m365_copilot_openai_proxy.session_helpers import (
+    _namespaced_session,
+    _persistent_session,
+    _studio_session_namespace,
+)
 from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
 from m365_copilot_openai_proxy.tone_options import router_applies, tool_planning_mode
 
 
 AGENT_ID = "title.bot.gpt.default"
+OTHER_AGENT_ID = "other.bot.gpt.default"
 READ_CALL = (
     '```tool_call\n'
     '{"name":"Read","arguments":{"file_path":"/tmp/a.txt"}}'
@@ -180,6 +189,24 @@ def _responses_body(response, stream: bool) -> dict:
     )
 
 
+def _anthropic_tool_use(response, stream: bool) -> dict:
+    if not stream:
+        return next(
+            item for item in response.json()["content"] if item["type"] == "tool_use"
+        )
+    events = [
+        json.loads(line.removeprefix("data: "))
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    return next(
+        event["content_block"]
+        for event in events
+        if event.get("type") == "content_block_start"
+        and event.get("content_block", {}).get("type") == "tool_use"
+    )
+
+
 class ContextAwareResponsesClient:
     _tone = "Magic"
 
@@ -210,11 +237,147 @@ class ContextAwareResponsesClient:
         yield self._reply(prompt)
 
 
+class StudioResponsesContinuationClient:
+    """Return a tool call once, then answer after the host submits its result."""
+
+    def __init__(self, *, studio: bool):
+        self.studio = studio
+        self.calls: list[tuple[str, str, list[str], object]] = []
+
+    async def chat(self, prompt, context=None, session=None, images=None):
+        chunks = [
+            item
+            async for item in self.chat_stream(prompt, context, session, images)
+        ]
+        return "".join(chunks)
+
+    async def chat_stream(self, prompt, context=None, session=None, images=None):
+        context = list(context or [])
+        self.calls.append(("stream", prompt, context, session))
+        if session is not None:
+            session.reserve_turn()
+        if any("Tool: Tool result" in item for item in context):
+            yield "studio-final-answer"
+        else:
+            yield READ_CALL
+
+
+class FailingStudioContinuationClient:
+    studio = True
+
+    def __init__(self):
+        self.calls: list[tuple[str, str, list[str], object]] = []
+
+    async def chat_stream(self, prompt, context=None, session=None, images=None):
+        self.calls.append(("stream", prompt, list(context or []), session))
+        if session is not None:
+            session.reserve_turn()
+        raise SubstrateCopilotError("studio continuation failed")
+        yield  # pragma: no cover - keep this an async generator
+
+
+class StudioTextThenFailClient:
+    studio = True
+
+    def __init__(self, *, fail: bool):
+        self.fail = fail
+        self.calls: list[tuple[str, str, list[str], object]] = []
+
+    async def chat(self, prompt, context=None, session=None, images=None):
+        return "".join([
+            item
+            async for item in self.chat_stream(prompt, context, session, images)
+        ])
+
+    async def chat_stream(self, prompt, context=None, session=None, images=None):
+        self.calls.append(("stream", prompt, list(context or []), session))
+        if session is not None:
+            session.reserve_turn()
+        if self.fail:
+            raise SubstrateCopilotError("studio text continuation failed")
+        yield "studio-text-sentinel"
+
+
 def _custom_studio_app(tmp_path, client_factory):
     made = []
 
     def factory(**_kwargs):
         client = client_factory()
+        made.append(client)
+        return client
+
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""),
+        copilot_client_factory=factory,
+    )
+    account = app.state.account_store.add(name="Studio", token=_jwt())
+    app.state.account_store.set_studio_agent_id(account.id, AGENT_ID)
+    key = app.state.key_store.add(name="Studio Key", account_id=account.id)
+    app.state.key_store.update(key.id, tool_planning_mode="studio")
+    return app, TestClient(app), key.key, made
+
+
+def _studio_responses_continuation_app(tmp_path):
+    made = []
+
+    def factory(**kwargs):
+        client = StudioResponsesContinuationClient(
+            studio=bool(kwargs.get("studio_agent_id"))
+        )
+        made.append(client)
+        return client
+
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""),
+        copilot_client_factory=factory,
+    )
+    account = app.state.account_store.add(name="Studio", token=_jwt())
+    app.state.account_store.set_studio_agent_id(account.id, AGENT_ID)
+    key = app.state.key_store.add(name="Studio Key", account_id=account.id)
+    app.state.key_store.update(key.id, tool_planning_mode="studio")
+    return app, TestClient(app), key.key, made
+
+
+def _studio_continuation_fallback_app(tmp_path):
+    made = []
+    studio_calls = 0
+
+    def factory(**kwargs):
+        nonlocal studio_calls
+        if kwargs.get("studio_agent_id"):
+            studio_calls += 1
+            client = (
+                StudioResponsesContinuationClient(studio=True)
+                if studio_calls == 1
+                else FailingStudioContinuationClient()
+            )
+        else:
+            client = ContextAwareResponsesClient()
+        made.append(client)
+        return client
+
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""),
+        copilot_client_factory=factory,
+    )
+    account = app.state.account_store.add(name="Studio", token=_jwt())
+    app.state.account_store.set_studio_agent_id(account.id, AGENT_ID)
+    key = app.state.key_store.add(name="Studio Key", account_id=account.id)
+    app.state.key_store.update(key.id, tool_planning_mode="studio")
+    return app, TestClient(app), key.key, made
+
+
+def _studio_text_continuation_fallback_app(tmp_path):
+    made = []
+    studio_calls = 0
+
+    def factory(**kwargs):
+        nonlocal studio_calls
+        if kwargs.get("studio_agent_id"):
+            studio_calls += 1
+            client = StudioTextThenFailClient(fail=studio_calls > 1)
+        else:
+            client = ContextAwareResponsesClient()
         made.append(client)
         return client
 
@@ -256,10 +419,66 @@ def test_studio_namespace_uses_a_distinct_session_key(tmp_path):
     assert app.state.session_store.key_for(normal) != app.state.session_store.key_for(studio)
 
 
-def test_ready_m365_tools_chat_uses_bound_studio_client(tmp_path):
+def test_namespaced_session_mirrors_existing_response_session_key(tmp_path):
+    app, _client, key, _made = _app(tmp_path)
+    key_obj = app.state.key_store.resolve(key)
+    account = app.state.account_store.get(key_obj.account_id)
+    raw = type("Raw", (), {
+        "headers": {},
+        "state": type("State", (), {"api_key_obj": key_obj, "account": account})(),
+    })()
+    normal = app.state.session_store.get(
+        f"{key_obj.id}:{account.id}:auto:responses_123"
+    )
+
+    studio = _namespaced_session(app, raw, normal, "studio")
+
+    assert app.state.session_store.key_for(studio) == (
+        f"{key_obj.id}:{account.id}:studio:auto:responses_123"
+    )
+
+
+def test_studio_agent_namespace_changes_when_agent_is_rebound(tmp_path):
+    app, _client, key, _made = _app(tmp_path)
+    key_obj = app.state.key_store.resolve(key)
+    account = app.state.account_store.get(key_obj.account_id)
+    raw = type("Raw", (), {
+        "headers": {"x-m365-session-id": "same"},
+        "state": type("State", (), {"api_key_obj": key_obj, "account": account})(),
+    })()
+    request = OpenAIChatRequest(
+        model="m365-copilot",
+        messages=[OpenAIMessage(role="user", content="hello")],
+    )
+
+    first = _persistent_session(
+        app,
+        raw,
+        request.model,
+        request=request,
+        namespace=_studio_session_namespace(AGENT_ID),
+    )
+    second = _persistent_session(
+        app,
+        raw,
+        request.model,
+        request=request,
+        namespace=_studio_session_namespace(OTHER_AGENT_ID),
+    )
+
+    assert first.conversation_id != second.conversation_id
+    first_key = app.state.session_store.key_for(first)
+    second_key = app.state.session_store.key_for(second)
+    assert AGENT_ID not in first_key
+    assert OTHER_AGENT_ID not in second_key
+    assert first_key != second_key
+
+
+def test_ready_m365_tools_chat_uses_bound_studio_client(tmp_path, caplog):
     app, client, key, made = _app(tmp_path)
 
-    response = _chat(client, key)
+    with caplog.at_level("WARNING", logger="copilot_proxy"):
+        response = _chat(client, key)
 
     assert response.status_code == 200
     assert response.headers["X-M365-Tool-Calling"] == "studio"
@@ -271,6 +490,7 @@ def test_ready_m365_tools_chat_uses_bound_studio_client(tmp_path):
     assert record["tool_planning"] == "studio"
     assert "studio_fallback" not in record
     assert AGENT_ID not in json.dumps(record)
+    assert "planning this turn with a router turn instead" not in caplog.text
 
 
 def test_ready_m365_stream_uses_studio_and_reports_actual_header(tmp_path):
@@ -280,6 +500,8 @@ def test_ready_m365_stream_uses_studio_and_reports_actual_header(tmp_path):
 
     assert response.status_code == 200
     assert response.headers["X-M365-Tool-Calling"] == "studio"
+    assert response.headers["Cache-Control"] == "no-cache"
+    assert response.headers["X-Accel-Buffering"] == "no"
     assert '"name": "Read"' in response.text
     assert [item.studio_agent_id for item in made] == ["", AGENT_ID]
     assert app.state.call_log[-1]["tool_planning"] == "studio"
@@ -299,18 +521,40 @@ def test_zero_output_studio_error_falls_back_to_router_and_updates_metadata(tmp_
     assert record["studio_fallback"] == "upstream_error"
 
 
-def test_stream_zero_output_studio_error_reports_router_after_fallback(tmp_path):
+def test_stream_zero_output_studio_error_records_router_after_fallback(tmp_path):
     app, client, key, made = _app(tmp_path, fail_studio=True)
 
     response = _chat(client, key, stream=True)
 
     assert response.status_code == 200
-    assert response.headers["X-M365-Tool-Calling"] == "router"
+    assert response.headers["X-M365-Tool-Calling"] == "studio"
     assert len(made[0].calls) == 1
     assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
     persisted = json.loads(app.state.call_log_path.read_text(encoding="utf-8"))[-1]
     assert persisted["tool_planning"] == "router"
     assert persisted["studio_fallback"] == "upstream_error"
+
+
+def test_chat_tool_stream_emits_keepalive_before_slow_studio_finishes():
+    class SlowClient:
+        async def chat_stream(self, prompt, context=None, session=None, images=None):
+            await asyncio.sleep(0.05)
+            yield READ_CALL
+
+    async def run():
+        stream = keepalive_stream(
+            _openai_stream_with_tools(
+                "m365-copilot",
+                SlowClient(),
+                "read /tmp/a.txt",
+                [],
+                tool_names={"Read"},
+            ),
+            interval=0.001,
+        )
+        return await asyncio.wait_for(anext(stream), timeout=0.02)
+
+    assert asyncio.run(run()) == ": keepalive\n\n"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -334,14 +578,17 @@ def test_studio_corrective_retry_reuses_studio_client_and_session(stream, tmp_pa
     "provider,ready,reason",
     [("m365", False, "not_ready"), ("consumer", False, "unsupported_provider")],
 )
-def test_unavailable_studio_chat_uses_router(provider, ready, reason, tmp_path):
+def test_unavailable_studio_chat_uses_router(
+    provider, ready, reason, tmp_path, caplog
+):
     app, client, key, made = _app(tmp_path, provider=provider, ready=ready)
 
-    response = _chat(
-        client,
-        key,
-        model="copilot" if provider == "consumer" else "m365-copilot",
-    )
+    with caplog.at_level("WARNING", logger="copilot_proxy"):
+        response = _chat(
+            client,
+            key,
+            model="copilot" if provider == "consumer" else "m365-copilot",
+        )
 
     assert response.status_code == 200
     assert response.headers["X-M365-Tool-Calling"] == "router"
@@ -349,6 +596,7 @@ def test_unavailable_studio_chat_uses_router(provider, ready, reason, tmp_path):
     record = app.state.call_log[-1]
     assert record["tool_planning"] == "router"
     assert record["studio_fallback"] == reason
+    assert "planning this turn with a router turn instead" in caplog.text
 
 
 def test_studio_mode_without_tools_keeps_the_ordinary_path(tmp_path):
@@ -390,7 +638,7 @@ def test_studio_mode_without_tools_keeps_the_ordinary_path(tmp_path):
         ),
     ],
 )
-def test_other_tool_endpoints_explicitly_route_studio_mode(
+def test_other_tool_endpoints_use_bound_studio_client(
     endpoint, headers, body, tmp_path
 ):
     app, client, key, made = _app(tmp_path)
@@ -402,16 +650,16 @@ def test_other_tool_endpoints_explicitly_route_studio_mode(
     )
 
     assert response.status_code == 200
-    assert not [item for item in made if item.studio_agent_id]
-    assert made[0].calls
-    assert "You are a tool-use router" in made[0].calls[0][0]
-    assert made[0].calls[0][1] is None
+    assert [item.studio_agent_id for item in made] == ["", AGENT_ID]
+    assert not made[0].calls
+    assert made[1].calls
+    assert "You are a tool-use router" not in made[1].calls[0][0]
     record = app.state.call_log[-1]
-    assert record["tool_planning"] == "router"
-    assert record["studio_fallback"] == "unsupported_endpoint"
+    assert record["tool_planning"] == "studio"
+    assert "studio_fallback" not in record
 
 
-def test_responses_stream_studio_mode_uses_router_without_a_session(tmp_path):
+def test_responses_stream_studio_mode_uses_bound_studio_client(tmp_path):
     app, client, key, made = _app(tmp_path)
 
     response = client.post(
@@ -427,12 +675,309 @@ def test_responses_stream_studio_mode_uses_router_without_a_session(tmp_path):
 
     assert response.status_code == 200
     assert '"name": "Read"' in response.text
-    assert not [item for item in made if item.studio_agent_id]
-    assert "You are a tool-use router" in made[0].calls[0][0]
-    assert made[0].calls[0][1] is None
+    assert [item.studio_agent_id for item in made] == ["", AGENT_ID]
+    assert not made[0].calls
+    assert "You are a tool-use router" not in made[1].calls[0][0]
     record = app.state.call_log[-1]
-    assert record["tool_planning"] == "router"
-    assert record["studio_fallback"] == "unsupported_endpoint"
+    assert record["tool_planning"] == "studio"
+    assert "studio_fallback" not in record
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_studio_tool_continuation_reuses_studio_namespace(
+    stream, tmp_path
+):
+    app, client, key, made = _studio_responses_continuation_app(tmp_path)
+    first = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "input": "read /tmp/a.txt",
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert first.status_code == 200
+    first_body = _responses_body(first, stream)
+    call = next(item for item in first_body["output"] if item["type"] == "function_call")
+    continued = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "previous_response_id": first_body["id"],
+            "input": [{
+                "type": "function_call_output",
+                "call_id": call["call_id"],
+                "output": "contents of /tmp/a.txt",
+            }],
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert continued.status_code == 200
+    continued_body = _responses_body(continued, stream)
+    assert "studio-final-answer" in json.dumps(continued_body)
+    assert app.state.call_log[-1]["tool_planning"] == "studio"
+    studio_clients = [item for item in made if item.studio]
+    assert len(studio_clients) == 2
+    assert studio_clients[0].calls[0][3] is studio_clients[1].calls[0][3]
+    assert any("Tool: Tool result" in item for item in studio_clients[1].calls[0][2])
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_studio_full_history_continuation_sends_only_new_turn(
+    stream, tmp_path
+):
+    app, client, key, made = _studio_responses_continuation_app(tmp_path)
+    first = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "input": "responses-original-task-sentinel",
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert first.status_code == 200
+    first_body = _responses_body(first, stream)
+    call = next(item for item in first_body["output"] if item["type"] == "function_call")
+    continued = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "previous_response_id": first_body["id"],
+            "input": [
+                {"role": "user", "content": "responses-original-task-sentinel"},
+                {
+                    "type": "function_call",
+                    "call_id": call["call_id"],
+                    "name": call["name"],
+                    "arguments": call["arguments"],
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": call["call_id"],
+                    "output": "responses-tool-result-sentinel",
+                },
+            ],
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert continued.status_code == 200
+    studio_clients = [item for item in made if item.studio]
+    assert len(studio_clients) == 2
+    continuation_context = "\n".join(studio_clients[1].calls[0][2])
+    assert "responses-tool-result-sentinel" in continuation_context
+    assert "responses-original-task-sentinel" not in continuation_context
+    assert "Assistant called tool" not in continuation_context
+
+
+def test_responses_studio_continuation_usage_matches_incremental_payload(tmp_path):
+    app, client, key, made = _studio_responses_continuation_app(tmp_path)
+    first = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "input": "responses-original-task-sentinel",
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    call = next(item for item in first_body["output"] if item["type"] == "function_call")
+    continued = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "previous_response_id": first_body["id"],
+            "input": [
+                {"role": "user", "content": "responses-original-task-sentinel"},
+                {"type": "function_call", "call_id": call["call_id"], "name": call["name"], "arguments": call["arguments"]},
+                {"type": "function_call_output", "call_id": call["call_id"], "output": "responses-tool-result-sentinel"},
+            ],
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+    assert continued.status_code == 200
+    studio_clients = [item for item in made if item.studio]
+    prompt, context, _session = studio_clients[1].calls[0][1:]
+    expected = estimate_upstream_input_tokens(prompt, context)
+    assert app.state.call_log[-1]["usage_input_tokens"] == expected
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_anthropic_studio_tool_continuation_reuses_studio_namespace(
+    stream, tmp_path
+):
+    app, client, key, made = _studio_responses_continuation_app(tmp_path)
+    first = client.post(
+        "/v1/messages",
+        headers={"x-api-key": key},
+        json={
+            "model": "m365-copilot",
+            "max_tokens": 256,
+            "stream": stream,
+            "messages": [{"role": "user", "content": "read /tmp/a.txt"}],
+            "tools": [{
+                "name": "Read",
+                "description": "Read a file",
+                "input_schema": READ_TOOL["function"]["parameters"],
+            }],
+        },
+    )
+
+    assert first.status_code == 200
+    tool_use = _anthropic_tool_use(first, stream)
+    continued = client.post(
+        "/v1/messages",
+        headers={"x-api-key": key},
+        json={
+            "model": "m365-copilot",
+            "max_tokens": 256,
+            "stream": stream,
+            "messages": [
+                {"role": "user", "content": "read /tmp/a.txt"},
+                {"role": "assistant", "content": [tool_use]},
+                {
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": tool_use["id"],
+                        "content": "contents of /tmp/a.txt",
+                    }],
+                },
+            ],
+            "tools": [{
+                "name": "Read",
+                "description": "Read a file",
+                "input_schema": READ_TOOL["function"]["parameters"],
+            }],
+        },
+    )
+
+    assert continued.status_code == 200
+    assert "studio-final-answer" in continued.text
+    assert app.state.call_log[-1]["tool_planning"] == "studio"
+    studio_clients = [item for item in made if item.studio]
+    assert len(studio_clients) == 2
+    assert studio_clients[0].calls[0][3] is studio_clients[1].calls[0][3]
+    continuation_context = "\n".join(studio_clients[1].calls[0][2])
+    assert "Tool result" in continuation_context
+    assert "contents of /tmp/a.txt" in continuation_context
+    assert "User: read /tmp/a.txt" not in continuation_context
+    assert "Assistant called tool: Read" not in continuation_context
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_studio_continuation_fallback_router_sees_original_task(
+    stream, tmp_path
+):
+    app, client, key, made = _studio_continuation_fallback_app(tmp_path)
+    first = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "input": "original-task-sentinel: inspect /tmp/context.txt",
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert first.status_code == 200
+    first_body = _responses_body(first, stream)
+    call = next(item for item in first_body["output"] if item["type"] == "function_call")
+    continued = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "previous_response_id": first_body["id"],
+            "input": [{
+                "type": "function_call_output",
+                "call_id": call["call_id"],
+                "output": "tool-result-sentinel",
+            }],
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert continued.status_code == 200
+    body = _responses_body(continued, stream)
+    assert not [item for item in body["output"] if item["type"] == "function_call"]
+    assert "final-answer-sentinel" in json.dumps(body)
+    normal_client = next(
+        item
+        for item in made
+        if isinstance(item, ContextAwareResponsesClient) and item.calls
+    )
+    router_call = next(
+        call for call in normal_client.calls if "You are a tool-use router" in call[1]
+    )
+    assert "original-task-sentinel" in router_call[1]
+    assert "tool-result-sentinel" in router_call[1]
+    assert app.state.call_log[-1]["tool_planning"] == "router"
+    assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_studio_text_continuation_fallback_keeps_previous_context(
+    stream, tmp_path
+):
+    app, client, key, made = _studio_text_continuation_fallback_app(tmp_path)
+    first = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "input": "original-task-sentinel: remember this task",
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert first.status_code == 200
+    first_body = _responses_body(first, stream)
+    assert "studio-text-sentinel" in json.dumps(first_body)
+    assert not [item for item in first_body["output"] if item["type"] == "function_call"]
+
+    continued = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "previous_response_id": first_body["id"],
+            "input": "follow-up-sentinel",
+            "stream": stream,
+            "tools": [RESPONSES_READ_TOOL],
+        },
+    )
+
+    assert continued.status_code == 200
+    normal_client = next(
+        item
+        for item in made
+        if isinstance(item, ContextAwareResponsesClient) and item.calls
+    )
+    router_call = next(
+        call for call in normal_client.calls if "You are a tool-use router" in call[1]
+    )
+    assert "original-task-sentinel" in router_call[1]
+    assert "follow-up-sentinel" in router_call[1]
+    assert app.state.call_log[-1]["tool_planning"] == "router"
+    assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -441,6 +986,9 @@ def test_responses_router_tool_continuation_restores_original_task_context(
 ):
     app, client, key, made = _custom_studio_app(
         tmp_path, ContextAwareResponsesClient
+    )
+    app.state.key_store.update(
+        app.state.key_store.resolve(key).id, tool_planning_mode="router"
     )
     first = client.post(
         "/v1/responses",
@@ -511,6 +1059,9 @@ def test_responses_router_no_tool_marker_is_never_user_visible(stream, tmp_path)
     _app_obj, client, key, made = _custom_studio_app(
         tmp_path, RouterDeclineResponsesClient
     )
+    _app_obj.state.key_store.update(
+        _app_obj.state.key_store.resolve(key).id, tool_planning_mode="router"
+    )
 
     response = client.post(
         "/v1/responses",
@@ -535,7 +1086,7 @@ def test_responses_router_no_tool_marker_is_never_user_visible(stream, tmp_path)
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("endpoint", ["messages", "responses"])
-def test_unsupported_studio_endpoint_reports_actual_router_header(
+def test_ready_studio_endpoint_reports_studio_header(
     endpoint, stream, tmp_path
 ):
     _app_obj, client, key, _made = _app(tmp_path)
@@ -568,7 +1119,56 @@ def test_unsupported_studio_endpoint_reports_actual_router_header(
         )
 
     assert response.status_code == 200
-    assert response.headers["X-M365-Tool-Calling"] == "router"
+    assert response.headers["X-M365-Tool-Calling"] == "studio"
+    if stream:
+        assert response.headers["Cache-Control"] == "no-cache"
+        assert response.headers["X-Accel-Buffering"] == "no"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("endpoint", ["messages", "responses"])
+def test_other_tool_endpoints_zero_output_studio_error_falls_back_router(
+    endpoint, stream, tmp_path
+):
+    app, client, key, made = _app(tmp_path, fail_studio=True)
+    if endpoint == "messages":
+        response = client.post(
+            "/v1/messages",
+            headers={"x-api-key": key},
+            json={
+                "model": "m365-copilot",
+                "max_tokens": 256,
+                "stream": stream,
+                "messages": [{"role": "user", "content": "read /tmp/a.txt"}],
+                "tools": [{
+                    "name": "Read",
+                    "description": "Read a file",
+                    "input_schema": READ_TOOL["function"]["parameters"],
+                }],
+            },
+        )
+    else:
+        response = client.post(
+            "/v1/responses",
+            headers={"Authorization": f"Bearer {key}"},
+            json={
+                "model": "m365-copilot",
+                "input": "read /tmp/a.txt",
+                "stream": stream,
+                "tools": [RESPONSES_READ_TOOL],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["X-M365-Tool-Calling"] == (
+        "studio" if stream else "router"
+    )
+    assert [item.studio_agent_id for item in made] == ["", AGENT_ID]
+    assert made[0].calls
+    assert "You are a tool-use router" in made[0].calls[0][0]
+    record = app.state.call_log[-1]
+    assert record["tool_planning"] == "router"
+    assert record["studio_fallback"] == "upstream_error"
 
 
 def test_non_studio_responses_keeps_legacy_header_absence(tmp_path):
@@ -668,7 +1268,9 @@ def test_studio_error_router_fallback_diagnostics_report_actual_planner(
     )
 
     assert response.status_code == (200 if stream or not required else 400)
-    assert response.headers["X-M365-Tool-Calling"] == "router"
+    assert response.headers["X-M365-Tool-Calling"] == (
+        "studio" if stream else "router"
+    )
     text = _chat_response_text(response, stream=stream, required=required)
     assert "工具路由器" in text
     assert "Studio Agent" not in text
@@ -730,8 +1332,9 @@ def test_studio_error_fallback_resets_failed_studio_conversation(stream, tmp_pat
     assert response.status_code == 200
     key_obj = app.state.key_store.resolve(key)
     account = app.state.account_store.get(key_obj.account_id)
+    namespace = _studio_session_namespace(AGENT_ID)
     session = app.state.session_store.get_existing(
-        f"{key_obj.id}:{account.id}:studio:header:failed-studio"
+        f"{key_obj.id}:{account.id}:{namespace}:header:failed-studio"
     )
     assert session is not None
     assert session.turn_count == 0

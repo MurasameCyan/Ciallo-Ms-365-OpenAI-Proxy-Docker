@@ -31,6 +31,27 @@ def test_exceeding_burst_returns_429_with_retry_after(tmp_path):
     assert int(response.headers["retry-after"]) >= 1
 
 
+def test_messages_rate_limit_uses_anthropic_error_envelope(tmp_path):
+    client = make_client(tmp_path, rate_limit_rpm=60, rate_limit_burst=1)
+    client.get("/v1/models", headers={"x-api-key": "admin-key"})
+
+    response = client.post(
+        "/v1/messages",
+        headers={"x-api-key": "admin-key"},
+        json={"model": "m365-copilot", "messages": []},
+    )
+
+    assert response.status_code == 429
+    assert response.json() == {
+        "type": "error",
+        "error": {
+            "type": "rate_limit_error",
+            "message": response.json()["error"]["message"],
+        },
+    }
+    assert int(response.headers["retry-after"]) >= 1
+
+
 def test_zero_rpm_disables_limiting(tmp_path):
     client = make_client(tmp_path, rate_limit_rpm=0, rate_limit_burst=1)
 

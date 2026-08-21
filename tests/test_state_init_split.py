@@ -21,6 +21,8 @@ def test_init_app_state_populates_runtime_state_and_stores(tmp_path):
     assert app.state.runtime_settings["model_alias"] == "m365-copilot"
     assert app.state.model_alias == "m365-copilot"
     assert app.state.call_log == []
+    assert app.state.usage_store.summary()["calls_total"] == 0
+    assert app.state.usage_store.path == tmp_path / "usage_stats.json"
     assert app.state.captured_payloads == []
     assert app.state.last_request_time == 0
     assert app.state.copilot_client_factory() is sentinel_client

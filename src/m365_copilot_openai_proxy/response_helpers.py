@@ -13,7 +13,13 @@ from referencing import Registry
 from referencing.exceptions import Unresolvable
 
 from .session_store import PersistentSession
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, _dedupe_repeated_delta
+from .studio_planner import PlannerTurn, planned_or_streamed
+from .substrate_client import (
+    SubstrateCopilotClient,
+    SubstrateCopilotError,
+    SubstrateThrottled,
+    _dedupe_repeated_delta,
+)
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
     _extract_prose_write,
@@ -24,6 +30,13 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
 )
 from .tool_router import routed_or_streamed
+from .usage_store import (
+    anthropic_usage,
+    estimate_upstream_input_tokens,
+    openai_usage,
+    responses_usage,
+    usage_for_record,
+)
 
 
 def _transform_complete_text(full_text: str, text_transform: Callable[[str], str] | None) -> str:
@@ -47,6 +60,7 @@ async def _openai_stream(
     on_text_done: Callable[[str], None] | None = None,
     text_transform: Callable[[str], str] | None = None,
     images: list | None = None,
+    call_record: dict | None = None,
 ) -> AsyncIterator[str]:
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -85,6 +99,8 @@ async def _openai_stream(
         # "null: [object Object]". Deliver the message as a normal content delta
         # plus a stop finish, mirroring the anthropic stream path.
         error_text = f"⚠️ 上游错误：{exc}"
+        if call_record is not None:
+            call_record["error"] = str(exc)
         logging.getLogger("copilot_proxy").warning("openai stream upstream error: %s", exc)
         sep = "\n\n" if full_text else ""
         err_delta = {
@@ -94,6 +110,11 @@ async def _openai_stream(
             "model": model_alias,
             "choices": [{"index": 0, "delta": {"content": sep + error_text}, "finish_reason": None}],
         }
+        if isinstance(exc, SubstrateThrottled):
+            err_delta["m365_error"] = {
+                "type": "rate_limit_error",
+                "message": str(exc),
+            }
         yield f"data: {json.dumps(err_delta)}\n\n"
         stop_chunk = {
             "id": completion_id,
@@ -102,9 +123,10 @@ async def _openai_stream(
             "model": model_alias,
             "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
         }
-        yield f"data: {json.dumps(stop_chunk)}\n\n"
         if on_text_done is not None:
             on_text_done(full_text + sep + error_text)
+        stop_chunk["usage"] = openai_usage(usage_for_record(call_record))
+        yield f"data: {json.dumps(stop_chunk)}\n\n"
         yield "data: [DONE]\n\n"
         return
     if text_transform is not None:
@@ -126,22 +148,14 @@ async def _openai_stream(
         "created": created,
         "model": model_alias,
         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        "usage": openai_usage(usage_for_record(call_record)),
     }
     yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
 
 
-def _responses_usage() -> dict:
-    return {
-        "input_tokens": 0,
-        "input_tokens_details": {
-            "cached_tokens": 0,
-            "cache_write_tokens": 0,
-        },
-        "output_tokens": 0,
-        "output_tokens_details": {"reasoning_tokens": 0},
-        "total_tokens": 0,
-    }
+def _responses_usage(usage: dict | None = None) -> dict:
+    return responses_usage(usage)
 
 
 def _responses_message_item(
@@ -199,6 +213,7 @@ def _responses_object(
     instructions: str | None = None,
     error: dict | None = None,
     include_usage: bool = False,
+    usage: dict | None = None,
 ) -> dict:
     response = {
         "id": response_id,
@@ -220,7 +235,7 @@ def _responses_object(
     if status == "completed":
         response["completed_at"] = int(time.time())
     if include_usage:
-        response["usage"] = _responses_usage()
+        response["usage"] = _responses_usage(usage)
     return response
 
 
@@ -414,9 +429,10 @@ async def _responses_stream(
             call_record["tool_calls_result"] = []
         if on_text_done is not None:
             on_text_done(raw_text)
+        error_code = "rate_limit_error" if isinstance(exc, SubstrateThrottled) else "server_error"
         yield _responses_event({
             "type": "error",
-            "code": "server_error",
+            "code": error_code,
             "message": str(exc),
             "param": None,
         }, sequence)
@@ -428,7 +444,13 @@ async def _responses_stream(
             parallel_tool_calls=parallel_tool_calls,
             previous_response_id=previous_response_id,
             instructions=instructions,
-            error={"message": str(exc), "code": "server_error"},
+            error={
+                "message": str(exc),
+                "code": "rate_limit_exceeded"
+                if isinstance(exc, SubstrateThrottled)
+                else error_code,
+            },
+            usage=(call_record or {}).get("usage"),
         )
         if on_request_done is not None:
             on_request_done(False)
@@ -481,6 +503,7 @@ async def _responses_stream(
         previous_response_id=previous_response_id,
         instructions=instructions,
         include_usage=True,
+        usage=(call_record or {}).get("usage"),
     )
     if on_response_issued is not None:
         on_response_issued(resp_id, [])
@@ -514,6 +537,7 @@ async def _responses_stream_with_tools(
     on_request_done: Callable[[bool], None] | None = None,
     router_prompt: str = "",
     on_router_call: Callable[[], None] | None = None,
+    studio_turn: PlannerTurn | None = None,
 ) -> AsyncIterator[str]:
     resp_id = response_id or f"resp_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -540,8 +564,15 @@ async def _responses_stream_with_tools(
             nonlocal router_decided
             router_decided = True
 
-        full_text = await _collect_deduped_stream(
-            routed_or_streamed(
+        async def router_stream() -> AsyncIterator[str]:
+            if studio_turn is not None and call_record is not None:
+                call_record["tool_planning"] = "router"
+                call_record["studio_fallback"] = "upstream_error"
+                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                    prompt,
+                    additional_context,
+                )
+            async for delta in routed_or_streamed(
                 client,
                 router_prompt,
                 prompt,
@@ -549,8 +580,18 @@ async def _responses_stream_with_tools(
                 session,
                 images,
                 on_router_call=note_router_decision,
+            ):
+                yield delta
+
+        stream = (
+            planned_or_streamed(
+                studio_turn=studio_turn,
+                fallback_turn=router_stream,
             )
+            if studio_turn is not None
+            else router_stream()
         )
+        full_text = await _collect_deduped_stream(stream)
         full_text, _declined = split_no_tool_marker(full_text)
         tool_calls = _resolve_responses_tool_calls(
             full_text,
@@ -565,11 +606,28 @@ async def _responses_stream_with_tools(
         if not tool_calls and required_tool_retry_prompt:
             if call_record is not None:
                 call_record["retried"] = True
+            retry_client = (
+                studio_turn.client
+                if studio_turn is not None
+                and (
+                    call_record is None
+                    or call_record.get("tool_planning") == "studio"
+                )
+                else client
+            )
+            retry_context = (
+                studio_turn.additional_context
+                if retry_client is not client
+                else additional_context
+            )
+            retry_session = (
+                studio_turn.session if retry_client is not client else session
+            )
             full_text = await _collect_deduped_stream(
-                client.chat_stream(
+                retry_client.chat_stream(
                     required_tool_retry_prompt,
-                    additional_context,
-                    session,
+                    retry_context,
+                    retry_session,
                     images,
                 )
             )
@@ -591,9 +649,26 @@ async def _responses_stream_with_tools(
             retry_prompt = (
                 f"{_RETRY_INSTRUCTION}\n\nOriginal request:\n{prompt}"
             )
+            retry_client = (
+                studio_turn.client
+                if studio_turn is not None
+                and (
+                    call_record is None
+                    or call_record.get("tool_planning") == "studio"
+                )
+                else client
+            )
+            retry_context = (
+                studio_turn.additional_context
+                if retry_client is not client
+                else additional_context
+            )
+            retry_session = (
+                studio_turn.session if retry_client is not client else session
+            )
             retry_text = await _collect_deduped_stream(
-                client.chat_stream(
-                    retry_prompt, additional_context, session, images
+                retry_client.chat_stream(
+                    retry_prompt, retry_context, retry_session, images
                 )
             )
             retry_calls = _resolve_responses_tool_calls(
@@ -614,9 +689,10 @@ async def _responses_stream_with_tools(
             call_record["tool_calls_result"] = []
         if on_text_done is not None:
             on_text_done(full_text)
+        error_code = "rate_limit_error" if isinstance(exc, SubstrateThrottled) else "server_error"
         yield _responses_event({
             "type": "error",
-            "code": "server_error",
+            "code": error_code,
             "message": str(exc),
             "param": None,
         }, sequence)
@@ -628,7 +704,13 @@ async def _responses_stream_with_tools(
             parallel_tool_calls=parallel_tool_calls,
             previous_response_id=previous_response_id,
             instructions=instructions,
-            error={"message": str(exc), "code": "server_error"},
+            error={
+                "message": str(exc),
+                "code": "rate_limit_exceeded"
+                if isinstance(exc, SubstrateThrottled)
+                else error_code,
+            },
+            usage=(call_record or {}).get("usage"),
         )
         if on_request_done is not None:
             on_request_done(False)
@@ -658,6 +740,7 @@ async def _responses_stream_with_tools(
                 "message": _REQUIRED_TOOL_CHOICE_ERROR,
                 "code": "server_error",
             },
+            usage=(call_record or {}).get("usage"),
         )
         if on_request_done is not None:
             on_request_done(False)
@@ -772,6 +855,7 @@ async def _responses_stream_with_tools(
         previous_response_id=previous_response_id,
         instructions=instructions,
         include_usage=True,
+        usage=(call_record or {}).get("usage"),
     )
     if on_request_done is not None:
         on_request_done(True)
@@ -787,13 +871,14 @@ async def _anthropic_stream(
     on_text_done: Callable[[str], None] | None = None,
     text_transform: Callable[[str], str] | None = None,
     images: list | None = None,
+    call_record: dict | None = None,
 ) -> AsyncIterator[str]:
     msg_id = f"msg_{uuid.uuid4().hex}"
 
     def sse(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
-    yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 0, "output_tokens": 0}}})
+    yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
     yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
     yield sse("ping", {"type": "ping"})
 
@@ -811,15 +896,32 @@ async def _anthropic_stream(
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
     except SubstrateCopilotError as exc:
         error_text = f"⚠️ 上游错误：{exc}"
+        if call_record is not None:
+            call_record["error"] = str(exc)
+        if isinstance(exc, SubstrateThrottled):
+            if text_transform is not None and raw_text:
+                full_text = _transform_complete_text(raw_text, text_transform)
+                if full_text:
+                    yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
+            if on_text_done is not None:
+                on_text_done(full_text)
+            yield sse("error", {
+                "type": "error",
+                "error": {
+                    "type": "rate_limit_error",
+                    "message": str(exc),
+                },
+            })
+            return
         if text_transform is not None and raw_text:
             full_text = _transform_complete_text(raw_text, text_transform)
             if full_text:
                 yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
         yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": error_text}})
         yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
-        yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}})
         if on_text_done is not None:
             on_text_done(full_text + error_text)
+        yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
         yield sse("message_stop", {"type": "message_stop"})
         return
 
@@ -830,5 +932,5 @@ async def _anthropic_stream(
     if on_text_done is not None:
         on_text_done(full_text)
     yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
-    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}})
+    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
     yield sse("message_stop", {"type": "message_stop"})

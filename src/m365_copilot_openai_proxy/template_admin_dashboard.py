@@ -56,14 +56,70 @@ async function clearTrendStats(){
   loadTrend();
 }
 async function clearCallStats(){
-  if(!await adminConfirm(t('confirm_clear_stats')))return;
+  if(!await adminConfirm(t('confirm_clear_call_log')))return;
   await fetch('/admin/call-log/clear',{method:'POST',credentials:'include'}).catch(()=>{});
   loadStats();loadCallLog();
+}
+async function clearUsageStats(){
+  if(!await adminConfirm(t('confirm_clear_usage')))return;
+  await fetch('/admin/usage/clear',{method:'POST',credentials:'include'}).catch(()=>{});
+  loadStats();
 }
 async function clearCapturePayloads(){
   if(!await adminConfirm(t('confirm_clear_stats')))return;
   await fetch('/admin/capture-payload/clear',{method:'POST',credentials:'include'}).catch(()=>{});
   loadCapture();
+}
+async function loadProtocolProfileAccounts(){
+  const select=document.getElementById('protocol-profile-account');
+  if(!select)return;
+  const previous=select.value;
+  try{
+    const r=await fetch('/admin/accounts',{credentials:'include'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const accounts=(d.accounts||[]).filter(a=>a.provider!=='consumer');
+    select.innerHTML=accounts.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name||a.email||a.id)+'</option>').join('');
+    if(accounts.some(a=>a.id===previous))select.value=previous;
+  }catch(e){}
+}
+function protocolProfileSelection(){
+  const accountId=(document.getElementById('protocol-profile-account')||{}).value||'';
+  const scope=(document.getElementById('protocol-profile-scope')||{}).value||'account';
+  if(accountId)return {accountId,scope};
+  const el=document.getElementById('protocol-profile-status');
+  if(el)el.textContent=t('mt_no_account');
+  return null;
+}
+async function showProtocolCandidate(){
+  try{
+    const r=await fetch('/admin/protocol-profile/candidate',{credentials:'include'});
+    const d=await r.json();
+    const el=document.getElementById('protocol-profile-status');
+    if(el)el.textContent=JSON.stringify(d);
+  }catch(e){}
+}
+async function applyProtocolCandidate(){
+  if(!await adminConfirm(t('confirm_protocol_profile_apply')))return;
+  const selected=protocolProfileSelection();if(!selected)return;
+  const accountId=selected.accountId,scope=selected.scope;
+  try{
+    const r=await fetch('/admin/protocol-profile/apply',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:accountId,scope:scope})});
+    const d=await r.json();
+    const el=document.getElementById('protocol-profile-status');
+    if(el)el.textContent=JSON.stringify(d);
+  }catch(e){}
+}
+async function rollbackProtocolProfile(){
+  if(!await adminConfirm(t('confirm_protocol_profile_rollback')))return;
+  const selected=protocolProfileSelection();if(!selected)return;
+  const accountId=selected.accountId,scope=selected.scope;
+  try{
+    const r=await fetch('/admin/protocol-profile/rollback',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:accountId,scope:scope})});
+    const d=await r.json();
+    const el=document.getElementById('protocol-profile-status');
+    if(el)el.textContent=JSON.stringify(d);
+  }catch(e){}
 }
 async function clearMediaProxyEvents(){
   if(!await adminConfirm(t('confirm_clear_stats')))return;
@@ -94,6 +150,22 @@ function renderCacheStats(){
       .replace('{interval}',s.flush_interval==null?'-':s.flush_interval)
     +'</div>';
 }
+function _fmtTokenTotal(value){
+  return new Intl.NumberFormat().format(Math.max(0,Number(value)||0));
+}
+function renderUsageOverview(){
+  const box=document.getElementById('dash-model-share');
+  if(!box)return;
+  const usage=window.__usageStats;
+  if(!usage){box.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';return}
+  const counts=usage.model_counts||{};
+  const pal=['#38bdf8','#a78bfa','#22c55e','#f59e0b','#ef4444','#06b6d4','#e879f9'];
+  const parts=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map((entry,index)=>({
+    value:Number(entry[1])||0,color:pal[index%pal.length],label:esc(entry[0])
+  }));
+  box.innerHTML=donut(parts,t('dash_token_total'),_fmtTokenTotal(usage.total_tokens));
+  box.insertAdjacentHTML('beforeend','<div style="font-size:.68rem;color:var(--faint);margin-top:.35rem">'+t('dash_token_estimated')+'</div>');
+}
 async function loadStats(){
   const kpi=document.getElementById('dash-stat-kpi');
   try{
@@ -102,7 +174,9 @@ async function loadStats(){
     const d=await r.json();
     if(kpi)kpi.innerHTML=kpiCard(t('dash_calls_24h'),d.calls_24h||0,'#38bdf8')+kpiCard(t('dash_calls_total'),d.calls_total||0,'#a78bfa');
     window.__cacheStats=d.cache||null;
+    window.__usageStats=d.usage||null;
     renderCacheStats();
+    renderUsageOverview();
     // tone share as horizontal bars
     const tc=d.tone_counts||{};const total=Object.values(tc).reduce((s,v)=>s+v,0);
     const share=document.getElementById('dash-tone-share');

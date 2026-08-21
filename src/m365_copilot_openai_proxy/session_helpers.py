@@ -19,6 +19,20 @@ _SESSION_ID_HEADER = "x-m365-session-id"
 _RESP_ID_PREFIX = "resp_"
 
 
+def _studio_session_namespace(agent_id: str | None) -> str:
+    """Return an opaque per-Agent namespace for Studio conversations.
+
+    The raw Agent ID is tenant metadata and must not become part of a session
+    key.  Hashing it also makes a rebind land on a fresh conversation instead
+    of accidentally continuing the previous Agent's thread.
+    """
+    normalized = str(agent_id or "").strip()
+    if not normalized:
+        return "studio"
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+    return f"studio-{digest}"
+
+
 def _request_tenant(raw_request: Request) -> str:
     key_obj = getattr(raw_request.state, "api_key_obj", None)
     account = getattr(raw_request.state, "account", None)
@@ -214,3 +228,24 @@ def _persistent_session(
     if fallback_key:
         return app.state.session_store.get(f"{tenant}:auto:{fallback_key}")
     return None
+
+
+def _namespaced_session(
+    app: Any,
+    raw_request: Request,
+    session: PersistentSession | None,
+    namespace: str,
+) -> PersistentSession | None:
+    """Return a parallel session under the same tenant and a named namespace."""
+    if session is None:
+        return None
+    namespace = str(namespace or "").strip()
+    if not namespace:
+        return session
+    key = app.state.session_store.key_for(session)
+    if not key:
+        return None
+    tenant = _request_tenant(raw_request)
+    prefix = f"{tenant}:"
+    suffix = key[len(prefix):] if key.startswith(prefix) else key
+    return app.state.session_store.get(f"{tenant}:{namespace}:{suffix}")

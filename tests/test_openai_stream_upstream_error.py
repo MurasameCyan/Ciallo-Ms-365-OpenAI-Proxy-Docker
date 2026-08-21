@@ -17,7 +17,10 @@ import json
 
 from m365_copilot_openai_proxy.response_helpers import _openai_stream
 from m365_copilot_openai_proxy.routes_api_chat import _openai_stream_with_tools
-from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
+from m365_copilot_openai_proxy.substrate_client import (
+    SubstrateCopilotError,
+    SubstrateThrottled,
+)
 
 
 class _FailingStreamClient:
@@ -101,3 +104,42 @@ def test_openai_stream_with_tools_upstream_error_reaches_content_not_bare_error_
     assert any(o["choices"][0].get("finish_reason") == "stop" for o in objs)
     # The web call-log captures the upstream error for diagnostics.
     assert call_record.get("error") == "boom"
+
+
+def test_openai_stream_throttle_marks_rate_limit_error_without_bare_error_frame():
+    call_record: dict = {}
+    frames = _drain(
+        _openai_stream(
+            "m365-model",
+            _FailingStreamClient("", SubstrateThrottled("upstream result: Throttled")),
+            "hi",
+            [],
+            call_record=call_record,
+        )
+    )
+    _text, objs = _payloads(frames)
+
+    assert all("error" not in obj for obj in objs)
+    markers = [obj.get("m365_error") for obj in objs if obj.get("m365_error")]
+    assert markers == [{"type": "rate_limit_error", "message": "upstream result: Throttled"}]
+    assert call_record["error"] == "upstream result: Throttled"
+
+
+def test_openai_tool_stream_throttle_marks_rate_limit_error_without_router_fallback():
+    call_record: dict = {}
+    frames = _drain(
+        _openai_stream_with_tools(
+            "m365-model",
+            _FailingStreamClient("", SubstrateThrottled("upstream result: Throttled")),
+            "hi",
+            [],
+            None,
+            call_record=call_record,
+            tool_names={"Read"},
+        )
+    )
+    _text, objs = _payloads(frames)
+
+    markers = [obj.get("m365_error") for obj in objs if obj.get("m365_error")]
+    assert markers == [{"type": "rate_limit_error", "message": "upstream result: Throttled"}]
+    assert call_record["error"] == "upstream result: Throttled"

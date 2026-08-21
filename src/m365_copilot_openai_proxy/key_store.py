@@ -54,7 +54,7 @@ class ApiKey:
     time_zone: str = ""
     run_permission: str = ""  # "" = inherit global, "read_only" or "full"
     # How this user's tools-bearing turns are planned. "" => inherit the global
-    # setting; "auto"/"native"/"router" override it. Per-user because whether the
+    # setting; "auto"/"native"/"router"/"studio" override it. Per-user because whether the
     # inline contract is honoured depends on the tone this key is bound to, and
     # the extra router turn is spent out of this key's own account quota.
     tool_planning_mode: str = ""

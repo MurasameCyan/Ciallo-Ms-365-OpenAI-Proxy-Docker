@@ -20,6 +20,7 @@ from m365_copilot_openai_proxy.substrate_client import (
     _EMPTY_TURN_MARKER,
     _REFUSED_TURN_MARKER,
     SubstrateCopilotError,
+    SubstrateThrottled,
 )
 from m365_copilot_openai_proxy.substrate_parse import _combine_text
 from m365_copilot_openai_proxy.token_store import AccessTokenStore, decode_jwt_payload, init_token_dir
@@ -71,6 +72,17 @@ def test_refused_turn_maps_to_400_not_502():
 def test_empty_turn_maps_to_400_not_502():
     exc = SubstrateCopilotError(f"M365 Copilot returned an {_EMPTY_TURN_MARKER} (conversation mode 'Magic').")
     assert upstream_http_error(exc).status_code == 400
+
+
+def test_m365_throttled_turn_maps_to_429_without_fake_retry_after():
+    exc = SubstrateThrottled(
+        "M365 Copilot refused this turn (conversation mode 'Claude_Sonnet') "
+        "(upstream result: Throttled)."
+    )
+    response = upstream_http_error(exc)
+    assert response.status_code == 429
+    assert response.headers is None
+    assert response.detail == str(exc)
 
 
 @pytest.mark.parametrize(

@@ -75,6 +75,7 @@ function applyLang(){
   try{if(typeof renderSessions==='function'&&__sessions)renderSessions()}catch(e){}
   try{if(typeof renderModelTest==='function')renderModelTest()}catch(e){}
   try{if(typeof renderCacheStats==='function')renderCacheStats()}catch(e){}
+  try{if(typeof renderUsageOverview==='function')renderUsageOverview()}catch(e){}
 }
 applyLang();
 
@@ -212,7 +213,7 @@ function loadViewData(view){
   if(view==='users'){loadKeys();loadAccounts();return}
   if(view==='sessions'){loadSessions();return}
   if(view==='settings'){loadTone();loadRuntimeSettings();loadToolPrompt();loadSystemPrompt();return}
-  if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadModelTest();loadCallLog();loadMediaProxyEvents();loadCapture()}
+  if(view==='debug'){loadProtocolProfileAccounts();loadCaptureToggle();loadRuntimeSettings();loadModelTest();loadCallLog();loadMediaProxyEvents();loadCapture()}
 }
 // The first switchView() call lives at the very bottom of this script, after the
 // module blocks: view loaders read module-level `let`s (__accounts, __keys,

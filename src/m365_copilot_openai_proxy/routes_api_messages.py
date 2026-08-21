@@ -25,9 +25,19 @@ from .routes_api_common import (
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
-from .session_helpers import _messages_session_key, _persistent_session
+from .session_helpers import (
+    _messages_session_key,
+    _persistent_session,
+    _studio_session_namespace,
+)
 from .session_store import PersistentSession
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
+from .sse_stream import ANTHROPIC_PING, keepalive_stream, merge_sse_headers
+from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateThrottled
+from .studio_planner import (
+    PlannerTurn,
+    planned_or_answered,
+    planned_or_streamed,
+)
 from .tone_options import effective_tool_calling, tone_tool_calling
 from .tone_resolver import normalized_session_model
 from .tool_call_parser import (
@@ -50,6 +60,8 @@ from .translator import (
     translate_anthropic_request,
 )
 from .tool_router import build_router_prompt, routed_or_answered, routed_or_streamed, router_applies
+from .usage_store import estimate_upstream_input_tokens
+from .usage_store import anthropic_usage, usage_for_record
 
 
 def _tool_use_blocks(tool_calls: list[dict]) -> list[dict]:
@@ -140,13 +152,55 @@ def register_messages_routes(
             # same Consumer handling (its prompt ceiling is the adapter's job).
             router_prompt = ""
             planning_mode = effective_tool_planning_mode(app, _key_obj)
-            studio_unsupported = bool(_tools) and planning_mode == "studio"
-            if studio_unsupported:
-                # Studio planning is intentionally Chat-Completions-only.  Keep
-                # Messages on the same account's ordinary client and make the
-                # fallback explicit instead of silently reporting "studio".
-                planning_mode = "router"
-            if _tools and router_applies(planning_mode, resolved_tone):
+            actual_planning = planning_mode
+            studio_client = None
+            studio_session = None
+            studio_translated = None
+            studio_snapshot = None
+            studio_fallback = ""
+            if _tools and planning_mode == "studio":
+                account = getattr(raw_request.state, "account", None)
+                if is_consumer:
+                    actual_planning = "router"
+                    studio_fallback = "unsupported_provider"
+                else:
+                    studio_snapshot = (
+                        app.state.account_store.studio_client_snapshot(account.id)
+                        if account is not None
+                        else None
+                    )
+                if not is_consumer and studio_snapshot is None:
+                    actual_planning = "router"
+                    studio_fallback = "not_ready"
+                elif not is_consumer:
+                    studio_token, studio_agent_id = studio_snapshot
+                    studio_client = get_copilot_client(
+                        raw_request,
+                        studio_agent_id=studio_agent_id,
+                        token_override=studio_token,
+                    )
+                    studio_client._tone = resolved_tone
+                    studio_session = _persistent_session(
+                        app,
+                        raw_request,
+                        normalized_session_model(request.model),
+                        _messages_session_key(request),
+                        request,
+                        namespace=_studio_session_namespace(studio_agent_id),
+                    )
+                    if studio_session is not None:
+                        studio_translated = translate_anthropic_request(
+                            request,
+                            incremental=studio_session.turn_count > 0,
+                            system_override=_system_override,
+                            consumer_tool_max_chars=(
+                                settings.consumer_prompt_max_chars
+                                if is_consumer
+                                else None
+                            ),
+                        )
+                    actual_planning = "studio"
+            if _tools and router_applies(actual_planning, resolved_tone):
                 full_view = translate_anthropic_request(
                     request.model_copy(update={"tools": None, "tool_choice": None})
                 )
@@ -172,6 +226,10 @@ def register_messages_routes(
             "run_permission": run_permission,
             "read_only_guard": read_only_guard,
             "tool_calls_result": None if request.stream else [],
+            "usage_input_tokens": estimate_upstream_input_tokens(
+                (studio_translated or translated).prompt,
+                (studio_translated or translated).additional_context,
+            ),
         }
         # Tool calling is tone-dependent (see tone_options.TONE_TOOL_CALLING). This
         # is the shape Claude Code speaks, so it is the path where a silently
@@ -181,8 +239,8 @@ def register_messages_routes(
         extra_headers = (
             {
                 TOOL_CALLING_HEADER: (
-                    "router"
-                    if studio_unsupported
+                    actual_planning
+                    if planning_mode == "studio"
                     else effective_tool_calling(resolved_tone, planning_mode)
                 )
             }
@@ -198,7 +256,7 @@ def register_messages_routes(
                 choice=choice,
                 tool_count=len(tool_names),
                 read_only_guard=read_only_guard,
-                planning_mode=planning_mode,
+                planning_mode=actual_planning,
             )
             # Both variants up front: only the generator learns which one applies.
             declined_note = no_tool_calls_note(
@@ -209,7 +267,7 @@ def register_messages_routes(
                 tool_count=len(tool_names),
                 read_only_guard=read_only_guard,
                 declined=True,
-                planning_mode=planning_mode,
+                planning_mode=actual_planning,
             )
         if tool_status in {"unsupported", "flaky"}:
             _log.warning(
@@ -217,14 +275,18 @@ def register_messages_routes(
                 "(%d tool(s) requested)%s", resolved_tone,
                 "NOT to honour" if tool_status == "unsupported" else "to honour only sometimes",
                 len(tool_names),
-                "; planning this turn with a router turn instead" if router_prompt else "",
+                "; planning this turn with a router turn instead"
+                if router_prompt and actual_planning == "router"
+                else "",
             )
         if tool_names:
             call_record["tool_calling"] = tool_status
-        if router_prompt:
+        if studio_client is not None:
+            call_record["tool_planning"] = "studio"
+        elif router_prompt:
             call_record["tool_planning"] = "router"
-        if studio_unsupported:
-            call_record["studio_fallback"] = "unsupported_endpoint"
+        if studio_fallback:
+            call_record["studio_fallback"] = studio_fallback
 
         if request.stream:
             call_record["streaming"] = True
@@ -232,8 +294,7 @@ def register_messages_routes(
             if tool_names:
                 # Tools present: buffer the turn so tool_call blocks can be parsed
                 # out and re-emitted as Anthropic tool_use content blocks.
-                return StreamingResponse(
-                    _anthropic_stream_with_tools(
+                stream = _anthropic_stream_with_tools(
                         model_alias,
                         client,
                         translated.prompt,
@@ -249,34 +310,125 @@ def register_messages_routes(
                         shortfall_note=shortfall_note,
                         declined_note=declined_note,
                         router_prompt=router_prompt,
-                    ),
+                        router_shortfall_note=no_tool_calls_note(
+                            app,
+                            model_str=request.model,
+                            tone=resolved_tone,
+                            choice=choice,
+                            tool_count=len(tool_names),
+                            read_only_guard=read_only_guard,
+                            planning_mode="router",
+                        ),
+                        router_declined_note=no_tool_calls_note(
+                            app,
+                            model_str=request.model,
+                            tone=resolved_tone,
+                            choice=choice,
+                            tool_count=len(tool_names),
+                            read_only_guard=read_only_guard,
+                            declined=True,
+                            planning_mode="router",
+                        ),
+                        studio_turn=(
+                            PlannerTurn(
+                                studio_client,
+                                studio_translated.prompt,
+                                studio_translated.additional_context,
+                                studio_session,
+                                studio_translated.images,
+                            )
+                            if studio_client is not None
+                            else None
+                        ),
+                )
+                if studio_client is not None:
+                    extra_headers = {TOOL_CALLING_HEADER: actual_planning}
+                return StreamingResponse(
+                    keepalive_stream(stream, heartbeat=ANTHROPIC_PING),
                     media_type="text/event-stream",
-                    headers=extra_headers,
+                    headers=merge_sse_headers(extra_headers),
                 )
             return StreamingResponse(
-                _anthropic_stream(
-                    model_alias,
-                    client,
-                    translated.prompt,
-                    translated.additional_context,
-                    session,
-                    on_text_done=lambda text: record_response_text(app.state, call_record, text),
-                    text_transform=media_rewriter,
-                    images=translated.images,
+                keepalive_stream(
+                    _anthropic_stream(
+                        model_alias,
+                        client,
+                        translated.prompt,
+                        translated.additional_context,
+                        session,
+                        on_text_done=lambda text: record_response_text(app.state, call_record, text),
+                        call_record=call_record,
+                        text_transform=media_rewriter,
+                        images=translated.images,
+                    ),
+                    heartbeat=ANTHROPIC_PING,
                 ),
                 media_type="text/event-stream",
+                headers=merge_sse_headers(),
             )
 
         try:
-            raw_text = await routed_or_answered(
-                client,
-                router_prompt,
-                translated.prompt,
-                translated.additional_context,
-                session,
-                translated.images,
+            async def router_answer() -> str:
+                return await routed_or_answered(
+                    client,
+                    router_prompt,
+                    translated.prompt,
+                    translated.additional_context,
+                    session,
+                    translated.images,
+                )
+
+            async def studio_fallback_answer() -> str:
+                nonlocal actual_planning, shortfall_note, declined_note
+                actual_planning = "router"
+                call_record["tool_planning"] = "router"
+                call_record["studio_fallback"] = "upstream_error"
+                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                    translated.prompt,
+                    translated.additional_context,
+                )
+                shortfall_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tool_names),
+                    read_only_guard=read_only_guard,
+                    planning_mode="router",
+                )
+                declined_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tool_names),
+                    read_only_guard=read_only_guard,
+                    declined=True,
+                    planning_mode="router",
+                )
+                return await router_answer()
+
+            raw_text = (
+                await planned_or_answered(
+                    studio_turn=PlannerTurn(
+                        studio_client,
+                        studio_translated.prompt,
+                        studio_translated.additional_context,
+                        studio_session,
+                        studio_translated.images,
+                    ),
+                    fallback_turn=studio_fallback_answer,
+                )
+                if studio_client is not None
+                else await router_answer()
             )
+            if tool_names and planning_mode == "studio":
+                extra_headers = {TOOL_CALLING_HEADER: actual_planning}
         except SubstrateCopilotError as exc:
+            call_record["error"] = str(exc)
+            call_record["tool_calls_result"] = []
+            record_response_text(app.state, call_record, "")
+            append_call_log(app.state, call_record)
             raise upstream_http_error(exc) from exc
 
         # Parse the RAW model text, never the media-rewritten one. The rewriter
@@ -295,7 +447,19 @@ def register_messages_routes(
         if not tool_calls and tool_names and not read_only_guard and not declined and _looks_like_fake_file_claim(raw_text):
             _log.info("  fake file claim detected, forcing corrective retry")
             try:
-                retry_text = await client.chat(_RETRY_INSTRUCTION, translated.additional_context, session)
+                retry_uses_studio = (
+                    studio_client is not None and actual_planning == "studio"
+                )
+                retry_client = studio_client if retry_uses_studio else client
+                retry_text = await retry_client.chat(
+                    _RETRY_INSTRUCTION,
+                    (
+                        studio_translated.additional_context
+                        if retry_uses_studio
+                        else translated.additional_context
+                    ),
+                    studio_session if retry_uses_studio else session,
+                )
                 retry_calls = _resolve_tool_calls(retry_text, tool_names, read_only_guard)
                 if retry_calls:
                     raw_text, tool_calls = retry_text, retry_calls
@@ -328,7 +492,7 @@ def register_messages_routes(
             read_only_guard=read_only_guard,
             declined=declined,
             rejected=rejected,
-            planning_mode=planning_mode,
+            planning_mode=actual_planning,
         )
         if required_error:
             raise HTTPException(status_code=400, detail=required_error)
@@ -347,7 +511,7 @@ def register_messages_routes(
                 "content": content,
                 "stop_reason": "tool_use",
                 "stop_sequence": None,
-                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "usage": anthropic_usage(call_record.get("usage")),
             }, headers=extra_headers)
 
         # Tools were offered but no tool_use is being delivered: say why as a
@@ -371,7 +535,7 @@ def register_messages_routes(
             "content": blocks,
             "stop_reason": "end_turn",
             "stop_sequence": None,
-            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "usage": anthropic_usage(call_record.get("usage")),
         }, headers=extra_headers)
 
 
@@ -411,6 +575,9 @@ async def _anthropic_stream_with_tools(
     shortfall_note: str = "",
     declined_note: str = "",
     router_prompt: str = "",
+    router_shortfall_note: str = "",
+    router_declined_note: str = "",
+    studio_turn: PlannerTurn | None = None,
 ) -> AsyncIterator[str]:
     """Buffer the turn, then emit Anthropic tool_use blocks if tool_calls are found.
 
@@ -426,11 +593,40 @@ async def _anthropic_stream_with_tools(
     def sse(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
+    preamble_sent = False
     try:
         chunks: list[str] = []
-        async for delta in routed_or_streamed(
-            client, router_prompt, prompt, additional_context, session, images
-        ):
+
+        async def router_stream() -> AsyncIterator[str]:
+            nonlocal shortfall_note, declined_note
+            if studio_turn is not None and call_record is not None:
+                call_record["tool_planning"] = "router"
+                call_record["studio_fallback"] = "upstream_error"
+                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                    prompt,
+                    additional_context,
+                )
+                shortfall_note = router_shortfall_note
+                declined_note = router_declined_note
+            async for item in routed_or_streamed(
+                client, router_prompt, prompt, additional_context, session, images
+            ):
+                yield item
+
+        stream = (
+            planned_or_streamed(
+                studio_turn=studio_turn,
+                fallback_turn=router_stream,
+            )
+            if studio_turn is not None
+            else router_stream()
+        )
+        yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
+        yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+        yield sse("ping", {"type": "ping"})
+        preamble_sent = True
+
+        async for delta in stream:
             chunks.append(delta)
         # Parsing runs on the RAW text: the media rewriter base64-encodes the
         # source URL into a ?u= parameter, erasing the file extension that
@@ -443,7 +639,23 @@ async def _anthropic_stream_with_tools(
         if not tool_calls and tool_names and not read_only_guard and not declined and _looks_like_fake_file_claim(full_text):
             _log.info("  fake file claim detected, forcing corrective retry")
             retry_chunks: list[str] = []
-            async for delta in client.chat_stream(_RETRY_INSTRUCTION, additional_context, session):
+            retry_uses_studio = (
+                studio_turn is not None
+                and (
+                    call_record is None
+                    or call_record.get("tool_planning") == "studio"
+                )
+            )
+            retry_client = studio_turn.client if retry_uses_studio else client
+            retry_context = (
+                studio_turn.additional_context
+                if retry_uses_studio
+                else additional_context
+            )
+            retry_session = studio_turn.session if retry_uses_studio else session
+            async for delta in retry_client.chat_stream(
+                _RETRY_INSTRUCTION, retry_context, retry_session
+            ):
                 retry_chunks.append(delta)
             retry_text = "".join(retry_chunks)
             retry_calls = _resolve_tool_calls(retry_text, tool_names or set(), read_only_guard)
@@ -458,13 +670,27 @@ async def _anthropic_stream_with_tools(
                 _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
     except SubstrateCopilotError as exc:
         error_text = f"⚠️ 上游错误：{exc}"
-        yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 0, "output_tokens": 0}}})
-        yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+        if call_record is not None:
+            call_record["error"] = str(exc)
+        if isinstance(exc, SubstrateThrottled):
+            yield sse("error", {
+                "type": "error",
+                "error": {
+                    "type": "rate_limit_error",
+                    "message": str(exc),
+                },
+            })
+            if on_text_done is not None:
+                on_text_done("".join(chunks))
+            return
+        if not preamble_sent:
+            yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
+            yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
         yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": error_text}})
         yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
-        yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}})
         if on_text_done is not None:
             on_text_done(error_text)
+        yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
         yield sse("message_stop", {"type": "message_stop"})
         return
 
@@ -489,11 +715,7 @@ async def _anthropic_stream_with_tools(
     if blocks:
         _log.info("[anthropic_stream_with_tools] tool_use blocks: %s", [b["name"] for b in blocks])
 
-    yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 0, "output_tokens": 0}}})
     index = 0
-    # A text block is always opened at index 0 so clients that assume one exists
-    # stay happy; it just carries an empty string when the whole reply was a call.
-    yield sse("content_block_start", {"type": "content_block_start", "index": index, "content_block": {"type": "text", "text": ""}})
     if text_out:
         yield sse("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "text_delta", "text": text_out}})
     yield sse("content_block_stop", {"type": "content_block_stop", "index": index})
@@ -507,7 +729,7 @@ async def _anthropic_stream_with_tools(
         yield sse("content_block_stop", {"type": "content_block_stop", "index": index})
 
     stop_reason = "tool_use" if blocks else "end_turn"
-    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": None}, "usage": {"output_tokens": 0}})
-    yield sse("message_stop", {"type": "message_stop"})
     if on_text_done is not None:
         on_text_done(full_text)
+    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
+    yield sse("message_stop", {"type": "message_stop"})

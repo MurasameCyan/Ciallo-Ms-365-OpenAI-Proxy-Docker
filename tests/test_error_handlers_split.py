@@ -38,6 +38,30 @@ def test_http_exception_headers_are_preserved():
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "42"
     assert response.headers["Access-Control-Allow-Origin"] == "*"
+    assert response.json() == {
+        "error": {
+            "message": "quota",
+            "type": "rate_limit_error",
+            "code": "rate_limit_exceeded",
+        }
+    }
+
+
+def test_messages_http_429_uses_anthropic_error_envelope():
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/v1/messages")
+    async def limited_messages():
+        raise HTTPException(status_code=429, detail="quota")
+
+    response = TestClient(app).get("/v1/messages")
+
+    assert response.status_code == 429
+    assert response.json() == {
+        "type": "error",
+        "error": {"type": "rate_limit_error", "message": "quota"},
+    }
 
 
 def test_register_error_handlers_returns_json_for_unhandled_exceptions():

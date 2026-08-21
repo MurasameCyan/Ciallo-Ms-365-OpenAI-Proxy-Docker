@@ -91,7 +91,7 @@ class PersistentSession:
         """Remember issued Responses ids and their function calls for continuation."""
         self.issued_response_calls[response_id] = list(dict.fromkeys(call_ids))
         self.issued_response_read_only[response_id] = read_only
-        if call_ids and isinstance(response_context, dict):
+        if isinstance(response_context, dict):
             self.issued_response_contexts[response_id] = copy.deepcopy(response_context)
         else:
             self.issued_response_contexts.pop(response_id, None)
@@ -175,7 +175,7 @@ class PersistentSession:
             dict.fromkeys(child_call_ids)
         )
         self.issued_response_read_only[child_response_id] = child_read_only
-        if child_call_ids and isinstance(child_response_context, dict):
+        if isinstance(child_response_context, dict):
             self.issued_response_contexts[child_response_id] = copy.deepcopy(
                 child_response_context
             )

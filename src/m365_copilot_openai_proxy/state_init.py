@@ -17,11 +17,13 @@ from .media_proxy_events import init_media_proxy_events
 from .key_store import KeyStore
 from .login_guard import LoginRateLimiter
 from .metrics_store import init_metrics_store
+from .protocol_profile import ProtocolProfileStore
+from .usage_store import UsageStore
 from .refresh_scheduler import RefreshScheduler
 from .runtime_flags import set_flags as _set_log_flags
 from .runtime_settings import _read_runtime_settings, apply_proxy_env
 from .session_store import PersistentSessionStore
-from .substrate_client import SubstrateCopilotClient
+from .substrate_client import SubstrateCopilotClient, _OPTIONS_SETS, _VARIANTS
 from .token_store import (
     AccessTokenStore,
     init_token_dir,
@@ -108,8 +110,14 @@ def init_app_state(
     app.state.call_log_path = Path(settings.token_dir) / "call_log.json"
     app.state.call_log: list[dict] = load_call_log(app.state.call_log_path, app.state.call_log_limit)
     app.state.call_log_version = len(app.state.call_log)
+    app.state.usage_store = UsageStore(Path(settings.token_dir) / "usage_stats.json")
     app.state.captured_payloads: list[dict] = []
     app.state.capture_payload_version = 0
+    app.state.protocol_profile_store = ProtocolProfileStore(
+        Path(settings.token_dir) / "protocol_profile.json",
+        _VARIANTS.split(","),
+        _OPTIONS_SETS,
+    )
     init_media_proxy_events(app.state)
     init_metrics_store(app.state, Path(settings.token_dir) / "metrics_history.json")
     app.state.runtime_settings = runtime_settings

@@ -157,7 +157,14 @@ def test_admin_page_wires_the_probe_into_the_debug_view():
         assert f'id="{element_id}"' in _ADMIN_HTML
     # Opening the view must populate the selectors, and a language switch must
     # re-render from cache instead of firing more upstream turns.
-    assert "if(view==='debug'){loadCaptureToggle();loadRuntimeSettings();loadModelTest();" in _ADMIN_HTML
+    debug_loader = _ADMIN_HTML.split("if(view==='debug'){", 1)[1].split("}", 1)[0]
+    for loader in (
+        "loadProtocolProfileAccounts();",
+        "loadCaptureToggle();",
+        "loadRuntimeSettings();",
+        "loadModelTest();",
+    ):
+        assert loader in debug_loader
     assert "if(typeof renderModelTest==='function')renderModelTest()" in _ADMIN_HTML
     # Both languages label every verdict the endpoint can return.
     for verdict in ("ok", "empty", "refused", "throttled", "error", "running"):

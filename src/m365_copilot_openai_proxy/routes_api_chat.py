@@ -30,11 +30,12 @@ from .routes_api_common import (
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
-from .session_helpers import _persistent_session
+from .session_helpers import _persistent_session, _studio_session_namespace
 from .tone_resolver import build_models_list, normalized_session_model
 from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
+from .sse_stream import keepalive_stream, merge_sse_headers
+from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateThrottled
 from .studio_planner import PlannerTurn, planned_or_answered, planned_or_streamed
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
@@ -47,6 +48,7 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
     split_no_tool_marker,
 )
+from .usage_store import estimate_text_tokens, estimate_upstream_input_tokens, openai_usage, usage_for_record
 from .translator import effective_tools, flatten_content, normalize_tool_choice, tool_description_lines, translate_openai_request
 from .tool_router import build_router_prompt, routed_or_answered, routed_or_streamed, router_applies
 
@@ -191,7 +193,7 @@ def register_chat_routes(
                         normalized_session_model(request.model),
                         request.user,
                         request,
-                        namespace="studio",
+                        namespace=_studio_session_namespace(studio_agent_id),
                     )
                     call_record["tool_planning"] = "studio"
             extra_headers = None
@@ -235,6 +237,10 @@ def register_chat_routes(
                     settings.consumer_prompt_max_chars if is_consumer else None
                 ),
             )
+            call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                translated.prompt,
+                translated.additional_context,
+            )
             if studio_client is not None:
                 studio_translated = translate_openai_request(
                     request,
@@ -243,6 +249,10 @@ def register_chat_routes(
                         and studio_session.turn_count > 0
                     ),
                     system_override=_system_override,
+                )
+                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                    studio_translated.prompt,
+                    studio_translated.additional_context,
                 )
             media_rewriter = request_media_rewriter(app, raw_request)
             # Router mode: plan the turn with a dedicated classification prompt
@@ -280,7 +290,9 @@ def register_chat_routes(
                     "(%d tool(s) requested)%s", resolved_tone,
                     "NOT to honour" if tool_status == "unsupported" else "to honour only sometimes",
                     len(tools),
-                    "; planning this turn with a router turn instead" if router_prompt else "",
+                    "; planning this turn with a router turn instead"
+                    if router_prompt and actual_planning == "router"
+                    else "",
                 )
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
@@ -337,11 +349,6 @@ def register_chat_routes(
                             else None
                         ),
                     )
-                    if studio_client is not None:
-                        stream = await _prefetch_stream(stream)
-                        actual_planning = call_record.get(
-                            "tool_planning", actual_planning
-                        )
                     header_status = (
                         actual_planning
                         if planning_mode == "studio"
@@ -350,22 +357,26 @@ def register_chat_routes(
                     extra_headers = {TOOL_CALLING_HEADER: header_status}
                     # When tools are present, buffer the full stream then parse tool_calls
                     return StreamingResponse(
-                        stream,
+                        keepalive_stream(stream),
                         media_type="text/event-stream",
-                        headers=extra_headers,
+                        headers=merge_sse_headers(extra_headers),
                     )
                 return StreamingResponse(
-                    _openai_stream(
-                        model_alias,
-                        client,
-                        translated.prompt,
-                        translated.additional_context,
-                        session,
-                        on_text_done=lambda text: record_response_text(app.state, call_record, text),
-                        text_transform=media_rewriter,
-                        images=translated.images,
+                    keepalive_stream(
+                        _openai_stream(
+                            model_alias,
+                            client,
+                            translated.prompt,
+                            translated.additional_context,
+                            session,
+                            on_text_done=lambda text: record_response_text(app.state, call_record, text),
+                            text_transform=media_rewriter,
+                            images=translated.images,
+                            call_record=call_record,
+                        )
                     ),
                     media_type="text/event-stream",
+                    headers=merge_sse_headers(),
                 )
             # Keep the RAW model text for parsing; the media rewriter is applied
             # at delivery time below. Rewriting first base64-encodes the source
@@ -388,6 +399,10 @@ def register_chat_routes(
                 actual_planning = "router"
                 call_record["tool_planning"] = "router"
                 call_record["studio_fallback"] = "upstream_error"
+                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                    translated.prompt,
+                    translated.additional_context,
+                )
                 shortfall_note = no_tool_calls_note(
                     app,
                     model_str=request.model,
@@ -431,6 +446,13 @@ def register_chat_routes(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SubstrateCopilotError as exc:
+            # The request reached the upstream attempt, so retain one failed
+            # call in both diagnostics and the site-wide estimated usage total.
+            # Persisting telemetry is best-effort and must not mask the actual
+            # upstream error response.
+            call_record["error"] = str(exc)
+            record_response_text(app.state, call_record, "")
+            append_call_log(app.state, call_record)
             raise upstream_http_error(exc) from exc
 
         # If request included tools, parse model output for tool_call blocks
@@ -496,6 +518,7 @@ def register_chat_routes(
             _log.info("  parsed tool_calls: %s", [tc["function"]["name"] for tc in tool_calls])
         # Save call record
         call_record["response_len"] = len(text)
+        call_record["usage_output_tokens"] = estimate_text_tokens(text)
         call_record["response_text"] = text[:8000]
         call_record["response_repr"] = repr(text[:2000])
         call_record["tool_calls_result"] = [tc["function"]["name"] for tc in tool_calls] if tool_calls else []
@@ -550,7 +573,7 @@ def register_chat_routes(
                         "finish_reason": "tool_calls",
                     }
                 ],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "usage": openai_usage(call_record.get("usage")),
             }, headers=extra_headers)
 
         # Tools were offered but no call is being delivered: say why -- a dropped
@@ -575,7 +598,7 @@ def register_chat_routes(
                     "finish_reason": "stop",
                 }
             ],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "usage": openai_usage(call_record.get("usage")),
         }, headers=extra_headers)
 
 
@@ -616,6 +639,10 @@ async def _openai_stream_with_tools(
             if studio_turn is not None and call_record is not None:
                 call_record["tool_planning"] = "router"
                 call_record["studio_fallback"] = "upstream_error"
+                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                    prompt,
+                    additional_context,
+                )
                 shortfall_note = router_shortfall_note
                 declined_note = router_declined_note
             async for delta in routed_or_streamed(
@@ -655,8 +682,20 @@ async def _openai_stream_with_tools(
         err_id = f"chatcmpl_{uuid.uuid4().hex}"
         err_created = int(time.time())
         yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
-        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
-        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
+        error_chunk = {
+            "id": err_id,
+            "object": "chat.completion.chunk",
+            "created": err_created,
+            "model": model_alias,
+            "choices": [{"index": 0, "delta": {"content": delivered}, "finish_reason": None}],
+        }
+        if isinstance(exc, SubstrateThrottled):
+            error_chunk["m365_error"] = {
+                "type": "rate_limit_error",
+                "message": str(exc),
+            }
+        yield f"data: {json.dumps(error_chunk)}\n\n"
+        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
         yield "data: [DONE]\n\n"
         return
     # Raw text for parsing; the media rewriter runs at delivery time below. This
@@ -748,7 +787,7 @@ async def _openai_stream_with_tools(
             delta_tc = [{"index": i, "id": tc["id"], "type": "function", "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}]
             yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'tool_calls': delta_tc}, 'finish_reason': None}]})}\n\n"
         # Final chunk with finish_reason
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})}\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
         yield "data: [DONE]\n\n"
     else:
         # No tool calls found — re-stream as normal content
@@ -761,25 +800,5 @@ async def _openai_stream_with_tools(
         )
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
         yield "data: [DONE]\n\n"
-
-
-async def _prefetch_stream(stream: AsyncIterator[str]) -> AsyncIterator[str]:
-    """Resolve the planner path before response headers are committed.
-
-    Studio planning can fall back to the router only after the async iterator is
-    advanced.  Buffer exactly the first SSE frame, then replay it so the caller
-    can advertise the actual path without dropping or duplicating data.
-    """
-    try:
-        first = await anext(stream)
-    except StopAsyncIteration:
-        return stream
-
-    async def replay() -> AsyncIterator[str]:
-        yield first
-        async for item in stream:
-            yield item
-
-    return replay()

@@ -493,6 +493,7 @@ def test_the_setting_persists_and_rejects_a_typo(tmp_path):
 
     bad = client.post("/admin/runtime-settings", json={"tool_planning_mode": "rooter"})
     assert bad.status_code == 400
+    assert "studio" in bad.json()["error"]["message"]
     # A rejected save must leave the working value in place.
     assert client.app.state.tool_planning_mode == "router"
 

@@ -34,12 +34,16 @@ from .session_helpers import (
     _decode_responses_response_claims,
     _decode_responses_session_id,
     _encode_responses_session_id,
+    _namespaced_session,
     _persistent_session,
     _responses_session_key,
     _responses_store_key,
     _responses_store_key_belongs_to_request,
+    _studio_session_namespace,
 )
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
+from .sse_stream import keepalive_stream, merge_sse_headers
+from .studio_planner import PlannerTurn, planned_or_answered
 from .tone_resolver import normalized_session_model
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
@@ -56,6 +60,7 @@ from .translator import (
     translate_responses_request,
 )
 from .tool_router import build_router_prompt, routed_or_answered
+from .usage_store import estimate_upstream_input_tokens
 
 
 def _router_context_from_view(view, parent: dict | None = None) -> dict:
@@ -261,14 +266,41 @@ def register_responses_routes(
                 ),
             )
             planning_mode = effective_tool_planning_mode(app, key_obj)
-            studio_unsupported = bool(tool_names) and planning_mode == "studio"
+            actual_planning = planning_mode
+            studio_client = None
+            studio_session = None
+            studio_translated = None
+            studio_snapshot = None
+            studio_fallback = ""
             router_prompt = ""
             router_response_context: dict | None = None
-            if studio_unsupported:
-                # Studio agents are wired only for Chat Completions.  Responses
-                # keeps the same account/client and uses the established router
-                # classifier so the endpoint remains useful without pretending
-                # that it reached the bound Studio agent.
+            if tool_names and planning_mode == "studio":
+                account = getattr(raw.state, "account", None)
+                if is_consumer:
+                    actual_planning = "router"
+                    studio_fallback = "unsupported_provider"
+                else:
+                    studio_snapshot = (
+                        app.state.account_store.studio_client_snapshot(account.id)
+                        if account is not None
+                        else None
+                    )
+                if not is_consumer and studio_snapshot is None:
+                    actual_planning = "router"
+                    studio_fallback = "not_ready"
+                elif not is_consumer:
+                    studio_token, studio_agent_id = studio_snapshot
+                    studio_client = get_copilot_client(
+                        raw,
+                        studio_agent_id=studio_agent_id,
+                        token_override=studio_token,
+                    )
+                    studio_client._tone = resolved_tone
+                    actual_planning = "studio"
+
+            if tool_names and (
+                actual_planning == "router" or studio_client is not None
+            ):
                 full_view = translate_responses_request(
                     request.model_copy(update={"tools": None, "tool_choice": None}),
                     system_override=system_override,
@@ -338,6 +370,26 @@ def register_responses_routes(
                         fallback_key,
                     )
                     session_key = _responses_store_key(app, session)
+            if studio_client is not None:
+                studio_session = _namespaced_session(
+                    app,
+                    raw,
+                    session,
+                    _studio_session_namespace(studio_agent_id),
+                )
+                studio_translated = translate_responses_request(
+                    request,
+                    incremental=(
+                        studio_session is not None and studio_session.turn_count > 0
+                    ),
+                    system_override=system_override,
+                    consumer_tool_max_chars=(
+                        settings.consumer_prompt_max_chars if is_consumer else None
+                    ),
+                    allow_unmatched_function_call_outputs=(
+                        previous_session is not None
+                    ),
+                )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -434,7 +486,8 @@ def register_responses_routes(
                     return
                 response_context = (
                     router_response_context
-                    if router_classified_call and call_ids
+                    if isinstance(router_response_context, dict)
+                    and (router_classified_call or studio_client is not None)
                     else None
                 )
                 if continuation_id is None:
@@ -482,10 +535,17 @@ def register_responses_routes(
                 "run_permission": run_permission,
                 "read_only_guard": read_only_guard,
                 "tool_calls_result": None if request.stream else [],
+                "usage_input_tokens": estimate_upstream_input_tokens(
+                    (studio_translated or translated).prompt,
+                    (studio_translated or translated).additional_context,
+                ),
             }
-            if studio_unsupported:
+            if studio_client is not None:
+                call_record["tool_planning"] = "studio"
+            elif router_prompt:
                 call_record["tool_planning"] = "router"
-                call_record["studio_fallback"] = "unsupported_endpoint"
+            if studio_fallback:
+                call_record["studio_fallback"] = studio_fallback
 
             # Echo the canonical Responses value. Input validation accepts harmless
             # case/whitespace variations, but the SDK only accepts the lower-case
@@ -528,6 +588,17 @@ def register_responses_routes(
                         on_request_done=finish_continuation,
                         router_prompt=router_prompt,
                         on_router_call=mark_router_classified_call,
+                        studio_turn=(
+                            PlannerTurn(
+                                studio_client,
+                                (studio_translated or translated).prompt,
+                                (studio_translated or translated).additional_context,
+                                studio_session,
+                                (studio_translated or translated).images,
+                            )
+                            if studio_client is not None
+                            else None
+                        ),
                     )
                 else:
                     stream = _responses_stream(
@@ -551,14 +622,17 @@ def register_responses_routes(
                         on_response_issued=record_issued_response,
                         on_request_done=finish_continuation,
                     )
+                stream = keepalive_stream(stream)
                 response = _ResponsesStreamingResponse(
                     stream,
                     on_request_done=finish_continuation,
                     response_lock=response_lock,
                     media_type="text/event-stream",
-                    headers=(
-                        {TOOL_CALLING_HEADER: "router"}
-                        if studio_unsupported
+                    headers=merge_sse_headers(
+                        {
+                            TOOL_CALLING_HEADER: actual_planning,
+                        }
+                        if tool_names and planning_mode == "studio"
                         else None
                     ),
                 )
@@ -588,9 +662,22 @@ def register_responses_routes(
                 log=log,
                 router_prompt=router_prompt,
                 on_router_call=mark_router_classified_call,
+                studio_turn=(
+                    PlannerTurn(
+                        studio_client,
+                        (studio_translated or translated).prompt,
+                        (studio_translated or translated).additional_context,
+                        studio_session,
+                        (studio_translated or translated).images,
+                    )
+                    if studio_client is not None
+                    else None
+                ),
             )
-            if studio_unsupported:
-                response.headers[TOOL_CALLING_HEADER] = "router"
+            if tool_names and planning_mode == "studio":
+                response.headers[TOOL_CALLING_HEADER] = call_record.get(
+                    "tool_planning", actual_planning
+                )
             return response
         finally:
             if lock_owned:
@@ -627,6 +714,7 @@ async def _complete_nonstream_response(
     log,
     router_prompt,
     on_router_call,
+    studio_turn,
 ):
     router_decided = False
 
@@ -635,14 +723,33 @@ async def _complete_nonstream_response(
         router_decided = True
 
     try:
-        raw_text = await routed_or_answered(
-            client,
-            router_prompt,
-            translated.prompt,
-            translated.additional_context,
-            session,
-            translated.images,
-            on_router_call=note_router_decision,
+        async def router_answer() -> str:
+            return await routed_or_answered(
+                client,
+                router_prompt,
+                translated.prompt,
+                translated.additional_context,
+                session,
+                translated.images,
+                on_router_call=note_router_decision,
+            )
+
+        async def studio_fallback_answer() -> str:
+            call_record["tool_planning"] = "router"
+            call_record["studio_fallback"] = "upstream_error"
+            call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                translated.prompt,
+                translated.additional_context,
+            )
+            return await router_answer()
+
+        raw_text = (
+            await planned_or_answered(
+                studio_turn=studio_turn,
+                fallback_turn=studio_fallback_answer,
+            )
+            if studio_turn is not None
+            else await router_answer()
         )
     except SubstrateCopilotError as exc:
         finish_continuation(False)
@@ -665,10 +772,24 @@ async def _complete_nonstream_response(
         on_router_call()
     if not tool_calls and required_tool_retry_prompt:
         try:
-            raw_text = await client.chat(
+            retry_client = (
+                studio_turn.client
+                if studio_turn is not None
+                and call_record.get("tool_planning") == "studio"
+                else client
+            )
+            retry_context = (
+                studio_turn.additional_context
+                if retry_client is not client
+                else translated.additional_context
+            )
+            retry_session = (
+                studio_turn.session if retry_client is not client else session
+            )
+            raw_text = await retry_client.chat(
                 required_tool_retry_prompt,
-                translated.additional_context,
-                session,
+                retry_context,
+                retry_session,
                 translated.images,
             )
         except SubstrateCopilotError as exc:
@@ -709,10 +830,24 @@ async def _complete_nonstream_response(
             retry_prompt = (
                 f"{_RETRY_INSTRUCTION}\n\nOriginal request:\n{translated.prompt}"
             )
-            retry_text = await client.chat(
+            retry_client = (
+                studio_turn.client
+                if studio_turn is not None
+                and call_record.get("tool_planning") == "studio"
+                else client
+            )
+            retry_context = (
+                studio_turn.additional_context
+                if retry_client is not client
+                else translated.additional_context
+            )
+            retry_session = (
+                studio_turn.session if retry_client is not client else session
+            )
+            retry_text = await retry_client.chat(
                 retry_prompt,
-                translated.additional_context,
-                session,
+                retry_context,
+                retry_session,
                 translated.images,
             )
             retry_calls = _resolve_responses_tool_calls(
@@ -764,4 +899,5 @@ async def _complete_nonstream_response(
         previous_response_id=request.previous_response_id,
         instructions=request.instructions,
         include_usage=True,
+        usage=call_record.get("usage"),
     ))

@@ -36,6 +36,7 @@ __all__ = [
     "SIGNALR_SEP",
     "SubstrateCopilotClient",
     "SubstrateCopilotError",
+    "SubstrateThrottled",
     "_capture_suspicious_response_event",
     "_combine_text",
     "_cumulative_catchup",
@@ -209,6 +210,12 @@ class SubstrateCopilotError(RuntimeError):
     pass
 
 
+class SubstrateThrottled(SubstrateCopilotError):
+    """M365 accepted the turn shape but temporarily refused it as throttled."""
+
+    upstream_result = "Throttled"
+
+
 class SubstrateCopilotClient:
     def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic", extra_tool_prompt: str = "", idle_timeout: float | None = None, studio_agent_id: str = ""):
         if not access_token:
@@ -248,7 +255,7 @@ class SubstrateCopilotClient:
             f"&X-SessionId={session_id}"
             f"&ConversationId={conv_id}"
             f"&access_token={token}"
-            f"&variants={_VARIANTS}"
+            f"&variants={getattr(self, '_variants', _VARIANTS)}"
             f"&source=officeweb&product=Office&agentHost=Bizchat.FullScreen"
             f"&licenseType=Starter&agent=web&scenario=OfficeWebIncludedCopilot"
         )
@@ -286,7 +293,7 @@ class SubstrateCopilotClient:
                 "source": "officeweb",
                 "clientCorrelationId": req_id,
                 "sessionId": session_id,
-                "optionsSets": _OPTIONS_SETS,
+                "optionsSets": list(getattr(self, "_options_sets", _OPTIONS_SETS)),
                 "streamingMode": "ConciseWithPadding",
                 "spokenTextMode": "None",
                 "options": {},
@@ -651,12 +658,15 @@ class SubstrateCopilotClient:
                             # upstream failure instead of returning it as the reply.
                             if not yielded_any and (turn_failure or remaining.strip() in _M365_REFUSAL_TEXTS):
                                 detail = f" (upstream result: {turn_failure})" if turn_failure else ""
-                                raise SubstrateCopilotError(
+                                message = (
                                     f"M365 Copilot {_REFUSED_TURN_MARKER} instead of answering "
                                     f"(conversation mode '{self._tone}'){detail}. If every request "
                                     f"in this mode does this, the mode is not available for this "
                                     f"account -- switch to another mode."
                                 )
+                                if (turn_failure or "").strip().casefold() == "throttled":
+                                    raise SubstrateThrottled(message)
+                                raise SubstrateCopilotError(message)
                             if remaining:
                                 yield remaining
                             return

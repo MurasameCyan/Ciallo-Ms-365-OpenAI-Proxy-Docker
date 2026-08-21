@@ -161,6 +161,39 @@ def test_anthropic_system_message_content_block_array_is_flattened():
     assert _system_context(translated) == "Part one. Part two."
 
 
+def test_anthropic_incremental_tool_result_omits_already_seen_turns():
+    request = AnthropicMessagesRequest(
+        model="claude",
+        messages=[
+            AnthropicMessage(role="user", content="original-user-sentinel"),
+            AnthropicMessage(
+                role="assistant",
+                content=[ContentPart.model_validate({
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "Read",
+                    "input": {"file_path": "/tmp/a.txt"},
+                })],
+            ),
+            AnthropicMessage(
+                role="user",
+                content=[ContentPart.model_validate({
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "tool-result-sentinel",
+                })],
+            ),
+        ],
+    )
+
+    translated = translate_anthropic_request(request, incremental=True)
+    context = "\n".join(translated.additional_context)
+
+    assert "tool-result-sentinel" in context
+    assert "original-user-sentinel" not in context
+    assert "Assistant called tool: Read" not in context
+
+
 def test_anthropic_empty_system_message_adds_no_system_context():
     request = AnthropicMessagesRequest(
         model="claude",

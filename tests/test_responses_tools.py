@@ -20,7 +20,10 @@ from m365_copilot_openai_proxy.session_store import (
     PersistentSession,
     PersistentSessionStore,
 )
-from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
+from m365_copilot_openai_proxy.substrate_client import (
+    SubstrateCopilotError,
+    SubstrateThrottled,
+)
 from m365_copilot_openai_proxy.translator import translate_responses_request
 
 
@@ -115,6 +118,13 @@ class _FailingStreamClient(_ReplyClient):
         if session is not None:
             session.reserve_turn()
         raise SubstrateCopilotError(self.reply)
+        yield ""  # pragma: no cover - marks this as an async generator
+
+
+class _ThrottledStreamClient(_ReplyClient):
+    async def chat_stream(self, prompt, additional_context, session=None, images=None):
+        self.calls.append((prompt, additional_context))
+        raise SubstrateThrottled("upstream result: Throttled")
         yield ""  # pragma: no cover - marks this as an async generator
 
 
@@ -1464,6 +1474,35 @@ def test_session_store_persists_encrypted_router_continuation_context(tmp_path):
     assert restored.response_context("resp_router") == context
 
 
+def test_session_store_persists_encrypted_text_continuation_context(tmp_path):
+    persist_path = tmp_path / "sessions.json"
+    key_path = tmp_path / ".enc_key"
+    store = PersistentSessionStore(
+        persist_path=persist_path,
+        encryption_key_path=key_path,
+    )
+    context = {
+        "prompt": "studio-text-task-sentinel",
+        "additional_context": [],
+    }
+
+    store.get("tenant:session").record_response(
+        "resp_text",
+        [],
+        response_context=context,
+    )
+
+    assert "studio-text-task-sentinel" not in persist_path.read_text(
+        encoding="utf-8"
+    )
+    restored = PersistentSessionStore(
+        persist_path=persist_path,
+        encryption_key_path=key_path,
+    ).get_existing("tenant:session")
+    assert restored is not None
+    assert restored.response_context("resp_text") == context
+
+
 def test_session_context_moves_to_child_call_and_clears_on_completion():
     session = PersistentSession()
     parent_context = {"prompt": "first", "additional_context": []}
@@ -2205,16 +2244,12 @@ def test_responses_non_stream_returns_message_and_function_call_items(tmp_path):
     assert body["parallel_tool_calls"] is True
     assert body["tool_choice"] == "auto"
     assert body["tools"][0]["name"] == "Read"
-    assert body["usage"] == {
-        "input_tokens": 0,
-        "input_tokens_details": {
-            "cached_tokens": 0,
-            "cache_write_tokens": 0,
-        },
-        "output_tokens": 0,
-        "output_tokens_details": {"reasoning_tokens": 0},
-        "total_tokens": 0,
-    }
+    assert body["usage"]["input_tokens"] > 0
+    assert body["usage"]["output_tokens"] > 0
+    assert body["usage"]["total_tokens"] == (
+        body["usage"]["input_tokens"] + body["usage"]["output_tokens"]
+    )
+    assert body["usage"]["estimated"] is True
     assert app.state.call_log[-1]["tools"] == ["Read"]
     assert app.state.call_log[-1]["tool_calls_result"] == ["Read"]
 
@@ -2764,6 +2799,47 @@ def test_responses_tool_stream_emits_official_top_level_error_event(tmp_path):
         "message": "upstream broke",
     }
     assert not any(event["type"] == "response.completed" for event in events)
+
+
+def test_responses_text_stream_marks_throttle_with_official_failed_code(tmp_path):
+    _app, client, _made = _app_client(
+        tmp_path,
+        "upstream result: Throttled",
+        client_type=_ThrottledStreamClient,
+    )
+
+    response = _post(client, {
+        "input": "hello",
+        "stream": True,
+    })
+
+    assert response.status_code == 200
+    events = _events(response)
+    error = next(event for event in events if event["type"] == "error")
+    failed = next(event for event in events if event["type"] == "response.failed")
+    assert error["code"] == "rate_limit_error"
+    assert failed["response"]["error"]["code"] == "rate_limit_exceeded"
+
+
+def test_responses_tool_stream_marks_throttle_with_official_failed_code(tmp_path):
+    _app, client, _made = _app_client(
+        tmp_path,
+        "upstream result: Throttled",
+        client_type=_ThrottledStreamClient,
+    )
+
+    response = _post(client, {
+        "input": "read README",
+        "stream": True,
+        "tools": [READ_TOOL],
+    })
+
+    assert response.status_code == 200
+    events = _events(response)
+    error = next(event for event in events if event["type"] == "error")
+    failed = next(event for event in events if event["type"] == "response.failed")
+    assert error["code"] == "rate_limit_error"
+    assert failed["response"]["error"]["code"] == "rate_limit_exceeded"
 
 
 @pytest.mark.parametrize("stream", [False, True])

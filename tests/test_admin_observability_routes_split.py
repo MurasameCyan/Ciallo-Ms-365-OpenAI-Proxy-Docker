@@ -30,6 +30,7 @@ def test_admin_observability_routes_are_registered_by_observability_routes_modul
     assert "/admin/metrics-history" in paths
     assert "/admin/metrics-history/clear" in paths
     assert "/admin/summary" in paths
+    assert "/admin/usage/clear" in paths
 
 
 def test_admin_call_log_returns_version_and_short_circuits_unchanged_payload(tmp_path):
@@ -53,6 +54,28 @@ def test_admin_call_log_returns_version_and_short_circuits_unchanged_payload(tmp
         "count": 1,
         "logs": [],
     }
+
+
+def test_admin_usage_clear_resets_persistent_totals_without_clearing_call_log(tmp_path):
+    app = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
+    append_call_log(app.state, {"time": "12:00:00", "ts": 1, "api": "chat"})
+    app.state.usage_store.record("gpt-5.6", input_tokens=3, output_tokens=2)
+    client = TestClient(app)
+
+    response = client.post("/admin/usage/clear")
+
+    assert response.status_code == 200
+    assert app.state.usage_store.summary()["total_tokens"] == 0
+    assert len(app.state.call_log) == 1
+
+
+def test_dashboard_clear_call_stats_clears_log_and_usage():
+    clear_code_start = _ADMIN_DASHBOARD_JS.index("async function clearCallStats()")
+    clear_code_end = _ADMIN_DASHBOARD_JS.index("async function clearCapturePayloads()", clear_code_start)
+    clear_code = _ADMIN_DASHBOARD_JS[clear_code_start:clear_code_end]
+
+    assert "'/admin/call-log/clear'" in clear_code
+    assert "'/admin/usage/clear'" in clear_code
 
 
 def test_admin_trend_chart_uses_stable_polyline_rendering_with_static_glow():

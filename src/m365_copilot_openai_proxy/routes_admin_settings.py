@@ -136,7 +136,7 @@ def register_admin_settings_routes(
         if data["run_permission"] not in _RUN_PERMISSIONS:
             return _json_err(400, "Invalid run permission")
         if data["tool_planning_mode"] not in TOOL_PLANNING_MODES:
-            return _json_err(400, "Invalid tool planning mode. Expected auto, native or router")
+            return _json_err(400, "Invalid tool planning mode. Expected auto, native, router or studio")
         # Reject rather than silently blank a typo'd proxy: a saved-but-ignored
         # proxy looks identical to a working one in the UI while every upstream
         # call still goes direct.

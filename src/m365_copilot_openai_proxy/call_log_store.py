@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .usage_store import estimate_text_tokens
+
 
 def load_call_log(path: Path, limit: int) -> list[dict]:
     try:
@@ -30,6 +32,9 @@ def _bump_call_log_version(state: Any) -> None:
 
 
 def append_call_log(state: Any, record: dict) -> None:
+    usage_store = getattr(state, "usage_store", None)
+    if usage_store is not None and record.get("response_text") is not None:
+        usage_store.finalize_record(record)
     state.call_log.append(record)
     limit = int(getattr(state, "call_log_limit", 100))
     if len(state.call_log) > limit:
@@ -39,11 +44,15 @@ def append_call_log(state: Any, record: dict) -> None:
 
 
 def record_response_text(state: Any, record: dict, text: str) -> None:
+    record["usage_output_tokens"] = estimate_text_tokens(text)
     record["response_len"] = len(text)
     record["response_text"] = text[:8000]
     record["response_repr"] = repr(text[:2000])
     if record.get("tool_calls_result") is None:
         record["tool_calls_result"] = []
+    usage_store = getattr(state, "usage_store", None)
+    if usage_store is not None:
+        usage_store.finalize_record(record)
     _bump_call_log_version(state)
     write_call_log(state.call_log_path, state.call_log, int(getattr(state, "call_log_limit", 100)))
 
