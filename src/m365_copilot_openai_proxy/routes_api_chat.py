@@ -40,7 +40,15 @@ from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
 from .sse_stream import keepalive_stream, merge_sse_headers
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateThrottled
-from .studio_planner import PlannerTurn, planned_or_answered, planned_or_streamed
+from .studio_planner import (
+    STUDIO_TONE,
+    PlannerTurn,
+    ordered_or_answered,
+    ordered_or_streamed,
+    planned_or_answered,
+    planned_or_streamed,
+)
+from .studio_agent_discovery import ensure_studio_client_snapshot
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
     _extract_prose_write,
@@ -49,6 +57,7 @@ from .tool_call_parser import (
     _filter_schema_valid_tool_calls,
     _has_read_only_intent,
     _looks_like_fake_file_claim,
+    planner_fallback_needed,
     _strip_tool_call_blocks,
     split_no_tool_marker,
 )
@@ -98,6 +107,9 @@ def register_chat_routes(
         # tool was demanded.
         choice = normalize_tool_choice(request.tool_choice, getattr(request, "parallel_tool_calls", None))
         tools = effective_tools(request.tools, choice)
+        is_tool_result_continuation = bool(
+            tools and request.messages and request.messages[-1].role == "tool"
+        )
         _log.info("[/v1/chat/completions] stream=%s tools=%d messages=%d model=%s tool_choice=%s",
                   request.stream, len(tools) if tools else 0,
                   len(request.messages), request.model, choice[0])
@@ -163,23 +175,20 @@ def register_chat_routes(
             # this turn (they do, via the router), the operator needs to know which
             # of the two shapes got them there.
             planning_mode = effective_tool_planning_mode(app, _key_obj)
+            planner_chain = bool(tools) and planning_mode in {"studio", "router"}
             tool_status = tone_tool_calling(resolved_tone) if tools else ""
             actual_planning = planning_mode
             studio_client = None
             studio_session = None
             studio_translated = None
             studio_snapshot = None
-            if tools and planning_mode == "studio":
+            if tools and planning_mode in {"studio", "router"}:
                 account = getattr(raw_request.state, "account", None)
                 if is_consumer:
                     actual_planning = "router"
                     call_record["studio_fallback"] = "unsupported_provider"
                 else:
-                    studio_snapshot = (
-                        app.state.account_store.studio_client_snapshot(account.id)
-                        if account is not None
-                        else None
-                    )
+                    studio_snapshot = await ensure_studio_client_snapshot(app, account)
                 if not is_consumer and studio_snapshot is None:
                     actual_planning = "router"
                     call_record["studio_fallback"] = "not_ready"
@@ -190,7 +199,7 @@ def register_chat_routes(
                         studio_agent_id=studio_agent_id,
                         token_override=studio_token,
                     )
-                    studio_client._tone = resolved_tone
+                    studio_client._tone = STUDIO_TONE
                     studio_session = _persistent_session(
                         app,
                         raw_request,
@@ -199,7 +208,7 @@ def register_chat_routes(
                         request,
                         namespace=_studio_session_namespace(studio_agent_id),
                     )
-                    call_record["tool_planning"] = "studio"
+                    call_record["tool_planning"] = planning_mode
             extra_headers = None
             shortfall_note = ""
             declined_note = ""
@@ -233,6 +242,11 @@ def register_chat_routes(
                 )
             if tools:
                 call_record["tool_calling"] = tool_status
+            planner_predicate = (
+                (lambda candidate: planner_fallback_needed(candidate, set(tool_schemas)))
+                if planner_chain and not is_tool_result_continuation
+                else None
+            )
             translated = translate_openai_request(
                 request,
                 incremental=incremental,
@@ -270,7 +284,11 @@ def register_chat_routes(
             # layer down (ConsumerClientAdapter.chat compacts anything over the
             # budget), so the router needs no size handling of its own.
             router_prompt = ""
-            if tools and router_applies(actual_planning, resolved_tone):
+            if (
+                tools
+                and router_applies(actual_planning, resolved_tone)
+                and not is_tool_result_continuation
+            ):
                 full_view = translate_openai_request(
                     request.model_copy(update={"tools": None, "tool_choice": None})
                 )
@@ -298,6 +316,44 @@ def register_chat_routes(
                     if router_prompt and actual_planning == "router"
                     else "",
                 )
+
+            def note_planning_stage(stage: str) -> None:
+                nonlocal actual_planning, shortfall_note, declined_note
+                actual_planning = stage
+                call_record["tool_planning"] = stage
+                source = studio_translated if stage == "studio" else translated
+                if source is not None:
+                    call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
+                        source.prompt, source.additional_context
+                    )
+                note_mode = "native" if stage == "inline" else stage
+                if not tools:
+                    return
+                shortfall_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tools),
+                    read_only_guard=read_only_guard,
+                    planning_mode=note_mode,
+                )
+                declined_note = no_tool_calls_note(
+                    app,
+                    model_str=request.model,
+                    tone=resolved_tone,
+                    choice=choice,
+                    tool_count=len(tools),
+                    read_only_guard=read_only_guard,
+                    declined=True,
+                    planning_mode=note_mode,
+                )
+
+            def note_studio_fallback(reason: str) -> None:
+                call_record["studio_fallback"] = reason
+
+            def note_router_fallback(reason: str) -> None:
+                call_record["router_fallback"] = reason
             if request.stream:
                 # Save call record for streaming (tool_calls_result resolved later)
                 call_record["streaming"] = True
@@ -351,6 +407,25 @@ def register_chat_routes(
                             declined=True,
                             planning_mode="router",
                         ),
+                        inline_shortfall_note=no_tool_calls_note(
+                            app,
+                            model_str=request.model,
+                            tone=resolved_tone,
+                            choice=choice,
+                            tool_count=len(tools),
+                            read_only_guard=read_only_guard,
+                            planning_mode="native",
+                        ),
+                        inline_declined_note=no_tool_calls_note(
+                            app,
+                            model_str=request.model,
+                            tone=resolved_tone,
+                            choice=choice,
+                            tool_count=len(tools),
+                            read_only_guard=read_only_guard,
+                            declined=True,
+                            planning_mode="native",
+                        ),
                         router_prompt=router_prompt,
                         studio_turn=(
                             PlannerTurn(
@@ -363,10 +438,16 @@ def register_chat_routes(
                             if studio_client is not None
                             else None
                         ),
+                        prefer_router=planning_mode == "router",
+                        should_fallback=planner_predicate,
+                        on_stage=note_planning_stage if planner_chain else None,
+                        on_studio_fallback=note_studio_fallback,
+                        on_router_fallback=note_router_fallback,
+                        skip_router_fallback=is_tool_result_continuation,
                     )
                     header_status = (
                         actual_planning
-                        if planning_mode == "studio"
+                        if planning_mode in {"studio", "router"}
                         else effective_tool_calling(resolved_tone, planning_mode)
                     )
                     extra_headers = {TOOL_CALLING_HEADER: header_status}
@@ -402,7 +483,15 @@ def register_chat_routes(
             # _looks_like_fake_file_claim needs to detect a natively generated
             # file, so the corrective retry never fired. Deferring it also keeps
             # the rewriter away from a Write tool_call's file content.
-            async def router_answer() -> str:
+            async def inline_answer() -> str:
+                return await client.chat(
+                    translated.prompt,
+                    translated.additional_context,
+                    session,
+                    translated.images,
+                )
+
+            async def router_answer(fallback_turn) -> str:
                 return await routed_or_answered(
                     client,
                     router_prompt,
@@ -410,54 +499,34 @@ def register_chat_routes(
                     translated.additional_context,
                     session,
                     translated.images,
+                    should_fallback=planner_predicate,
+                    fallback_turn=fallback_turn,
+                    on_router_fallback=note_router_fallback,
                 )
 
-            async def studio_fallback_answer() -> str:
-                nonlocal actual_planning, shortfall_note, declined_note
-                actual_planning = "router"
-                call_record["tool_planning"] = "router"
-                call_record["studio_fallback"] = "upstream_error"
-                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
-                    translated.prompt,
-                    translated.additional_context,
-                )
-                shortfall_note = no_tool_calls_note(
-                    app,
-                    model_str=request.model,
-                    tone=resolved_tone,
-                    choice=choice,
-                    tool_count=len(tools),
-                    read_only_guard=read_only_guard,
-                    planning_mode=actual_planning,
-                )
-                declined_note = no_tool_calls_note(
-                    app,
-                    model_str=request.model,
-                    tone=resolved_tone,
-                    choice=choice,
-                    tool_count=len(tools),
-                    read_only_guard=read_only_guard,
-                    declined=True,
-                    planning_mode=actual_planning,
-                )
-                return await router_answer()
-
-            if studio_client is not None:
-                text = await planned_or_answered(
-                    studio_turn=PlannerTurn(
+            text = await ordered_or_answered(
+                studio_turn=(
+                    PlannerTurn(
                         studio_client,
                         studio_translated.prompt,
                         studio_translated.additional_context,
                         studio_session,
                         studio_translated.images,
-                    ),
-                    fallback_turn=studio_fallback_answer,
-                )
-            else:
-                text = await router_answer()
+                    )
+                    if studio_client is not None and studio_translated is not None
+                    else None
+                ),
+                router_turn=router_answer,
+                inline_turn=inline_answer,
+                prefer_router=planning_mode == "router",
+                should_fallback=planner_predicate,
+                on_stage=note_planning_stage if planner_chain else None,
+                on_studio_fallback=note_studio_fallback,
+                skip_router_fallback=is_tool_result_continuation,
+            )
             header_status = (
-                actual_planning
-                if planning_mode == "studio"
+                call_record.get("tool_planning", actual_planning)
+                if planning_mode in {"studio", "router"}
                 else effective_tool_calling(resolved_tone, planning_mode)
             )
             extra_headers = {TOOL_CALLING_HEADER: header_status} if tools else None
@@ -651,8 +720,16 @@ async def _openai_stream_with_tools(
     declined_note: str = "",
     router_shortfall_note: str = "",
     router_declined_note: str = "",
+    inline_shortfall_note: str = "",
+    inline_declined_note: str = "",
     router_prompt: str = "",
     studio_turn: PlannerTurn | None = None,
+    prefer_router: bool = False,
+    should_fallback: Callable[[str], bool] | None = None,
+    on_stage: Callable[[str], None] | None = None,
+    on_studio_fallback: Callable[[str], None] | None = None,
+    on_router_fallback: Callable[[str], None] | None = None,
+    skip_router_fallback: bool = False,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream.
 
@@ -665,29 +742,46 @@ async def _openai_stream_with_tools(
     _log = logging.getLogger("copilot_proxy")
     chunks: list[str] = []
     try:
-        async def router_stream() -> AsyncIterator[str]:
-            nonlocal shortfall_note, declined_note
-            if studio_turn is not None and call_record is not None:
-                call_record["tool_planning"] = "router"
-                call_record["studio_fallback"] = "upstream_error"
-                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
-                    prompt,
-                    additional_context,
-                )
-                shortfall_note = router_shortfall_note
-                declined_note = router_declined_note
-            async for delta in routed_or_streamed(
-                client, router_prompt, prompt, additional_context, session, images
+        async def inline_stream() -> AsyncIterator[str]:
+            async for delta in client.chat_stream(
+                prompt, additional_context, session, images
             ):
                 yield delta
 
-        stream = (
-            planned_or_streamed(
-                studio_turn=studio_turn,
-                fallback_turn=router_stream,
-            )
-            if studio_turn is not None
-            else router_stream()
+        async def router_stream(fallback_turn) -> AsyncIterator[str]:
+            async for delta in routed_or_streamed(
+                client,
+                router_prompt,
+                prompt,
+                additional_context,
+                session,
+                images,
+                should_fallback=should_fallback,
+                fallback_turn=fallback_turn,
+                on_router_fallback=on_router_fallback,
+            ):
+                yield delta
+
+        def note_stage(stage: str) -> None:
+            nonlocal shortfall_note, declined_note
+            if stage == "router":
+                shortfall_note = router_shortfall_note
+                declined_note = router_declined_note
+            elif stage == "inline":
+                shortfall_note = inline_shortfall_note
+                declined_note = inline_declined_note
+            if on_stage is not None:
+                on_stage(stage)
+
+        stream = ordered_or_streamed(
+            studio_turn=studio_turn,
+            router_turn=router_stream,
+            inline_turn=inline_stream,
+            prefer_router=prefer_router,
+            should_fallback=should_fallback,
+            on_stage=note_stage if on_stage is not None else None,
+            on_studio_fallback=on_studio_fallback,
+            skip_router_fallback=skip_router_fallback,
         )
         async for delta in stream:
             chunks.append(delta)

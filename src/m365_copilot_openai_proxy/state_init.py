@@ -23,6 +23,10 @@ from .refresh_scheduler import RefreshScheduler
 from .runtime_flags import set_flags as _set_log_flags
 from .runtime_settings import _read_runtime_settings, apply_proxy_env
 from .session_store import PersistentSessionStore
+from .studio_agent_discovery import (
+    DEFAULT_STUDIO_AGENT_NAME,
+    GetGptListDiscovery,
+)
 from .substrate_client import SubstrateCopilotClient, _OPTIONS_SETS, _VARIANTS
 from .token_store import (
     AccessTokenStore,
@@ -87,6 +91,12 @@ def init_app_state(
     app.state.history_index = HistoryDigestIndex()
     app.state.account_store = AccountStore(
         persist_path=Path(settings.token_dir) / "accounts.json"
+    )
+    # Read-only, account-scoped lookup used only when a tools-bearing turn asks
+    # for Studio planning. It never provisions or publishes an agent.
+    app.state.studio_agent_discovery = GetGptListDiscovery(
+        app.state.account_store,
+        desired_name=DEFAULT_STUDIO_AGENT_NAME,
     )
     app.state.key_store = KeyStore(
         persist_path=Path(settings.token_dir) / "keys.json"

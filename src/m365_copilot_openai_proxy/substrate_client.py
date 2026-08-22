@@ -249,6 +249,12 @@ class SubstrateCopilotClient:
 
     def _ws_url(self, conv_id: str, session_id: str, req_id: str) -> str:
         token = quote(self._token, safe="")
+        studio_agent_id = str(getattr(self, "_studio_agent_id", "") or "").strip()
+        agent_surface = (
+            f"&gptId={quote(studio_agent_id, safe='')}&agent=Agent"
+            if studio_agent_id
+            else "&agent=web"
+        )
         return (
             f"{_WS_BASE}/{self._oid}@{self._tid}"
             f"?ClientRequestId={req_id}"
@@ -257,7 +263,7 @@ class SubstrateCopilotClient:
             f"&access_token={token}"
             f"&variants={getattr(self, '_variants', _VARIANTS)}"
             f"&source=officeweb&product=Office&agentHost=Bizchat.FullScreen"
-            f"&licenseType=Starter&agent=web&scenario=OfficeWebIncludedCopilot"
+            f"&licenseType=Starter{agent_surface}&scenario=OfficeWebIncludedCopilot"
         )
 
     def _chat_invoke(

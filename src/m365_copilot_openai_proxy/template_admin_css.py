@@ -68,6 +68,12 @@ body[data-view="users"] .view-users,body[data-view="accounts"] .view-accounts,bo
    on how many conversations exist upstream, so .tbl-scroll caps it instead. */
 .view-sessions{display:none}
 body[data-view="sessions"] .view-sessions{display:block}
+/* The page shell and every card clip by default.  The session filter menu is
+   rendered inside this card, so all ancestors in this view must release their
+   overflow while it is open; z-index alone cannot paint through a clip. */
+body[data-view="sessions"] .main{overflow:visible}
+.view-sessions:has(.glass-select.open),.view-sessions:has(.glass-select.open) .flow-box{overflow:visible!important;z-index:2000}
+.view-sessions:has(.glass-select.open) .glass-select,.view-sessions:has(.glass-select.open) .glass-select-menu{z-index:4000}
 .view-sessions .tbl-scroll{max-height:520px}
 body[data-view="debug"] .debug-gate-card{height:250px;min-height:250px;display:flex;align-items:center;justify-content:center}
 body[data-view="debug"] .debug-guide-card{height:200px!important;min-height:200px!important;overflow:hidden}
@@ -76,15 +82,14 @@ body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!importa
 .accounts-main-card .accounts-table-scroll{height:610px;max-height:610px;overflow-y:auto;overflow-x:auto;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}
 .accounts-main-card .accounts-table-scroll::-webkit-scrollbar{width:0;height:0;display:none}
 /* Keep utility columns fixed; the name column absorbs wide-screen slack. */
-.accounts-table{width:100%;min-width:840px;max-width:none;table-layout:fixed}
+.accounts-table{width:100%;min-width:698px;max-width:none;table-layout:fixed}
 .accounts-table th:nth-child(1),.accounts-table td:nth-child(1){width:32px}
 .accounts-table th:nth-child(2),.accounts-table td:nth-child(2){width:auto;min-width:216px}
 .accounts-table th:nth-child(3),.accounts-table td:nth-child(3){width:146px}
 .accounts-table th:nth-child(4),.accounts-table td:nth-child(4){width:80px}
 .accounts-table th:nth-child(5),.accounts-table td:nth-child(5){width:74px}
 .accounts-table th:nth-child(6),.accounts-table td:nth-child(6){width:78px;white-space:nowrap}
-.accounts-table th:nth-child(7),.accounts-table td:nth-child(7){width:142px}
-.accounts-table th:nth-child(8),.accounts-table td:nth-child(8){width:72px}
+.accounts-table th:nth-child(7),.accounts-table td:nth-child(7){width:72px}
 .accounts-table th,.accounts-table td{padding:7.5px!important;box-sizing:border-box}
 .accounts-table tr[id^="atok-"]>td{padding:.7rem .9rem!important}
 .acct-token-control{display:grid;grid-template-rows:auto auto;gap:4px;width:131px;min-width:131px;box-sizing:border-box}
@@ -94,14 +99,8 @@ body[data-view="debug"] .debug-guide-card:has(details[open]){height:auto!importa
 .acct-token-control button{box-sizing:border-box;width:100%;min-width:0;font-size:.68rem;padding:3px 2px;white-space:nowrap}
 .acct-token-status{display:inline-flex;width:100%;box-sizing:border-box;justify-content:center;align-items:center}
 .acct-token-remove{background:rgba(239,68,68,.18);color:#fecaca;border:1px solid rgba(239,68,68,.35)}
-.acct-token-update,.studio-agent-clear{background:rgba(255,255,255,.12);color:var(--strong);border:1px solid var(--chip-border);box-shadow:none}
-.acct-token-update:hover,.studio-agent-clear:hover{background:rgba(255,255,255,.2);color:var(--text);box-shadow:0 0 12px rgba(96,242,255,.14)}
-.studio-agent-control{display:grid;grid-template-rows:auto auto;gap:4px;width:127px;min-width:127px;box-sizing:border-box}
-.studio-agent-primary{display:grid;grid-template-columns:58px 65px;gap:4px;align-items:center;min-width:0}
-.studio-agent-input{box-sizing:border-box;width:65px;min-width:0;padding:4px 6px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.68rem}
-.studio-agent-actions{display:grid;grid-template-columns:65px 58px;gap:4px;min-width:0}
-.accounts-table .studio-agent-actions button,body[data-lang="en"] .accounts-table .studio-agent-actions button{box-sizing:border-box;min-width:0;width:100%;font-size:.64rem!important;padding:4px 1px!important;white-space:nowrap}
-.studio-agent-msg{display:none;min-height:1em;font-size:.68rem;color:#ef4444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-token-update{background:rgba(255,255,255,.12);color:var(--strong);border:1px solid var(--chip-border);box-shadow:none}
+.acct-token-update:hover{background:rgba(255,255,255,.2);color:var(--text);box-shadow:0 0 12px rgba(96,242,255,.14)}
 .accounts-table .acct-actions-head,.accounts-table .acct-actions-cell{position:sticky;right:0;min-width:72px;width:72px;z-index:6;background:var(--card);box-shadow:-8px 0 14px rgba(0,0,0,.2)}
 .accounts-table .acct-actions-head{z-index:8}
 .accounts-table .acct-actions-cell{background:linear-gradient(180deg,rgba(13,19,45,.96),rgba(7,10,24,.96))}

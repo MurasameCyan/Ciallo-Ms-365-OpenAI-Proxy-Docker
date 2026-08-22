@@ -20,6 +20,7 @@ from m365_copilot_openai_proxy.session_helpers import (
     _studio_session_namespace,
 )
 from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
+from m365_copilot_openai_proxy.studio_planner import STUDIO_TONE
 from m365_copilot_openai_proxy.tone_options import router_applies, tool_planning_mode
 
 
@@ -493,6 +494,17 @@ def test_ready_m365_tools_chat_uses_bound_studio_client(tmp_path, caplog):
     assert "planning this turn with a router turn instead" not in caplog.text
 
 
+def test_studio_planner_uses_compatible_tone_for_claude_request(tmp_path):
+    app, client, key, made = _app(tmp_path)
+
+    response = _chat(client, key, model="claude-sonnet-4-6")
+
+    assert response.status_code == 200
+    assert made[-1]._tone == STUDIO_TONE
+    assert app.state.call_log[-1]["tone"] == "Claude_Sonnet"
+    assert app.state.call_log[-1]["tool_planning"] == "studio"
+
+
 def test_ready_m365_stream_uses_studio_and_reports_actual_header(tmp_path):
     app, client, key, made = _app(tmp_path)
 
@@ -729,6 +741,68 @@ def test_responses_studio_tool_continuation_reuses_studio_namespace(
 
 
 @pytest.mark.parametrize("stream", [False, True])
+def test_chat_studio_tool_continuation_accepts_final_answer(stream, tmp_path):
+    app, client, key, made = _studio_responses_continuation_app(tmp_path)
+    first = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "messages": [{"role": "user", "content": "read /tmp/a.txt"}],
+            "stream": stream,
+            "tools": [READ_TOOL],
+        },
+    )
+
+    assert first.status_code == 200
+    if stream:
+        chunks = [
+            json.loads(line.removeprefix("data: "))
+            for line in first.text.splitlines()
+            if line.startswith("data: ") and line != "data: [DONE]"
+        ]
+        tool_call = next(
+            call
+            for chunk in chunks
+            for choice in chunk.get("choices", [])
+            for call in choice.get("delta", {}).get("tool_calls", [])
+            if call.get("function", {}).get("name")
+        )
+    else:
+        tool_call = first.json()["choices"][0]["message"]["tool_calls"][0]
+
+    continued = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": "m365-copilot",
+            "messages": [
+                {"role": "user", "content": "read /tmp/a.txt"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [tool_call],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": "contents of /tmp/a.txt",
+                },
+            ],
+            "stream": stream,
+            "tools": [READ_TOOL],
+        },
+    )
+
+    assert continued.status_code == 200
+    assert "studio-final-answer" in continued.text
+    assert app.state.call_log[-1]["tool_planning"] == "studio"
+    studio_clients = [item for item in made if item.studio]
+    assert len(studio_clients) == 2
+    assert studio_clients[0].calls[0][3] is studio_clients[1].calls[0][3]
+
+
+@pytest.mark.parametrize("stream", [False, True])
 def test_responses_studio_full_history_continuation_sends_only_new_turn(
     stream, tmp_path
 ):
@@ -918,22 +992,19 @@ def test_responses_studio_continuation_fallback_router_sees_original_task(
     body = _responses_body(continued, stream)
     assert not [item for item in body["output"] if item["type"] == "function_call"]
     assert "final-answer-sentinel" in json.dumps(body)
-    normal_client = next(
-        item
-        for item in made
-        if isinstance(item, ContextAwareResponsesClient) and item.calls
-    )
-    router_call = next(
-        call for call in normal_client.calls if "You are a tool-use router" in call[1]
-    )
-    assert "original-task-sentinel" in router_call[1]
-    assert "tool-result-sentinel" in router_call[1]
-    assert app.state.call_log[-1]["tool_planning"] == "router"
+    router_calls = [
+        call
+        for client_obj in made
+        for call in client_obj.calls
+        if "You are a tool-use router" in call[1]
+    ]
+    assert not router_calls
+    assert app.state.call_log[-1]["tool_planning"] == "inline"
     assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_responses_studio_text_continuation_fallback_keeps_previous_context(
+def test_responses_text_continuation_after_tool_call_is_rejected(
     stream, tmp_path
 ):
     app, client, key, made = _studio_text_continuation_fallback_app(tmp_path)
@@ -950,8 +1021,10 @@ def test_responses_studio_text_continuation_fallback_keeps_previous_context(
 
     assert first.status_code == 200
     first_body = _responses_body(first, stream)
-    assert "studio-text-sentinel" in json.dumps(first_body)
-    assert not [item for item in first_body["output"] if item["type"] == "function_call"]
+    # The initial Studio answer is a no-call planner result, so the configured
+    # Studio -> Router fallback produces the actual tool decision.
+    assert "studio-text-sentinel" not in json.dumps(first_body)
+    assert [item for item in first_body["output"] if item["type"] == "function_call"]
 
     continued = client.post(
         "/v1/responses",
@@ -965,19 +1038,8 @@ def test_responses_studio_text_continuation_fallback_keeps_previous_context(
         },
     )
 
-    assert continued.status_code == 200
-    normal_client = next(
-        item
-        for item in made
-        if isinstance(item, ContextAwareResponsesClient) and item.calls
-    )
-    router_call = next(
-        call for call in normal_client.calls if "You are a tool-use router" in call[1]
-    )
-    assert "original-task-sentinel" in router_call[1]
-    assert "follow-up-sentinel" in router_call[1]
-    assert app.state.call_log[-1]["tool_planning"] == "router"
-    assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
+    assert continued.status_code == 400
+    assert "function_call_output" in continued.text
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -1028,16 +1090,19 @@ def test_responses_router_tool_continuation_restores_original_task_context(
         item for item in continued_body["output"] if item["type"] == "function_call"
     ]
     assert "final-answer-sentinel" in json.dumps(continued_body)
-    continuation_client = made[-1]
-    router_call = next(
-        call for call in continuation_client.calls
+    router_calls = [
+        call
+        for client_obj in made
+        for call in client_obj.calls
         if "You are a tool-use router" in call[1]
-    )
-    assert router_call[3] is None
-    assert "original-task-sentinel" in router_call[1]
-    assert "tool-result-sentinel" in router_call[1]
+    ]
+    # The first turn needs one classifier pass. A function_call_output
+    # continuation is already in the router namespace and must answer directly.
+    assert len(router_calls) == 1
     answer_call = next(
-        call for call in continuation_client.calls
+        call
+        for client_obj in reversed(made)
+        for call in reversed(client_obj.calls)
         if "You are a tool-use router" not in call[1]
     )
     restored_context = "\n".join(answer_call[2])
@@ -1079,7 +1144,10 @@ def test_responses_router_no_tool_marker_is_never_user_visible(stream, tmp_path)
     assert "clean-answer-sentinel" in json.dumps(body)
     assert "NO_TOOL_NEEDED" not in json.dumps(body)
     router_call = next(
-        call for call in made[-1].calls if "You are a tool-use router" in call[1]
+        call
+        for client_obj in made
+        for call in client_obj.calls
+        if "You are a tool-use router" in call[1]
     )
     assert router_call[3] is None
 
@@ -1231,15 +1299,26 @@ def test_ready_studio_no_tool_diagnostics_never_claim_router(
         json=body,
     )
 
-    assert response.status_code == (200 if stream or not required else 400)
-    assert response.headers.get("X-M365-Tool-Calling") == "studio"
-    assert response.headers.get("X-M365-Tool-Outcome") == (
-        "required_no_call" if required and not stream else None
+    assert response.status_code == 200
+    assert response.headers.get("X-M365-Tool-Calling") == (
+        "studio" if stream else "router"
     )
-    text = _chat_response_text(response, stream=stream, required=required)
-    assert "Studio Agent" in text
-    assert "工具路由器" not in text
-    assert "Router" not in text
+    assert "X-M365-Tool-Outcome" not in response.headers
+    if stream:
+        chunks = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ") and line != "data: [DONE]"
+        ]
+        tool_calls = [
+            call
+            for chunk in chunks
+            for choice in chunk.get("choices", [])
+            for call in choice.get("delta", {}).get("tool_calls", [])
+        ]
+    else:
+        tool_calls = response.json()["choices"][0]["message"].get("tool_calls", [])
+    assert [call.get("function", {}).get("name") for call in tool_calls] == ["Read"]
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -1269,10 +1348,14 @@ def test_studio_error_router_fallback_diagnostics_report_actual_planner(
 
     assert response.status_code == (200 if stream or not required else 400)
     assert response.headers["X-M365-Tool-Calling"] == (
-        "studio" if stream else "router"
+        "studio" if stream else "inline"
     )
     text = _chat_response_text(response, stream=stream, required=required)
-    assert "工具路由器" in text
+    if required:
+        assert "tool_choice=required" in text
+    else:
+        assert "plain router answer" in text
+        assert "工具路由器" not in text
     assert "Studio Agent" not in text
 
 

@@ -95,3 +95,28 @@ def test_glass_select_menu_stays_opaque_over_a_card():
                 f"backdrop-filter cannot blur the card behind it, so option labels end up "
                 f"overlapping the card text"
             )
+
+
+def test_admin_session_filter_escapes_card_overflow_when_open():
+    """The session filter menu must paint beyond the rounded sessions card."""
+    rules = _rules_for(_ADMIN_HTML, ".view-sessions:has(.glass-select.open)")
+    assert rules, "the sessions card has no open-dropdown overflow escape rule"
+    assert any(re.search(r"overflow\s*:\s*visible", body) for body in rules), (
+        "opening the session filter still leaves the card's overflow:hidden clip"
+    )
+
+
+def test_admin_session_filter_releases_shell_clip_and_raises_menu_layer():
+    """The menu must also escape the page shell and sit above the card chrome."""
+    shell_rules = _rules_for(_ADMIN_HTML, 'body[data-view="sessions"] .main')
+    assert any(re.search(r"overflow\s*:\s*visible", body) for body in shell_rules), (
+        "the sessions view's .main shell still clips the open filter menu"
+    )
+    card_rules = _rules_for(_ADMIN_HTML, ".view-sessions:has(.glass-select.open) .flow-box")
+    assert any("overflow:visible" in body.replace(" ", "") for body in card_rules), (
+        "the filter wrapper still clips the menu"
+    )
+    menu_rules = _rules_for(_ADMIN_HTML, ".view-sessions:has(.glass-select.open) .glass-select-menu")
+    assert any(re.search(r"z-index\s*:\s*4000", body) for body in menu_rules), (
+        "the session filter menu has no elevated stacking layer"
+    )

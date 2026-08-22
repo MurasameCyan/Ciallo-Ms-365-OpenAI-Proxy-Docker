@@ -26,6 +26,7 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
 from m365_copilot_openai_proxy.tool_call_parser import _extract_tool_calls
+from m365_copilot_openai_proxy.tool_call_parser import planner_fallback_needed
 from m365_copilot_openai_proxy.tool_router import (
     build_router_prompt,
     parse_router_decision,
@@ -204,6 +205,19 @@ def test_a_no_argument_call_is_still_a_decision():
 def test_undecided_replies_yield_nothing(reply):
     assert parse_router_decision(reply) == []
     assert router_text(reply) == ""
+
+
+def test_planner_fallback_predicate_accepts_declared_call_and_preserves_decline():
+    assert planner_fallback_needed(
+        '```tool_call\n{"name":"Read","arguments":{"file_path":"/tmp/a.txt"}}\n```',
+        {"Read"},
+    ) is False
+    assert planner_fallback_needed("NO_TOOL_NEEDED", {"Read"}) is False
+    assert planner_fallback_needed("plain answer", {"Read"}) is True
+    assert planner_fallback_needed(
+        '```tool_call\n{"name":"Write","arguments":{}}\n```',
+        {"Read"},
+    ) is True
 
 
 def test_the_decision_is_rewritten_into_the_shape_the_native_parser_reads():
@@ -462,6 +476,54 @@ def test_a_failed_classification_turn_falls_back_to_an_ordinary_answer(tmp_path)
     # A fallback answer is not a verdict: no usable routing decision was produced
     # and the answer carried no call, which is exactly what the note describes.
     assert "工具路由器" in r.json()["choices"][0]["message"]["content"]
+
+
+def test_router_can_fall_back_to_next_planner_when_inline_answer_has_no_call():
+    fake = FakeClient("unreadable router decision", PROSE)
+    calls = []
+
+    async def next_planner():
+        calls.append("studio")
+        return "studio tool call"
+
+    result = asyncio.run(
+        routed_or_answered(
+            fake,
+            ROUTER_MARKER,
+            "ordinary prompt",
+            [],
+            should_fallback=lambda text: "tool_call" not in text,
+            fallback_turn=next_planner,
+        )
+    )
+
+    assert result == "studio tool call"
+    assert calls == ["studio"]
+
+
+def test_router_stream_can_fall_back_to_next_planner_when_inline_answer_has_no_call():
+    fake = FakeClient("unreadable router decision", PROSE)
+    calls = []
+
+    async def next_planner():
+        calls.append("studio")
+        yield "studio tool call"
+
+    async def run():
+        return [
+            chunk
+            async for chunk in routed_or_streamed(
+                fake,
+                ROUTER_MARKER,
+                "ordinary prompt",
+                [],
+                should_fallback=lambda text: "tool_call" not in text,
+                fallback_turn=next_planner,
+            )
+        ]
+
+    assert asyncio.run(run()) == ["studio tool call"]
+    assert calls == ["studio"]
 
 
 def test_native_mode_switches_the_router_off(tmp_path):

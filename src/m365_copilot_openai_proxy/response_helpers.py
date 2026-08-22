@@ -13,7 +13,7 @@ from referencing import Registry
 from referencing.exceptions import Unresolvable
 
 from .session_store import PersistentSession
-from .studio_planner import PlannerTurn, planned_or_streamed
+from .studio_planner import PlannerTurn, ordered_or_streamed, planned_or_streamed
 from .substrate_client import (
     SubstrateCopilotClient,
     SubstrateCopilotError,
@@ -541,6 +541,12 @@ async def _responses_stream_with_tools(
     router_prompt: str = "",
     on_router_call: Callable[[], None] | None = None,
     studio_turn: PlannerTurn | None = None,
+    prefer_router: bool = False,
+    should_fallback: Callable[[str], bool] | None = None,
+    on_stage: Callable[[str], None] | None = None,
+    on_studio_fallback: Callable[[str], None] | None = None,
+    on_router_fallback: Callable[[str], None] | None = None,
+    skip_router_fallback: bool = False,
 ) -> AsyncIterator[str]:
     resp_id = response_id or f"resp_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -567,14 +573,13 @@ async def _responses_stream_with_tools(
             nonlocal router_decided
             router_decided = True
 
-        async def router_stream() -> AsyncIterator[str]:
-            if studio_turn is not None and call_record is not None:
-                call_record["tool_planning"] = "router"
-                call_record["studio_fallback"] = "upstream_error"
-                call_record["usage_input_tokens"] = estimate_upstream_input_tokens(
-                    prompt,
-                    additional_context,
-                )
+        async def inline_stream() -> AsyncIterator[str]:
+            async for delta in client.chat_stream(
+                prompt, additional_context, session, images
+            ):
+                yield delta
+
+        async def router_stream(fallback_turn) -> AsyncIterator[str]:
             async for delta in routed_or_streamed(
                 client,
                 router_prompt,
@@ -583,16 +588,21 @@ async def _responses_stream_with_tools(
                 session,
                 images,
                 on_router_call=note_router_decision,
+                should_fallback=should_fallback,
+                fallback_turn=fallback_turn,
+                on_router_fallback=on_router_fallback,
             ):
                 yield delta
 
-        stream = (
-            planned_or_streamed(
-                studio_turn=studio_turn,
-                fallback_turn=router_stream,
-            )
-            if studio_turn is not None
-            else router_stream()
+        stream = ordered_or_streamed(
+            studio_turn=studio_turn,
+            router_turn=router_stream,
+            inline_turn=inline_stream,
+            prefer_router=prefer_router,
+            should_fallback=should_fallback,
+            on_stage=on_stage,
+            on_studio_fallback=on_studio_fallback,
+            skip_router_fallback=skip_router_fallback,
         )
         full_text = await _collect_deduped_stream(stream)
         full_text, _declined = split_no_tool_marker(full_text)

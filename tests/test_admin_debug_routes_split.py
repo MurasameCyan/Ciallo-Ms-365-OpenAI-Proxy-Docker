@@ -306,7 +306,7 @@ def test_dashboard_stacks_overview_donuts_on_mobile():
     assert ".dash-overview-donuts{grid-template-columns:1fr!important}" in _ADMIN_HTML
 
 
-def test_admin_account_studio_control_uses_two_rows_and_narrow_id_input():
+def test_admin_account_token_control_uses_two_rows_and_fixed_width():
     from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 
     assert 'class="acct-token-control"' in _ADMIN_HTML
@@ -315,16 +315,11 @@ def test_admin_account_studio_control_uses_two_rows_and_narrow_id_input():
     assert 'class="acct-token-remove"' in _ADMIN_HTML
     assert 'class="acct-token-refresh"' in _ADMIN_HTML
     assert 'class="acct-token-update"' in _ADMIN_HTML
-    assert 'class="studio-agent-status"' in _ADMIN_HTML
-    assert 'class="studio-agent-primary"' in _ADMIN_HTML
-    assert 'class="studio-agent-actions"' in _ADMIN_HTML
-    assert 'class="studio-agent-input" type="password"' in _ADMIN_HTML
     assert 'min-width:250px' not in _ADMIN_HTML
     assert 'grid-template-columns:minmax(112px,1fr) auto auto' not in _ADMIN_HTML
-    assert '.accounts-table{width:100%;min-width:840px;max-width:none;table-layout:fixed}' in _ADMIN_HTML
+    assert '.accounts-table{width:100%;min-width:698px;max-width:none;table-layout:fixed}' in _ADMIN_HTML
     assert 'overflow-y:auto;overflow-x:auto' in _ADMIN_HTML
-    assert '.acct-token-control{' in _ADMIN_HTML
-    assert '.studio-agent-control{' in _ADMIN_HTML
+    assert '.acct-token-control{display:grid;grid-template-rows:auto auto;gap:4px;width:131px;min-width:131px' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(6),.accounts-table td:nth-child(6){width:78px;white-space:nowrap}' in _ADMIN_HTML
 
 
@@ -337,25 +332,23 @@ def test_admin_account_actions_and_timestamps_remain_visible_and_readable():
     assert '.acct-actions-cell{' in _ADMIN_HTML
     assert 'position:sticky' in _ADMIN_HTML
     assert 'right:0' in _ADMIN_HTML
-    assert '.acct-token-update,.studio-agent-clear{' in _ADMIN_HTML
+    assert '.acct-token-update{' in _ADMIN_HTML
     assert 'color:var(--strong)' in _ADMIN_HTML
-    assert '.studio-agent-clear{' in _ADMIN_HTML
-    assert '.studio-agent-control{display:grid;grid-template-rows:auto auto;gap:4px;width:127px;min-width:127px' in _ADMIN_HTML
+    assert '.acct-token-control{display:grid;grid-template-rows:auto auto;gap:4px;width:131px;min-width:131px' in _ADMIN_HTML
     assert 'toLocaleString' not in _ADMIN_DASHBOARD_JS
 
 
-def test_admin_accounts_table_uses_fixed_columns_for_studio_and_actions():
+def test_admin_accounts_table_uses_fixed_columns_for_actions():
     from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 
-    assert '.accounts-table{width:100%;min-width:840px;max-width:none;table-layout:fixed}' in _ADMIN_HTML
+    assert '.accounts-table{width:100%;min-width:698px;max-width:none;table-layout:fixed}' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(1),.accounts-table td:nth-child(1){width:32px}' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(2),.accounts-table td:nth-child(2){width:auto;min-width:216px}' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(3),.accounts-table td:nth-child(3){width:146px}' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(4),.accounts-table td:nth-child(4){width:80px}' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(5),.accounts-table td:nth-child(5){width:74px}' in _ADMIN_HTML
     assert '.accounts-table th:nth-child(6),.accounts-table td:nth-child(6){width:78px;white-space:nowrap}' in _ADMIN_HTML
-    assert '.accounts-table th:nth-child(7),.accounts-table td:nth-child(7){width:142px}' in _ADMIN_HTML
-    assert '.accounts-table th:nth-child(8),.accounts-table td:nth-child(8){width:72px}' in _ADMIN_HTML
+    assert '.accounts-table th:nth-child(7),.accounts-table td:nth-child(7){width:72px}' in _ADMIN_HTML
 
 
 def test_dashboard_separates_call_log_clear_from_cumulative_usage_clear():

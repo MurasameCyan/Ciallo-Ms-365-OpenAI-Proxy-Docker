@@ -266,6 +266,38 @@ def _extract_tool_calls(text: str) -> list[dict]:
     return calls
 
 
+def planner_fallback_needed(text: str, tool_names: set[str] | None = None) -> bool:
+    """Whether a planner produced no usable declared tool call.
+
+    An explicit ``NO_TOOL_NEEDED`` is a valid planner verdict, so it never
+    escalates to another planner. Otherwise only calls the client actually
+    declared count as success; malformed or unrelated tool-shaped prose leaves
+    the caller free to try its next planning layer.
+    """
+    raw = text or ""
+    # The route-level parser deliberately treats a marker-only answer as a
+    # malformed user-facing turn (there is no answer to deliver).  A planner
+    # chain has a different question: the explicit verdict still means the
+    # planner considered the tools and declined, so do not spend another
+    # planner attempt on it.
+    if raw.strip().strip("*_` .。!！").casefold() == _NO_TOOL_MARKER.casefold():
+        return False
+    clean, declined = split_no_tool_marker(raw)
+    calls = _extract_tool_calls(clean)
+    if declined and not calls:
+        return False
+    # Let each route's existing corrective file retry run before changing
+    # planners; otherwise the retry would be bypassed by an early chain hop.
+    if not calls and _looks_like_fake_file_claim(clean):
+        return False
+    if tool_names:
+        return not any(
+            (call.get("function") or {}).get("name") in tool_names
+            for call in calls
+        )
+    return not calls
+
+
 # Prose fallback: model writes "save as `<path>`" then a fenced code block,
 # instead of emitting a tool_call. Synthesize a Write tool_call ONLY when the
 # code block's language tag matches the target file's extension — this avoids

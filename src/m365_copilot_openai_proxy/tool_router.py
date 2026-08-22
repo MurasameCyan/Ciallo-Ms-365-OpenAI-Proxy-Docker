@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from .substrate_client import SubstrateCopilotError
 from .tone_options import TOOL_PLANNING_MODES, router_applies, tool_planning_mode
@@ -54,6 +54,9 @@ __all__ = [
 
 _CALL_TOOL_RE = re.compile(r"CALL_TOOL\s*:\s*([A-Za-z0-9_.\-]+)\s*\(", re.IGNORECASE)
 _DECODER = json.JSONDecoder()
+NeedsFallback = Callable[[str], bool]
+AnswerFallback = Callable[[], Awaitable[str]]
+StreamFallback = Callable[[], AsyncIterator[str]]
 
 
 def build_router_prompt(
@@ -169,6 +172,9 @@ async def routed_or_answered(
     session=None,
     images: list | None = None,
     on_router_call: Callable[[], None] | None = None,
+    should_fallback: NeedsFallback | None = None,
+    fallback_turn: AnswerFallback | None = None,
+    on_router_fallback: Callable[[str], None] | None = None,
 ) -> str:
     """One turn's text: the router's decision if it produced a call, else an answer.
 
@@ -183,8 +189,17 @@ async def routed_or_answered(
         if decided:
             _notify_router_call(on_router_call)
             return decided
+        if fallback_turn is not None and not declined:
+            if on_router_fallback is not None:
+                on_router_fallback("classification_error")
+            return await fallback_turn()
     text = await client.chat(prompt, additional_context, session, images)
-    return text + _marker_suffix(text, declined)
+    text = text + _marker_suffix(text, declined)
+    if fallback_turn is not None and should_fallback is not None and should_fallback(text):
+        if on_router_fallback is not None:
+            on_router_fallback("no_tool_call")
+        return await fallback_turn()
+    return text
 
 
 async def routed_or_streamed(
@@ -195,6 +210,9 @@ async def routed_or_streamed(
     session=None,
     images: list | None = None,
     on_router_call: Callable[[], None] | None = None,
+    should_fallback: NeedsFallback | None = None,
+    fallback_turn: StreamFallback | None = None,
+    on_router_fallback: Callable[[str], None] | None = None,
 ) -> AsyncIterator[str]:
     """chat_stream, with the same router pre-step, yielding the decision as one chunk.
 
@@ -208,11 +226,31 @@ async def routed_or_streamed(
             _notify_router_call(on_router_call)
             yield decided
             return
+        if fallback_turn is not None and not declined:
+            if on_router_fallback is not None:
+                on_router_fallback("classification_error")
+            async for chunk in fallback_turn():
+                yield chunk
+            return
     text = ""
+    buffered: list[str] | None = [] if fallback_turn is not None else None
     async for delta in client.chat_stream(prompt, additional_context, session, images):
         text += delta
-        yield delta
+        if buffered is None:
+            yield delta
+        else:
+            buffered.append(delta)
     suffix = _marker_suffix(text, declined)
+    final_text = text + suffix
+    if fallback_turn is not None and should_fallback is not None and should_fallback(final_text):
+        if on_router_fallback is not None:
+            on_router_fallback("no_tool_call")
+        async for chunk in fallback_turn():
+            yield chunk
+        return
+    if buffered is not None:
+        for chunk in buffered:
+            yield chunk
     if suffix:
         yield suffix
 

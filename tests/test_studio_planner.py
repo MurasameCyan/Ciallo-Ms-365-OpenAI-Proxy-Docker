@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -22,6 +23,8 @@ from m365_copilot_openai_proxy.substrate_client import (
 )
 from m365_copilot_openai_proxy.studio_planner import (
     PlannerTurn,
+    ordered_or_answered,
+    ordered_or_streamed,
     planned_or_answered,
     planned_or_streamed,
 )
@@ -42,6 +45,9 @@ class ScriptedClient:
 
 def _wire_client(agent_id: str = "") -> SubstrateCopilotClient:
     client = object.__new__(SubstrateCopilotClient)
+    client._token = "token"
+    client._oid = "object-id"
+    client._tid = "tenant-id"
     client._tone = "Magic"
     client._extra_tool_prompt = ""
     client._time_zone = "Asia/Shanghai"
@@ -84,6 +90,24 @@ def test_studio_payload_changes_only_agent_attachment_fields():
     arguments.pop("plugins")
 
     assert studio == expected
+
+
+def test_studio_websocket_url_targets_agent_surface_with_runtime_id():
+    client = _wire_client("title.bot.gpt.default")
+
+    query = parse_qs(urlsplit(client._ws_url("conversation-id", "session-id", "request-id")).query)
+
+    assert query["gptId"] == ["title.bot.gpt.default"]
+    assert query["agent"] == ["Agent"]
+
+
+def test_ordinary_websocket_url_keeps_web_surface_without_runtime_id():
+    client = _wire_client()
+
+    query = parse_qs(urlsplit(client._ws_url("conversation-id", "session-id", "request-id")).query)
+
+    assert "gptId" not in query
+    assert query["agent"] == ["web"]
 
 
 def test_empty_studio_agent_id_keeps_builtin_payload():
@@ -283,6 +307,76 @@ def test_answer_empty_chunk_does_not_block_zero_output_fallback():
     assert calls == 1
 
 
+def test_answer_falls_back_when_studio_returns_no_tool_call():
+    calls = 0
+
+    async def fallback():
+        nonlocal calls
+        calls += 1
+        return "router tool call"
+
+    assert asyncio.run(
+        planned_or_answered(
+            studio_turn=PlannerTurn(
+                ScriptedClient(["plain studio answer"]), "prompt", []
+            ),
+            fallback_turn=fallback,
+            should_fallback=lambda text: "tool_call" not in text,
+        )
+    ) == "router tool call"
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    ("script", "predicate", "expected_reason"),
+    [
+        ([SubstrateCopilotError("studio failed")], None, "upstream_error"),
+        (["plain studio answer"], lambda _text: True, "no_tool_call"),
+    ],
+)
+def test_answer_reports_why_studio_fell_back(script, predicate, expected_reason):
+    reasons: list[str] = []
+
+    async def fallback():
+        return "router"
+
+    result = asyncio.run(
+        planned_or_answered(
+            studio_turn=PlannerTurn(ScriptedClient(script), "prompt", []),
+            fallback_turn=fallback,
+            should_fallback=predicate,
+            on_fallback=reasons.append,
+        )
+    )
+
+    assert result == "router"
+    assert reasons == [expected_reason]
+
+
+def test_stream_falls_back_when_studio_returns_no_tool_call():
+    calls = 0
+
+    async def fallback_stream():
+        nonlocal calls
+        calls += 1
+        yield "router tool call"
+
+    async def run():
+        return [
+            chunk
+            async for chunk in planned_or_streamed(
+                studio_turn=PlannerTurn(
+                    ScriptedClient(["plain studio answer"]), "prompt", []
+                ),
+                fallback_turn=fallback_stream,
+                should_fallback=lambda text: "tool_call" not in text,
+            )
+        ]
+
+    assert asyncio.run(run()) == ["router tool call"]
+    assert calls == 1
+
+
 def test_stream_falls_back_on_zero_output_substrate_error():
     calls = 0
 
@@ -412,3 +506,147 @@ def test_zero_output_fallback_reacquires_throttle_without_deadlock():
         assert gate.stats() == {}
 
     asyncio.run(run())
+
+
+def test_ordered_answered_studio_mode_is_studio_router_inline():
+    calls: list[str] = []
+
+    class Client:
+        async def chat_stream(self, *args):
+            calls.append("studio")
+            yield "plain answer"
+
+    async def router(fallback):
+        calls.append("router")
+        return await fallback()
+
+    async def inline():
+        calls.append("inline")
+        return "inline answer"
+
+    result = asyncio.run(
+        ordered_or_answered(
+            studio_turn=PlannerTurn(Client(), "prompt", []),
+            router_turn=router,
+            inline_turn=inline,
+            prefer_router=False,
+            should_fallback=lambda text: True,
+        )
+    )
+    assert result == "inline answer"
+    assert calls == ["studio", "router", "inline"]
+
+
+def test_ordered_answered_router_mode_is_router_studio_inline():
+    calls: list[str] = []
+
+    class Client:
+        async def chat_stream(self, *args):
+            calls.append("studio")
+            yield "plain answer"
+
+    async def router(fallback):
+        calls.append("router")
+        return await fallback()
+
+    async def inline():
+        calls.append("inline")
+        return "inline answer"
+
+    result = asyncio.run(
+        ordered_or_answered(
+            studio_turn=PlannerTurn(Client(), "prompt", []),
+            router_turn=router,
+            inline_turn=inline,
+            prefer_router=True,
+            should_fallback=lambda text: True,
+        )
+    )
+    assert result == "inline answer"
+    assert calls == ["router", "studio", "inline"]
+
+
+def test_ordered_answered_reports_each_entered_stage():
+    stages: list[str] = []
+
+    class Client:
+        async def chat_stream(self, *args):
+            yield "plain answer"
+
+    async def router(fallback):
+        return await fallback()
+
+    async def inline():
+        return "inline answer"
+
+    result = asyncio.run(
+        ordered_or_answered(
+            studio_turn=PlannerTurn(Client(), "prompt", []),
+            router_turn=router,
+            inline_turn=inline,
+            prefer_router=False,
+            should_fallback=lambda _text: True,
+            on_stage=stages.append,
+        )
+    )
+
+    assert result == "inline answer"
+    assert stages == ["studio", "router", "inline"]
+
+
+def test_ordered_streamed_reports_each_entered_stage():
+    stages: list[str] = []
+
+    class Client:
+        async def chat_stream(self, *args):
+            yield "plain answer"
+
+    async def router(fallback):
+        async for chunk in fallback():
+            yield chunk
+
+    async def inline():
+        yield "inline answer"
+
+    async def run():
+        return [
+            chunk
+            async for chunk in ordered_or_streamed(
+                studio_turn=PlannerTurn(Client(), "prompt", []),
+                router_turn=router,
+                inline_turn=inline,
+                prefer_router=False,
+                should_fallback=lambda _text: True,
+                on_stage=stages.append,
+            )
+        ]
+
+    assert asyncio.run(run()) == ["inline answer"]
+    assert stages == ["studio", "router", "inline"]
+
+
+def test_ordered_streamed_without_studio_keeps_router_ordinary_answer():
+    calls: list[str] = []
+
+    async def router(fallback):
+        calls.append("router")
+        assert fallback is None
+        yield "router answer"
+
+    async def inline():
+        pytest.fail("the router owns its ordinary answer when no next planner exists")
+        yield  # pragma: no cover
+
+    async def run():
+        return [
+            chunk
+            async for chunk in ordered_or_streamed(
+                studio_turn=None,
+                router_turn=router,
+                inline_turn=inline,
+                prefer_router=True,
+            )
+        ]
+
+    assert asyncio.run(run()) == ["router answer"]
+    assert calls == ["router"]

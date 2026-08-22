@@ -20,8 +20,8 @@ def test_option_labels_are_bare_names():
     assert _key(_ADMIN_HTML, "tool_planning_native") == ["内联契约", "Inline contract"]
     assert _key(_ADMIN_HTML, "tool_planning_router") == ["路由模式", "Router"]
     assert _key(_ADMIN_HTML, "tool_planning_studio") == [
-        "Studio Agent（实验）",
-        "Studio Agent (experimental)",
+        "Studio Agent",
+        "Studio Agent",
     ]
 
 
@@ -43,11 +43,11 @@ def test_hint_gives_each_mode_its_own_line_in_both_languages():
             "自动",
             "内联契约",
             "路由模式",
-            "Studio Agent（实验）",
+            "Studio Agent",
             "Auto",
             "Inline contract",
             "Router",
-            "Studio Agent (experimental)",
+            "Studio Agent",
         ):
             assert not zh.startswith(name) and not en.startswith(name), (
                 f"tool_planning_hint_{mode} repeats the mode name that the bold "
@@ -69,16 +69,15 @@ def test_hint_gives_each_mode_its_own_line_in_both_languages():
 
 def test_studio_hint_describes_scope_fallback_and_no_retry_boundary():
     zh, en = _key(_ADMIN_HTML, "tool_planning_hint_studio")
-    assert zh and en
-    for text in (zh, en):
-        lowered = text.lower()
-        assert "chat completions" in lowered
-        assert "router" in lowered
-        assert "messages" in lowered
-        assert "responses" in lowered
-        assert "ready" in lowered or "就绪" in text
-        assert "first" in lowered or "首个" in text
-        assert "retry" in lowered or "重试" in text
+    assert zh == (
+        "m365账户使用自己的 Studio Agent，未就绪或首个输出前不可用时回退Router。"
+        "首个文本或工具增量发出后若失败，不再重试。"
+    )
+    assert en == (
+        "M365 accounts use their own Studio Agent. When it is not ready or unavailable "
+        "before the first output, it falls back to Router. After the first text or tool "
+        "delta, it does not retry."
+    )
 
 
 def test_model_alias_field_is_gone_from_the_runtime_card():

@@ -61,7 +61,7 @@ async function loadAccounts(localOnly=false){
     const __pg=_slicePage(__accounts,'accounts');
     let h='<div class="tbl-tools"><button onclick="batchRefreshAccounts()" style="font-size:.72rem;padding:3px 8px;background:var(--chip)">'+t('batch_refresh')+'</button><button onclick="batchDeleteAccounts()" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('batch_delete')+'</button></div>'
       +'<div class="tbl-scroll accounts-table-scroll"><table class="admin-tbl accounts-table"><thead><tr style="color:var(--muted);text-align:left">'
-      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem">'+t('col_media')+'</th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th style="padding:.3rem">'+t('col_studio_agent')+'</th><th class="acct-actions-head" style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
+      +'<th style="padding:.3rem;width:28px"><input type="checkbox" onchange="selectAllAccounts(this.checked)"></th><th style="padding:.3rem">'+t('col_name')+'</th><th style="padding:.3rem">'+t('col_token')+'</th><th style="padding:.3rem">'+t('col_cookie')+'</th><th style="padding:.3rem">'+t('col_media')+'</th><th style="padding:.3rem">'+t('col_refresh_mode')+'</th><th class="acct-actions-head" style="padding:.3rem;text-align:right">'+t('col_actions')+'</th></tr></thead><tbody>';
     __pg.items.forEach(a=>{
       const st=liveTokenStatus(a.token_status||{});
       const valid=st.valid;
@@ -82,9 +82,6 @@ async function loadAccounts(localOnly=false){
       const refreshColor=refreshAutomatic?'#a78bfa':(refreshAvailable?'#f59e0b':'var(--faint)');
       const refreshBadge='<span class="refresh-mode-tag" style="width:63px;box-sizing:border-box;display:inline-flex;justify-content:center;padding:.15rem .25rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
       const tokenCell='<div class="acct-token-control"><div class="acct-token-primary">'+badge+'</div><div class="acct-token-secondary"><button class="acct-token-refresh" data-refresh-id="'+esc(a.id)+'" onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')">'+t('btn_token_refresh')+'</button><button class="acct-token-update" onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')">'+t('btn_push_token')+'</button><button class="acct-token-remove" onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')">'+t('btn_remove_token')+'</button></div></div>';
-      const studioReady=a.studio_agent_ready===true;
-      const studioBadge='<span class="studio-agent-status" style="display:inline-flex;justify-content:center;padding:.1rem .35rem;border-radius:99px;font-size:.68rem;white-space:nowrap;background:'+(studioReady?'rgba(63,185,112,.16)':'rgba(148,163,184,.12)')+';color:'+(studioReady?'#3fb970':'#94a3b8')+';border:1px solid '+(studioReady?'rgba(63,185,112,.4)':'rgba(148,163,184,.25)')+'">'+(studioReady?t('studio_agent_ready'):t('studio_agent_not_ready'))+'</span>';
-      const studioCell='<div class="studio-agent-control" data-studio-account-id="'+esc(a.id)+'"><div class="studio-agent-primary">'+studioBadge+'<input class="studio-agent-input" type="password" autocomplete="new-password" placeholder="'+esc(t('studio_agent_id_placeholder'))+'" title="'+esc(t('studio_agent_id_title'))+'"></div><div class="studio-agent-actions"><button type="button" class="studio-agent-bind">'+t('btn_bind_studio_agent')+'</button><button type="button" class="studio-agent-clear">'+t('btn_clear_studio_agent')+'</button></div><span class="studio-agent-msg"> </span></div>';
       const mediaTag=(label,ok)=>'<span class="media-status-tag" style="display:inline-flex;align-items:center;justify-content:center;padding:.14rem .5rem;border-radius:99px;font-size:.68rem;background:'+(ok?'rgba(63,185,112,.16)':'rgba(148,163,184,.12)')+';color:'+(ok?'#3fb970':'#94a3b8')+';border:1px solid '+(ok?'rgba(63,185,112,.4)':'rgba(148,163,184,.25)')+'">'+label+'</span>';
       const mediaCell='<div class="media-status-list">'+mediaTag(t('media_image'),!!a.has_designer_auth)+mediaTag(t('media_attach'),!!a.has_media_auth)+'</div>';
       const sel=a.id===__selectedAccount;
@@ -96,11 +93,10 @@ async function loadAccounts(localOnly=false){
         +'<td style="padding:.4rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+mediaCell+'</td>'
         +'<td style="padding:.4rem">'+refreshBadge+'</td>'
-        +'<td style="padding:.4rem 0">'+studioCell+'</td>'
         +'<td class="acct-actions-cell" style="padding:.4rem;text-align:right;white-space:nowrap">'
         +'<button class="acct-delete-btn" onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'
-        +'<tr id="atok-'+a.id+'" style="display:none"><td colspan="8" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)" onclick="event.stopPropagation()">'
+        +'<tr id="atok-'+a.id+'" style="display:none"><td colspan="7" style="padding:.7rem .9rem;vertical-align:middle;background:linear-gradient(90deg,rgba(96,242,255,.13),rgba(140,107,255,.11),rgba(255,94,219,.07));box-shadow:inset 3px 0 0 rgba(96,242,255,.72),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(96,242,255,.1);backdrop-filter:blur(10px)" onclick="event.stopPropagation()">'
         +'<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
         +'<textarea id="atok-val-'+a.id+'" placeholder="'+t('acct_prompt_token')+'" style="flex:1;min-width:220px;height:34px;min-height:34px;padding:6px 10px;background:var(--inner);border:1px solid var(--inner-border);border-radius:6px;color:var(--strong);font-size:.82rem;outline:none;resize:vertical"></textarea>'
         +'<button onclick="submitAccountToken(\\''+a.id+'\\')" style="font-size:.8rem;padding:6px 14px">'+t('kf_create')+'</button>'
@@ -114,12 +110,6 @@ async function loadAccounts(localOnly=false){
     box.innerHTML=h;
     _putDrawerState(drawers);
     box.querySelectorAll('.cookie-refresh-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();refreshAccountCookie(btn.dataset.id)});
-    box.querySelectorAll('.studio-agent-control').forEach(control=>{
-      const id=control.dataset.studioAccountId;
-      control.addEventListener('click',e=>e.stopPropagation());
-      control.querySelector('.studio-agent-bind')?.addEventListener('click',()=>bindStudioAgent(control,id));
-      control.querySelector('.studio-agent-clear')?.addEventListener('click',()=>clearStudioAgent(control,id));
-    });
     __refreshingAccountIds.forEach(id=>setAccountRefreshBusy(id,true));
     initGlassSelect(box);
     renderDashboard();
@@ -146,38 +136,6 @@ async function submitAccount(){
     toggleAccountForm(false);
     loadAccounts();loadKeys();
   }catch(e){m.textContent=t('network_error')}
-}
-function studioAgentMessage(control,message){
-  const msg=control.querySelector('.studio-agent-msg');if(msg){msg.textContent=message||'';msg.style.display=message?'block':'none'}
-}
-function studioAgentError(data){
-  const detail=data&&data.error;
-  return (detail&&typeof detail==='object'&&detail.message)||(typeof detail==='string'?detail:'')||'error';
-}
-async function bindStudioAgent(control,id){
-  const input=control.querySelector('.studio-agent-input');
-  const agentId=(input&&input.value||'').trim();
-  studioAgentMessage(control,'');
-  if(!agentId){studioAgentMessage(control,t('studio_agent_required'));return}
-  try{
-    const r=await fetch('/admin/accounts/'+encodeURIComponent(id)+'/studio-agent',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId})});
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok){studioAgentMessage(control,studioAgentError(d));return}
-    input.value='';
-    loadAccounts();
-  }catch(e){studioAgentMessage(control,t('network_error'))}
-}
-async function clearStudioAgent(control,id){
-  if(!await adminConfirm(t('confirm_clear_studio_agent')))return;
-  const input=control.querySelector('.studio-agent-input');
-  studioAgentMessage(control,'');
-  try{
-    const r=await fetch('/admin/accounts/'+encodeURIComponent(id)+'/studio-agent',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:''})});
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok){studioAgentMessage(control,studioAgentError(d));return}
-    input.value='';
-    loadAccounts();
-  }catch(e){studioAgentMessage(control,t('network_error'))}
 }
 function refreshResponseError(r,d,fallback){
   const detail=d&&d.error;
