@@ -279,7 +279,8 @@ def test_admin_accounts_table_keeps_header_fixed_and_scrolls_rows_without_scroll
     # Same box as the users view, which is the other single-card view.
     assert ".view-users{height:800px;display:none;position:relative;padding-bottom:64px}" in _ADMIN_HTML
     assert ".accounts-main-card{position:relative;padding-bottom:64px;height:800px}" in _ADMIN_HTML
-    assert ".accounts-main-card .accounts-table-scroll{height:610px;max-height:610px;overflow-y:auto;overflow-x:hidden;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML
+    assert ".accounts-main-card .accounts-table-scroll{height:610px;max-height:610px;overflow-y:auto;overflow-x:auto;border-radius:8px;scrollbar-width:none;-ms-overflow-style:none;scrollbar-gutter:auto}" in _ADMIN_HTML
+    assert ".accounts-table{width:100%;min-width:840px;max-width:none;table-layout:fixed}" in _ADMIN_HTML
     assert ".accounts-main-card .accounts-table-scroll::-webkit-scrollbar{width:0;height:0;display:none}" in _ADMIN_HTML
     assert ".accounts-main-card .accounts-table thead th{position:sticky;top:0;z-index:5;background:var(--card)}" in _ADMIN_HTML
     assert '<div class="tbl-scroll accounts-table-scroll"><table class="admin-tbl accounts-table">' in _ADMIN_ACCOUNTS_JS

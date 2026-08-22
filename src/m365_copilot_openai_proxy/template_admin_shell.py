@@ -40,11 +40,11 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <button onclick="loadKeys();loadAccounts()" style="margin-left:auto;font-size:.8rem;padding:5px 12px" data-i18n="dash_refresh">刷新</button>
 </div>
 <div id="dash-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.6rem;margin-bottom:1.1rem"></div>
-<div style="display:flex;gap:1.2rem;flex-wrap:wrap">
-<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
-<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_key_status">用户 启用 / 停用</div><div id="dash-donut-key"></div></div>
-<div style="flex:1;min-width:230px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_bind_status">用户 绑定 / 未绑定</div><div id="dash-donut-bind"></div></div>
-<div style="flex:1;min-width:260px"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_model_share">调用模型占比</div><div id="dash-model-share"></div></div>
+<div class="dash-overview-donuts" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1.2rem;align-items:start">
+<div style="min-width:0"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_acct_valid">账户有效 / 过期比</div><div id="dash-donut-acct"></div></div>
+<div style="min-width:0"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_key_status">用户 启用 / 停用</div><div id="dash-donut-key"></div></div>
+<div style="min-width:0"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_bind_status">用户 绑定 / 未绑定</div><div id="dash-donut-bind"></div></div>
+<div style="min-width:0"><div style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem" data-i18n="dash_cumulative_usage">累计用量</div><div id="dash-model-share"></div></div>
 </div>
 </div>
 

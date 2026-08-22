@@ -30,7 +30,11 @@ from .routes_api_common import (
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
-from .session_helpers import _persistent_session, _studio_session_namespace
+from .session_helpers import (
+    _persistent_session,
+    _studio_session_namespace,
+    record_auto_session_response,
+)
 from .tone_resolver import build_models_list, normalized_session_model
 from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
@@ -310,6 +314,17 @@ def register_chat_routes(
                         on_record_update=lambda text: record_response_text(
                             app.state, call_record, text
                         ),
+                        on_response_done=lambda assistant: record_auto_session_response(
+                            app,
+                            raw_request,
+                            request,
+                            (
+                                studio_session
+                                if call_record.get("tool_planning") == "studio"
+                                else session
+                            ),
+                            assistant,
+                        ),
                         tool_names={t.function.name for t in tools if t.function},
                         tool_schemas=tool_schemas,
                         read_only_guard=read_only_guard,
@@ -373,6 +388,9 @@ def register_chat_routes(
                             text_transform=media_rewriter,
                             images=translated.images,
                             call_record=call_record,
+                            on_response_done=lambda assistant: record_auto_session_response(
+                                app, raw_request, request, session, assistant
+                            ),
                         )
                     ),
                     media_type="text/event-stream",
@@ -561,6 +579,11 @@ def register_chat_routes(
         if tool_calls:
             remaining = media_rewriter(_strip_tool_call_blocks(text))
             msg = {"role": "assistant", "content": remaining or None, "tool_calls": tool_calls}
+            record_auto_session_response(
+                app, raw_request, request,
+                studio_session if actual_planning == "studio" else session,
+                msg,
+            )
             return JSONResponse({
                 "id": f"chatcmpl_{uuid.uuid4().hex}",
                 "object": "chat.completion",
@@ -585,6 +608,13 @@ def register_chat_routes(
             declined_note=declined_note,
             declined=declined,
             rejected=rejected,
+        )
+        record_auto_session_response(
+            app,
+            raw_request,
+            request,
+            studio_session if actual_planning == "studio" else session,
+            {"role": "assistant", "content": delivered},
         )
         return JSONResponse({
             "id": f"chatcmpl_{uuid.uuid4().hex}",
@@ -611,6 +641,7 @@ async def _openai_stream_with_tools(
     call_log: list | None = None,
     call_record: dict | None = None,
     on_record_update: Callable[[str], None] | None = None,
+    on_response_done: Callable[[dict], None] | None = None,
     tool_names: set | None = None,
     tool_schemas: dict | None = None,
     read_only_guard: bool = False,
@@ -777,6 +808,14 @@ async def _openai_stream_with_tools(
         remaining = _strip_tool_call_blocks(full_text)
         if text_transform is not None:
             remaining = text_transform(remaining)
+        if on_response_done is not None:
+            on_response_done(
+                {
+                    "role": "assistant",
+                    "content": remaining or None,
+                    "tool_calls": tool_calls,
+                }
+            )
         # Emit role chunk
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         # Emit remaining text content if any
@@ -798,6 +837,8 @@ async def _openai_stream_with_tools(
             declined=declined,
             rejected=rejected,
         )
+        if on_response_done is not None:
+            on_response_done({"role": "assistant", "content": delivered})
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"

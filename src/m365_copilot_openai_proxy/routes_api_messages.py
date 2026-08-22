@@ -28,6 +28,7 @@ from .routes_media_proxy import request_media_rewriter
 from .session_helpers import (
     _messages_session_key,
     _persistent_session,
+    record_auto_session_response,
     _studio_session_namespace,
 )
 from .session_store import PersistentSession
@@ -288,6 +289,22 @@ def register_messages_routes(
         if studio_fallback:
             call_record["studio_fallback"] = studio_fallback
 
+        def response_session() -> PersistentSession | None:
+            return (
+                studio_session
+                if call_record.get("tool_planning") == "studio"
+                else session
+            )
+
+        def record_response_message(assistant: dict) -> None:
+            record_auto_session_response(
+                app,
+                raw_request,
+                request,
+                response_session(),
+                assistant,
+            )
+
         if request.stream:
             call_record["streaming"] = True
             append_call_log(app.state, call_record)
@@ -307,6 +324,7 @@ def register_messages_routes(
                         text_transform=media_rewriter,
                         images=translated.images,
                         on_text_done=lambda text: record_response_text(app.state, call_record, text),
+                        on_response_done=record_response_message,
                         shortfall_note=shortfall_note,
                         declined_note=declined_note,
                         router_prompt=router_prompt,
@@ -360,6 +378,7 @@ def register_messages_routes(
                         call_record=call_record,
                         text_transform=media_rewriter,
                         images=translated.images,
+                        on_response_done=record_response_message,
                     ),
                     heartbeat=ANTHROPIC_PING,
                 ),
@@ -503,6 +522,7 @@ def register_messages_routes(
             if remaining:
                 content.append({"type": "text", "text": remaining})
             content.extend(_tool_use_blocks(tool_calls))
+            record_response_message({"role": "assistant", "content": content})
             return JSONResponse({
                 "id": f"msg_{uuid.uuid4().hex}",
                 "type": "message",
@@ -527,6 +547,7 @@ def register_messages_routes(
         )
         if reason:
             blocks.append({"type": "text", "text": reason})
+        record_response_message({"role": "assistant", "content": blocks})
         return JSONResponse({
             "id": f"msg_{uuid.uuid4().hex}",
             "type": "message",
@@ -572,6 +593,7 @@ async def _anthropic_stream_with_tools(
     text_transform: Callable[[str], str] | None = None,
     images: list | None = None,
     on_text_done: Callable[[str], None] | None = None,
+    on_response_done: Callable[[dict], None] | None = None,
     shortfall_note: str = "",
     declined_note: str = "",
     router_prompt: str = "",
@@ -731,5 +753,11 @@ async def _anthropic_stream_with_tools(
     stop_reason = "tool_use" if blocks else "end_turn"
     if on_text_done is not None:
         on_text_done(full_text)
+    if on_response_done is not None:
+        delivered_content: list[dict] = []
+        if text_out:
+            delivered_content.append({"type": "text", "text": text_out})
+        delivered_content.extend(blocks)
+        on_response_done({"role": "assistant", "content": delivered_content})
     yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
     yield sse("message_stop", {"type": "message_stop"})

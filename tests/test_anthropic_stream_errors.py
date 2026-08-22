@@ -227,3 +227,77 @@ def test_anthropic_tool_stream_throttle_emits_standard_rate_limit_error_event():
         },
     }]
     assert call_record["error"] == "upstream result: Throttled"
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        lambda client, on_response_done: _anthropic_stream(
+            "m365-copilot",
+            client,
+            "hi",
+            [],
+            on_response_done=on_response_done,
+        ),
+        lambda client, on_response_done: _anthropic_stream_with_tools(
+            "m365-copilot",
+            client,
+            "hi",
+            [],
+            tool_names={"Write"},
+            on_response_done=on_response_done,
+        ),
+    ],
+    ids=["without-tools", "with-tools"],
+)
+def test_anthropic_stream_failure_does_not_record_a_successful_response(
+    stream,
+):
+    completed: list[dict] = []
+
+    _events(stream(_FailingStreamClient(), completed.append))
+
+    assert completed == []
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        lambda client, on_response_done: _anthropic_stream(
+            "m365-copilot",
+            client,
+            "hi",
+            [],
+            on_response_done=on_response_done,
+        ),
+        lambda client, on_response_done: _anthropic_stream_with_tools(
+            "m365-copilot",
+            client,
+            "hi",
+            [],
+            tool_names={"Write"},
+            on_response_done=on_response_done,
+        ),
+    ],
+    ids=["without-tools", "with-tools"],
+)
+def test_anthropic_stream_disconnect_before_response_completion_is_not_recorded(
+    stream,
+):
+    completed: list[dict] = []
+
+    async def disconnect_after_preamble():
+        wrapped = keepalive_stream(
+            stream(_DelayedStreamClient(), completed.append),
+            interval=1,
+            heartbeat=ANTHROPIC_PING,
+        )
+        try:
+            for _ in range(3):
+                await anext(wrapped)
+        finally:
+            await wrapped.aclose()
+
+    asyncio.run(disconnect_after_preamble())
+
+    assert completed == []

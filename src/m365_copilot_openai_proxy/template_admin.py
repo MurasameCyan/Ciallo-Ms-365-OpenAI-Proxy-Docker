@@ -420,7 +420,7 @@ function kpiCard(label,val,color){
     +'<div style="font-size:1.5rem;font-weight:700;color:'+color+'">'+val+'</div>'
     +'<div style="font-size:.72rem;color:var(--muted);margin-top:.15rem">'+label+'</div></div>';
 }
-function donut(parts,centerLabel,centerVal){
+function donut(parts,centerLabel,centerVal,centerUnit){
   // parts: [{value,color,label}] — render a glassy SVG ring + legend.
   //
   // The rings used to spin and breathe via SMIL: each segment carried three
@@ -470,11 +470,12 @@ function donut(parts,centerLabel,centerVal){
   // The rings spin as one group (see .donut-spin) instead of each arc animating
   // its own stroke-dashoffset. Same look — every arc moved at the same speed
   // through a full circumference, which is a rotation — at a fraction of the cost.
+  const unit=centerUnit?'<tspan dx=".18em" font-size="10" font-weight="600">'+esc(centerUnit)+'</tspan>':'';
   let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+'<g class="donut-spin">'+halo+ring+'</g>'+sheen
-    +'<text x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+'</text></svg>';
-  let legend='<div style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
+    +'<text class="donut-center-label" x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+unit+'</text></svg>';
+  let legend='<div class="donut-legend-scroll"><div class="donut-legend-items" style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
-  legend+='</div>';
+  legend+='</div></div>';
   return '<div style="display:flex;gap:.8rem;align-items:center">'+svg+legend+'</div>';
 }
 function renderDashboard(){

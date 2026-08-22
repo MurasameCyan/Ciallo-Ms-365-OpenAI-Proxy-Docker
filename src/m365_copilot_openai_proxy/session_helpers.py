@@ -175,15 +175,15 @@ def _auto_session(
 
     Prefers the exact history index (longest strict prefix of the messages just
     sent), which keeps two conversations that open with the same text on separate
-    upstream threads instead of resetting each other. Falls back to the legacy
-    first-user-message key, so a client that trims old messages -- or a restart,
-    which empties the in-memory index -- still lands on the session
-    sessions.json restored.
+    upstream threads instead of resetting each other. A history miss with
+    assistant messages starts a fresh local session: after a restart or a client
+    history rewrite, reusing the first-user-message key could merge two
+    conversations that share an opener. The fresh session has ``turn_count == 0``
+    so the translator sends the complete client history upstream.
     """
     index = getattr(app.state, "history_index", None)
     pairs = normalize_history(request.messages) if index is not None else []
-    has_assistant = any(m.role == "assistant" for m in request.messages)
-    if pairs and has_assistant:
+    if pairs and any(m.role == "assistant" for m in request.messages):
         matched = index.match(tenant, pairs)
         if matched is not None:
             session = app.state.session_store.get_existing(matched)
@@ -191,19 +191,52 @@ def _auto_session(
                 index.record(tenant, pairs, matched)
                 return session
     sid, _title = _detect_conversation_session(request)
-    key = f"{tenant}:auto:{sid}"
-    if has_assistant:
-        session = app.state.session_store.get(key)
-    else:
-        # A brand-new conversation must not evict the session another chain is
-        # still running on (both opened with the same text), or that
-        # conversation's next turn silently continues in this one's thread.
-        if pairs and index.is_taken(tenant, key, pairs):
-            key = f"{key}:{uuid.uuid4().hex[:8]}"
-        session = app.state.session_store.reset(key)
+    # An unnamed first turn is not enough to distinguish a retry from a new
+    # Cherry conversation: both can carry the same templated opener. Reusing a
+    # deterministic first-message key would let the newer request overwrite the
+    # older session and leak its upstream context. Allocate a unique owner and
+    # rely on the exact-history index for later continuations; callers that need
+    # retry/idempotency semantics can send the explicit session header.
+    key = f"{tenant}:auto:{sid}:{uuid.uuid4().hex[:12]}"
+    # Never fall back to the first-user-message key after an exact-history miss.
+    # Two Cherry conversations commonly share a templated opener; the old fallback
+    # merged them after a restart or client-side history rewrite.
+    session = app.state.session_store.reset(key)
     if pairs:
         index.record(tenant, pairs, key)
     return session
+
+
+def record_auto_session_response(
+    app: Any,
+    raw_request: Request,
+    request: OpenAIChatRequest | AnthropicMessagesRequest,
+    session: PersistentSession | None,
+    assistant: Any,
+) -> None:
+    """Bind a successful client-visible assistant message to an auto session.
+
+    The request-side index records the history the client sent.  Without this
+    response-side entry, two conversations with the same opener cannot be
+    distinguished on their next turn: neither full ``user + assistant`` prefix
+    exists in the index.  Only auto sessions participate; named/persist sessions
+    already have an explicit selector and must not become discoverable by an
+    unrelated unnamed request.
+    """
+    if session is None:
+        return
+    key = app.state.session_store.key_for(session)
+    if not key or ":auto:" not in key:
+        return
+    index = getattr(app.state, "history_index", None)
+    if index is None:
+        return
+    pairs = normalize_history([*request.messages, assistant])
+    # The namespace is part of the tenant string used by `_auto_session`.
+    # Deriving it from the actual store key also handles Studio's parallel
+    # session without exposing raw account/agent metadata to the index API.
+    tenant = key.split(":auto:", 1)[0]
+    index.record(tenant, pairs, key)
 
 
 def _persistent_session(

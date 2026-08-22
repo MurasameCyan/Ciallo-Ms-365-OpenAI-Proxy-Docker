@@ -83,10 +83,11 @@ def _admin_accounts_render_script(assertions: str, account: str = _CONSUMER_ACCO
     return "\n".join(
         [
             "const assert=require('assert');",
+            "process.env.TZ='UTC';",
             "const localStorage={getItem(){return ''},setItem(){}};",
             "const box={innerHTML:'',querySelectorAll(){return []}};",
             "const document={getElementById(id){return id==='accounts-content'?box:null},querySelectorAll(){return []}};",
-            "const labels={valid_short:'OK',invalid_short:'Bad',cookie_valid_short:'OK',cookie_invalid_short:'Bad',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',provider_consumer:'Personal'};",
+            "const labels={valid_short:'OK',invalid_short:'Bad',cookie_valid_short:'OK',cookie_invalid_short:'Bad',cookie_updated_label:'Refresh',cookie_expires_label:'Expires',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',provider_consumer:'Personal'};",
             "function t(key){return labels[key]||key}",
             "function esc(value){return String(value??'')}",
             "function _slicePage(items){return {items}}",
@@ -171,6 +172,77 @@ def test_admin_live_token_status_parses_iso_expiry(tmp_path: Path):
         ]
     )
     _run_node(tmp_path, script)
+
+
+def test_admin_usage_compact_units(tmp_path: Path):
+    compact = _extract_js_function(_ADMIN_DASHBOARD_JS, "_fmtCompactNumber")
+    _run_node(
+        tmp_path,
+        "\n".join(
+            [
+                "const assert=require('assert');",
+                compact,
+                "assert.deepStrictEqual(_fmtCompactNumber(0),{value:'0',unit:''});",
+                "assert.deepStrictEqual(_fmtCompactNumber(394),{value:'394',unit:''});",
+                "assert.deepStrictEqual(_fmtCompactNumber(1000),{value:'1',unit:'K'});",
+                "assert.deepStrictEqual(_fmtCompactNumber(1200),{value:'1.2',unit:'K'});",
+                "assert.deepStrictEqual(_fmtCompactNumber(1200000),{value:'1.2',unit:'M'});",
+                "assert.deepStrictEqual(_fmtCompactNumber(1000000000),{value:'1',unit:'B'});",
+            ]
+        ),
+    )
+
+
+def test_admin_m365_token_renders_live_countdown_in_valid_badge(tmp_path: Path):
+    account = (
+        "{id:'acct_m365',name:'Work Alice',email:'alice@contoso.com',provider:'m365',"
+        "token_source:'manual',has_refresh_token:false,cookie_valid:false,cookie_updated_at:0,"
+        "cookie_expires_at:0,token_status:{valid:true,expires_at:Math.floor(Date.now()/1000)+7200,"
+        "seconds_remaining:7200},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
+    )
+    _run_node(
+        tmp_path,
+        _admin_accounts_render_script(
+            "assert.ok(/data-token-rem=\\\"acct_m365\\\">[^<]+<\\/span>/.test(box.innerHTML),box.innerHTML);",
+            account,
+        ),
+    )
+
+
+def test_admin_cookie_times_are_hover_title_not_visible_rows(tmp_path: Path):
+    account = (
+        "{id:'acct_cookie',name:'Cookie Alice',email:'alice@contoso.com',provider:'m365',"
+        "token_source:'manual',has_refresh_token:false,cookie_valid:true,cookie_updated_at:"
+        "Date.UTC(2026,7,22,0,27,28)/1000,cookie_expires_at:Date.UTC(2026,7,22,12,27,28)/1000,"
+        "token_status:{valid:false,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,"
+        "has_designer_auth:false,has_media_auth:false}"
+    )
+    _run_node(
+        tmp_path,
+        _admin_accounts_render_script(
+            "process.env.TZ='UTC';"
+            "assert.ok(box.innerHTML.includes('title=\\\"Refresh: 26-08-22 00:27:28&#10;Expires: 26-08-22 12:27:28\\\"'),box.innerHTML);"
+            "assert.ok(!box.innerHTML.includes('>Refresh: 26-08-22 00:27:28</div>'),box.innerHTML);",
+            account,
+        ),
+    )
+
+
+def test_admin_cookie_timestamps_use_fixed_short_local_format(tmp_path: Path):
+    fmt_ts = _extract_js_function(_ADMIN_DASHBOARD_JS, "fmtTs")
+    _run_node(
+        tmp_path,
+        "\n".join(
+            [
+                "process.env.TZ='UTC';",
+                "const assert=require('assert');",
+                fmt_ts,
+                "const ts=Date.UTC(2026,7,22,0,27,28)/1000;",
+                "assert.strictEqual(fmtTs(ts),'26-08-22 00:27:28');",
+                "assert.strictEqual(fmtTs(0),'N/A');",
+            ]
+        ),
+    )
 
 
 def _user_status_script(assertions: str) -> str:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 _ADMIN_DASHBOARD_JS = """function fmtClock(sec){if(sec==null)return'N/A';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return(h?h+'h ':'')+m+'m'}
 function fmtHMS(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor(sec%3600/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return h+':'+m+':'+s}
-function fmtTs(ts){return ts?new Date(ts*1000).toLocaleString():'N/A'}
+function fmtTs(ts){const n=Number(ts);if(!Number.isFinite(n)||n<=0)return'N/A';const d=new Date(n*1000);if(Number.isNaN(d.getTime()))return'N/A';const yy=String(d.getFullYear()%100).padStart(2,'0'),mo=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0'),h=String(d.getHours()).padStart(2,'0'),m=String(d.getMinutes()).padStart(2,'0'),s=String(d.getSeconds()).padStart(2,'0');return yy+'-'+mo+'-'+day+' '+h+':'+m+':'+s}
 function liveTokenStatus(st){st=st||{};const raw=st.expires_at,numeric=Number(raw),parsed=raw&&Number.isFinite(numeric)?numeric:(raw?Date.parse(raw)/1000:0),exp=Number.isFinite(parsed)&&parsed>0?parsed:0,now=Date.now()/1000,base=Number(st.seconds_remaining||0),loaded=Number(st._loaded_at||now);const rem=exp?Math.max(0,Math.floor(exp-now)):Math.max(0,Math.floor(base-(now-loaded)));return {...st,valid:!!st.valid&&(!exp||rem>0),seconds_remaining:rem,expiry_known:exp>0}}
 function liveCookieValid(a){const exp=Number(a.cookie_expires_at||0);return !!a.cookie_valid&&(!exp||exp>Date.now()/1000)}
 function lineChart(points,series){
@@ -143,15 +143,18 @@ function renderCacheStats(){
     +kpiCard(t('dash_cache_index'),_cachePct(hi.hit_rate),'#38bdf8')
     +kpiCard(t('dash_cache_token'),_cachePct(tok.hit_rate),'#a78bfa')
     +kpiCard(t('dash_cache_saved'),s.coalesced==null?'—':s.coalesced,'#f59e0b')
-    +'</div><div style="font-size:.72rem;color:var(--faint);margin-top:.5rem">'
-    +t('dash_cache_detail').replace('{inc}',c.incremental_hits||0).replace('{fresh}',c.fresh_starts||0)
-      .replace('{sessions}',s.sessions||0).replace('{max}',s.max_sessions||0)
-      .replace('{changes}',s.changes||0).replace('{writes}',s.writes||0)
-      .replace('{interval}',s.flush_interval==null?'-':s.flush_interval)
     +'</div>';
 }
-function _fmtTokenTotal(value){
-  return new Intl.NumberFormat().format(Math.max(0,Number(value)||0));
+function _fmtCompactNumber(value){
+  const number=Math.max(0,Number(value)||0);
+  const scales=[[1e9,'B'],[1e6,'M'],[1e3,'K']];
+  for(const [size,unit] of scales){
+    if(number>=size){
+      const scaled=number/size;
+      return {value:(scaled>=100?Math.round(scaled):Math.round(scaled*10)/10).toString(),unit};
+    }
+  }
+  return {value:new Intl.NumberFormat().format(number),unit:''};
 }
 function renderUsageOverview(){
   const box=document.getElementById('dash-model-share');
@@ -163,8 +166,8 @@ function renderUsageOverview(){
   const parts=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map((entry,index)=>({
     value:Number(entry[1])||0,color:pal[index%pal.length],label:esc(entry[0])
   }));
-  box.innerHTML=donut(parts,t('dash_token_total'),_fmtTokenTotal(usage.total_tokens));
-  box.insertAdjacentHTML('beforeend','<div style="font-size:.68rem;color:var(--faint);margin-top:.35rem">'+t('dash_token_estimated')+'</div>');
+  const total=_fmtCompactNumber(usage.total_tokens);
+  box.innerHTML=donut(parts,t('dash_token_total'),total.value,total.unit);
 }
 async function loadStats(){
   const kpi=document.getElementById('dash-stat-kpi');

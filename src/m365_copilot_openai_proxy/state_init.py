@@ -81,8 +81,9 @@ def init_app_state(
     )
     # Exact-history -> session map, so two conversations that open with the same
     # text (an agent framework's templated first message) keep separate upstream
-    # threads instead of resetting each other. In-memory only: on restart the
-    # legacy first-message key still finds the session sessions.json restored.
+    # threads instead of resetting each other. In-memory only: after restart an
+    # unrecognized continuation starts a fresh upstream conversation and sends
+    # the complete client history rather than risking a same-opener collision.
     app.state.history_index = HistoryDigestIndex()
     app.state.account_store = AccountStore(
         persist_path=Path(settings.token_dir) / "accounts.json"

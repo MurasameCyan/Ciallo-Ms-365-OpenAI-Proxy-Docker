@@ -61,6 +61,7 @@ async def _openai_stream(
     text_transform: Callable[[str], str] | None = None,
     images: list | None = None,
     call_record: dict | None = None,
+    on_response_done: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[str]:
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -142,6 +143,8 @@ async def _openai_stream(
             yield f"data: {json.dumps(chunk)}\n\n"
     if on_text_done is not None:
         on_text_done(full_text)
+    if on_response_done is not None:
+        on_response_done({"role": "assistant", "content": full_text})
     final_chunk = {
         "id": completion_id,
         "object": "chat.completion.chunk",
@@ -872,6 +875,7 @@ async def _anthropic_stream(
     text_transform: Callable[[str], str] | None = None,
     images: list | None = None,
     call_record: dict | None = None,
+    on_response_done: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[str]:
     msg_id = f"msg_{uuid.uuid4().hex}"
 
@@ -931,6 +935,8 @@ async def _anthropic_stream(
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
     if on_text_done is not None:
         on_text_done(full_text)
+    if on_response_done is not None:
+        on_response_done({"role": "assistant", "content": full_text})
     yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
     yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
     yield sse("message_stop", {"type": "message_stop"})
