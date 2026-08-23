@@ -22,6 +22,11 @@ from m365_copilot_openai_proxy.refresh_scheduler import UpstreamMediaNotFound
 
 SOURCE_IMAGE_URL = "https://designerapp.officeapps.live.com/designerapp/document.ashx?path=%2Fgenerated.png&fileToken=abc"
 SOURCE_AUDIO_URL = "https://kr-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d6-7546f952f230bb9dd3cd0c17061b0ed3/views/original/bird_chirp.wav"
+# One consumer image as `consumer_client` hands it over when upstream cuts the
+# socket before the terminal `imageGenerated` url: inline, not a fetchable host.
+# Keeps `+`, `/` and `=` because those are the base64 characters most likely to
+# trip a regex or a json round trip.
+CONSUMER_IMAGE_DATA_URI = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD+ab/cd+ef=="
 
 
 def _asyncgw_url(filename: str) -> str:
@@ -64,6 +69,16 @@ class SplitAudioCopilotClient:
 
     async def chat(self, prompt, additional_context, session=None, images=None):
         return "已生成文件：\n\n `https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/0-ea-d4-101412848fe8be7ad7f1c4c110d1fa4f/views/original/cat_meow.wav` \n\n（这是一个合成的“喵”声音频，可直接下载播放。）"
+
+
+class ConsumerDataUriCopilotClient:
+    """A consumer image turn that fell back to an inline data uri."""
+
+    async def chat_stream(self, prompt, additional_context, session=None, images=None):
+        yield f"\n\n![一只猫]({CONSUMER_IMAGE_DATA_URI})\n\n"
+
+    async def chat(self, prompt, additional_context, session=None, images=None):
+        return f"\n\n![一只猫]({CONSUMER_IMAGE_DATA_URI})\n\n"
 
 
 class SlowRefreshScheduler:
@@ -445,6 +460,35 @@ def test_chat_stream_rewrites_split_asyncgw_audio_url_with_global_key(tmp_path):
     call_record = app.state.call_log[-1]
     assert "/v1/m365-media?" in call_record["response_text"]
     assert "asyncgw.teams.microsoft.com" not in call_record["response_text"]
+
+
+def test_chat_stream_delivers_consumer_data_uri_image_unchanged(tmp_path):
+    # The consumer fallback emits its image inline (`consumer_client.py`: upstream
+    # cuts the socket before the terminal `imageGenerated` url, so the buffered
+    # `partialImageGenerated` JPEG goes out as a data uri). That text still runs
+    # through the shared media rewriter, which must pass it through untouched:
+    # there is no host to sign, and the data uri is the only copy of the image.
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key", ADMIN_PASSWORD="admin-pass"),
+        copilot_client_factory=lambda **kwargs: ConsumerDataUriCopilotClient(),
+    )
+    account = app.state.account_store.add(name="Consumer Account", token="", token_source="manual")
+    key = app.state.key_store.add(name="Consumer Key", account_id=account.id)
+    app.state.media_proxy_secret = "secret"
+    app.state.refresh_scheduler = FakeRefreshScheduler()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"model": "m365-copilot", "stream": True, "messages": [{"role": "user", "content": "生成图片"}]},
+    )
+
+    assert response.status_code == 200
+    assert CONSUMER_IMAGE_DATA_URI in response.text
+    assert "/v1/m365-media?" not in response.text
+    # Markdown wrapper and alt text intact, not just the uri surviving somewhere.
+    assert app.state.call_log[-1]["response_text"].strip() == f"![一只猫]({CONSUMER_IMAGE_DATA_URI})"
 
 
 def test_asyncgw_object_fetch_url_strips_trailing_filename():
