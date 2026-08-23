@@ -32,12 +32,20 @@ BASE_URL = "https://copilot.microsoft.com"
 CHAT_WEBSOCKET_URL = f"{BASE_URL.replace('https', 'wss')}/c/api/chat?api-version=2"
 CONVERSATION_URL = f"{BASE_URL}/c/api/conversations"
 
-# The lists advertise what a UI could render. Text-only bridge traffic does not
-# need them; port the full browser list only if Microsoft starts gating features.
+# The lists advertise what a UI could render. Measured on live turns (2026-08-23):
+# they do not gate image generation -- upstream sends `generatingImage` and the
+# finished JPEG in `partialImageGenerated` whether this frame carries empty lists,
+# the two entries below, or the browser's full list. They are kept at the two the
+# reference clients send (src/solo/*, E5-M365Copilot-API) only because the
+# terminal `imageGenerated` url is a card, and the one turn that did reach it had
+# `image` advertised; the rest of the browser's list buys nothing here.
+#
+# What actually loses an image reply is upstream cutting the socket before that
+# terminal frame: see the WebSocketClosed branch of _read_stream.
 SET_OPTIONS_FRAME = {
     "event": "setOptions",
-    "supportedFeatures": [],
-    "supportedCards": [],
+    "supportedFeatures": ["partial-generated-images"],
+    "supportedCards": ["image"],
     "supportedUIComponents": {},
     "ads": {"supportedTypes": []},
     "supportedActions": [],
@@ -75,15 +83,19 @@ _DECODER = json.JSONDecoder()
 _TRACE_LIMIT = 16
 
 
-def _frame_note(message: dict) -> str:
+def _frame_note(message: dict | None) -> str:
     """Compact one frame, either direction, for an error trace.
 
-    Everything but message text is kept verbatim, because a protocol rejection is
+    Everything but bulk payload is kept verbatim, because a protocol rejection is
     about frame shape -- an explicit ``"method": null`` and an absent ``method``
     are different frames, and the trace is useless if it cannot tell them apart.
-    Text is reduced to a length instead: it is bulky, it is the user's content,
-    and no protocol error is ever about what was said.
+    Text and image bytes are reduced instead: they are bulky, they are the user's
+    content, and no protocol error is ever about what was said. A
+    ``partialImageGenerated`` frame is half a megabyte of base64, so any error
+    quoting one verbatim reaches the client as an unreadable wall.
     """
+    if not message:
+        return "(none)"
     event = message.get("event") or message.get("type") or "(none)"
     if event in ("appendText", "appendTextSuggestion"):
         return f"{event}(len={len(message.get('text') or '')})"
@@ -99,6 +111,11 @@ def _frame_note(message: dict) -> str:
 
 def _trace_suffix(trace: list[str]) -> str:
     return f" frames: {' '.join(trace)}" if trace else ""
+
+
+def _image_markdown(prompt: str, target: str) -> str:
+    """Markdown for one generated image; ``target`` is a url or a data uri."""
+    return f"\n\n![{prompt or 'image'}]({target})\n\n"
 
 
 # Stable wording shared by throttle diagnostics and tests. HTTP status mapping
@@ -382,6 +399,7 @@ class ConsumerCopilotClient:
         opened = answered = started = False
         last_message = None
         image_prompt = ""
+        partial_image = ""
         # One interleaved trace, `>` sent and `<` received, for the error branch.
         trace: list[str] = []
 
@@ -395,7 +413,7 @@ class ConsumerCopilotClient:
                 raw, _flags = await ws.recv(timeout=self._idle_timeout)
             except WebSocketTimeout as exc:
                 stage = (
-                    f"last frame was {last_message!r}."
+                    f"last frame was {_frame_note(last_message)}."
                     if opened
                     else "it never sent the `connected` frame the turn opens on."
                 )
@@ -404,6 +422,28 @@ class ConsumerCopilotClient:
                     f"{stage}{_trace_suffix(trace)}"
                 ) from exc
             except WebSocketClosed as exc:
+                # This is where an image turn usually dies. Upstream streams the
+                # finished JPEG as progressive base64 in `partialImageGenerated`,
+                # then cuts the connection -- bare TCP EOF, no close frame -- a
+                # few seconds later instead of sending the terminal
+                # `imageGenerated` url: 6 of 7 live turns on 2026-08-23,
+                # identical with an empty, a two-entry, or the full browser
+                # `setOptions`, and never on a text turn. The image is already in
+                # hand, so hand it over as a data uri rather than raise; the
+                # alternative is a retry that spends another image quota unit on
+                # the same coin flip.
+                #
+                # Not conditioned on `started`: upstream often writes a sentence
+                # before it draws, and a turn that streamed "here it is" and then
+                # lost the picture is the bug being fixed, not a success. The
+                # terminal url clears `partial_image` instead, so an image that
+                # did arrive properly is never also sent as base64.
+                if partial_image:
+                    mime = "png" if partial_image.startswith("iVBOR") else "jpeg"
+                    yield _image_markdown(
+                        image_prompt, f"data:image/{mime};base64,{partial_image}"
+                    )
+                    return
                 stage = (
                     "after reply streaming started"
                     if started
@@ -411,7 +451,7 @@ class ConsumerCopilotClient:
                 )
                 raise ConsumerCopilotError(
                     f"Copilot chat socket closed {stage}; last frame was "
-                    f"{last_message!r}.{_trace_suffix(trace)}"
+                    f"{_frame_note(last_message)}.{_trace_suffix(trace)}"
                 ) from exc
             except WebSocketError as exc:
                 stage = " after reply streaming started" if started else ""
@@ -455,7 +495,20 @@ class ConsumerCopilotClient:
                     url = message.get("url") or ""
                     if url:
                         started = True
-                        yield f"\n\n![{image_prompt or 'image'}]({url})\n\n"
+                        # Supersedes the base64 previews of this same image, so
+                        # the close branch does not send it a second time.
+                        partial_image = ""
+                        yield _image_markdown(image_prompt, url)
+                elif event == "partialImageGenerated":
+                    # Progressive preview: each frame is a complete JPEG, 300-600KB
+                    # of base64. Not streamed on -- the terminal frame's url is far
+                    # cheaper when it arrives -- but kept as the fallback for the
+                    # usual case where it does not.
+                    #
+                    # ponytail: one slot, so a turn drawing several images that
+                    # then gets cut delivers only the last. Real turns draw one;
+                    # widen to a dict keyed by `partId` if that changes.
+                    partial_image = message.get("content") or ""
                 elif event == "generatingImage":
                     image_prompt = message.get("prompt") or ""
                 elif event == "done":

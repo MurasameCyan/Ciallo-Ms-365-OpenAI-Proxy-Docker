@@ -288,6 +288,87 @@ def test_throttle_retry_after_is_zero_once_the_reset_time_passes():
     ) == 0
 
 
+def test_the_handshake_advertises_the_image_capability():
+    # Measured on live turns: these lists do not gate image generation -- the
+    # backend sends generatingImage and the base64 partials with empty lists too.
+    # They are pinned because every reference client sends them and the terminal
+    # `imageGenerated` url is a card, so a "text-only bridge needs no lists"
+    # cleanup should be a deliberate decision rather than a silent one.
+    socket = _FakeSocket([
+        '{"event":"connected"}',
+        '{"event":"appendText","text":"hi"}{"event":"done"}',
+    ])
+    _collect(ConsumerCopilotClient(), socket)
+
+    options = socket.sent[0]
+    assert options["event"] == "setOptions"
+    assert "partial-generated-images" in options["supportedFeatures"]
+    assert "image" in options["supportedCards"]
+
+
+def test_a_socket_cut_after_the_partial_images_still_delivers_the_image():
+    # The live failure shape: upstream streams the finished JPEG as progressive
+    # base64, then cuts the connection (bare EOF) before the terminal
+    # `imageGenerated` url -- 6 of 7 real turns on 2026-08-23. The image is
+    # already in hand, so the turn has to end with an image rather than an error.
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/rough"}',
+        '{"event":"partialImageGenerated","content":"/9j/sharper"}',
+        WebSocketClosed("closed"),
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    # The last partial wins: they are the same image at rising quality.
+    assert reply.strip() == "![a red apple](data:image/jpeg;base64,/9j/sharper)"
+
+
+def test_text_before_the_image_does_not_forfeit_the_image_on_a_cut():
+    # Upstream usually writes a line before it draws, so gating the fallback on
+    # "nothing streamed yet" forfeited the picture on exactly the common turns --
+    # with the finished JPEG already in hand.
+    socket = _FakeSocket([
+        '{"event":"appendText","text":"Sure, here it is."}',
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/final"}',
+        WebSocketClosed("closed"),
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert "Sure, here it is." in reply
+    assert "![a red apple](data:image/jpeg;base64,/9j/final)" in reply
+
+
+def test_a_delivered_url_is_not_also_sent_as_base64_when_the_socket_cuts():
+    # The terminal frame clears the buffered partial, so the fallback cannot
+    # append half a megabyte of duplicate for an image already delivered by url.
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/rough"}',
+        '{"event":"imageGenerated","url":"https://example.invalid/final.png"}',
+        WebSocketClosed("closed"),
+    ])
+
+    with pytest.raises(ConsumerCopilotError, match="after reply streaming started"):
+        _collect(ConsumerCopilotClient(), socket)
+
+
+def test_a_cut_with_no_image_reports_the_failure_without_quoting_the_payload():
+    # `last frame was <repr>` used to inline the whole frame, which for a
+    # half-megabyte base64 partial reached the client as an unreadable wall.
+    socket = _FakeSocket([
+        '{"event":"unknownBulkFrame","blob":"' + "A" * 5000 + '"}',
+        WebSocketClosed("closed"),
+    ])
+
+    with pytest.raises(ConsumerCopilotError, match="closed without replying") as caught:
+        _collect(ConsumerCopilotClient(), socket)
+
+    assert len(str(caught.value)) < 1500
+
+
 def test_generated_image_is_emitted_as_markdown_with_the_prompt_as_alt_text():
     # Frame order and payload keys are a capture from a real consumer turn
     # (generatingImage carries the prompt, imageGenerated the finished url;
