@@ -118,6 +118,42 @@ def _image_markdown(prompt: str, target: str) -> str:
     return f"\n\n![{prompt or 'image'}]({target})\n\n"
 
 
+def _socket_death_note(
+    exc: WebSocketError,
+    *,
+    idle_timeout: float,
+    opened: bool,
+    started: bool,
+    last_message: dict | None,
+    trace: list[str],
+) -> str:
+    """How the chat socket died, worded per terminal condition.
+
+    ``WebSocketTimeout`` and ``WebSocketClosed`` both subclass ``WebSocketError``,
+    so the read loop needs a single handler to guarantee a buffered image is
+    delivered however the socket dies; the wording that used to live in three
+    separate ``except`` clauses moves here unchanged.
+    """
+    if isinstance(exc, WebSocketTimeout):
+        stage = (
+            f"last frame was {_frame_note(last_message)}."
+            if opened
+            else "it never sent the `connected` frame the turn opens on."
+        )
+        return (
+            f"Copilot chat socket went silent for {idle_timeout:.0f}s; "
+            f"{stage}{_trace_suffix(trace)}"
+        )
+    if isinstance(exc, WebSocketClosed):
+        stage = "after reply streaming started" if started else "without replying"
+        return (
+            f"Copilot chat socket closed {stage}; last frame was "
+            f"{_frame_note(last_message)}.{_trace_suffix(trace)}"
+        )
+    stage = " after reply streaming started" if started else ""
+    return f"Copilot chat socket failed{stage}: {exc}"
+
+
 # Stable wording shared by throttle diagnostics and tests. HTTP status mapping
 # uses the typed AccountThrottled exception rather than parsing this text.
 _THROTTLED_MARKER = "spent its message quota"
@@ -378,6 +414,26 @@ class ConsumerCopilotClient:
                 "impersonate": _IMPERSONATE,
                 "timeout": self._timeout,
                 "headers": dict(_WS_HEADERS),
+                # Hand over frames that are already in curl_cffi's receive queue
+                # when the socket ends. Read out of curl_cffi 0.16.0 (the pinned
+                # floor, and what the container runs): a server EOF or a transport
+                # error goes through `_finalize_connection`, which records the
+                # exception, and the next `recv()` fast-fails on it *before* it
+                # reads the queue -- so whatever is still queued is thrown away.
+                # This flag makes those queued frames come back first, with the
+                # exception after them. An ordinary CLOSE frame is queued rather
+                # than recorded, so that path never lost anything; a bare EOF --
+                # the shape our image turns actually die of -- does.
+                #
+                # Which is very likely why the terminal `imageGenerated` vanishes:
+                # each `partialImageGenerated` is 250-460KB of base64 to parse, so
+                # this loop runs behind the reader task, and a small frame arriving
+                # just before the close is dropped rather than read. It also fits
+                # "never on a text turn" -- small frames, loop keeps up, nothing
+                # left queued. Worth setting either way: a queued frame is data
+                # upstream already sent us, and losing the last one can truncate a
+                # text reply just as easily as it drops a picture.
+                "drain_on_error": True,
             }
             if self._proxy:
                 ws_kwargs["proxy"] = self._proxy
@@ -411,27 +467,22 @@ class ConsumerCopilotClient:
         while True:
             try:
                 raw, _flags = await ws.recv(timeout=self._idle_timeout)
-            except WebSocketTimeout as exc:
-                stage = (
-                    f"last frame was {_frame_note(last_message)}."
-                    if opened
-                    else "it never sent the `connected` frame the turn opens on."
-                )
-                raise ConsumerCopilotError(
-                    f"Copilot chat socket went silent for {self._idle_timeout:.0f}s; "
-                    f"{stage}{_trace_suffix(trace)}"
-                ) from exc
-            except WebSocketClosed as exc:
-                # This is where an image turn usually dies. Upstream streams the
-                # finished JPEG as progressive base64 in `partialImageGenerated`,
-                # then cuts the connection -- bare TCP EOF, no close frame -- a
-                # few seconds later instead of sending the terminal
-                # `imageGenerated` url: 6 of 7 live turns on 2026-08-23,
-                # identical with an empty, a two-entry, or the full browser
-                # `setOptions`, and never on a text turn. The image is already in
-                # hand, so hand it over as a data uri rather than raise; the
-                # alternative is a retry that spends another image quota unit on
-                # the same coin flip.
+            except WebSocketError as exc:
+                # One handler for every terminal condition -- WebSocketTimeout and
+                # WebSocketClosed both subclass WebSocketError -- because an image
+                # that is already in hand must be delivered however the socket
+                # dies. A clean EOF is only the shape measured most often (6 of 7
+                # live turns on 2026-08-23); this route also gets RSTs, which
+                # surface as WebSocketError, and upstream can simply go silent,
+                # which surfaces as WebSocketTimeout. Handling only the EOF left
+                # those two throwing the picture away.
+                #
+                # Upstream streams the finished JPEG as progressive base64 in
+                # `partialImageGenerated`, then ends the turn instead of sending
+                # the terminal `imageGenerated` url (never on a text turn). The
+                # image is already in hand, so hand it over as a data uri rather
+                # than raise; the alternative is a retry that spends another image
+                # quota unit on the same coin flip.
                 #
                 # Not conditioned on `started`: upstream often writes a sentence
                 # before it draws, and a turn that streamed "here it is" and then
@@ -444,19 +495,15 @@ class ConsumerCopilotClient:
                         image_prompt, f"data:image/{mime};base64,{partial_image}"
                     )
                     return
-                stage = (
-                    "after reply streaming started"
-                    if started
-                    else "without replying"
-                )
                 raise ConsumerCopilotError(
-                    f"Copilot chat socket closed {stage}; last frame was "
-                    f"{_frame_note(last_message)}.{_trace_suffix(trace)}"
-                ) from exc
-            except WebSocketError as exc:
-                stage = " after reply streaming started" if started else ""
-                raise ConsumerCopilotError(
-                    f"Copilot chat socket failed{stage}: {exc}"
+                    _socket_death_note(
+                        exc,
+                        idle_timeout=self._idle_timeout,
+                        opened=opened,
+                        started=started,
+                        last_message=last_message,
+                        trace=trace,
+                    )
                 ) from exc
 
             for message in drain_json(raw):

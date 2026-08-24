@@ -122,6 +122,26 @@ def test_curl_transport_uses_one_impersonated_session_for_rest_and_websocket():
     ]
 
 
+def test_websocket_opts_into_draining_frames_queued_at_close():
+    # curl_cffi records an exception for every terminal condition, ordinary
+    # closure included, and `recv()` fast-fails on it before reading the queue --
+    # so without this flag any frame still queued when upstream closes is thrown
+    # away (measured on 0.16.0: the queued frame comes back only with it set).
+    # That is how the terminal `imageGenerated` can vanish behind two 250-460KB
+    # `partialImageGenerated` frames this loop is still parsing.
+    sessions = []
+
+    def factory(**kwargs):
+        session = _FakeSession()
+        sessions.append(session)
+        return session
+
+    client = ConsumerCopilotClient(access_token="tok", session_factory=factory)
+
+    assert asyncio.run(_collect(client)) == "CURL-OK"
+    assert sessions[0].ws_calls[0][1]["drain_on_error"] is True
+
+
 def test_send_frame_uses_the_selected_consumer_mode():
     sessions = []
 

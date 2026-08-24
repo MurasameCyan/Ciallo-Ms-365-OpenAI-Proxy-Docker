@@ -341,6 +341,26 @@ def test_text_before_the_image_does_not_forfeit_the_image_on_a_cut():
     assert "![a red apple](data:image/jpeg;base64,/9j/final)" in reply
 
 
+@pytest.mark.parametrize("death", [
+    WebSocketTimeout("timed out"),
+    WebSocketError("recv failed"),
+])
+def test_any_socket_death_after_the_partial_images_still_delivers_the_image(death):
+    # A bare EOF is only the shape measured most often. Upstream also just goes
+    # quiet (WebSocketTimeout) and resets the connection (WebSocketError), and a
+    # picture already in hand has to survive all three -- catching only the close
+    # threw it away on the other two.
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/final"}',
+        death,
+    ])
+
+    reply = _collect(ConsumerCopilotClient(idle_timeout=3), socket)
+
+    assert reply.strip() == "![a red apple](data:image/jpeg;base64,/9j/final)"
+
+
 def test_a_delivered_url_is_not_also_sent_as_base64_when_the_socket_cuts():
     # The terminal frame clears the buffered partial, so the fallback cannot
     # append half a megabyte of duplicate for an image already delivered by url.
