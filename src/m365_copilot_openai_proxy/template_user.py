@@ -290,6 +290,7 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
       </summary>
       <div style="margin-top:.75rem">
       <div class="hint" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
+      <div class="hint" data-i18n="user_no_interpreter_hint">claude 系模式没有服务端代码执行：客户端没声明能跑命令的工具时，哈希、大数运算这类精确计算会返回看起来对的错值。要精确结果就声明一个可执行工具，或改用 Copilot 系模式。</div>
       <div class="user-default-grid">
         <label class="user-config-field" style="display:none"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
         <label class="user-config-field"><span class="field-row"><span data-i18n="run_permission_label">运行权限</span><span class="field-tip" tabindex="0" role="note"><span class="field-tip-bubble"><span class="tip-line"><b data-i18n="run_permission_inherit">继承全局</b><span id="user-run-permission-default"></span></span><span class="tip-line"><b data-i18n="run_permission_read_only">只读</b><span data-i18n="run_permission_hint_read_only">只放行读取类工具调用，写入、执行类会被丢弃。</span></span><span class="tip-line"><b data-i18n="run_permission_full">完全</b><span data-i18n="run_permission_hint_full">放行客户端声明的全部工具调用。</span></span><span class="tip-line"><span data-i18n="run_permission_hint_ceiling">全局设置是上限：你只能收紧，不能放宽。</span></span></span></span></span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>

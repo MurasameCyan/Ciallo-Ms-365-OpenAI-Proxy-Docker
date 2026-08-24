@@ -169,6 +169,21 @@ def _join_lines(lines: Iterable[str]) -> str:
 # Default system-level instruction block injected before the (dynamic) tool list.
 # Users may override this via the web admin page; the dynamic "Available action types"
 # list is always appended automatically and is NOT part of the editable text.
+#
+# The exact-computation rule is the one bullet here that was A/B'd against the live
+# upstream rather than reasoned about (2026-08-25, tone=Claude_Sonnet, one real turn
+# per cell, .probe/compute_no_exec_full.py + compute_admit_control.py + the
+# shipped-wording rerun in compute_rule_shipped.py, which pins this string's sha256
+# so a reworded rule cannot be confused with the measured one). Claude tones honour
+# this contract but have no server-side interpreter, so asked for the SHA-256 of a
+# freshly minted nonce with only Read declared they streamed a fabricated 64-hex
+# digest and *then* retracted it in the same reply (2/2) -- a client that reads the
+# first hex block gets a wrong hash that looks exactly like a right one. With the rule
+# no fabricated digest appears at all (5/5: an upfront "I cannot compute this exactly
+# here" plus how to). Declaring an executing tool is untouched: with `bash` available
+# the model still routes the hash to it, rule or not (4/4 baseline, 1/1 patched), so
+# only the no-executor half is worded here. A turn that declares no tools at all gets
+# no contract, so it keeps inventing -- unreachable from here, hinted on /user.
 _DEFAULT_TOOL_SYSTEM_PROMPT = (
     "You are the reasoning component of an automated agent system. You do NOT execute anything yourself. "
     "Your ONLY job is to emit structured action requests as JSON. A separate execution engine (the IDE host) "
@@ -191,7 +206,8 @@ _DEFAULT_TOOL_SYSTEM_PROMPT = (
     "- NEVER claim an action is done unless you actually emitted its tool_call block in THIS reply. Do NOT say \"已生成\", \"已创建\", \"已保存\", \"已校验\", \"file created\", \"done\", or similar before the host has run the action and returned a result. Saying a file exists without emitting a Write tool_call is a hallucination and is forbidden.\n"
     "- To deliver file content you MUST emit a Write tool_call whose `content` argument holds the FULL file body. NEVER substitute a markdown link like [name](file:///...), a normal code block, or a usage/run command for the actual Write action — those do not create the file.\n"
     "- Do NOT generate, upload, or attach a file of your own, and do NOT return a download link to one. A file you host is not the file the user asked for: it never reaches the path they named, and the host cannot act on it. Write it to their path with a Write tool_call instead.\n"
-    "- If you will not emit a tool_call block, then write the answer inline as text: state the destination as a backticked absolute path (`S:/dir/name.ext`) on its own line, followed by the complete file body in a fenced code block tagged with the file's language (```bat, ```python, ```html). Never send an attachment in place of this.\n\n"
+    "- If you will not emit a tool_call block, then write the answer inline as text: state the destination as a backticked absolute path (`S:/dir/name.ext`) on its own line, followed by the complete file body in a fenced code block tagged with the file's language (```bat, ```python, ```html). Never send an attachment in place of this.\n"
+    "- If the request needs an exact computation (a hash, checksum, large-number arithmetic, an encoding conversion) and no tool listed below can run code, say plainly that you cannot compute it exactly here instead of producing a value from memory: a wrong digest is indistinguishable from a right one.\n\n"
     "Examples:\n"
     "Read a file:\n"
     "```tool_call\n"

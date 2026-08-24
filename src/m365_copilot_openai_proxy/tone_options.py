@@ -64,6 +64,11 @@ TONE_TOOL_CALLING = {
 # the digest. So a tone that honours the tool contract cannot compute, and a tone
 # that computes cannot tool-call -- neither half is a proxy bug, and a user asking
 # a Claude tone for a hash gets a confident wrong answer no code here can catch.
+# Half of that IS caught now, on turns that carry tools: the exact-computation rule
+# in translator._DEFAULT_TOOL_SYSTEM_PROMPT turns the invented digest into "I cannot
+# compute this exactly here" when nothing declared can run code (measured, same day).
+# A turn with no tools carries no contract, so it still invents -- /user says so
+# (user_no_interpreter_hint).
 
 # Same question for the Consumer provider, whose selector is a mode rather than a
 # tone (see _BUILTIN_CONSUMER_MODE_OPTIONS). Measured 2026-08-19 against the live
