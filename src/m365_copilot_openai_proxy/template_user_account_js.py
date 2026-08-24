@@ -133,8 +133,13 @@ function renderAccountInfo(d){
     const st=d.account.token_status||{};
     const valid=st.valid;
     const rem=valid&&st.expires_at?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(_userRemainSec>0?_userRemainSec:st.seconds_remaining)+'</span>'):'';
+    // Only while the window upstream named is still open. There is no remaining
+    // count to show -- no provider reports one -- so the reset time it did name
+    // is the whole of what can honestly be said, with the exact instant on hover.
+    const thr=Number(d.account.throttled_until||0);
+    const thrPill=(thr*1000>Date.now())?'<span class="pill bad" title="'+esc(t('throttled_until_label')+': '+fmtExpire(new Date(thr*1000).toISOString()))+'">'+t('throttled_short')+' · '+fmtRemaining(thr-Date.now()/1000)+'</span>':'';
     acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+esc(boundAccountName(d.account))+'</span>'
-      +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span></div>';
+      +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span>'+thrPill+'</div>';
   }else{
     acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';
   }

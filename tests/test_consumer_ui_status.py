@@ -318,6 +318,21 @@ def test_user_consumer_unknown_expiry_never_renders_zero_countdown(tmp_path: Pat
     )
 
 
+def test_user_panel_shows_the_throttle_window_only_while_it_is_open(tmp_path: Path):
+    """The end user is told when the quota comes back, because that is the only
+    thing upstream reports -- there is no remaining count to show."""
+    _run_node(
+        tmp_path,
+        _user_status_script(
+            _FROZEN_NOW_JS
+            + "renderAccountInfo({account:{...account,throttled_until:Date.UTC(2026,7,22,7,30,0)/1000}});"
+            "assert.ok(elements['account-info'].innerHTML.includes('throttled_short \\u00b7 01:30:00'),elements['account-info'].innerHTML);"
+            "renderAccountInfo({account:{...account,throttled_until:Date.UTC(2026,7,22,5,0,0)/1000}});"
+            "assert.ok(!elements['account-info'].innerHTML.includes('throttled_short'),elements['account-info'].innerHTML);"
+        ),
+    )
+
+
 def test_user_consumer_refresh_capability_uses_provider(tmp_path: Path):
     _run_node(
         tmp_path,
