@@ -79,7 +79,9 @@ def _admin_status_helpers() -> str:
 _CONSUMER_ACCOUNT_JS = "{id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',cookie_valid:true,cookie_updated_at:0,cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
 
 
-def _admin_accounts_render_script(assertions: str, account: str = _CONSUMER_ACCOUNT_JS) -> str:
+def _admin_accounts_render_script(
+    assertions: str, account: str = _CONSUMER_ACCOUNT_JS, prelude: str = ""
+) -> str:
     return "\n".join(
         [
             "const assert=require('assert');",
@@ -99,6 +101,9 @@ def _admin_accounts_render_script(assertions: str, account: str = _CONSUMER_ACCO
             "function _pkcePanel(){return ''}",
             _admin_status_helpers(),
             _ADMIN_ACCOUNTS_JS,
+            # Anything that has to be true *before* the render goes here;
+            # `assertions` runs after it.
+            prelude,
             f"__accounts=[{account}];",
             "(async()=>{await loadAccounts(true);" + assertions + "})().catch(e=>{console.error(e);process.exit(1)});",
         ]
@@ -220,10 +225,14 @@ def test_admin_cookie_times_are_hover_title_not_visible_rows(tmp_path: Path):
     _run_node(
         tmp_path,
         _admin_accounts_render_script(
-            "process.env.TZ='UTC';"
             "assert.ok(box.innerHTML.includes('title=\\\"Refresh: 26-08-22 00:27:28&#10;Expires: 26-08-22 12:27:28\\\"'),box.innerHTML);"
             "assert.ok(!box.innerHTML.includes('>Refresh: 26-08-22 00:27:28</div>'),box.innerHTML);",
             account,
+            # The row carries the hover title only while the cookie is still
+            # live, so the clock is pinned inside the fixture's own window.
+            # Without this the test passed until 2026-08-22 12:27 UTC and has
+            # failed on every run since.
+            prelude="Date.now=()=>Date.UTC(2026,7,22,6,0,0);",
         ),
     )
 
