@@ -183,3 +183,33 @@ def test_protocol_profile_rollback_does_not_change_live_state_when_save_fails(
         "variants": ["feature.Captured"],
         "options_sets": ["captured_set"],
     }
+
+
+def test_the_dependency_reads_the_tenant_from_the_account_token(tmp_path):
+    """A tenant-scoped profile only applies if the tid is decoded off the token.
+
+    The decode sits inside ``except Exception: tenant_id = ""``, so a broken
+    lookup there does not raise -- it silently downgrades every tenant-scoped
+    profile to builtin, on every account. Nothing else in the suite would notice.
+    """
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+
+    from m365_copilot_openai_proxy.dependencies import create_api_dependencies
+
+    app = FastAPI()
+    app.state.settings = Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key")
+    app.state.copilot_client_factory = lambda **kw: SimpleNamespace()
+    store = _store(tmp_path / "protocol_profile.json")
+    store.apply(_candidate("Tenant"), scope="tenant", scope_id="tenant-a")
+    app.state.protocol_profile_store = store
+
+    _, get_copilot_client = create_api_dependencies(app)
+    account = SimpleNamespace(id="account-b", provider="m365", token=_jwt("tenant-a"))
+    request = SimpleNamespace(state=SimpleNamespace(account=account, api_key_obj=None))
+
+    client = get_copilot_client(request)
+
+    assert client._variants == "feature.Tenant"
+    assert client._options_sets == ["tenant_set"]

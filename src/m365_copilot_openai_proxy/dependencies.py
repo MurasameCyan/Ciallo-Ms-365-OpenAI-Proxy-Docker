@@ -8,6 +8,7 @@ from .account_concurrency import ThrottledClient
 from .account_store import resolve_account_proxy
 from .config import Settings
 from .substrate_client import SubstrateCopilotClient
+from .token_store import decode_jwt_payload
 
 
 _CAPTURE_LIMIT = 20
