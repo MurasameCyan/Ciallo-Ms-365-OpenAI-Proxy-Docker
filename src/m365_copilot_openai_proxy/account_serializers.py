@@ -50,6 +50,7 @@ def user_account_public(acc: Account | None) -> dict | None:
         "cookie_valid": bool(getattr(acc, "cookie_valid", False)),
         "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
         "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
+        "throttled_until": getattr(acc, "throttled_until", 0.0),
         "token_status": acc.token_status(),
         **_provider_fields(acc),
     }
@@ -76,6 +77,7 @@ def account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict
         "has_media_seed": bool(getattr(acc, "media_seed_url", "")),
         "has_refresh_token": bool(getattr(acc, "refresh_token", "")),
         "refresh_token_updated_at": getattr(acc, "refresh_token_updated_at", 0.0),
+        "throttled_until": getattr(acc, "throttled_until", 0.0),
         "token_status": acc.token_status(),
         "key_count": len(keys),
         "bound_names": [k.username or k.name or k.id for k in keys],

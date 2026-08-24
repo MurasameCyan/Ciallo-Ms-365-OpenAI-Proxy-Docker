@@ -13,6 +13,29 @@ from .substrate_client import SubstrateCopilotClient
 _CAPTURE_LIMIT = 20
 
 
+def _record_throttle_window(app: FastAPI, account_id: str):
+    """Persist the reset time upstream named, if this turn's failure named one.
+
+    Consumer's throttle frame carries ``nextAvailableAt``; the adapter keeps it on
+    the translated error, so keying on the attribute rather than the exception type
+    covers both the raw and translated shapes -- and M365, whose throttle frame
+    names no time, simply never has the attribute. The number is otherwise gone the
+    moment the 429 is written, and rediscovering it costs another turn.
+    """
+    store = getattr(app.state, "account_store", None)
+    if store is None or not account_id:
+        return None
+
+    def record(exc: BaseException) -> None:
+        from .consumer_client import parse_next_available_at
+
+        when = parse_next_available_at(str(getattr(exc, "next_available_at", "") or ""))
+        if when:
+            store.set_throttled_until(account_id, when)
+
+    return record
+
+
 def _throttled(app: FastAPI, account, client):
     """Cap how many turns this account may run at once.
 
@@ -31,6 +54,7 @@ def _throttled(app: FastAPI, account, client):
     return ThrottledClient(
         client,
         lambda: gate.hold(account_id, int(getattr(app.state, "account_concurrency", 0) or 0)),
+        _record_throttle_window(app, account_id),
     )
 
 

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.account_concurrency import AccountConcurrency, ThrottledClient
+from m365_copilot_openai_proxy.account_store import AccountStore
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.dependencies import create_api_dependencies
@@ -230,3 +231,120 @@ def test_the_cap_defaults_to_eight_and_zero_survives_a_save(tmp_path):
     assert app.state.account_concurrency == 0
     reloaded = create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""))
     assert reloaded.state.account_concurrency == 0
+
+
+# --- the reset time upstream names ------------------------------------------
+#
+# Only consumer's throttle frame carries one (``nextAvailableAt``); no provider
+# ever reports a remaining count. The number is gone the moment the 429 is
+# written, so it is recorded at the same funnel that holds the account's slot.
+
+_RESET_AT = "2026-08-25T12:00:00Z"
+
+
+class _FailingClient:
+    """A turn that always fails with one given error."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+    async def chat(self, prompt):
+        raise self.exc
+
+    async def chat_stream(self, prompt):
+        raise self.exc
+        yield ""  # pragma: no cover - unreachable; keeps this an async generator
+
+
+def _funnel(tmp_path, client):
+    """The production path: create_api_dependencies over a store-backed account."""
+    app = FastAPI()
+    app.state.settings = Settings(TOKEN_DIR=str(tmp_path), API_KEY="admin-key")
+    app.state.copilot_client_factory = lambda **kw: client
+    app.state.account_concurrency_gate = AccountConcurrency()
+    app.state.account_concurrency = 2
+    store = AccountStore(persist_path=tmp_path / "accounts.json")
+    account = store.add(name="a")
+    app.state.account_store = store
+
+    _, get_copilot_client = create_api_dependencies(app)
+    request = SimpleNamespace(state=SimpleNamespace(account=account, api_key_obj=None))
+    return store, account, get_copilot_client(request)
+
+
+@pytest.mark.parametrize("shape", ["raw", "translated"])
+def test_a_throttled_turn_records_the_reset_time_upstream_named(tmp_path, shape):
+    from m365_copilot_openai_proxy.consumer_client import AccountThrottled, parse_next_available_at
+    from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
+
+    exc: Exception = AccountThrottled("spent", next_available_at=_RESET_AT)
+    if shape == "translated":
+        # What a route actually catches: the consumer adapter re-raises as the
+        # Substrate error and copies the timestamp across. Keying on the
+        # attribute rather than the type is what makes both shapes work.
+        exc = SubstrateCopilotError("spent")
+        exc.next_available_at = _RESET_AT
+
+    store, account, client = _funnel(tmp_path, _FailingClient(exc))
+
+    with pytest.raises(type(exc)):
+        asyncio.run(client.chat("hi"))
+
+    assert store.get(account.id).throttled_until == parse_next_available_at(_RESET_AT)
+
+
+def test_a_throttled_stream_records_it_too(tmp_path):
+    """chat_stream is a separate body, so it needs the hook of its own."""
+    from m365_copilot_openai_proxy.consumer_client import AccountThrottled, parse_next_available_at
+
+    exc = AccountThrottled("spent", next_available_at=_RESET_AT)
+    store, account, client = _funnel(tmp_path, _FailingClient(exc))
+
+    async def _drain():
+        async for _ in client.chat_stream("hi"):
+            pass
+
+    with pytest.raises(AccountThrottled):
+        asyncio.run(_drain())
+
+    assert store.get(account.id).throttled_until == parse_next_available_at(_RESET_AT)
+
+
+def test_a_failure_that_names_no_time_leaves_the_window_alone(tmp_path):
+    """M365's throttle frame names no time, and an ordinary failure names none
+    either -- neither may be turned into a quota window."""
+    from m365_copilot_openai_proxy.substrate_client import SubstrateThrottled
+
+    store, account, client = _funnel(tmp_path, _FailingClient(SubstrateThrottled("throttled")))
+
+    with pytest.raises(SubstrateThrottled):
+        asyncio.run(client.chat("hi"))
+
+    assert store.get(account.id).throttled_until == 0.0
+
+
+def test_the_recorded_window_survives_a_reload_and_reaches_both_payloads(tmp_path):
+    """AccountStore._load rebuilds Account(...) field by field, so a field that
+    saves but is not listed there silently never comes back."""
+    from m365_copilot_openai_proxy.account_serializers import account_public, user_account_public
+
+    path = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=path)
+    acc = store.add(name="a")
+    assert store.set_throttled_until(acc.id, 1800000000.0) is not None
+
+    reloaded = AccountStore(persist_path=path).get(acc.id)
+
+    assert reloaded.throttled_until == 1800000000.0
+    assert account_public(reloaded)["throttled_until"] == 1800000000.0
+    assert user_account_public(reloaded)["throttled_until"] == 1800000000.0
+
+
+def test_set_throttled_until_rejects_nothing_but_clamps(tmp_path):
+    store = AccountStore(persist_path=tmp_path / "accounts.json")
+    assert store.set_throttled_until("acct_nope", 1.0) is None
+
+    acc = store.add(name="a")
+    # A negative timestamp would render as a window that never closes.
+    store.set_throttled_until(acc.id, -5.0)
+    assert store.get(acc.id).throttled_until == 0.0

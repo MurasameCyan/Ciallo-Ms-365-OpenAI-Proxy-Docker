@@ -86,9 +86,14 @@ async function loadAccounts(localOnly=false){
       const mediaCell='<div class="media-status-list">'+mediaTag(t('media_image'),!!a.has_designer_auth)+mediaTag(t('media_attach'),!!a.has_media_auth)+'</div>';
       const sel=a.id===__selectedAccount;
       const provBadge=a.provider==='consumer'?'<span style="margin-left:.4rem;padding:.1rem .45rem;border-radius:99px;font-size:.66rem;vertical-align:middle;background:rgba(255,94,219,.14);color:#ff5edb;border:1px solid rgba(255,94,219,.4)">'+t('provider_consumer')+'</span>':'';
+      // Only while the window upstream named is still open: it clears itself, so
+      // the row never carries a stale quota claim. The exact time is the hover
+      // title, matching how the cookie timestamps are surfaced.
+      const throttledUntil=Number(a.throttled_until||0);
+      const throttledBadge=(throttledUntil*1000>Date.now())?'<span class="acct-throttled-tag" title="'+esc(t('throttled_until_label')+': '+fmtTs(throttledUntil))+'" style="margin-left:.4rem;padding:.1rem .45rem;border-radius:99px;font-size:.66rem;vertical-align:middle;background:rgba(167,139,250,.14);color:#a78bfa;border:1px solid rgba(167,139,250,.4)">'+t('throttled_short')+'</span>':'';
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
-        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span>'+provBadge+'<div title="'+esc(boundTitle)+'" style="color:var(--faint);font-size:.7rem">'+esc(boundMain)+esc(boundMore)+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
+        +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span>'+provBadge+throttledBadge+'<div title="'+esc(boundTitle)+'" style="color:var(--faint);font-size:.7rem">'+esc(boundMain)+esc(boundMore)+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
         +'<td style="padding:.4rem;white-space:nowrap">'+tokenCell+'</td>'
         +'<td style="padding:.4rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+mediaCell+'</td>'

@@ -161,6 +161,13 @@ class Account:
     # proxy account pinned to the same personal Microsoft identity.
     consumer_account_id: str = ""
     consumer_updated_at: float = 0.0
+    # Epoch seconds until which upstream said it will refuse this account's turns,
+    # from the throttle frame's own nextAvailableAt. 0 = nothing recorded (and M365
+    # never records: its throttle frame names no time). Persisted because the value
+    # arrives inside one failed turn and is otherwise gone the moment that response
+    # is written -- rediscovering the window costs another turn, which on consumer
+    # is a real quota unit.
+    throttled_until: float = 0.0
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
     created_at: float = field(default_factory=time.time)
@@ -313,6 +320,7 @@ class AccountStore:
                         raw.get("consumer_account_id", "")
                     ),
                     consumer_updated_at=float(raw.get("consumer_updated_at", 0.0) or 0.0),
+                    throttled_until=float(raw.get("throttled_until", 0.0) or 0.0),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
                 )
@@ -604,6 +612,21 @@ class AccountStore:
             acc.cookie_valid = bool(acc.cookies)
             acc.cookie_updated_at = now
             acc.updated_at = now
+            self._save()
+            return acc
+
+    def set_throttled_until(self, acc_id: str, when: float) -> Account | None:
+        """Record the reset time upstream named for this account's turns.
+
+        Latest word wins, including a move backwards: the number comes from the
+        backend, not from us, so a shorter window it reports later is the truth.
+        """
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            acc.throttled_until = max(0.0, float(when))
+            acc.updated_at = time.time()
             self._save()
             return acc
 

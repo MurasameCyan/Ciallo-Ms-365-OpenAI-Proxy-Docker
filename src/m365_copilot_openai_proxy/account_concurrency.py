@@ -83,15 +83,21 @@ class ThrottledClient:
     asserts the adapter type, so attribute reads, writes and ``isinstance`` all
     have to reach the wrapped client. Only the two turn-taking methods are
     intercepted.
+
+    ``on_error`` sees every failed turn, whatever the provider. It exists so
+    per-account bookkeeping that needs the turn's outcome can live at this one
+    funnel instead of at the eleven call sites; classifying the exception is the
+    caller's job, so this module stays free of provider imports.
     """
 
     # Deliberately odd names: everything else, including ``_client``, must fall
     # through to the wrapped object.
-    __slots__ = ("_throttle_target", "_throttle_hold")
+    __slots__ = ("_throttle_target", "_throttle_hold", "_throttle_on_error")
 
-    def __init__(self, client, hold) -> None:
+    def __init__(self, client, hold, on_error=None) -> None:
         object.__setattr__(self, "_throttle_target", client)
         object.__setattr__(self, "_throttle_hold", hold)
+        object.__setattr__(self, "_throttle_on_error", on_error)
 
     @property
     def __class__(self):  # type: ignore[override]
@@ -103,13 +109,32 @@ class ThrottledClient:
     def __setattr__(self, name, value) -> None:
         setattr(self._throttle_target, name, value)
 
+    def _throttle_note(self, exc: BaseException) -> None:
+        hook = self._throttle_on_error
+        if hook is None:
+            return
+        # Bookkeeping must never replace the turn's own error with its own, but a
+        # hook that is quietly broken would also hide whatever it was recording.
+        try:
+            hook(exc)
+        except Exception as hook_exc:  # pragma: no cover - defensive
+            ulog(f"[concurrency] turn-error hook failed: {hook_exc!r}")
+
     async def chat(self, *args, **kwargs):
         async with self._throttle_hold():
-            return await self._throttle_target.chat(*args, **kwargs)
+            try:
+                return await self._throttle_target.chat(*args, **kwargs)
+            except Exception as exc:
+                self._throttle_note(exc)
+                raise
 
     async def chat_stream(self, *args, **kwargs):
         # Held for the whole iteration, not just the call: the upstream
         # WebSocket stays open until the last delta arrives.
         async with self._throttle_hold():
-            async for delta in self._throttle_target.chat_stream(*args, **kwargs):
-                yield delta
+            try:
+                async for delta in self._throttle_target.chat_stream(*args, **kwargs):
+                    yield delta
+            except Exception as exc:
+                self._throttle_note(exc)
+                raise

@@ -181,6 +181,25 @@ class TurnRefused(ConsumerCopilotError):
     """
 
 
+def parse_next_available_at(value: str) -> float:
+    """Epoch seconds for a throttle frame's ``nextAvailableAt``, 0.0 if unusable.
+
+    A naive timestamp is read as UTC: the value is machine-generated and every
+    sample so far carried an offset, so a missing one is far likelier to mean UTC
+    than the host's local zone -- and guessing local would move the reported reset
+    by whole hours.
+    """
+    if not value:
+        return 0.0
+    try:
+        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.timestamp()
+
+
 class AccountThrottled(ConsumerCopilotError):
     """The account spent its message quota; the backend named a reset time.
 
@@ -199,18 +218,10 @@ class AccountThrottled(ConsumerCopilotError):
         Clamped at zero: a reset time already in the past must not become a
         negative ``Retry-After``, which clients read as "retry immediately".
         """
-        if not self.next_available_at:
+        when = parse_next_available_at(self.next_available_at)
+        if not when:
             return None
-        try:
-            when = datetime.fromisoformat(self.next_available_at.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if when.tzinfo is None:
-            when = when.replace(tzinfo=timezone.utc)
-        return max(
-            0,
-            math.ceil((when - (now or datetime.now(timezone.utc))).total_seconds()),
-        )
+        return math.ceil(max(0.0, when - (now or datetime.now(timezone.utc)).timestamp()))
 
 
 def solve_hashcash(parameter: str) -> str:
