@@ -361,9 +361,14 @@ def test_any_socket_death_after_the_partial_images_still_delivers_the_image(deat
     assert reply.strip() == "![a red apple](data:image/jpeg;base64,/9j/final)"
 
 
-def test_a_delivered_url_is_not_also_sent_as_base64_when_the_socket_cuts():
-    # The terminal frame clears the buffered partial, so the fallback cannot
-    # append half a megabyte of duplicate for an image already delivered by url.
+def test_a_delivered_url_ends_the_turn_and_is_not_also_sent_as_base64():
+    # The shape `drain_on_error` makes ordinary: the terminal frame comes out of
+    # curl_cffi's queue and the recorded close lands right behind it. Upstream
+    # never sends `done` on an image turn, so that close is the end of the turn --
+    # raising here reported a complete turn as failed, and on the non-streaming
+    # path that discards the reply and loses the image just delivered. The
+    # terminal frame also clears the buffered partial, so the fallback cannot
+    # append half a megabyte of duplicate for an image already sent by url.
     socket = _FakeSocket([
         '{"event":"generatingImage","prompt":"a red apple"}',
         '{"event":"partialImageGenerated","content":"/9j/rough"}',
@@ -371,8 +376,10 @@ def test_a_delivered_url_is_not_also_sent_as_base64_when_the_socket_cuts():
         WebSocketClosed("closed"),
     ])
 
-    with pytest.raises(ConsumerCopilotError, match="after reply streaming started"):
-        _collect(ConsumerCopilotClient(), socket)
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert reply.strip() == "![a red apple](https://example.invalid/final.png)"
+    assert "data:image" not in reply
 
 
 def test_a_cut_with_no_image_reports_the_failure_without_quoting_the_payload():
@@ -419,17 +426,19 @@ def test_generated_image_without_a_preceding_prompt_still_renders():
     )
 
 
-def test_image_only_reply_is_not_treated_as_an_interrupted_turn():
-    # An image with no accompanying text still counts as output: if the socket
-    # then drops, the error must say the stream was interrupted, not that
-    # Copilot never replied.
+def test_image_only_reply_is_a_complete_turn():
+    # An image with no accompanying text is the whole deliverable, so the close
+    # that follows ends the turn. A text stream cut short still raises -- see
+    # test_partial_reply_followed_by_close_is_reported_as_interrupted, which is
+    # what keeps the "interrupted, not never replied" wording honest.
     socket = _FakeSocket([
         '{"event":"imageGenerated","url":"https://example.invalid/final.png"}',
         WebSocketClosed("closed"),
     ])
 
-    with pytest.raises(ConsumerCopilotError, match="after reply streaming started"):
-        _collect(ConsumerCopilotClient(), socket)
+    assert "![image](https://example.invalid/final.png)" in _collect(
+        ConsumerCopilotClient(), socket
+    )
 
 
 def test_chat_service_unavailable_is_a_typed_region_error():

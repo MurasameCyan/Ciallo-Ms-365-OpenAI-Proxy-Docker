@@ -456,6 +456,7 @@ class ConsumerCopilotClient:
         last_message = None
         image_prompt = ""
         partial_image = ""
+        image_delivered = False
         # One interleaved trace, `>` sent and `<` received, for the error branch.
         trace: list[str] = []
 
@@ -477,6 +478,18 @@ class ConsumerCopilotClient:
                 # which surfaces as WebSocketTimeout. Handling only the EOF left
                 # those two throwing the picture away.
                 #
+                # An image turn ends by closing rather than by sending `done`: no
+                # trace, ours or the browser's, has shown `done` after
+                # `imageGenerated`. So once the url is out the close *is* the end
+                # of the turn, and raising would report a complete turn as a
+                # failure -- which on the non-streaming path throws away the
+                # collected reply and loses the very image just delivered. This
+                # became the common shape with `drain_on_error`: the terminal
+                # frame now arrives out of the queue, immediately followed by the
+                # recorded close. A text stream cut short still raises, because a
+                # truncated sentence must not pass as a finished answer.
+                if image_delivered:
+                    return
                 # Upstream streams the finished JPEG as progressive base64 in
                 # `partialImageGenerated`, then ends the turn instead of sending
                 # the terminal `imageGenerated` url (never on a text turn). The
@@ -486,9 +499,7 @@ class ConsumerCopilotClient:
                 #
                 # Not conditioned on `started`: upstream often writes a sentence
                 # before it draws, and a turn that streamed "here it is" and then
-                # lost the picture is the bug being fixed, not a success. The
-                # terminal url clears `partial_image` instead, so an image that
-                # did arrive properly is never also sent as base64.
+                # lost the picture is the bug being fixed, not a success.
                 if partial_image:
                     mime = "png" if partial_image.startswith("iVBOR") else "jpeg"
                     yield _image_markdown(
@@ -543,8 +554,11 @@ class ConsumerCopilotClient:
                     if url:
                         started = True
                         # Supersedes the base64 previews of this same image, so
-                        # the close branch does not send it a second time.
+                        # the close branch does not send it a second time, and
+                        # marks the turn's deliverable complete so the close that
+                        # follows is an ending rather than a failure.
                         partial_image = ""
+                        image_delivered = True
                         yield _image_markdown(image_prompt, url)
                 elif event == "partialImageGenerated":
                     # Progressive preview: each frame is a complete JPEG, 300-600KB
