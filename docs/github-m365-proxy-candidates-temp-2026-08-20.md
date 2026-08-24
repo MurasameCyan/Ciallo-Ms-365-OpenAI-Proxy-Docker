@@ -285,6 +285,23 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 
 天花板：这一整套都还是提示词级的。代理无法校验任何一个声称的哈希（错的和对的形状完全一样），所以「tone 无视这句话」在下游探测不到；能做的只是别对着有解释器的 tone 撒谎。
 
+### 2026-08-25 补齐 `TONE_SERVER_INTERPRETER`：会编哈希的只有一个 tone
+
+上面这套是测量驱动的，`unknown` 一律不说话 —— 所以**没测过的 tone 就是没兜住的 tone**，map 的覆盖面等于修复的覆盖面。把剩下 11 个 tone 各跑一格 oracle 扫完（`.probe/interpreter_scan.py`，nonce 现铸，不带工具，同时录帧）：
+
+| 结果 | tone | 帧 |
+| --- | --- | --- |
+| 答对（= 有执行） | Chat、Gpt_5_5_Chat、Gpt_5_5_Reasoning、Gpt_5_4_Chat、Gpt_5_4_Reasoning、Gpt_5_3_Chat、Gpt_5_2_Chat | 有 `GeneratedCode` |
+| 答对，但没抓到帧 | Reasoning、Gpt_5_6_Reasoning | 无 |
+| 上游拒答（可用性问题，不是能力问题） | Gpt_5_3_Reasoning（`InternalError`） | — |
+| 既没算也没编：120 秒后把自己的工具调用当正文吐出来 `{"code":"import hashlib\n..."}` | Gpt_5_2_Reasoning | 无 |
+
+所以**全 16 个 tone 里，实测会编造哈希的只有 `Claude_Sonnet`**（`claude-sonnet-4-6`）。这不是抽样缺口而是问题的全部人口，那一句话覆盖的一格就是全部。判据说明：现铸 nonce 的 64 位 hex 无法凭记忆命中，所以**「答对」本身就是执行的证据**，帧只是旁证 —— `Reasoning` / `Gpt_5_6_Reasoning` 没抓到 `GeneratedCode` 仍记 verified，就是这个道理。后两格故意不进 map：拒答的那格是可用性，吐 JSON 的那格既不编也不算，写成 `absent` 只会给它加一句它不需要的话，而且两种失败都不是提示词能修的。
+
+九条 verified 进 map 不改变行为（verified 与 unknown 都不追加），值在于把「没测过」变成「测过了」，并且挡住下一次按家族猜 `absent` —— 回归测试直接断言 `absent` 列表**只有** `Claude_Sonnet`。
+
+顺带把这张取舍表填满了：`Magic` / `Reasoning` / `Gpt_5_6_Reasoning` / `Gpt_5_5_*` 会算但不听工具契约（2026-08-18 矩阵）；`claude-sonnet-4-6` 听契约但不会算；`claude-sonnet-4-5` 两半都行。
+
 ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。

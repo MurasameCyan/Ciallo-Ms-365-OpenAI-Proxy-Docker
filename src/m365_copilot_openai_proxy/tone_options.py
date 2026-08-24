@@ -82,6 +82,28 @@ TONE_SERVER_INTERPRETER = {
     "Magic": "verified",
     "Claude_Sonnet": "absent",
     "Claude_Sonnet_Reasoning": "verified",
+    # Sweep of every remaining tone, 2026-08-25, one oracle turn each
+    # (.probe/interpreter_scan.py). All nine returned the fresh nonce's digest exactly,
+    # so Claude_Sonnet is the ONLY tone measured to fabricate -- the sentence covers
+    # one cell, and that is the whole population of the problem, not a sampling gap.
+    # Chat / Gpt_5_5_* / Gpt_5_4_* / Gpt_5_3_Chat / Gpt_5_2_Chat also showed a
+    # GeneratedCode frame; Reasoning and Gpt_5_6_Reasoning were exactly right WITHOUT
+    # one reaching the frame recorder. A fresh nonce cannot be recalled, so the correct
+    # answer is what earns "verified" here and the frame is corroboration only.
+    "Chat": "verified",
+    "Reasoning": "verified",
+    "Gpt_5_6_Reasoning": "verified",
+    "Gpt_5_5_Chat": "verified",
+    "Gpt_5_5_Reasoning": "verified",
+    "Gpt_5_4_Chat": "verified",
+    "Gpt_5_4_Reasoning": "verified",
+    "Gpt_5_3_Chat": "verified",
+    "Gpt_5_2_Chat": "verified",
+    # Deliberately absent from this map: Gpt_5_3_Reasoning (refused the turn outright,
+    # InternalError -- availability, not capability) and Gpt_5_2_Reasoning, which after
+    # 120s streamed its own tool call as prose -- {"code": "import hashlib\n..."} -- so
+    # it neither computed nor invented. "absent" would only add a sentence it does not
+    # need, and neither failure is one a prompt can fix.
 }
 
 

@@ -25,6 +25,7 @@ from m365_copilot_openai_proxy.models import (
 )
 from m365_copilot_openai_proxy.substrate_parse import _NO_INTERPRETER_NOTE, _combine_text
 from m365_copilot_openai_proxy.templates import _USER_HTML
+from m365_copilot_openai_proxy.tone_options import TONE_SERVER_INTERPRETER
 from m365_copilot_openai_proxy.translator import (
     default_tool_system_prompt,
     translate_anthropic_request,
@@ -174,11 +175,20 @@ def test_the_sentence_is_appended_for_a_tone_measured_to_have_no_interpreter():
 
 
 def test_it_does_not_fire_for_a_tone_that_can_actually_execute():
-    """Both of these returned a fresh nonce's digest with GeneratedCode frames on the
-    wire. Telling them they cannot execute would be false, and a model that believes
-    it loses a capability it has is a worse outcome than the bug being fixed."""
-    for tone in ("Magic", "Claude_Sonnet_Reasoning"):
-        assert _NO_INTERPRETER_NOTE not in _combine_text("hash this", [], tone)
+    """Every non-absent tone returned a fresh nonce's digest. Telling them they cannot
+    execute would be false, and a model that believes it lost a capability it has is a
+    worse outcome than the bug being fixed."""
+    for tone, status in TONE_SERVER_INTERPRETER.items():
+        if status != "absent":
+            assert _NO_INTERPRETER_NOTE not in _combine_text("hash this", [], tone), tone
+
+
+def test_only_the_one_measured_tone_is_marked_absent():
+    """Tripwire for the bug this nearly shipped with: Claude_Sonnet_Reasoning was
+    guessed "absent" by family and is measurably verified. The full sweep found no
+    second fabricating tone, so a new "absent" entry means someone measured one --
+    editing this list is the cheap part, having the probe output is the point."""
+    assert [t for t, s in TONE_SERVER_INTERPRETER.items() if s == "absent"] == ["Claude_Sonnet"]
 
 
 def test_an_unmeasured_tone_stays_silent():
