@@ -103,9 +103,21 @@ def _filter_schema_valid_tool_calls(
 # contract entirely, and those two need opposite advice: the first is a correct
 # turn, the second means "switch models". Models decorate the token
 # (**NO_TOOL_NEEDED**, trailing period), so match loosely and strip what we match.
+# The leading class is decoration-only and deliberately excludes whitespace: it used
+# to be [*_`\s]* , which is greedy and unanchored, so a reply that closed a fenced
+# code block immediately before the token ("```\n\nNO_TOOL_NEEDED") had the closing
+# fence eaten along with it. That corrupted the delivered text on every surface and
+# silently disabled the prose-Write fallback, which needs a complete fence to match.
+# Whatever whitespace is left behind is handled by the .strip() in the splitter.
+# The boundaries are lookarounds rather than \b because _ is a word character, so
+# \b never matched _NO_TOOL_NEEDED_ -- the flag still got set (that is a plain
+# substring test below) but nothing was stripped, leaking protocol chatter into the
+# answer. Excluding only ASCII alphanumerics keeps the token strippable when it is
+# glued to CJK text, which has no spaces to rely on.
 _NO_TOOL_MARKER = "NO_TOOL_NEEDED"
 _NO_TOOL_MARKER_RE = _re.compile(
-    r"[*_`\s]*\b" + _NO_TOOL_MARKER + r"\b[*_`]*[.。!！]?", _re.IGNORECASE
+    r"[*_`]*(?<![A-Za-z0-9])" + _NO_TOOL_MARKER + r"(?![A-Za-z0-9])[*_`]*[.。!！]?",
+    _re.IGNORECASE,
 )
 
 

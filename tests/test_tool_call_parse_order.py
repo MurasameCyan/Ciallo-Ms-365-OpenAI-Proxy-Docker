@@ -13,6 +13,7 @@ from m365_copilot_openai_proxy.routes_api_messages import _anthropic_stream_with
 from m365_copilot_openai_proxy.tool_call_parser import (
     _looks_like_fake_file_claim,
     planner_fallback_needed,
+    split_no_tool_marker,
 )
 
 
@@ -470,3 +471,73 @@ def test_an_image_turn_carrying_tools_survives_the_responses_surface_too(
         assert not [i for i in output if i.get("type") == "function_call"], output
     assert any(marker in content for marker in markers), content
     assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
+
+
+# --- the no-action token must not take the code fence with it -----------------
+#
+# _NO_TOOL_MARKER_RE used to open with [*_`\s]* , meant to absorb decoration the
+# model puts around the token. Being greedy, unanchored and whitespace-inclusive,
+# it also swallowed the closing fence of a code block that ended right before the
+# token. Two consequences, both silent: the delivered text lost its fence on every
+# surface, and _extract_prose_write stopped matching, because it needs a complete
+# fenced block to read the file content out of.
+FENCED_THEN_DECLINED = (
+    "You can paste it into `S:/tmp/demo.py` yourself:\n\n"
+    "```python\nprint(1)\n```\n\n"
+    "NO_TOOL_NEEDED"
+)
+
+
+def test_the_no_action_token_leaves_the_code_fence_alone():
+    text, declined = split_no_tool_marker(FENCED_THEN_DECLINED)
+
+    assert declined is True
+    # The token itself is protocol chatter and must be gone...
+    assert "NO_TOOL_NEEDED" not in text
+    # ...but the fence that happened to precede it is part of the answer.
+    assert text.endswith("```python\nprint(1)\n```")
+
+
+@pytest.mark.parametrize(
+    "decorated",
+    [
+        "NO_TOOL_NEEDED",
+        "**NO_TOOL_NEEDED**",
+        "**NO_TOOL_NEEDED**.",
+        "`NO_TOOL_NEEDED`",
+        "_NO_TOOL_NEEDED_",
+        "`**NO_TOOL_NEEDED**`",
+    ],
+    ids=["bare", "bold", "bold-dot", "backticked", "underscored", "mixed"],
+)
+def test_decorated_tokens_are_still_recognised_and_stripped(decorated):
+    """The narrower character class must not cost us the decoration handling that
+    was the reason the class existed.
+
+    ``underscored`` is the case \\b could never handle -- _ is a word character, so
+    there was no boundary between the decoration and the token, and the leaked
+    marker reached the client.
+    """
+    text, declined = split_no_tool_marker(f"answer\n\n{decorated}")
+
+    assert declined is True
+    assert "NO_TOOL_NEEDED" not in text
+    assert text.strip() == "answer"
+
+
+def test_a_token_glued_to_chinese_text_is_still_stripped():
+    """Replies here are largely Chinese, which has no spaces to separate the token,
+    so the boundary must not treat a CJK character as part of a word."""
+    text, declined = split_no_tool_marker("不需要工具NO_TOOL_NEEDED")
+
+    assert declined is True
+    assert text == "不需要工具"
+
+
+def test_the_token_inside_a_longer_identifier_is_left_alone():
+    """The reason for having a boundary at all: quoted code must survive."""
+    text, declined = split_no_tool_marker("the sentinel is spelled XNO_TOOL_NEEDED here")
+
+    assert declined is True  # the substring test cannot tell the difference
+    assert text == "the sentinel is spelled XNO_TOOL_NEEDED here"
+
