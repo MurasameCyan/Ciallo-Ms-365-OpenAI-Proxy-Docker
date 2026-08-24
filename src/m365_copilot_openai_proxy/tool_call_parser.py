@@ -11,6 +11,8 @@ from jsonschema.validators import validator_for
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
+from .media_proxy import references_m365_media
+
 _READ_ONLY_INTENT_RE = _re.compile(
     r"(只分析|仅分析|只读|不要修改|不要改|不要写|不要保存|不要创建|不要删除|不要执行|不要运行|不修改文件|不改文件|"
     r"analy[sz]e only|read[- ]only|do not modify|don't modify|no changes|do not write|don't write|do not save|don't save|do not run|don't run)",
@@ -292,7 +294,7 @@ def planner_fallback_needed(text: str, tool_names: set[str] | None = None) -> bo
     # failure, so hopping planners would only redraw it -- another turn, another
     # image quota unit on consumer -- and still not produce a tool_call.
     if not calls and (
-        _looks_like_fake_file_claim(clean) or _DELIVERED_IMAGE_RE.search(clean)
+        _looks_like_fake_file_claim(clean) or _delivered_media(clean)
     ):
         return False
     if tool_names:
@@ -487,10 +489,26 @@ _FILE_CLAIM_PHRASE_RE = _re.compile(
     r"file (?:created|saved|generated|written)|created the file|saved to|generated the",
     _re.IGNORECASE,
 )
-# A delivered image: markdown image syntax, or a bare inline data uri.
+# A delivered image: an inline data uri, or markdown pointing at something the
+# client can actually fetch. Markdown aimed at a bare filesystem path is NOT
+# delivered -- "已生成 ![chart](chart.png)" with no tool_call is exactly the fake
+# claim the retry exists to catch.
 _DELIVERED_IMAGE_RE = _re.compile(
-    r"!\[[^\]]*\]\([^)]+\)|data:image/[\w.+-]+;base64,"
+    r"data:image/[\w.+-]+;base64,|!\[[^\]]*\]\(\s*(?:https?://|/v1/m365-media\?)",
+    _re.IGNORECASE,
 )
+
+
+def _delivered_media(text: str) -> bool:
+    """True if the reply already carries the artifact its prose talks about.
+
+    Two families: consumer inlines the image as a data uri, M365 hands back a
+    hosted source (designer/asyncgw) that our media proxy signs and serves. The
+    M365 half has to be recognised in its RAW shape, because the routes run this
+    before the media rewriter on purpose -- there the image is still a backticked
+    or bare host url, not the markdown the rewriter would emit.
+    """
+    return bool(_DELIVERED_IMAGE_RE.search(text)) or references_m365_media(text)
 
 
 def _looks_like_fake_file_claim(text: str) -> bool:
@@ -505,7 +523,7 @@ def _looks_like_fake_file_claim(text: str) -> bool:
         return False
     if _FILE_CLAIM_URL_RE.search(text):
         return True
-    if _DELIVERED_IMAGE_RE.search(text):
+    if _delivered_media(text):
         # 已生成/生成了 is also how both providers word an image turn, and the
         # image in the same reply is the artifact the phrase refers to -- the
         # claim is not fake. Retrying it spent a second upstream turn (on

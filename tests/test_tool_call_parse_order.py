@@ -169,6 +169,19 @@ M365_IMAGE_REPLY = (
     "已生成图片：\n\n"
     "![cat](https://proxy.example/v1/m365-media?account_id=acct_1&u=aHR0cA&exp=1&sig=x)"
 )
+# What the M365 routes actually hand the predicate: rewriting is deferred to
+# delivery, so upstream's own shape is still there -- a backticked host url, not
+# markdown. Keying "delivered image" on markdown alone therefore protected only
+# the consumer side; on M365 已生成图片 still scored as a fake file claim.
+DESIGNER_IMAGE_URL = (
+    "https://designerapp.officeapps.live.com/designerapp/document.ashx"
+    "?path=%2Fdalle-9f1c.png&fileToken=tok"
+)
+ASYNCGW_IMAGE_URL = (
+    "https://jp-prod.asyncgw.teams.microsoft.com/v1/objects/"
+    "0-ea-d4-101412848fe8be7ad7f1c4c110d1fa4f/views/original/cat.png"
+)
+M365_RAW_IMAGE_REPLY = f"已生成图片：\n\n !`{DESIGNER_IMAGE_URL}` \n\n"
 WRITE_TOOL = {"type": "function", "function": {"name": "Write", "description": "Write a file"}}
 
 
@@ -190,20 +203,49 @@ def test_a_delivered_image_does_not_escalate_to_another_planner():
     # move the wasted turn from the corrective retry to the next planner, which
     # cannot produce a tool_call for an image either.
     assert planner_fallback_needed(CONSUMER_IMAGE_REPLY, {"Write"}) is False
+    assert planner_fallback_needed(M365_RAW_IMAGE_REPLY, {"Write"}) is False
     # Prose with no calls must still escalate, or the chain is dead.
     assert planner_fallback_needed("我无法访问你本地的文件。", {"Write"}) is True
+
+
+def test_a_delivered_image_is_recognised_in_its_raw_upstream_shape():
+    """The M365 half of the exemption, in the shape the routes really see.
+
+    Both call sites parse the RAW text on purpose, with the media rewriter
+    deferred to delivery, so a delivered M365 image is upstream's backticked or
+    bare host url. Markdown-only recognition left every M365 image turn carrying
+    tools exposed to the corrective retry.
+    """
+    assert _looks_like_fake_file_claim(M365_RAW_IMAGE_REPLY) is False
+    assert _looks_like_fake_file_claim(f"已生成图片：\n\n `{ASYNCGW_IMAGE_URL}` ") is False
+    assert _looks_like_fake_file_claim(f"已生成图片 {ASYNCGW_IMAGE_URL}") is False
+    # An already-signed url can come back in through conversation history.
+    assert _looks_like_fake_file_claim(M365_IMAGE_REPLY) is False
+
+
+def test_markdown_pointing_at_a_bare_path_is_still_a_fake_claim():
+    """The exemption must not cover a claim with nothing behind it.
+
+    No inline bytes, no host to fetch from: the model says it wrote a file and
+    did not, which is the whole reason the corrective retry exists.
+    """
+    assert _looks_like_fake_file_claim(
+        "已生成图表并保存为 chart.png：\n\n![chart](chart.png)"
+    ) is True
+    assert _looks_like_fake_file_claim("已生成 ![out](S:/tmp/out.png)") is True
 
 
 class _ImageThenToolCallClient:
     """An image turn worded 已生成; a retry, if one fires, answers with a Write."""
 
-    def __init__(self):
+    def __init__(self, reply=CONSUMER_IMAGE_REPLY):
+        self.reply = reply
         self.prompts: list[str] = []
 
     async def chat(self, prompt, additional_context=None, session=None, images=None):
         self.prompts.append(prompt)
         if len(self.prompts) == 1:
-            return CONSUMER_IMAGE_REPLY
+            return self.reply
         return (
             "```tool_call\n"
             '{"name": "Write", "arguments": {"file_path": "S:/tmp/cat.png",'
@@ -216,17 +258,29 @@ class _ImageThenToolCallClient:
 
 
 @pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "reply,markers",
+    [
+        (CONSUMER_IMAGE_REPLY, (CAT_DATA_URI,)),
+        (M365_RAW_IMAGE_REPLY, ("document.ashx", "/v1/m365-media?")),
+    ],
+    ids=["consumer-data-uri", "m365-raw-backtick"],
+)
 def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(
-    tmp_path, stream
+    tmp_path, stream, reply, markers
 ):
     """The reported symptom, at the surface a client sees: a tools-bearing image
     request must come back with the image, not with a Write call for a .png the
     model would have to invent, and must not cost a second upstream turn.
 
     Both directions, because each buffers the whole turn and then runs its own
-    copy of `full_text, tool_calls = retry_text, retry_calls`.
+    copy of `full_text, tool_calls = retry_text, retry_calls`. Both provider
+    shapes, because the M365 one reaches the predicate as a raw host url and the
+    consumer one as an inline data uri. Whether that host url then arrives raw or
+    signed is the media rewriter's business (pinned in tests/test_media_proxy.py);
+    here the only claim is that the image survived the tools path.
     """
-    upstream = _ImageThenToolCallClient()
+    upstream = _ImageThenToolCallClient(reply)
     app = create_app(
         Settings(TOKEN_DIR=str(tmp_path), API_KEY="k", ADMIN_PASSWORD=""),
         copilot_client_factory=lambda **kw: upstream,
@@ -252,10 +306,12 @@ def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(
             for line in response.text.splitlines()
             if line.startswith("data: ") and line[6:].strip() != "[DONE]"
         ]
-        assert CAT_DATA_URI in "".join(d.get("content") or "" for d in deltas)
+        content = "".join(d.get("content") or "" for d in deltas)
+        assert any(marker in content for marker in markers), content
         assert not [d for d in deltas if d.get("tool_calls")]
     else:
         message = response.json()["choices"][0]["message"]
-        assert CAT_DATA_URI in (message.get("content") or "")
+        content = message.get("content") or ""
+        assert any(marker in content for marker in markers), content
         assert not message.get("tool_calls")
     assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"

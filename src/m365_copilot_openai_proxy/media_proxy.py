@@ -21,6 +21,27 @@ _RAW_ASYNCGW_MEDIA_RE = re.compile(r"`(https://[^`\s]+\.asyncgw\.teams\.microsof
 _MARKDOWN_DESIGNER_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://designerapp\.officeapps\.live\.com/designerapp/document\.ashx[^)]+)\)")
 _MARKDOWN_ASYNCGW_MEDIA_RE = re.compile(r"(?<!!)\[([^\]]*)\]\((https://[^)\s]+\.asyncgw\.teams\.microsoft\.com/v1/objects/[^)\s]+/views/original/[^)\s]+)\)", re.IGNORECASE)
 _PLAIN_ASYNCGW_MEDIA_RE = re.compile(r"(?<!\]\()https://[^\s`)]+\.asyncgw\.teams\.microsoft\.com/v1/objects/[^\s`)]+/views/original/[^\s`)]+", re.IGNORECASE)
+# The media sources this module can actually deliver, matched irrespective of how
+# upstream words them. The regexes above each pin one shape (backticked, markdown,
+# bare) because they rewrite in place; this one only answers "is a deliverable
+# media source in here at all". An already-signed proxy url counts too, since
+# conversation history can carry one back in.
+_M365_MEDIA_SOURCE_RE = re.compile(
+    "https://" + re.escape(_ALLOWED_IMAGE_HOST + _ALLOWED_IMAGE_PATH)
+    + r"|https://[^\s`)\]]+\.asyncgw\.teams\.microsoft\.com/v1/objects/[^\s`)\]]+/views/original/"
+    + r"|(?:https?://[^\s`)\]]+)?/v1/m365-media\?",
+    re.IGNORECASE,
+)
+
+
+def references_m365_media(text: str) -> bool:
+    """True if the text points at media this proxy delivers.
+
+    Callers outside the rewriter need this because they run on the RAW upstream
+    text, where a delivered image is still a backticked or bare host url rather
+    than the markdown the rewriter emits at delivery time.
+    """
+    return bool(text) and bool(_M365_MEDIA_SOURCE_RE.search(text))
 
 
 def _payload(account_id: str, expires_at: int, source_url: str) -> bytes:
