@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
@@ -214,10 +215,17 @@ class _ImageThenToolCallClient:
         yield await self.chat(prompt, additional_context, session, images)
 
 
-def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(tmp_path):
+@pytest.mark.parametrize("stream", [False, True])
+def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(
+    tmp_path, stream
+):
     """The reported symptom, at the surface a client sees: a tools-bearing image
     request must come back with the image, not with a Write call for a .png the
-    model would have to invent, and must not cost a second upstream turn."""
+    model would have to invent, and must not cost a second upstream turn.
+
+    Both directions, because each buffers the whole turn and then runs its own
+    copy of `full_text, tool_calls = retry_text, retry_calls`.
+    """
     upstream = _ImageThenToolCallClient()
     app = create_app(
         Settings(TOKEN_DIR=str(tmp_path), API_KEY="k", ADMIN_PASSWORD=""),
@@ -233,11 +241,21 @@ def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(tmp
             "model": "m365-copilot",
             "messages": [{"role": "user", "content": "画一只猫"}],
             "tools": [WRITE_TOOL],
+            "stream": stream,
         },
     )
 
     assert response.status_code == 200
-    message = response.json()["choices"][0]["message"]
-    assert CAT_DATA_URI in (message.get("content") or "")
-    assert not message.get("tool_calls")
+    if stream:
+        deltas = [
+            json.loads(line[6:])["choices"][0]["delta"]
+            for line in response.text.splitlines()
+            if line.startswith("data: ") and line[6:].strip() != "[DONE]"
+        ]
+        assert CAT_DATA_URI in "".join(d.get("content") or "" for d in deltas)
+        assert not [d for d in deltas if d.get("tool_calls")]
+    else:
+        message = response.json()["choices"][0]["message"]
+        assert CAT_DATA_URI in (message.get("content") or "")
+        assert not message.get("tool_calls")
     assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
