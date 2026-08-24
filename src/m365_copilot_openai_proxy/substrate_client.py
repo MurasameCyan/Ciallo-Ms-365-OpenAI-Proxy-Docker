@@ -407,7 +407,7 @@ class SubstrateCopilotClient:
         session: PersistentSession | None = None,
         images: list | None = None,
     ) -> AsyncIterator[str]:
-        text = _combine_text(prompt, additional_context)
+        text = _combine_text(prompt, additional_context, self._tone)
         annotations = await self._upload_images(images)
         if session is None:
             async for chunk in self._stream_turn_with_retry(

@@ -57,18 +57,37 @@ TONE_TOOL_CALLING = {
     "Gpt_5_5_Chat": "unsupported",
 }
 
-# The server-side interpreter is the mirror image of that map, measured 2026-08-25
-# with one real turn per cell (.probe/ci_ab.py): tone=Magic returned the SHA-256 of
-# a nonce minted at probe time and an exact 12x12-digit product, with GeneratedCode
-# frames on the wire; Claude_Sonnet emitted no GeneratedCode frame and hallucinated
-# the digest. So a tone that honours the tool contract cannot compute, and a tone
-# that computes cannot tool-call -- neither half is a proxy bug, and a user asking
-# a Claude tone for a hash gets a confident wrong answer no code here can catch.
-# Half of that IS caught now, on turns that carry tools: the exact-computation rule
-# in translator._DEFAULT_TOOL_SYSTEM_PROMPT turns the invented digest into "I cannot
-# compute this exactly here" when nothing declared can run code (measured, same day).
-# A turn with no tools carries no contract, so it still invents -- /user says so
-# (user_no_interpreter_hint).
+# The server-side interpreter, measured per tone -- NOT per family. First pass
+# (2026-08-25, .probe/ci_ab.py): tone=Magic returned the SHA-256 of a nonce minted at
+# probe time and an exact 12x12-digit product, with GeneratedCode frames on the wire;
+# Claude_Sonnet emitted no GeneratedCode frame and hallucinated the digest.
+# Second pass the same day (.probe/reasoning_interpreter_frames.py) killed the
+# "Claude tones cannot compute" generalisation that reading looked like: on both
+# oracles Claude_Sonnet_Reasoning was exactly right WITH GeneratedCode/python frames,
+# while Claude_Sonnet failed the same nonce in the same session ("I'll compute this
+# directly from my knowledge of the SHA-256 algorithm"). So the split is the tone, and
+# Claude_Sonnet_Reasoning is the one selector measured to have BOTH halves -- it is
+# also "verified" for the tool contract above, which makes it the remedy to point a
+# user at rather than a Copilot tone that cannot tool-call.
+# What remains true is the narrow version: Claude_Sonnet honours the tool contract and
+# cannot compute, so a user asking it for a hash gets a confident wrong answer.
+# Half of that is caught on turns that carry tools: the exact-computation rule in
+# translator._DEFAULT_TOOL_SYSTEM_PROMPT turns the invented digest into "I cannot
+# compute this exactly here" when nothing declared can run code. A turn with no tools
+# carries no contract, so substrate_parse._combine_text appends one sentence for the
+# tones below instead -- which is why this map has to stay measurement-only. Telling
+# a tone that DOES have the interpreter it cannot execute would suppress a working
+# capability, so "unknown" must keep meaning "say nothing" here, exactly as above.
+TONE_SERVER_INTERPRETER = {
+    "Magic": "verified",
+    "Claude_Sonnet": "absent",
+    "Claude_Sonnet_Reasoning": "verified",
+}
+
+
+def tone_server_interpreter(tone: str | None) -> str:
+    """Measured server-side code execution: verified / absent / unknown."""
+    return TONE_SERVER_INTERPRETER.get(str(tone or ""), "unknown")
 
 # Same question for the Consumer provider, whose selector is a mode rather than a
 # tone (see _BUILTIN_CONSUMER_MODE_OPTIONS). Measured 2026-08-19 against the live

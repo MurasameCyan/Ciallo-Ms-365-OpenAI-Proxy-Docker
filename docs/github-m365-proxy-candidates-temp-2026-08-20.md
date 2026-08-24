@@ -216,7 +216,7 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 
 抽掉 `cwc_code_interpreter`、`cwc_code_interpreter_amsfix`、`cwc_code_interpreter_citation_fix`、`code_interpreter_interactive_charts`、`code_interpreter_interactive_charts_inline_image`、`code_interpreter_matplotlib_patching` 之后，答案与线上帧序都没变，所以在本租户上它们不承重（`_ALLOWED_MESSAGE_TYPES` 里的 `GeneratedCode` 才是我们能收到结果的原因）。保留是因为它们与浏览器流量一致；oracle 没有覆盖图表形状的那三个，所以没有删。
 
-`tone=Claude_Sonnet` 同一 oracle **无 `GeneratedCode` 帧**，并且编了一个假摘要 —— 会算的 tone 不听工具契约，听契约的 tone 不会算。
+`tone=Claude_Sonnet` 同一 oracle **无 `GeneratedCode` 帧**，并且编了一个假摘要。当天最初据此写成「会算的 tone 不听工具契约，听契约的 tone 不会算」，**同日第二轮把这个推广否掉了**（见下面「一句话补上不带工具的那半」）：解释器是按 tone 分的，不是按家族分的，`Claude_Sonnet_Reasoning` 两个 oracle 全对且帧里有 `GeneratedCode`。成立的是窄版本：`Claude_Sonnet` 听契约但不会算。
 
 ### 声明二：Claude tone agent-less 工具调用 —— 成立，且我们本来就是这条路
 
@@ -250,14 +250,40 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 | --- | --- | --- |
 | 声明了 `bash` | `tool:bash` 4/4（**本来就对，所以没写「去调工具」那半**） | `tool:bash` 1/1 |
 | 只声明 `Read`（不能执行） | 编造 64 位 hex 2/2，随后同轮撤回 | 0 编造 5/5，开口就说算不了并给出自己算的命令 |
-| 完全不带 tools | 编造且不撤回 | 这条轮次没有契约，规则进不去 —— 代码层无解，只能在 /user 提示 |
+| 完全不带 tools | 编造且不撤回 | 这条轮次没有契约，规则进不去 —— 见下一节，已另外兜住 |
 | `2 + 2` 对照 | — | 仍 `NO_TOOL_NEEDED`，没有因为这条规则去调 shell |
 
 两个边界写进了探针和测试，别在改措辞时丢掉：**条件**（只有「没有工具能执行」时才适用，去掉条件会连 `bash` 都不调）和**位置**（规则在 Rules 末尾、Examples 之前；`.probe/compute_rule_shipped.py` 校验拼出来的提示词 sha256 等于工作树的 `default_tool_system_prompt()`，`3f67b933…` —— 措辞一改 sha 就变，改完得重测而不是沿用这张表）。规则在管理端可覆盖的那段里，管理员自定义系统提示词就自己负责这条（回归测试 `tests/test_exact_computation_rule.py` 把这个天花板也断言了）。
 
-`/user` 的「默认配置」卡片加了一句 `user_no_interpreter_hint`（中英）：claude 系模式没有服务端代码执行，客户端不声明可执行工具时精确计算会返回看起来对的错值。之所以是卡片级提示而不是 tone 下拉项的 tooltip：`/user` 的 `#tone` 一直是 `display:none`（模式跟着模型名走），tooltip 挂上去没人看得见。
+`/user` 的「默认配置」卡片加了一句 `user_no_interpreter_hint`（中英），措辞见下一节（最初写的是「claude 系模式」，被同日的第二轮测量改成只点 `claude-sonnet-4-6`）。之所以是卡片级提示而不是 tone 下拉项的 tooltip：`/user` 的 `#tone` 一直是 `display:none`（模式跟着模型名走），tooltip 挂上去没人看得见。
 
 评估过但没做的「更底层」办法：按提问判断「需要精确计算」再把这一轮偷偷换到 `Magic` 之类会算的 tone。否决理由是它要一个自然语言分类器（每轮多花上游往返、且误判会静默换掉用户选的模型），还会打断持久会话的连续性 —— 代价和爆炸半径都远超它修的问题。
+
+### 2026-08-25 一句话补上不带工具的那半（并否掉「Claude 系不会算」）
+
+上表最后一行原来记成「代码层无解」。实际有解，而且顺手挖出一个更要紧的更正。
+
+先是解释器的归属：**它按 tone 分，不按家族分**（`.probe/reasoning_interpreter_frames.py`，同一 session 三格，nonce 现铸）。
+
+| tone | SHA-256 | 12×12 位乘积 | 帧 |
+| --- | --- | --- | --- |
+| Claude_Sonnet_Reasoning | 正确 | 正确 | `GeneratedCode` + `python` |
+| Claude_Sonnet（同 session 对照） | 错，且自称「我直接用 SHA-256 算法算」 | 未测 | 无 `GeneratedCode` |
+
+所以 `claude-sonnet-4-5`（= `Claude_Sonnet_Reasoning`）是**唯一两半都实测通过**的选项：工具契约 verified（2026-08-18 矩阵）＋ 服务端执行 verified。要指一条出路就指它，而不是指不会调工具的 Copilot 系 —— `/user` 那句提示因此重写成「`claude-sonnet-4-6` 没有服务端代码执行……要精确结果就声明一个能执行命令的工具，或改用 `claude-sonnet-4-5`」，并且改口说这类提问现在会直接答「算不了」（上线后就是这个行为，不再是给错值）。
+
+投递路径：不带工具的轮次里客户端 `system` 消息**能**到上游（落成 `System instructions:` 块），但真正上线的位置是 `substrate_parse._combine_text` 把一句话接在 prompt 之后 —— 与 `[FORMAT]` 同一格，因为**位置是提示词的一部分**。按上线位置实测（`.probe/compute_no_tools_shipped.py`，容器跑的是旧镜像，所以每格自己拼出上线文本、以空 context 发出去，旧 `_combine_text` 原样透传；探针里钉了这句话的 sha256 `9540cfb2…`）：
+
+| 格 | tone | 加句子 | 结果 |
+| --- | --- | --- | --- |
+| S1 | Claude_Sonnet_Reasoning | 否 | **答对**（这格本来是要给它坐实 `absent` 的，反而推翻了它） |
+| S2 | Claude_Sonnet | 是 | 「I cannot compute this exactly here」，无 64 位 hex |
+| S3 | Claude_Sonnet_Reasoning | 是 | 仍答对 —— 它无视这句话照样执行，等于反证了这句话不能乱发 |
+| S4 | Claude_Sonnet + 常识题 | 是 | 「Paris.」，没被带成拒答 |
+
+落地就是 `TONE_SERVER_INTERPRETER`（`Magic` / `Claude_Sonnet_Reasoning` = verified，`Claude_Sonnet` = absent，其余 unknown）＋ `_combine_text(prompt, context, tone)`：**只有** `absent` 且本轮没有工具契约时才追加。三条约束和工具那半同理，都有测试盯着：unknown 必须等于「什么都不说」（没测过不等于没有，微软的 rollout 一直在动）；带 tools 的轮次不追加（那半的规则是有条件的，一轮里两套说法会互相打脸）；`tone=None` 的个人版链路不受影响（它自己那份契约有字符预算，且从没测过这个题目）。差点上线的 bug 就是 `Claude_Sonnet_Reasoning` 我按家族猜了个 `absent` —— S1 那格把它拦下来了，测试里也钉住了。
+
+天花板：这一整套都还是提示词级的。代理无法校验任何一个声称的哈希（错的和对的形状完全一样），所以「tone 无视这句话」在下游探测不到；能做的只是别对着有解释器的 tone 撒谎。
 
 ## 后续顺序
 

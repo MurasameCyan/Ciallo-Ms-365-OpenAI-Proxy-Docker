@@ -5,6 +5,7 @@ import re
 from difflib import SequenceMatcher
 
 from .media_proxy import normalize_m365_media_text
+from .tone_options import tone_server_interpreter
 
 # M365 injects private-use citation markers in streamed and final text, e.g.
 #   [label](\ue200cite\ue202turn1file1\ue201)
@@ -411,11 +412,27 @@ def _extract_image_urls(value: object) -> list[str]:
     return urls
 
 
-def _combine_text(prompt: str, context: list[str]) -> str:
-    if not context:
-        return prompt
+# Appended to a turn that carries NO tool contract, for tones measured to have no
+# server-side interpreter (tone_options.TONE_SERVER_INTERPRETER). Those tones answer
+# "what is the SHA-256 of <nonce>" with a fabricated 64-hex digest -- measured, and
+# with no retraction when there is no tool list to notice the gap. A tools-bearing
+# turn is covered by the exact-computation rule in the injected contract instead, so
+# this only fires where that rule cannot reach.
+#
+# ponytail: prompt-level again, and it only claims what was measured -- the model
+# stops inventing when told it cannot execute. Nothing here can verify an arbitrary
+# claimed value, so a tone that ignores the sentence is not detectable downstream.
+_NO_INTERPRETER_NOTE = (
+    "You have no code execution in this environment. If an exact result requires "
+    "computation (a hash, checksum, large-number arithmetic, an encoding conversion), "
+    "say you cannot compute it exactly here instead of producing a value from memory: "
+    "a wrong value is indistinguishable from a right one."
+)
+
+
+def _combine_text(prompt: str, context: list[str], tone: str | None = None) -> str:
     has_tools = any("tool_call" in c for c in context)
-    result = "\n\n".join(context) + "\n\n---\n\n" + prompt
+    result = "\n\n".join(context) + "\n\n---\n\n" + prompt if context else prompt
     if has_tools:
         # Scoped to "any listed tool", not just file actions: the earlier wording
         # named only file operations, so a caller's get_weather or calculate tool
@@ -457,4 +474,6 @@ def _combine_text(prompt: str, context: list[str]) -> str:
             "fenced code block tagged with its language. Never attach a file in place of this."
             "[/FORMAT]"
         )
+    elif tone_server_interpreter(tone) == "absent":
+        result += "\n\n" + _NO_INTERPRETER_NOTE
     return result
