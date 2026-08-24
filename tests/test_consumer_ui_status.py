@@ -237,6 +237,38 @@ def test_admin_cookie_times_are_hover_title_not_visible_rows(tmp_path: Path):
     )
 
 
+_THROTTLED_ACCOUNT_JS = (
+    "{id:'acct_t',name:'Throttled Alice',provider:'consumer',token_source:'manual',"
+    "cookie_valid:false,throttled_until:__UNTIL__,"
+    "token_status:{valid:false,expires_at:null,seconds_remaining:0},bound_names:[],"
+    "key_count:0,has_designer_auth:false,has_media_auth:false}"
+)
+# Inside the open window below, so the fixture cannot rot the way the cookie one did.
+_FROZEN_NOW_JS = "Date.now=()=>Date.UTC(2026,7,22,6,0,0);"
+
+
+def test_admin_throttle_badge_shows_only_while_the_window_is_open(tmp_path: Path):
+    """Rendered from the timestamp, not from a sticky flag: the window closes on
+    its own upstream, so a row must never keep claiming a spent quota."""
+    _run_node(
+        tmp_path,
+        _admin_accounts_render_script(
+            "assert.ok(box.innerHTML.includes('acct-throttled-tag'),box.innerHTML);"
+            "assert.ok(box.innerHTML.includes('title=\\\"throttled_until_label: 26-08-22 12:00:00\\\"'),box.innerHTML);",
+            _THROTTLED_ACCOUNT_JS.replace("__UNTIL__", "Date.UTC(2026,7,22,12,0,0)/1000"),
+            prelude=_FROZEN_NOW_JS,
+        ),
+    )
+    _run_node(
+        tmp_path,
+        _admin_accounts_render_script(
+            "assert.ok(!box.innerHTML.includes('acct-throttled-tag'),box.innerHTML);",
+            _THROTTLED_ACCOUNT_JS.replace("__UNTIL__", "Date.UTC(2026,7,22,5,0,0)/1000"),
+            prelude=_FROZEN_NOW_JS,
+        ),
+    )
+
+
 def test_admin_cookie_timestamps_use_fixed_short_local_format(tmp_path: Path):
     fmt_ts = _extract_js_function(_ADMIN_DASHBOARD_JS, "fmtTs")
     _run_node(
