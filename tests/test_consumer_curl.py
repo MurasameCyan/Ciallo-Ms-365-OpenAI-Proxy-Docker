@@ -1,7 +1,10 @@
 """The consumer transport keeps curl_cffi's Chrome fingerprint end to end."""
 
 import asyncio
+import base64
+import hashlib
 import json
+import struct
 
 import pytest
 from curl_cffi.curl import CurlError
@@ -509,3 +512,88 @@ def test_websocket_upgrade_error_is_wrapped_for_route_callers(transport_error):
     with pytest.raises(ConsumerCopilotError, match="refused") as error:
         asyncio.run(_collect(client))
     assert error.value.__cause__ is transport_error
+
+
+def _ws_frame(payload: bytes) -> bytes:
+    """Server->client text frame, unmasked."""
+    n = len(payload)
+    if n < 126:
+        return struct.pack("!BB", 0x81, n) + payload
+    if n < 65536:
+        return struct.pack("!BBH", 0x81, 126, n) + payload
+    return struct.pack("!BBQ", 0x81, 127, n) + payload
+
+
+async def _serve_then_cut(reader, writer) -> None:
+    """Answer the upgrade, queue the measured image shape, then bare-FIN close."""
+    request = b""
+    while b"\r\n\r\n" not in request:
+        chunk = await reader.read(4096)
+        if not chunk:
+            return
+        request += chunk
+    key = b""
+    for line in request.split(b"\r\n"):
+        if line.lower().startswith(b"sec-websocket-key:"):
+            key = line.split(b":", 1)[1].strip()
+    accept = base64.b64encode(
+        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()
+    )
+    writer.write(
+        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+        b"Connection: Upgrade\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n"
+    )
+    await writer.drain()
+
+    # Two big partials ahead of the small terminal frame, then EOF with no close
+    # frame -- the shape live image turns die of.
+    big = base64.b64encode(b"\xff" * 260_000).decode()
+    for payload in (
+        {"event": "partialImageGenerated", "content": big},
+        {"event": "partialImageGenerated", "content": big},
+        {"event": "imageGenerated", "url": "https://example.invalid/final.png"},
+    ):
+        writer.write(_ws_frame(json.dumps(payload).encode()))
+    await writer.drain()
+    writer.close()
+
+
+@pytest.mark.parametrize("drain,expected", [
+    (False, []),
+    (True, ["partialImageGenerated", "partialImageGenerated", "imageGenerated"]),
+])
+def test_drain_on_error_is_what_recovers_frames_queued_at_a_bare_eof(drain, expected):
+    """Pins curl_cffi's semantics, not our own code: the flag is the only reason
+    frames already sitting in the receive queue survive an EOF close. Without it
+    every queued frame is discarded -- the terminal `imageGenerated` and the
+    partials with it -- because `recv()` raises the recorded exception before it
+    reads the queue. A test that only asserts we pass the kwarg would keep
+    passing if a curl_cffi upgrade changed that behaviour, and the pin allows
+    anything under 1.0.0.
+    """
+
+    async def run():
+        from curl_cffi.requests import AsyncSession
+
+        server = await asyncio.start_server(_serve_then_cut, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        events = []
+        async with server:
+            async with AsyncSession() as session:
+                async with session.ws_connect(
+                    f"ws://127.0.0.1:{port}/", drain_on_error=drain
+                ) as ws:
+                    # Let the reader task record the EOF first: that is the
+                    # "loop is behind two 350KB frames" condition, made
+                    # deterministic.
+                    await asyncio.sleep(0.6)
+                    while True:
+                        try:
+                            raw, _flags = await ws.recv(timeout=5)
+                        except WebSocketError:
+                            return events
+                        events.append(json.loads(raw.decode())["event"])
+
+    events = asyncio.run(run())
+
+    assert events == expected
