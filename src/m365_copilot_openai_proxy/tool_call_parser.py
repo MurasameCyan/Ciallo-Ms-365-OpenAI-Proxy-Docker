@@ -288,7 +288,12 @@ def planner_fallback_needed(text: str, tool_names: set[str] | None = None) -> bo
         return False
     # Let each route's existing corrective file retry run before changing
     # planners; otherwise the retry would be bypassed by an early chain hop.
-    if not calls and _looks_like_fake_file_claim(clean):
+    # A delivered image is the same kind of stop: it is an answer, not a planning
+    # failure, so hopping planners would only redraw it -- another turn, another
+    # image quota unit on consumer -- and still not produce a tool_call.
+    if not calls and (
+        _looks_like_fake_file_claim(clean) or _DELIVERED_IMAGE_RE.search(clean)
+    ):
         return False
     if tool_names:
         return not any(
@@ -482,6 +487,10 @@ _FILE_CLAIM_PHRASE_RE = _re.compile(
     r"file (?:created|saved|generated|written)|created the file|saved to|generated the",
     _re.IGNORECASE,
 )
+# A delivered image: markdown image syntax, or a bare inline data uri.
+_DELIVERED_IMAGE_RE = _re.compile(
+    r"!\[[^\]]*\]\([^)]+\)|data:image/[\w.+-]+;base64,"
+)
 
 
 def _looks_like_fake_file_claim(text: str) -> bool:
@@ -496,6 +505,16 @@ def _looks_like_fake_file_claim(text: str) -> bool:
         return False
     if _FILE_CLAIM_URL_RE.search(text):
         return True
+    if _DELIVERED_IMAGE_RE.search(text):
+        # 已生成/生成了 is also how both providers word an image turn, and the
+        # image in the same reply is the artifact the phrase refers to -- the
+        # claim is not fake. Retrying it spent a second upstream turn (on
+        # consumer, another image quota unit) and, when that turn produced a
+        # Write call, handed the client that call instead of the picture: the
+        # reply said the image was ready and carried none. The url branch above
+        # still fires, so a hosted code-file link sitting beside an image is
+        # unaffected -- that link is direct evidence, the phrase circumstantial.
+        return False
     if _FILE_CLAIM_PHRASE_RE.search(text):
         return True
     return False

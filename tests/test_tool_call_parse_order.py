@@ -3,9 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 
+from fastapi.testclient import TestClient
+
+from m365_copilot_openai_proxy.app import create_app
+from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.media_proxy import rewrite_m365_media_urls
 from m365_copilot_openai_proxy.routes_api_messages import _anthropic_stream_with_tools
-from m365_copilot_openai_proxy.tool_call_parser import _looks_like_fake_file_claim
+from m365_copilot_openai_proxy.tool_call_parser import (
+    _looks_like_fake_file_claim,
+    planner_fallback_needed,
+)
 
 
 # Found against a live deployment: asked for a file, M365 used its NATIVE file
@@ -146,3 +153,91 @@ def test_write_tool_call_content_is_not_touched_by_the_rewriter():
                    and e["delta"].get("type") == "input_json_delta")
 
     assert json.loads(payload)["content"] == f"see {ASYNCGW_FILE_URL}"
+
+
+# An image reply is the other half of the same detector: the phrase branch keys on
+# 已生成/生成了, which is exactly how both providers word an image turn ("已生成一张
+# 图片：![...]"). The image is a real artifact, so the claim is not fake -- but the
+# retry fired anyway, spending a second upstream turn (on consumer, another image
+# quota unit) and, when that turn produced a Write call, replacing the delivered
+# image with it. That is the reported symptom: it says the picture is ready and
+# there is no picture.
+CAT_DATA_URI = "data:image/jpeg;base64,/9j/4AAQSkZJRg"
+CONSUMER_IMAGE_REPLY = f"已生成一张图片：\n\n![一只猫]({CAT_DATA_URI})\n\n"
+M365_IMAGE_REPLY = (
+    "已生成图片：\n\n"
+    "![cat](https://proxy.example/v1/m365-media?account_id=acct_1&u=aHR0cA&exp=1&sig=x)"
+)
+WRITE_TOOL = {"type": "function", "function": {"name": "Write", "description": "Write a file"}}
+
+
+def test_a_delivered_image_is_not_a_fake_file_claim():
+    assert _looks_like_fake_file_claim(CONSUMER_IMAGE_REPLY) is False
+    assert _looks_like_fake_file_claim(M365_IMAGE_REPLY) is False
+    # Without an image the same prose still has to trigger the retry, and a
+    # hosted code-file link still counts even when an image sits beside it:
+    # that link is direct evidence, the phrase is only circumstantial.
+    assert _looks_like_fake_file_claim("已生成 demo.py，见附件") is True
+    assert _looks_like_fake_file_claim(
+        f"已生成两个文件\n\n![cat]({CAT_DATA_URI})\n\n{NATIVE_FILE_REPLY}"
+    ) is True
+
+
+def test_a_delivered_image_does_not_escalate_to_another_planner():
+    # The planner chain asks the same question a different way, and it used to
+    # stop on the fake-file-claim verdict. Without this the fix above would only
+    # move the wasted turn from the corrective retry to the next planner, which
+    # cannot produce a tool_call for an image either.
+    assert planner_fallback_needed(CONSUMER_IMAGE_REPLY, {"Write"}) is False
+    # Prose with no calls must still escalate, or the chain is dead.
+    assert planner_fallback_needed("我无法访问你本地的文件。", {"Write"}) is True
+
+
+class _ImageThenToolCallClient:
+    """An image turn worded 已生成; a retry, if one fires, answers with a Write."""
+
+    def __init__(self):
+        self.prompts: list[str] = []
+
+    async def chat(self, prompt, additional_context=None, session=None, images=None):
+        self.prompts.append(prompt)
+        if len(self.prompts) == 1:
+            return CONSUMER_IMAGE_REPLY
+        return (
+            "```tool_call\n"
+            '{"name": "Write", "arguments": {"file_path": "S:/tmp/cat.png",'
+            ' "content": "not the image"}}\n'
+            "```"
+        )
+
+    async def chat_stream(self, prompt, additional_context=None, session=None, images=None):
+        yield await self.chat(prompt, additional_context, session, images)
+
+
+def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(tmp_path):
+    """The reported symptom, at the surface a client sees: a tools-bearing image
+    request must come back with the image, not with a Write call for a .png the
+    model would have to invent, and must not cost a second upstream turn."""
+    upstream = _ImageThenToolCallClient()
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="k", ADMIN_PASSWORD=""),
+        copilot_client_factory=lambda **kw: upstream,
+    )
+    # No planner chain: this is about the corrective retry, not routing.
+    app.state.tool_planning_mode = "native"
+
+    response = TestClient(app).post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer k"},
+        json={
+            "model": "m365-copilot",
+            "messages": [{"role": "user", "content": "画一只猫"}],
+            "tools": [WRITE_TOOL],
+        },
+    )
+
+    assert response.status_code == 200
+    message = response.json()["choices"][0]["message"]
+    assert CAT_DATA_URI in (message.get("content") or "")
+    assert not message.get("tool_calls")
+    assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
