@@ -812,7 +812,7 @@ async def _complete_nonstream_response(
         append_call_log(app.state, call_record)
         raise upstream_http_error(exc) from exc
 
-    raw_text, _declined = split_no_tool_marker(raw_text)
+    raw_text, declined = split_no_tool_marker(raw_text)
     tool_calls = _resolve_responses_tool_calls(
         raw_text,
         tool_names,
@@ -820,6 +820,7 @@ async def _complete_nonstream_response(
         choice[2],
         strict_tool_schemas,
         tool_namespaces,
+        declined,
     )
     if router_decided and tool_calls:
         on_router_call()
@@ -853,7 +854,7 @@ async def _complete_nonstream_response(
             record_response_text(app.state, call_record, raw_text)
             append_call_log(app.state, call_record)
             raise upstream_http_error(exc) from exc
-        raw_text, _declined = split_no_tool_marker(raw_text)
+        raw_text, declined = split_no_tool_marker(raw_text)
         tool_calls = _resolve_responses_tool_calls(
             raw_text,
             tool_names,
@@ -861,6 +862,7 @@ async def _complete_nonstream_response(
             choice[2],
             strict_tool_schemas,
             tool_namespaces,
+            declined,
         )
         call_record["retried"] = True
         if not tool_calls:
@@ -876,6 +878,7 @@ async def _complete_nonstream_response(
         not tool_calls
         and tool_names
         and not read_only_guard
+        and not declined
         and _looks_like_fake_file_claim(raw_text)
     ):
         log.info("  fake file claim detected, forcing corrective retry")

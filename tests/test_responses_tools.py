@@ -2984,3 +2984,145 @@ def test_codex_shaped_tools_still_reject_web_search_before_upstream(tmp_path):
     assert response.status_code == 400
     assert "only function tools are supported" in response.text
     assert not made or made[-1].calls == []
+
+
+# --- NO_TOOL_NEEDED on this surface too ------------------------------------
+#
+# The contract translate_responses_request injects asks the model to end a
+# no-action turn with the token (translator.py:381), so a declined turn is a
+# shape this surface really produces. Both call sites here used to drop the flag
+# (raw_text, _declined = ...), and the resolver took no declined parameter at
+# all, so its prose fallback ran anyway: a reply that says "put this in
+# `S:/tmp/demo.py` yourself" plus a python block became a fabricated Write for a
+# file the model had just declined to write. chat and /v1/messages never had this
+# because both thread declined into the resolver.
+DECLINED_PROSE = (
+    "You can paste it into `S:/tmp/demo.py` yourself:\n\n"
+    "```python\nprint(1)\n```\n\n"
+    "NO_TOOL_NEEDED"
+)
+UNDECLINED_PROSE = DECLINED_PROSE.replace("\n\nNO_TOOL_NEEDED", "")
+
+
+def _responses_output_names(response):
+    return [item["type"] for item in response.json()["output"]]
+
+
+def _responses_output_text(response):
+    return "".join(
+        part.get("text") or ""
+        for item in response.json()["output"]
+        if item.get("type") == "message"
+        for part in item.get("content") or []
+    )
+
+
+def _stream_item_types(response):
+    return [
+        event["item"].get("type")
+        for event in _events(response)
+        if event.get("type") == "response.output_item.added"
+    ]
+
+
+def _stream_text(response):
+    return "".join(
+        event.get("delta") or ""
+        for event in _events(response)
+        if event.get("type") == "response.output_text.delta"
+    )
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_declined_turn_does_not_fabricate_a_prose_write(tmp_path, stream):
+    """An explicit no-action answer must not be turned into a Write.
+
+    The prose fallback exists for a model that meant to write a file and
+    described it instead of calling the tool. A model that ended with the token
+    answered the contract, so synthesizing a call here invents a file write the
+    user never got -- and the client would report success for it.
+    """
+    _app, client, _made = _app_client(tmp_path, DECLINED_PROSE)
+
+    response = _post(client, {
+        "input": "how do I save this snippet?",
+        "tools": [WRITE_TOOL],
+        "stream": stream,
+    })
+
+    assert response.status_code == 200
+    if stream:
+        assert "function_call" not in _stream_item_types(response)
+        text = _stream_text(response)
+    else:
+        assert "function_call" not in _responses_output_names(response)
+        text = _responses_output_text(response)
+    assert "demo.py" in text
+    # The token is protocol chatter between host and model, never user-facing.
+    assert "NO_TOOL_NEEDED" not in text
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_prose_write_still_fires_without_the_token(tmp_path, stream):
+    """The positive control: the fix must not disable the fallback outright.
+
+    Same reply minus the token is the case the fallback was built for, so it has
+    to still synthesize the call -- otherwise the test above would pass just as
+    well with _extract_prose_write deleted.
+    """
+    _app, client, _made = _app_client(tmp_path, UNDECLINED_PROSE)
+
+    response = _post(client, {
+        "input": "how do I save this snippet?",
+        "tools": [WRITE_TOOL],
+        "stream": stream,
+    })
+
+    assert response.status_code == 200
+    if stream:
+        assert "function_call" in _stream_item_types(response)
+    else:
+        assert "function_call" in _responses_output_names(response)
+
+
+# The other half of the same alignment: the corrective "you claimed a file but
+# emitted no tool_call" retry. chat (routes_api_chat.py:571, :860) and /v1/messages
+# (routes_api_messages.py:545, :752) have always had `and not declined` in that
+# condition; this surface did not, so a declined turn that happens to word itself
+# with 已生成 spent a second upstream turn -- on consumer that is a real quota unit.
+FAKE_CLAIM_DECLINED = "已生成 S:/tmp/report.md 了，你自己保存一下。\n\nNO_TOOL_NEEDED"
+FAKE_CLAIM = FAKE_CLAIM_DECLINED.replace("\n\nNO_TOOL_NEEDED", "")
+
+
+def _upstream_calls(made) -> int:
+    return sum(len(client.calls) for client in made)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_declined_turn_skips_the_corrective_file_retry(tmp_path, stream):
+    _app, client, made = _app_client(tmp_path, FAKE_CLAIM_DECLINED)
+
+    response = _post(client, {
+        "input": "write the report",
+        "tools": [WRITE_TOOL],
+        "stream": stream,
+    })
+
+    assert response.status_code == 200
+    assert _upstream_calls(made) == 1
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_responses_undeclined_fake_claim_still_retries(tmp_path, stream):
+    """Positive control: the phrase branch is live, so the test above measures the
+    declined flag and not a claim that failed to be recognised."""
+    _app, client, made = _app_client(tmp_path, FAKE_CLAIM)
+
+    response = _post(client, {
+        "input": "write the report",
+        "tools": [WRITE_TOOL],
+        "stream": stream,
+    })
+
+    assert response.status_code == 200
+    assert _upstream_calls(made) == 2

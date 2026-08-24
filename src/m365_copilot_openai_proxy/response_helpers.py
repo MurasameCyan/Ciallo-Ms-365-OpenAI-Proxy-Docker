@@ -249,6 +249,7 @@ def _resolve_responses_tool_calls(
     allow_parallel: bool,
     strict_tool_schemas: Mapping[str, dict] | None = None,
     tool_namespaces: Mapping[str, str] | None = None,
+    declined: bool = False,
 ) -> list[dict]:
     if not tool_names:
         return []
@@ -266,7 +267,11 @@ def _resolve_responses_tool_calls(
         calls.append(call)
     if read_only_guard and calls:
         calls = _filter_read_only_tool_calls(calls)
-    if not calls and not read_only_guard:
+    # A model that answered the contract with the explicit no-action token did not
+    # forget to call a tool, so guessing a Write out of its prose would fabricate a
+    # file it deliberately declined to write. The chat and Anthropic resolvers have
+    # always skipped the fallback on `declined`; this path used to discard the flag.
+    if not calls and not read_only_guard and not declined:
         calls = _extract_prose_write(text, tool_names)
     if strict_tool_schemas:
         valid_calls = []
@@ -605,7 +610,7 @@ async def _responses_stream_with_tools(
             skip_router_fallback=skip_router_fallback,
         )
         full_text = await _collect_deduped_stream(stream)
-        full_text, _declined = split_no_tool_marker(full_text)
+        full_text, declined = split_no_tool_marker(full_text)
         tool_calls = _resolve_responses_tool_calls(
             full_text,
             names,
@@ -613,6 +618,7 @@ async def _responses_stream_with_tools(
             parallel_tool_calls,
             strict_tool_schemas,
             tool_namespaces,
+            declined,
         )
         if router_decided and tool_calls and on_router_call is not None:
             on_router_call()
@@ -644,7 +650,7 @@ async def _responses_stream_with_tools(
                     images,
                 )
             )
-            full_text, _declined = split_no_tool_marker(full_text)
+            full_text, declined = split_no_tool_marker(full_text)
             tool_calls = _resolve_responses_tool_calls(
                 full_text,
                 names,
@@ -652,11 +658,13 @@ async def _responses_stream_with_tools(
                 parallel_tool_calls,
                 strict_tool_schemas,
                 tool_namespaces,
+                declined,
             )
         elif (
             not tool_calls
             and names
             and not read_only_guard
+            and not declined
             and _looks_like_fake_file_claim(full_text)
         ):
             retry_prompt = (
