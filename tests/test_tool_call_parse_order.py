@@ -384,3 +384,89 @@ def test_an_image_turn_carrying_tools_survives_the_anthropic_surface_too(
         assert not [b for b in blocks if b.get("type") == "tool_use"], blocks
     assert any(marker in content for marker in markers), content
     assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
+
+
+# The /v1/responses surface takes the flat tool shape, not the nested
+# {"type": "function", "function": {...}} one the chat surface uses.
+WRITE_TOOL_RESPONSES = {
+    "type": "function",
+    "name": "Write",
+    "description": "Write a file",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string"},
+            "content": {"type": "string"},
+        },
+        "required": ["file_path", "content"],
+    },
+}
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "reply,markers",
+    [
+        (CONSUMER_IMAGE_REPLY, (CAT_DATA_URI,)),
+        (M365_RAW_IMAGE_REPLY, ("document.ashx", "/v1/m365-media?")),
+    ],
+    ids=["consumer-data-uri", "m365-raw-backtick"],
+)
+def test_an_image_turn_carrying_tools_survives_the_responses_surface_too(
+    tmp_path, stream, reply, markers
+):
+    """The third surface, which a full-suite mutation run showed was uncovered.
+
+    Disabling the guard failed only the chat and /v1/messages tests, so both
+    /v1/responses call sites -- routes_api_responses.py:879 non-stream and
+    response_helpers.py:660 stream -- were relying on the shared predicate with
+    nothing pinning them. Each keeps its own copy of the retry application,
+    exactly like the other two surfaces.
+    """
+    upstream = _ImageThenToolCallClient(reply)
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="k", ADMIN_PASSWORD=""),
+        copilot_client_factory=lambda **kw: upstream,
+    )
+    app.state.tool_planning_mode = "native"
+
+    response = TestClient(app).post(
+        "/v1/responses",
+        headers={"Authorization": "Bearer k"},
+        json={
+            "model": "m365-copilot",
+            "input": "\u753b\u4e00\u53ea\u732b",
+            "tools": [WRITE_TOOL_RESPONSES],
+            "stream": stream,
+        },
+    )
+
+    assert response.status_code == 200
+    if stream:
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        content = "".join(
+            event.get("delta") or ""
+            for event in events
+            if event.get("type") == "response.output_text.delta"
+        )
+        added = [
+            event["item"].get("type")
+            for event in events
+            if event.get("type") == "response.output_item.added"
+        ]
+        assert "function_call" not in added, added
+    else:
+        output = response.json()["output"]
+        content = "".join(
+            part.get("text") or ""
+            for item in output
+            if item.get("type") == "message"
+            for part in item.get("content") or []
+        )
+        assert not [i for i in output if i.get("type") == "function_call"], output
+    assert any(marker in content for marker in markers), content
+    assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
