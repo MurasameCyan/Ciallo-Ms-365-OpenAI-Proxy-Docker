@@ -183,6 +183,11 @@ ASYNCGW_IMAGE_URL = (
 )
 M365_RAW_IMAGE_REPLY = f"已生成图片：\n\n !`{DESIGNER_IMAGE_URL}` \n\n"
 WRITE_TOOL = {"type": "function", "function": {"name": "Write", "description": "Write a file"}}
+WRITE_TOOL_ANTHROPIC = {
+    "name": "Write",
+    "description": "Write a file",
+    "input_schema": {"type": "object"},
+}
 
 
 def test_a_delivered_image_is_not_a_fake_file_claim():
@@ -314,4 +319,68 @@ def test_an_image_turn_carrying_tools_delivers_the_image_and_spends_one_turn(
         content = message.get("content") or ""
         assert any(marker in content for marker in markers), content
         assert not message.get("tool_calls")
+    assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "reply,markers",
+    [
+        (CONSUMER_IMAGE_REPLY, (CAT_DATA_URI,)),
+        (M365_RAW_IMAGE_REPLY, ("document.ashx", "/v1/m365-media?")),
+    ],
+    ids=["consumer-data-uri", "m365-raw-backtick"],
+)
+def test_an_image_turn_carrying_tools_survives_the_anthropic_surface_too(
+    tmp_path, stream, reply, markers
+):
+    """Same guard on /v1/messages, which is what Claude Code speaks.
+
+    routes_api_messages keeps its own copy of the retry application in each
+    direction (:545 non-stream, :752 stream), so the OpenAI-surface tests above
+    do not cover it -- only the predicate is shared.
+    """
+    upstream = _ImageThenToolCallClient(reply)
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="k", ADMIN_PASSWORD=""),
+        copilot_client_factory=lambda **kw: upstream,
+    )
+    app.state.tool_planning_mode = "native"
+
+    response = TestClient(app).post(
+        "/v1/messages",
+        headers={"x-api-key": "k"},
+        json={
+            "model": "m365-copilot",
+            "max_tokens": 512,
+            "messages": [{"role": "user", "content": "画一只猫"}],
+            "tools": [WRITE_TOOL_ANTHROPIC],
+            "stream": stream,
+        },
+    )
+
+    assert response.status_code == 200
+    if stream:
+        events = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ") and line[6:].strip() != "[DONE]"
+        ]
+        content = "".join(
+            e["delta"].get("text") or ""
+            for e in events
+            if e.get("type") == "content_block_delta"
+            and e.get("delta", {}).get("type") == "text_delta"
+        )
+        started = [
+            e["content_block"]["type"]
+            for e in events
+            if e.get("type") == "content_block_start"
+        ]
+        assert "tool_use" not in started, started
+    else:
+        blocks = response.json()["content"]
+        content = "".join(b.get("text") or "" for b in blocks if b.get("type") == "text")
+        assert not [b for b in blocks if b.get("type") == "tool_use"], blocks
+    assert any(marker in content for marker in markers), content
     assert len(upstream.prompts) == 1, "a corrective retry spent a second image turn"
