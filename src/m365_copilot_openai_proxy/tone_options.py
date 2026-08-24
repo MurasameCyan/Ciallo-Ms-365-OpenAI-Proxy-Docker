@@ -57,6 +57,14 @@ TONE_TOOL_CALLING = {
     "Gpt_5_5_Chat": "unsupported",
 }
 
+# The server-side interpreter is the mirror image of that map, measured 2026-08-25
+# with one real turn per cell (.probe/ci_ab.py): tone=Magic returned the SHA-256 of
+# a nonce minted at probe time and an exact 12x12-digit product, with GeneratedCode
+# frames on the wire; Claude_Sonnet emitted no GeneratedCode frame and hallucinated
+# the digest. So a tone that honours the tool contract cannot compute, and a tone
+# that computes cannot tool-call -- neither half is a proxy bug, and a user asking
+# a Claude tone for a hash gets a confident wrong answer no code here can catch.
+
 # Same question for the Consumer provider, whose selector is a mode rather than a
 # tone (see _BUILTIN_CONSUMER_MODE_OPTIONS). Measured 2026-08-19 against the live
 # account, three rounds over all nine Consumer model names, streaming, with a Read

@@ -201,6 +201,35 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 
 已核对为「我们已经有」的项：`x-api-key` 认证（`auth_middleware.py:99`）、生成图下载限定主机（`media_proxy.py:57`）、会话映射路由、按 tone 选择推理模型。
 
+## 2026-08-25 实测：cramt/m365-copilot-proxy 扫描出的两条声明
+
+两条都来自 GitHub 扫描的「可能可用」清单，各跑真实上游轮验证（探针 `.probe/ci_ab.py`、`.probe/agentless_tools.py`，账户 `acct_2eed3918214f`，容器内 `/app/.venv`）。
+
+### 声明一：`cwc_code_interpreter*` optionsSets 解锁服务端 Python —— 一半成立
+
+服务端执行确实是真的，但**不是这些 flag 开出来的**。判据用「不执行就答不出」的 oracle：探针启动时现铸的 nonce 的 SHA-256、以及两个 12 位随机数的精确乘积。
+
+| 组 | optionsSets | SHA-256 | 乘积 | 帧 |
+| --- | --- | --- | --- | --- |
+| WITH | 生产原样 | 正确 | 正确 | `GeneratedCode` |
+| WITHOUT | 抽掉全部 6 个 `code_interpreter` flag | 正确 | 正确 | `GeneratedCode` |
+
+抽掉 `cwc_code_interpreter`、`cwc_code_interpreter_amsfix`、`cwc_code_interpreter_citation_fix`、`code_interpreter_interactive_charts`、`code_interpreter_interactive_charts_inline_image`、`code_interpreter_matplotlib_patching` 之后，答案与线上帧序都没变，所以在本租户上它们不承重（`_ALLOWED_MESSAGE_TYPES` 里的 `GeneratedCode` 才是我们能收到结果的原因）。保留是因为它们与浏览器流量一致；oracle 没有覆盖图表形状的那三个，所以没有删。
+
+`tone=Claude_Sonnet` 同一 oracle **无 `GeneratedCode` 帧**，并且编了一个假摘要 —— 会算的 tone 不听工具契约，听契约的 tone 不会算。
+
+### 声明二：Claude tone agent-less 工具调用 —— 成立，且我们本来就是这条路
+
+本仓库从来不创建 Studio agent（`studio_agent_discovery.py` 只绑定用户自己建好的），`studio_agent_id` 全程是可选 kwarg，所以「省掉创建/维护开销」对我们已经实现。实测用生产形状（`translate_openai_request` 出的真契约 + `_extract_tool_calls` 解析），客户端不带 agent：
+
+| tone | 需要工具的提问 | 不需要工具的提问 |
+| --- | --- | --- |
+| Claude_Sonnet | `Read` 调用正确 | 正常回答 + `NO_TOOL_NEEDED` |
+| Claude_Sonnet_Reasoning | `Read` 调用正确 | 未测 |
+| Magic（对照） | 0 调用，回「读不了你的文件」 | 未测 |
+
+与 2026-08-18 的 tone×tool 矩阵一致，账户上虽然绑着 agent 也不需要它。**「绕过 Disengaged」这半没有验证**：两个探针的提问都是良性的，不带 agent 也不会触发 jailbreak 分类器，要证伪或证实得用会被判 Disengaged 的提问对照，本轮没做。
+
 ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。

@@ -107,6 +107,12 @@ _VARIANTS = (
 # Chat payload optionsSets. Kept in sync with observed M365 web traffic and
 # cross-checked against public protocol notes (HEXUXIU/M365-Copilot2API).
 # See docs/protocol-options-diff.md for the full A/B matrix and rationale.
+# The six code_interpreter entries below do NOT gate server-side execution on this
+# tenant: A/B'd 2026-08-25 with one real turn per cell (.probe/ci_ab.py), stripping
+# all six left tone=Magic still answering the SHA-256 of a freshly minted nonce and
+# an exact 12x12-digit product, still with GeneratedCode frames on the wire. They
+# are kept because they mirror browser traffic, not because they buy the
+# interpreter; the chart-shaped ones were not exercised by that oracle.
 _OPTIONS_SETS = [
     "search_result_progress_messages_with_search_queries",
     "update_textdoc_response_after_streaming",
