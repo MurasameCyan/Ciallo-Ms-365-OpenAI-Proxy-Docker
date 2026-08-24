@@ -524,18 +524,32 @@ def _ws_frame(payload: bytes) -> bytes:
     return struct.pack("!BBQ", 0x81, 127, n) + payload
 
 
-async def _serve_then_cut(reader, writer) -> None:
-    """Answer the upgrade, queue the measured image shape, then bare-FIN close."""
+async def _handshake(reader, writer) -> bool:
+    """Answer one loopback connection: a WS upgrade, or the client's landing GET.
+
+    The consumer client fetches `BASE_URL/` before it opens the socket, so the
+    same port has to answer plain HTTP too.
+    """
     request = b""
     while b"\r\n\r\n" not in request:
         chunk = await reader.read(4096)
         if not chunk:
-            return
+            return False
         request += chunk
     key = b""
     for line in request.split(b"\r\n"):
         if line.lower().startswith(b"sec-websocket-key:"):
             key = line.split(b":", 1)[1].strip()
+    if not key:
+        body = b'{"id":"conversation-1"}'
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close"
+            b"\r\nContent-Length: "
+            + str(len(body)).encode() + b"\r\n\r\n" + body
+        )
+        await writer.drain()
+        writer.close()
+        return False
     accept = base64.b64encode(
         hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()
     )
@@ -544,6 +558,13 @@ async def _serve_then_cut(reader, writer) -> None:
         b"Connection: Upgrade\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n"
     )
     await writer.drain()
+    return True
+
+
+async def _serve_then_cut(reader, writer) -> None:
+    """Queue the measured image shape, then close with a bare FIN."""
+    if not await _handshake(reader, writer):
+        return
 
     # Two big partials ahead of the small terminal frame, then EOF with no close
     # frame -- the shape live image turns die of.
@@ -597,3 +618,91 @@ def test_drain_on_error_is_what_recovers_frames_queued_at_a_bare_eof(drain, expe
     events = asyncio.run(run())
 
     assert events == expected
+
+
+_PARTIAL_B64 = base64.b64encode(b"\xff" * 200_000).decode()
+
+
+async def _serve_image_turn(reader, writer, *, terminal: bool) -> None:
+    """A whole consumer image turn on a real socket, ending the way live ones do.
+
+    `terminal` picks which of the two observed endings to serve: the measured
+    one, where the turn just stops after the previews, or the one with the
+    `imageGenerated` frame we have only ever seen from a browser socket.
+    """
+    if not await _handshake(reader, writer):
+        return
+    writer.write(_ws_frame(json.dumps({"event": "connected"}).encode()))
+    await writer.drain()
+    # Let the client's setOptions/consents/send burst land before ending the
+    # turn: closing while it is still writing would test a race that live turns
+    # do not have, and its `ws.send` would fail outside the read loop.
+    await reader.read(65536)
+    payloads = [
+        {"event": "generatingImage", "prompt": "a red apple"},
+        {"event": "partialImageGenerated", "content": _PARTIAL_B64},
+    ]
+    if terminal:
+        payloads.append(
+            {"event": "imageGenerated", "url": "https://example.invalid/final.png"}
+        )
+    for payload in payloads:
+        writer.write(_ws_frame(json.dumps(payload).encode()))
+    await writer.drain()
+    # Neither ending sends a close frame or `done`: the socket just goes away.
+    writer.close()
+
+
+@pytest.mark.parametrize(
+    "terminal,expected",
+    [
+        # Short ids: the default ones embed the whole base64 payload, and pytest
+        # puts the id in an env var that Windows caps at 32767 characters.
+        pytest.param(
+            False,
+            f"![a red apple](data:image/jpeg;base64,{_PARTIAL_B64})",
+            id="previews-only",
+        ),
+        pytest.param(
+            True,
+            "![a red apple](https://example.invalid/final.png)",
+            id="with-terminal-frame",
+        ),
+    ],
+)
+def test_a_real_socket_image_turn_delivers_the_image_however_it_ends(
+    monkeypatch, terminal, expected
+):
+    """The seam the fake-session tests cannot reach: the real client over a real
+    curl_cffi socket, carrying a 267KB frame, ending in a bare FIN with no close
+    frame and no `done`. Either ending has to yield exactly one image and no
+    error -- upstream never says the turn is over, so the close is the only
+    signal there is.
+
+    This does not pin `drain_on_error`; it passes with the flag off, because at
+    this size the read loop keeps up and nothing is left queued. The flag's
+    effect is pinned directly, against curl_cffi, in the test above.
+    """
+    from m365_copilot_openai_proxy import consumer_client as module
+
+    async def run():
+        server = await asyncio.start_server(
+            lambda r, w: _serve_image_turn(r, w, terminal=terminal), "127.0.0.1", 0
+        )
+        port = server.sockets[0].getsockname()[1]
+        monkeypatch.setattr(module, "BASE_URL", f"http://127.0.0.1:{port}")
+        monkeypatch.setattr(
+            module,
+            "CHAT_WEBSOCKET_URL",
+            f"ws://127.0.0.1:{port}/c/api/chat?api-version=2",
+        )
+        client = ConsumerCopilotClient()
+        async with server:
+            return "".join([
+                chunk
+                async for chunk in client.chat_stream("draw an apple", "conversation-1")
+            ])
+
+    reply = asyncio.run(run())
+
+    assert reply.strip() == expected
