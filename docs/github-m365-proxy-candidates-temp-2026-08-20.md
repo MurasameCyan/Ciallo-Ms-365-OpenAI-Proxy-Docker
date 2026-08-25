@@ -302,6 +302,27 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 
 顺带把这张取舍表填满了：`Magic` / `Reasoning` / `Gpt_5_6_Reasoning` / `Gpt_5_5_*` 会算但不听工具契约（2026-08-18 矩阵）；`claude-sonnet-4-6` 听契约但不会算；`claude-sonnet-4-5` 两半都行。
 
+### 2026-08-25 复查上线路径：router 的分类轮必须排除
+
+`_combine_text` 判「本轮有没有工具契约」看的是 context 里有没有 `tool_call`，所以把每个**空 context** 的调用点都数了一遍，一共三个（第一遍只数出两个，漏了管理端探针）：
+
+1. **router 的分类轮**（`tool_router._router_decision` → `client.chat(router_prompt, [], None)`）—— 契约在 **prompt** 里而不是 context 里，`has_tools` 看不见它。这一格必须排除：那段提示词里列着能执行的工具（可能就是 shell）、还要求「EXACTLY ONE line」，追一句「你没有代码执行能力」等于自相矛盾，会把本该 `CALL_TOOL: bash(...)` 的哈希请求变成拒答。判据用 `NO_TOOL_NEEDED`（`tool_call_parser._NO_TOOL_MARKER`）—— 它是 router 契约在 prompt 通道里的指纹，回归测试直接拿真的 `build_router_prompt()` 拼，措辞改到丢掉这个 marker 就会红。触发条件不是理论上的：`auto` 模式下 `Claude_Sonnet` 是 verified 所以不走 router，但管理端把 planning 模式钉成 `router` / `studio` 就会走。
+2. **`/v1/images/generations`**（`routes_api_images:151` 发 `Generate exactly one image...`，空 context）—— 不排除，而且这次拿真上游量了，不再只靠类比。
+3. **`/admin/model-test`**（`routes_admin_modeltest:116` 发 `Reply with one word: pong`，空 context）—— 第一遍漏掉的一格。它走 `apply_request_model`，所以 `_tone` 照样是 `Claude_Sonnet`，这句话确实会追上去；判据 `classify_probe` 只看回复非空，量了也不排除。
+
+**后两格的实测**（`tone=Claude_Sonnet`，每格 baseline / patched 各一轮真上游，patched 用现网措辞、脚本先校验 `_NO_INTERPRETER_NOTE` 的 sha256 = `9540cfb2…` 再花 token）：
+
+| 格 | baseline | patched（追了那句话） |
+| --- | --- | --- |
+| `/v1/images/generations` | 出图，1 个 `document.ashx` url，590 字符 | **仍出图**，1 个 `document.ashx` url，618 字符 |
+| `/admin/model-test` | `ok`，回 `Ping! 🏓` | `ok`，回 `Ping` |
+
+出图那格是真正值得花这轮 token 的一格：那句话是「算不出来就说算不出来」，理论上完全可能把模型劝退成只描述不画。实测没有。两格都成立的原因同一个——那句话本身带条件，只在被要求精确计算时适用。
+
+**这份枚举现在是机器校验的**：`test_the_empty_context_callers_are_the_three_that_were_audited` 扫 `src/` 里 `.chat(x, [])` / `.chat_stream(x, [])` 的形状（跨行匹配、跳过注释行），断言按文件计数正好是这三处。加第四个空 context 调用点就会红，逼着加的人回答 router 那个问题（这段 prompt 自己带不带冲突契约），而不是等线上发现。
+
+同时补了三条端到端管线测试，盯住「map 的 key 在生产轮次里真的取得到」：`claude-sonnet-4-6` → `resolve_tone` → `Claude_Sonnet`（也断言 `/user` 指的出路 `claude-sonnet-4-5` 解析得到），以及真的建一个 `SubstrateCopilotClient`、按 `apply_request_model` 的方式赋 `_tone`、截获 `_stream_turn_with_retry` 收到的 `text` 断言那句话在里面。少了这层，改个 label 或者 tone 解析回落到默认，都会让这句话在生产里静默不发，而只测 `_combine_text` 的单测一个都不会红。
+
 ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。

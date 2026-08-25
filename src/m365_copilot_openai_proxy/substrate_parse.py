@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 
 from .media_proxy import normalize_m365_media_text
 from .tone_options import tone_server_interpreter
+from .tool_call_parser import _NO_TOOL_MARKER
 
 # M365 injects private-use citation markers in streamed and final text, e.g.
 #   [label](\ue200cite\ue202turn1file1\ue201)
@@ -422,6 +423,17 @@ def _extract_image_urls(value: object) -> list[str]:
 # ponytail: prompt-level again, and it only claims what was measured -- the model
 # stops inventing when told it cannot execute. Nothing here can verify an arbitrary
 # claimed value, so a tone that ignores the sentence is not detectable downstream.
+# Three call sites send an empty context, so a no-tools turn reaches this note from all
+# three. Only the router turn is excluded (see _combine_text). The other two were measured
+# with the shipped sentence on Claude_Sonnet, one turn per arm, and neither changed
+# outcome:
+#   /v1/images/generations (routes_api_images, "Generate exactly one image...") -- the
+#       image is still produced, a designerapp document.ashx url in both arms.
+#   /admin/model-test (routes_admin_modeltest, "Reply with one word: pong") -- still
+#       answered non-empty, so classify_probe still reports "ok" to the operator.
+# Both survive because the sentence is conditional on an exact computation being asked
+# for; a non-computation turn is unaffected ("capital of France" -> "Paris."). The router
+# turn is different in kind -- its contract is in the prompt, so it contradicts.
 _NO_INTERPRETER_NOTE = (
     "You have no code execution in this environment. If an exact result requires "
     "computation (a hash, checksum, large-number arithmetic, an encoding conversion), "
@@ -474,6 +486,14 @@ def _combine_text(prompt: str, context: list[str], tone: str | None = None) -> s
             "fenced code block tagged with its language. Never attach a file in place of this."
             "[/FORMAT]"
         )
-    elif tone_server_interpreter(tone) == "absent":
+    elif tone_server_interpreter(tone) == "absent" and _NO_TOOL_MARKER not in prompt:
+        # The router's classification turn (tool_router.build_router_prompt, sent as
+        # client.chat(prompt, [])) carries its contract in the PROMPT, not the context,
+        # so has_tools is False for it. It lists tools that do run -- possibly a shell
+        # -- and demands exactly one line of output, so appending "you have no code
+        # execution" there would both contradict it and turn a hash request the router
+        # should route into a refusal. The marker is that contract's fingerprint.
+        # A user prompt that happens to contain the marker loses the sentence: an
+        # acceptable false negative, since it drops a mitigation, never breaks a turn.
         result += "\n\n" + _NO_INTERPRETER_NOTE
     return result

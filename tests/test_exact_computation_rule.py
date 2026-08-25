@@ -16,6 +16,8 @@ tool is right there, which measured as a working path and must not regress.
 
 from __future__ import annotations
 
+import asyncio
+import pathlib
 import re
 
 from m365_copilot_openai_proxy.models import (
@@ -23,9 +25,12 @@ from m365_copilot_openai_proxy.models import (
     OpenAIChatRequest,
     OpenAIResponsesRequest,
 )
+from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotClient
 from m365_copilot_openai_proxy.substrate_parse import _NO_INTERPRETER_NOTE, _combine_text
 from m365_copilot_openai_proxy.templates import _USER_HTML
-from m365_copilot_openai_proxy.tone_options import TONE_SERVER_INTERPRETER
+from m365_copilot_openai_proxy.tone_options import TONE_OPTIONS, TONE_SERVER_INTERPRETER
+from m365_copilot_openai_proxy.tone_resolver import resolve_tone
+from m365_copilot_openai_proxy.tool_router import build_router_prompt
 from m365_copilot_openai_proxy.translator import (
     default_tool_system_prompt,
     translate_anthropic_request,
@@ -214,3 +219,101 @@ def test_the_sentence_survives_context_and_lands_last():
     combined = _combine_text("hash this", ["System instructions:\nBe brief."], "Claude_Sonnet")
     assert combined.endswith(_NO_INTERPRETER_NOTE)
     assert combined.index("---") < combined.index("hash this")
+
+
+# ------------------------------------- the gate is reachable from a real request
+# _combine_text gating is only worth anything if a production turn arrives with the
+# tone spelled the way the map keys it. Two links carry that: the public model name
+# resolves to a tone value (tone_resolver), and the route assigns it to the client
+# (routes_api_common.apply_request_model does `client._tone = tone`) which chat_stream
+# then passes down. Renaming a label or resolving to a default would silently stop the
+# note from ever firing, and no unit test on _combine_text alone would notice.
+
+
+def test_the_public_model_name_resolves_to_the_tone_the_map_keys():
+    assert resolve_tone("claude-sonnet-4-6", TONE_OPTIONS, "Magic")[0] == "Claude_Sonnet"
+    assert TONE_SERVER_INTERPRETER["Claude_Sonnet"] == "absent"
+    # The remedy the /user hint names has to resolve too, or the advice is dead copy.
+    assert resolve_tone("claude-sonnet-4-5", TONE_OPTIONS, "Magic")[0] == "Claude_Sonnet_Reasoning"
+
+
+def _wire_text(tone: str, context: list[str], prompt: str = "What is the SHA-256 of abc?") -> str:
+    """The text chat_stream actually hands the turn streamer."""
+    client = SubstrateCopilotClient.__new__(SubstrateCopilotClient)
+    client._token = "token"
+    client._time_zone = "Asia/Shanghai"
+    client._extra_tool_prompt = ""
+    client._oid = "oid"
+    client._tid = "tid"
+    client._tone = tone  # exactly what apply_request_model assigns
+    sent: list[str] = []
+
+    async def capture(*, text, conv_id, session_id, is_start_of_session, annotations=None):
+        sent.append(text)
+        yield "ok"
+
+    client._stream_turn_with_retry = capture
+
+    async def run() -> None:
+        async for _ in client.chat_stream(prompt, context):
+            pass
+
+    asyncio.run(run())
+    return sent[0]
+
+
+def test_a_no_tools_turn_carries_the_note_all_the_way_to_the_turn_streamer():
+    assert _wire_text("Claude_Sonnet", []).endswith(_NO_INTERPRETER_NOTE)
+
+
+def test_the_sibling_tone_and_a_tools_turn_send_nothing_extra():
+    assert _NO_INTERPRETER_NOTE not in _wire_text("Claude_Sonnet_Reasoning", [])
+    assert _NO_INTERPRETER_NOTE not in _wire_text("Claude_Sonnet", ["Emit a tool_call block"])
+
+
+def test_the_router_classification_turn_is_left_alone():
+    """The router sends its contract as the PROMPT with empty context, so the has_tools
+    check cannot see it. Appending "you have no code execution" there would contradict a
+    prompt that lists a shell and demands exactly one line -- a hash request the router
+    should answer with CALL_TOOL: bash(...) would come back as a refusal instead.
+    Built with the real prompt builder so a rewording that drops the marker fails here.
+    """
+    router_prompt = build_router_prompt(
+        "user: what is the sha256 of abc?", ["- bash: run a shell command"]
+    )
+    assert _NO_INTERPRETER_NOTE not in _wire_text("Claude_Sonnet", [], router_prompt)
+
+
+# ------------------------------------------ the enumeration itself, machine-checked
+# The router exclusion is only complete if the empty-context callers are known, and that
+# set was audited by hand once. This pins it: a fourth caller sends a no-tools turn into
+# the note's reach, and whoever adds it has to decide the same question the router raised
+# (does this prompt carry its own conflicting contract?) instead of finding out in prod.
+
+_SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "m365_copilot_openai_proxy"
+# `client.chat(prompt, [], ...)` / `client.chat_stream(prompt, [], ...)`, across newlines.
+_EMPTY_CONTEXT_CALL = re.compile(r"\.chat(?:_stream)?\(\s*[A-Za-z_][\w.]*\s*,\s*\[\s*\]")
+
+
+def _empty_context_callers() -> dict[str, int]:
+    found: dict[str, int] = {}
+    for path in sorted(_SRC.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for match in _EMPTY_CONTEXT_CALL.finditer(text):
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            if text[line_start:].lstrip().startswith("#"):
+                continue  # a comment quoting the shape, not a call site
+            found[path.name] = found.get(path.name, 0) + 1
+    return found
+
+
+def test_the_empty_context_callers_are_the_three_that_were_audited():
+    assert _empty_context_callers() == {
+        # The contract is in the prompt -> excluded by the _NO_TOOL_MARKER check above.
+        "tool_router.py": 1,
+        # Measured with the shipped sentence, one turn per arm, outcome unchanged:
+        # the image is still produced, and the probe still classifies as "ok".
+        "routes_api_images.py": 1,
+        "routes_admin_modeltest.py": 1,
+    }
+
