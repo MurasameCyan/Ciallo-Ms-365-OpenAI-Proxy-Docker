@@ -118,6 +118,17 @@ def _image_markdown(prompt: str, target: str) -> str:
     return f"\n\n![{prompt or 'image'}]({target})\n\n"
 
 
+def _buffered_image_markdown(prompt: str, content: str) -> str:
+    """Markdown for a buffered progressive preview, handed over as a data uri.
+
+    Shared by every branch that ends a turn with a picture already in hand, so
+    the ending shape (a cut socket or a polite ``done``) cannot decide whether
+    the image survives.
+    """
+    mime = "png" if content.startswith("iVBOR") else "jpeg"
+    return _image_markdown(prompt, f"data:image/{mime};base64,{content}")
+
+
 def _socket_death_note(
     exc: WebSocketError,
     *,
@@ -512,10 +523,7 @@ class ConsumerCopilotClient:
                 # before it draws, and a turn that streamed "here it is" and then
                 # lost the picture is the bug being fixed, not a success.
                 if partial_image:
-                    mime = "png" if partial_image.startswith("iVBOR") else "jpeg"
-                    yield _image_markdown(
-                        image_prompt, f"data:image/{mime};base64,{partial_image}"
-                    )
+                    yield _buffered_image_markdown(image_prompt, partial_image)
                     return
                 raise ConsumerCopilotError(
                     _socket_death_note(
@@ -584,6 +592,15 @@ class ConsumerCopilotClient:
                 elif event == "generatingImage":
                     image_prompt = message.get("prompt") or ""
                 elif event == "done":
+                    # An image turn can also end politely. Without the same
+                    # flush the cut branch does, a turn that streamed the
+                    # finished JPEG as progressive base64 and then said `done`
+                    # returned an empty reply -- the picture was in hand and
+                    # thrown away because of how the turn ended. `partial_image`
+                    # is cleared by the terminal `imageGenerated`, so a turn
+                    # that got the url does not repeat it here.
+                    if partial_image:
+                        yield _buffered_image_markdown(image_prompt, partial_image)
                     return
                 elif event == "challenge":
                     method = message.get("method")

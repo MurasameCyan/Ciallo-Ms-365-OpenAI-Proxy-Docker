@@ -363,8 +363,9 @@ def test_any_socket_death_after_the_partial_images_still_delivers_the_image(deat
 
 def test_a_delivered_url_ends_the_turn_and_is_not_also_sent_as_base64():
     # The shape `drain_on_error` makes ordinary: the terminal frame comes out of
-    # curl_cffi's queue and the recorded close lands right behind it. Upstream
-    # never sends `done` on an image turn, so that close is the end of the turn --
+    # curl_cffi's queue and the recorded close lands right behind it. An image
+    # turn may end with either that bare close or a polite `done`, so the close
+    # is an ending here rather than a failure --
     # raising here reported a complete turn as failed, and on the non-streaming
     # path that discards the reply and loses the image just delivered. The
     # terminal frame also clears the buffered partial, so the fallback cannot
@@ -380,6 +381,82 @@ def test_a_delivered_url_ends_the_turn_and_is_not_also_sent_as_base64():
 
     assert reply.strip() == "![a red apple](https://example.invalid/final.png)"
     assert "data:image" not in reply
+
+
+def test_a_polite_done_after_the_partial_images_still_delivers_the_image():
+    # The other way an image turn ends. The cut branch already flushed the
+    # buffered JPEG, but `done` returned immediately -- so a turn that had the
+    # finished picture in hand reached the client as an empty reply purely
+    # because upstream ended politely instead of dropping the socket.
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/rough"}',
+        '{"event":"partialImageGenerated","content":"/9j/sharper"}',
+        '{"event":"done"}',
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert reply.strip() == "![a red apple](data:image/jpeg;base64,/9j/sharper)"
+
+
+def test_text_before_the_image_keeps_both_when_the_turn_ends_politely():
+    # Same common shape as the cut case: upstream writes a line before drawing.
+    socket = _FakeSocket([
+        '{"event":"appendText","text":"Sure, here it is."}',
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/final"}',
+        '{"event":"done"}',
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert "Sure, here it is." in reply
+    assert "![a red apple](data:image/jpeg;base64,/9j/final)" in reply
+
+
+def test_a_url_delivered_before_done_is_not_also_repeated_as_base64():
+    # The terminal `imageGenerated` clears the buffer, so the `done` flush must
+    # not append half a megabyte of duplicate for an image already sent by url.
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"/9j/rough"}',
+        '{"event":"imageGenerated","url":"https://example.invalid/final.png"}',
+        '{"event":"done"}',
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert reply.strip() == "![a red apple](https://example.invalid/final.png)"
+    assert "data:image" not in reply
+
+
+def test_a_plain_text_turn_ending_in_done_gains_no_image():
+    # The flush is gated on a buffered partial, so ordinary text turns -- the
+    # overwhelming majority -- must be untouched by it.
+    socket = _FakeSocket([
+        '{"event":"appendText","text":"Four."}',
+        '{"event":"done"}',
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert reply.strip() == "Four."
+    assert "![" not in reply
+
+
+def test_a_png_partial_flushed_on_done_keeps_its_own_mime_type():
+    # The mime sniff lives in the shared helper now; both endings must agree,
+    # or a PNG delivered by `done` would reach the client labelled jpeg.
+    socket = _FakeSocket([
+        '{"event":"generatingImage","prompt":"a red apple"}',
+        '{"event":"partialImageGenerated","content":"iVBORw0KGgo"}',
+        '{"event":"done"}',
+    ])
+
+    reply = _collect(ConsumerCopilotClient(), socket)
+
+    assert reply.strip() == "![a red apple](data:image/png;base64,iVBORw0KGgo)"
 
 
 def test_a_cut_with_no_image_reports_the_failure_without_quoting_the_payload():
