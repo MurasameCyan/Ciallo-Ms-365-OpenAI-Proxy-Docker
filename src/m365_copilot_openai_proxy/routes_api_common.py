@@ -21,6 +21,7 @@ from .substrate_client import (
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
 from .tone_options import (
     CONSUMER_MODE_TOOL_CALLING,
+    consumer_mode_image_generation,
     TOOL_PLANNING_MODES,
     effective_tool_calling,
     tool_planning_mode,
@@ -400,6 +401,12 @@ def build_consumer_models_list(
             # this reports its way out of.
             "capabilities": {"tools": status != "unsupported"},
             "tool_calling": status,
+            # Measured, same spirit as the tool hint: four of the nine Consumer
+            # modes send no image frame when asked for a picture, and `reasoning`
+            # answers "here is your image" having sent nothing. A client picking a
+            # model for an image turn can only avoid that cell if the catalogue
+            # says which modes actually draw.
+            "image_generation": consumer_mode_image_generation(option.get("mode")),
         })
     return data
 

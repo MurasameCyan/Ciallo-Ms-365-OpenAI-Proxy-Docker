@@ -136,6 +136,42 @@ CONSUMER_MODE_TOOL_CALLING: dict[str, str] = {
 }
 
 
+# Whether a Consumer mode actually draws when asked for a picture. Measured
+# 2026-08-25 against the live account, one turn per mode, by tapping `drain_json`
+# so the record is the frames the shipped client received:
+#   smart, chat, search   -> generatingImage + partialImageGenerated (a real JPEG)
+#   reasoning, study, research, coco -> not one image frame
+# The four that do not draw are not all the same failure, and none of them is
+# ours to fix:
+#   reasoning claims success in prose ("已为你生成一张...") having sent nothing --
+#     the reported bug, and the reason it is recorded here rather than argued
+#     about: the proxy has no image to lose, and Copilot's own web UI on this
+#     account answers the same prompt the same way
+#   study refuses by design (it wants to teach, not draw)
+#   research answers with a web image-search stub (`<vs?i=...>`)
+#   coco asked a safety question about the prompt instead of drawing
+# So a mode missing an image is upstream behaviour, not a delivery bug. Keys are
+# modes for the same reason as the map above.
+CONSUMER_MODE_IMAGE_GENERATION: dict[str, str] = {
+    "smart": "verified",
+    "chat": "verified",
+    "search": "verified",
+    "reasoning": "absent",
+    "study": "absent",
+    "research": "absent",
+    "coco": "absent",
+}
+
+
+def consumer_mode_image_generation(mode: str | None) -> str:
+    """Measured image generation for a Consumer mode: verified / absent / unknown.
+
+    ``absent`` is a statement about upstream, not about this proxy: the mode was
+    asked for a picture on a live account and sent no image frame at all.
+    """
+    return CONSUMER_MODE_IMAGE_GENERATION.get(str(mode or ""), "unknown")
+
+
 def tone_tool_calling(tone: str | None) -> str:
     """Measured tool-calling status: verified / flaky / unsupported / unknown.
 
