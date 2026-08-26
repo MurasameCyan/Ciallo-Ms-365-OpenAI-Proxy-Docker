@@ -159,6 +159,17 @@ body[data-lang="en"] .card h2{font-size:.95rem}
 /* One 180px column is too narrow to read three explanations in, and unlike the
    admin grid this one never reflows, so a fixed wider bubble stays in the card. */
 .user-default-grid .field-tip-bubble{right:auto;width:290px}
+/* The caveat row that replaced the two prose hints. Not a grid field, so it has
+   to establish its own positioning context -- the bubble is absolutely positioned
+   against its containing block (same contract as .user-config-field /
+   .runtime-field-label). inline-flex keeps the label at its natural width so the
+   `!` icon sits right beside it instead of being pushed to the far edge by
+   .field-tip's margin-left:auto, and the bubble is wider than a grid field's
+   because it carries three measured caveats rather than one. */
+.user-notice{position:relative;display:inline-flex;align-items:center;margin-bottom:.5rem;font-size:.8rem;font-weight:800;color:var(--strong)}
+.user-notice .field-row{width:auto}
+.user-notice .field-tip{margin-left:.35rem}
+.user-notice .field-tip-bubble{right:auto;width:min(560px,78vw)}
 .user-media-suffix{margin-top:1.1rem}
 .user-media-suffix .user-config-label{font-size:.86rem;font-weight:800;color:var(--strong)}
 .user-media-suffix textarea{width:100%;box-sizing:border-box;min-height:60px;padding:9px 14px;background:rgba(96,242,255,.08);border:1px solid rgba(96,242,255,.45);border-radius:14px;color:var(--strong);font-size:.85rem;font-family:monospace;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.16);resize:vertical;scrollbar-width:none;-ms-overflow-style:none}
@@ -289,8 +300,7 @@ body[data-theme="light"] .glass-select-option.active{color:#007aff!important;bac
       <span style="font-size:.7rem;color:#475569;margin-left:auto" data-i18n="click_expand">点击展开</span>
       </summary>
       <div style="margin-top:.75rem">
-      <div class="hint" data-i18n="user_tone_hint">保存后仅影响当前用户，不再跟随全局模板变化。</div>
-      <div class="hint" data-i18n="user_no_interpreter_hint">claude-sonnet-4-6 没有服务端代码执行：不带工具的轮次里，哈希、大数运算这类精确计算会直接答「算不了」，不然它会给一个看起来对的错值。要精确结果就声明一个能执行命令的工具，或改用 claude-sonnet-4-5，实测它既有服务端执行、也认工具调用。</div>
+      <div class="user-notice"><span class="field-row"><span data-i18n="user_notice_label">注意事项</span><span class="field-tip" tabindex="0" role="note"><span class="field-tip-bubble"><span class="tip-line"><b data-i18n="user_notice_m365">M365 精确计算</b><span data-i18n="user_no_interpreter_hint">claude-sonnet-4-6 没有服务端代码执行：不带工具的轮次里，哈希、大数运算这类精确计算会直接答「算不了」，不然它会给一个看起来对的错值。要精确结果就声明一个能执行命令的工具，或改用 claude-sonnet-4-5，实测它既有服务端执行、也认工具调用。</span></span><span class="tip-line"><b data-i18n="user_notice_m365_others">其他 M365 模型</b><span data-i18n="user_other_tones_hint">服务端代码执行：Copilot_自动、Copilot_快速答复、Copilot_深度思考、claude-sonnet-4-5、gpt-5.6、gpt-5.5_Chat、gpt-5.5、gpt-5.4_Chat、gpt-5.4、gpt-5.3_Chat、gpt-5.2_Chat 实测都有，claude-fable-5、claude-opus、gpt-5.3、gpt-5.2 还没实测。工具调用：只有 claude-sonnet-4-6、claude-sonnet-4-5 实测遵守契约，Copilot_自动、Copilot_深度思考、gpt-5.6、gpt-5.5_Chat、gpt-5.5 实测不遵守——「工具调用规划」保持「自动」时只有这几个会多花一轮判定，其余模型不额外花轮数。</span></span><span class="tip-line"><b data-i18n="user_notice_consumer">个人版出图</b><span data-i18n="user_consumer_image_hint">要出图请选 copilot、copilot-smart、copilot-chat 或 copilot-search，实测这三种模式会真的返回图片。copilot-reasoning / copilot-thinking 会说「已为你生成」却一帧图都不发，copilot-study 只讲不画，copilot-research 给的是网页图搜结果，copilot-coco 会先反问一句——这是上游行为，代理这边没有图可交付。</span></span></span></span></span></div>
       <div class="user-default-grid">
         <label class="user-config-field" style="display:none"><span data-i18n="tone_title">对话模式</span><select id="tone" class="tone-select" onchange="saveTone()"></select></label>
         <label class="user-config-field"><span class="field-row"><span data-i18n="run_permission_label">运行权限</span><span class="field-tip" tabindex="0" role="note"><span class="field-tip-bubble"><span class="tip-line"><b data-i18n="run_permission_inherit">继承全局</b><span id="user-run-permission-default"></span></span><span class="tip-line"><b data-i18n="run_permission_read_only">只读</b><span data-i18n="run_permission_hint_read_only">只放行读取类工具调用，写入、执行类会被丢弃。</span></span><span class="tip-line"><b data-i18n="run_permission_full">完全</b><span data-i18n="run_permission_hint_full">放行客户端声明的全部工具调用。</span></span><span class="tip-line"><span data-i18n="run_permission_hint_ceiling">全局设置是上限：你只能收紧，不能放宽。</span></span></span></span></span><select id="user-run-permission" class="tone-select" onchange="saveTone()"></select></label>

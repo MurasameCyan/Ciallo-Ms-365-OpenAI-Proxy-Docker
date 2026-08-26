@@ -20,6 +20,7 @@ import asyncio
 import pathlib
 import re
 
+from m365_copilot_openai_proxy import runtime_settings
 from m365_copilot_openai_proxy.models import (
     AnthropicMessagesRequest,
     OpenAIChatRequest,
@@ -28,7 +29,14 @@ from m365_copilot_openai_proxy.models import (
 from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotClient
 from m365_copilot_openai_proxy.substrate_parse import _NO_INTERPRETER_NOTE, _combine_text
 from m365_copilot_openai_proxy.templates import _USER_HTML
-from m365_copilot_openai_proxy.tone_options import TONE_OPTIONS, TONE_SERVER_INTERPRETER
+from m365_copilot_openai_proxy.tone_options import (
+    TONE_OPTIONS,
+    TONE_SERVER_INTERPRETER,
+    consumer_mode_image_generation,
+    router_applies,
+    tone_server_interpreter,
+    tone_tool_calling,
+)
 from m365_copilot_openai_proxy.tone_resolver import resolve_tone
 from m365_copilot_openai_proxy.tool_router import build_router_prompt
 from m365_copilot_openai_proxy.translator import (
@@ -165,6 +173,138 @@ def test_the_hint_sits_in_the_card_that_holds_the_mode_defaults():
     card = _USER_HTML[_USER_HTML.index('<div class="card mode-profile-card">') :]
     card = card[: card.index('id="my-sessions-details"')]
     assert 'data-i18n="user_no_interpreter_hint"' in card
+
+
+# ------------------------------------------- the notice those hints fold into
+# Three measured caveats, one per provider surface, are too long to sit as prose
+# above the fields, and the first one is the least useful of the three read in
+# isolation (it warns about one model out of sixteen). They now share a single
+# "注意事项" row whose `!` tooltip carries all three, which also let the old
+# "保存后仅影响当前用户" line go: it described the form, not a measurement.
+# The tests below exist because the copy quotes MEASURED lists by name -- prose
+# that outlives the map it summarises is how the earlier "Claude 系" wording got
+# wrong, so each list is pinned to the map it came from.
+
+_NOTICE_KEYS = (
+    "user_notice_label",
+    "user_notice_m365",
+    "user_notice_m365_others",
+    "user_notice_consumer",
+    "user_no_interpreter_hint",
+    "user_other_tones_hint",
+    "user_consumer_image_hint",
+)
+
+
+def _i18n_values(key: str) -> list[str]:
+    """Both language values for one key, zh first (the order of the two tables)."""
+    return re.findall(rf"{key}:'([^']*)'", _USER_HTML)
+
+
+def _inline_text(key: str) -> str:
+    """The fallback text inside the element, shown before the i18n script runs."""
+    match = re.search(rf'data-i18n="{key}">([^<]*)<', _USER_HTML)
+    assert match, f"no inline fallback for {key}"
+    return match.group(1)
+
+
+def _notice_block() -> str:
+    block = _USER_HTML[_USER_HTML.index('<div class="user-notice">') :]
+    return block[: block.index("</div>") + len("</div>")]
+
+
+def test_the_three_caveats_share_one_tooltip_on_the_notice_row():
+    notice = _notice_block()
+    assert 'class="field-tip"' in notice and 'class="field-tip-bubble"' in notice
+    assert notice.count('class="tip-line"') == 3
+    assert re.findall(r'<b data-i18n="([^"]+)"', notice) == [
+        "user_notice_m365",
+        "user_notice_m365_others",
+        "user_notice_consumer",
+    ]
+    assert re.findall(r'<span data-i18n="(user_\w*hint)"', notice) == [
+        "user_no_interpreter_hint",
+        "user_other_tones_hint",
+        "user_consumer_image_hint",
+    ]
+
+
+def test_the_notice_replaced_the_two_prose_hints_and_the_form_only_line():
+    """user_tone_hint said nothing measured -- it described the save button. The
+    two capability hints keep their keys but move inside the bubble, so a leftover
+    `class="hint"` row would show the same text twice."""
+    assert "user_tone_hint" not in _USER_HTML
+    assert "不再跟随全局模板变化" not in _USER_HTML
+    assert 'class="hint" data-i18n="user_no_interpreter_hint"' not in _USER_HTML
+    assert 'class="hint" data-i18n="user_other_tones_hint"' not in _USER_HTML
+
+
+def test_every_notice_string_is_bilingual_and_matches_its_inline_fallback():
+    """The house rule on both templates: the inline text IS the zh value, so a zh
+    edit that misses one of the two copies shows different words to the same
+    reader depending on whether the i18n script has run."""
+    for key in _NOTICE_KEYS:
+        values = _i18n_values(key)
+        assert len(values) == 2, f"{key} must exist in zh and en, got {values}"
+        assert all(v.strip() for v in values), key
+        assert _inline_text(key) == values[0], key
+
+
+def _tone_labels(predicate) -> list[str]:
+    """Public model names, in picker order, for the tones matching `predicate`."""
+    return [option["label"] for option in TONE_OPTIONS if predicate(option["value"])]
+
+
+def test_the_other_models_line_pins_the_lists_to_the_measured_maps():
+    """Every list in that sentence is an enumeration of a map, so it is written
+    here as a join of that map -- a tone added to TONE_OPTIONS, or a status that
+    moves from unknown to verified, fails this with the exact text to paste."""
+    interpreter_yes = _tone_labels(lambda t: tone_server_interpreter(t) == "verified")
+    interpreter_unmeasured = _tone_labels(lambda t: tone_server_interpreter(t) == "unknown")
+    contract_yes = _tone_labels(lambda t: tone_tool_calling(t) == "verified")
+    extra_turn = _tone_labels(lambda t: router_applies("auto", t))
+    assert extra_turn == _tone_labels(lambda t: tone_tool_calling(t) == "unsupported"), (
+        "the sentence equates 'measured to ignore the contract' with 'pays for a "
+        "routing turn under auto'; a flaky tone would make that false"
+    )
+    zh, en = _i18n_values("user_other_tones_hint")
+    for group in (interpreter_yes, interpreter_unmeasured, contract_yes, extra_turn):
+        assert "、".join(group) in zh, "、".join(group)
+        assert ", ".join(group) in en, ", ".join(group)
+
+
+def test_the_notice_accounts_for_every_model_in_the_picker():
+    """A model the notice never names reads as "no caveat measured" when the truth
+    may be that nobody looked -- the one interpreter-absent tone is named by the
+    first line instead, so the two m365 lines together must cover the picker."""
+    m365_lines = _i18n_values("user_other_tones_hint") + _i18n_values("user_no_interpreter_hint")
+    covered = " ".join(m365_lines)
+    for option in TONE_OPTIONS:
+        assert option["label"] in covered, option["label"]
+
+
+def test_the_consumer_line_sorts_every_shipped_model_by_whether_it_draws():
+    """Same enumeration risk on the Consumer side, plus a claim about structure:
+    the first sentence is the answer (the models that draw), everything after it is
+    the explanation (the ones that do not), so a model on the wrong side of that
+    boundary sends someone to a mode that answers "已为你生成" with no image.
+    Verdicts come from CONSUMER_MODE_IMAGE_GENERATION, and modes are shared
+    (copilot/copilot-smart, copilot-reasoning/copilot-thinking), so the page has to
+    name models while the map keys modes."""
+    catalogue = runtime_settings._RUNTIME_SETTINGS_DEFAULTS["consumer_mode_options"]
+    verdict = {
+        option["model"]: consumer_mode_image_generation(option["mode"]) for option in catalogue
+    }
+    assert set(verdict.values()) == {"verified", "absent"}, verdict
+    draws = {name for name, status in verdict.items() if status == "verified"}
+    for value in _i18n_values("user_consumer_image_hint"):
+        answer, rest = re.split(r"。|\. ", value, maxsplit=1)
+        assert _consumer_names(answer) == draws, answer
+        assert _consumer_names(rest) == set(verdict) - draws, rest
+
+
+def _consumer_names(text: str) -> set[str]:
+    return {match.group(0) for match in re.finditer(r"copilot(?:-[a-z]+)*", text)}
 
 
 # ------------------------------------------------- the no-tools half, automatic
