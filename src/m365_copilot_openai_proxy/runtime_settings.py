@@ -53,6 +53,37 @@ _PREVIOUS_BUILTIN_TONE_OPTIONS = [
     {"value": "Gpt_5_2_Chat", "label": "gpt-5.2_Chat", "label_zh": "gpt-5.2_Chat", "label_en": "gpt-5.2_Chat"},
     {"value": "Gpt_5_2_Reasoning", "label": "gpt-5.2_Reasoning", "label_zh": "gpt-5.2_Reasoning", "label_en": "gpt-5.2_Reasoning"},
 ]
+# Tones added after the rename above, newest first. Every release that measures a
+# new tone into _BUILTIN_TONE_OPTIONS must name it here too, because the
+# comparison below is byte-exact: a persisted default written by the release
+# *before* the tone existed matches no literal otherwise, and the operator's
+# picker silently never gains the tone no matter which image they deploy. That is
+# how production ended up two tones behind its own image and needed a hand-write.
+_TONES_ADDED_SINCE_RENAME = ("Gpt_5_6_Chat", "Gpt_5_3_Reasoning")
+
+
+def _tone_default_without(*values: str) -> list[dict]:
+    """The current default minus tones that did not exist in an older release.
+
+    Derived rather than pasted so the historical shapes cannot drift out of sync
+    with the labels in _BUILTIN_TONE_OPTIONS the way a copied literal would.
+    """
+    skip = set(values)
+    return [dict(o) for o in _BUILTIN_TONE_OPTIONS if o.get("value") not in skip]
+
+
+# Every default catalogue we have ever shipped, so an operator who never edited
+# the picker adopts the current one. Ordered newest-first only for readability;
+# the check is an equality test against each.
+_HISTORICAL_BUILTIN_TONE_OPTIONS = (
+    _PREVIOUS_BUILTIN_TONE_OPTIONS,
+    # _TONES_ADDED_SINCE_RENAME is newest-first, so removing its first N entries
+    # reconstructs the catalogue as it stood N additions ago.
+    *(
+        _tone_default_without(*_TONES_ADDED_SINCE_RENAME[:count])
+        for count in range(1, len(_TONES_ADDED_SINCE_RENAME) + 1)
+    ),
+)
 # Historical OpenAI-compatible facade names. Keep this exact list only so an
 # untouched persisted default from older releases can move to the current
 # tested catalogue; administrators may still configure any model/mode mapping.
@@ -438,7 +469,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     persisted_tone_options = raw.get("tone_options") if isinstance(raw, dict) else None
     tone_options = data.get("tone_options")
-    if persisted_tone_options == _PREVIOUS_BUILTIN_TONE_OPTIONS:
+    if persisted_tone_options in _HISTORICAL_BUILTIN_TONE_OPTIONS:
         tone_options = _BUILTIN_TONE_OPTIONS
     data["tone_options"] = normalize_tone_options(tone_options)
     persisted_consumer_options = (

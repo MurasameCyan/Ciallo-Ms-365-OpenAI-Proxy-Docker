@@ -145,3 +145,62 @@ def test_read_runtime_settings_preserves_reordered_previous_m365_default(tmp_pat
     settings = runtime_settings._read_runtime_settings(str(tmp_path))
 
     assert settings["tone_options"] == custom_options
+
+
+# The defaults shipped between the label rename and today, pinned by value+order
+# for the same double-entry reason as PREVIOUS_DEFAULT_VALUES: the production
+# constant derives these from TONE_OPTIONS, so a test that derived them the same
+# way would pass even if both were wrong together. Labels are the current ones --
+# only the tone set differs from today's default.
+EXPECTED_TONE_VALUE_ORDER = [value for value, _label in EXPECTED_TONE_OPTIONS]
+DEFAULT_VALUES_BEFORE_GPT_5_6_CHAT = [
+    v for v in EXPECTED_TONE_VALUE_ORDER if v != "Gpt_5_6_Chat"
+]
+DEFAULT_VALUES_BEFORE_GPT_5_3_REASONING = [
+    v for v in DEFAULT_VALUES_BEFORE_GPT_5_6_CHAT if v != "Gpt_5_3_Reasoning"
+]
+
+
+def _default_tone_options_limited_to(values):
+    by_value = {option["value"]: option for option in TONE_OPTIONS}
+    return [dict(by_value[value]) for value in values]
+
+
+def test_read_runtime_settings_migrates_defaults_that_predate_each_added_tone(tmp_path):
+    # Production sat on the second of these for two releases: the rename
+    # migration had already rewritten its labels, so it matched neither the
+    # old-label literal nor the current default, and every tone added afterwards
+    # was locked out of the picker until someone wrote the list by hand.
+    for pinned in (
+        DEFAULT_VALUES_BEFORE_GPT_5_6_CHAT,
+        DEFAULT_VALUES_BEFORE_GPT_5_3_REASONING,
+    ):
+        (tmp_path / "runtime_settings.json").write_text(
+            json.dumps({"tone_options": _default_tone_options_limited_to(pinned)}),
+            encoding="utf-8",
+        )
+
+        settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+        assert [
+            (option["value"], option["label"]) for option in settings["tone_options"]
+        ] == EXPECTED_TONE_OPTIONS, pinned
+
+
+def test_read_runtime_settings_keeps_a_list_an_operator_actually_edited(tmp_path):
+    # The guard on widening the migration: "default minus a tone" must only be
+    # treated as untouched when that tone postdates the persisted list. A tone
+    # the operator deliberately removed has to stay removed, or the upgrade
+    # silently hands their users back a model they withdrew.
+    custom_options = _default_tone_options_limited_to(
+        [v for v in EXPECTED_TONE_VALUE_ORDER if v != "Claude_Opus"]
+    )
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"tone_options": custom_options}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == custom_options
+    assert "Claude_Opus" not in [o["value"] for o in settings["tone_options"]]
