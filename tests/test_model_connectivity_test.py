@@ -20,6 +20,7 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.consumer_client import AccountThrottled
 from m365_copilot_openai_proxy.routes_admin_modeltest import classify_probe
+from m365_copilot_openai_proxy.substrate_client import _M365_REFUSAL_TEXTS
 from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
 
 
@@ -62,6 +63,20 @@ def test_classify_probe_maps_each_outcome():
     assert classify_probe("", "websocket closed") == "error"
     # Quota is not availability: the mode may be perfectly fine.
     assert classify_probe("", "over quota", throttled=True) == "throttled"
+
+
+def test_a_canned_refusal_reply_is_not_reported_as_working():
+    """M365 declines a mode in two ways, and only one of them raises: it also answers
+    with a single canned line, which arrives here as an ordinary non-empty reply. Read
+    as "ok", a sweep of the picker reports every mode the tenant may not use as
+    working -- the exact column an operator decides on. The set is imported from
+    substrate_client, so a reworded upstream line cannot silently pass this."""
+    for line in _M365_REFUSAL_TEXTS:
+        assert classify_probe(line) == "refused", line
+        # Leading/trailing whitespace from the stream must not defeat the match.
+        assert classify_probe(f"\n{line}  ") == "refused", line
+    # A reply that merely mentions the phrase is still a real answer.
+    assert classify_probe(f"You asked why I said: {next(iter(_M365_REFUSAL_TEXTS))}") == "ok"
 
 
 def test_probe_answers_ok_and_reports_the_selector(env):

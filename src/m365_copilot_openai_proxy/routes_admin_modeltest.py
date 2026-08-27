@@ -33,6 +33,7 @@ from .response_helpers import _json_err
 from .routes_api_common import apply_request_model
 from .substrate_client import (
     _EMPTY_TURN_MARKER,
+    _M365_REFUSAL_TEXTS,
     _REFUSED_TURN_MARKER,
     SubstrateCopilotError,
 )
@@ -52,6 +53,14 @@ def classify_probe(reply: str, error: str = "", *, throttled: bool = False) -> s
         if _REFUSED_TURN_MARKER in error or _EMPTY_TURN_MARKER in error:
             return "refused"
         return "error"
+    # A refused mode does not always fail: M365 also declines by answering with one
+    # canned line ("Sorry, I wasn't able to respond to that..."), which arrives as an
+    # ordinary non-empty reply and so read as "ok" here. That made a sweep of the
+    # picker report every mode this tenant may not use as working -- the one column an
+    # operator acts on, wrong in the direction that costs a debugging session. Same
+    # check scan_tones.probe() has always done, against the same imported set.
+    if reply.strip() in _M365_REFUSAL_TEXTS:
+        return "refused"
     return "ok" if reply.strip() else "empty"
 
 

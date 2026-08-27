@@ -10,6 +10,16 @@ from __future__ import annotations
 # they come back by themselves once Microsoft rolls them out -- do not "clean them
 # up". A refused mode now surfaces as an upstream error naming the mode rather than
 # as a silent canned reply (see substrate_client._M365_REFUSAL_TEXTS).
+#
+# `Gpt_5_6_Chat` is the rollout moving the other way: refused on 2026-08-02, it
+# answered normally on 2026-08-28 (.probe/tone_candidates.py), so it was promoted out
+# of scan_tones.CANDIDATE_TONES into the picker. That same run re-probed a list of
+# model names reported working on someone else's tenant; the four with no counterpart
+# here -- gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-image-2 -- came back "empty
+# response twice" across 12 spellings (bare codename, versioned, _Chat/_Reasoning
+# suffixed). Matching is case-insensitive upstream, so those are absences, not casing
+# slips: they are not tone values on this tenant and adding them would only route
+# traffic to a mode that answers nothing. Re-probe rather than re-add on faith.
 TONE_OPTIONS = [
     {"value": "Magic", "label": "Copilot_自动", "label_zh": "Copilot_自动", "label_en": "Copilot_自动"},
     {"value": "Chat", "label": "Copilot_快速答复", "label_zh": "Copilot_快速答复", "label_en": "Copilot_快速答复"},
@@ -18,6 +28,7 @@ TONE_OPTIONS = [
     {"value": "Claude_Sonnet_Reasoning", "label": "claude-sonnet-4-5", "label_zh": "claude-sonnet-4-5", "label_en": "claude-sonnet-4-5"},
     {"value": "Claude_Fable", "label": "claude-fable-5", "label_zh": "claude-fable-5", "label_en": "claude-fable-5"},
     {"value": "Claude_Opus", "label": "claude-opus", "label_zh": "claude-opus", "label_en": "claude-opus"},
+    {"value": "Gpt_5_6_Chat", "label": "gpt-5.6_Chat", "label_zh": "gpt-5.6_Chat", "label_en": "gpt-5.6_Chat"},
     {"value": "Gpt_5_6_Reasoning", "label": "gpt-5.6", "label_zh": "gpt-5.6", "label_en": "gpt-5.6"},
     {"value": "Gpt_5_5_Chat", "label": "gpt-5.5_Chat", "label_zh": "gpt-5.5_Chat", "label_en": "gpt-5.5_Chat"},
     {"value": "Gpt_5_5_Reasoning", "label": "gpt-5.5", "label_zh": "gpt-5.5", "label_en": "gpt-5.5"},
@@ -99,16 +110,34 @@ TONE_SERVER_INTERPRETER = {
     "Gpt_5_4_Reasoning": "verified",
     "Gpt_5_3_Chat": "verified",
     "Gpt_5_2_Chat": "verified",
-    # Deliberately absent from this map: Gpt_5_3_Reasoning (refused the turn outright,
-    # InternalError -- availability, not capability) and Gpt_5_2_Reasoning, which after
-    # 120s streamed its own tool call as prose -- {"code": "import hashlib\n..."} -- so
-    # it neither computed nor invented. "absent" would only add a sentence it does not
-    # need, and neither failure is one a prompt can fix.
+    # 2026-08-28: Gpt_5_3_Reasoning, which the 08-25 sweep could not test (the turn
+    # errored with InternalError), now answers -- and returned a fresh nonce's digest
+    # with a GeneratedCode frame on the wire. That was availability moving, not
+    # capability, exactly as the note below predicted.
+    "Gpt_5_3_Reasoning": "verified",
+    # Gpt_5_6_Chat is the first tone measured to do BOTH: it fabricated a fresh nonce's
+    # digest on one turn, then returned two other fresh nonces correctly (2/3, no
+    # GeneratedCode frame in any of the three). "absent" would be false -- it provably
+    # computes -- and "verified" would promise a correctness it does not hold, so it
+    # reuses the "flaky" status the sibling Consumer map already defines for a selector
+    # that both complies and does not. Practically this means silence: the only reader
+    # (substrate_parse._combine_text) keys on "absent", so flaky appends nothing, which
+    # is the conservative half. A user who needs an exact value here still has to
+    # declare a tool that executes -- the tools-turn rule covers that path.
+    "Gpt_5_6_Chat": "flaky",
+    # Deliberately absent from this map: Gpt_5_2_Reasoning, which after 120s streamed
+    # its own tool call as prose -- {"code": "import hashlib\n..."} -- so it neither
+    # computed nor invented. "absent" would only add a sentence it does not need, and
+    # that failure is not one a prompt can fix.
 }
 
 
 def tone_server_interpreter(tone: str | None) -> str:
-    """Measured server-side code execution: verified / absent / unknown."""
+    """Measured server-side code execution: verified / flaky / absent / unknown.
+
+    Only "absent" changes behaviour; "flaky" is recorded so a tone measured to both
+    compute and fabricate is not filed under either clean answer.
+    """
     return TONE_SERVER_INTERPRETER.get(str(tone or ""), "unknown")
 
 # Same question for the Consumer provider, whose selector is a mode rather than a

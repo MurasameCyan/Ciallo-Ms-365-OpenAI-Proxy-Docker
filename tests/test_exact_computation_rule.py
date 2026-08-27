@@ -261,6 +261,10 @@ def test_the_other_models_line_pins_the_lists_to_the_measured_maps():
     moves from unknown to verified, fails this with the exact text to paste."""
     interpreter_yes = _tone_labels(lambda t: tone_server_interpreter(t) == "verified")
     interpreter_unmeasured = _tone_labels(lambda t: tone_server_interpreter(t) == "unknown")
+    # A flaky tone belongs to neither clean group, so it needs its own clause: folded
+    # into "has execution" it promises a correctness it does not hold, and folded into
+    # "unmeasured" it hides a measured fabrication.
+    interpreter_flaky = _tone_labels(lambda t: tone_server_interpreter(t) == "flaky")
     contract_yes = _tone_labels(lambda t: tone_tool_calling(t) == "verified")
     extra_turn = _tone_labels(lambda t: router_applies("auto", t))
     assert extra_turn == _tone_labels(lambda t: tone_tool_calling(t) == "unsupported"), (
@@ -268,7 +272,13 @@ def test_the_other_models_line_pins_the_lists_to_the_measured_maps():
         "routing turn under auto'; a flaky tone would make that false"
     )
     zh, en = _i18n_values("user_other_tones_hint")
-    for group in (interpreter_yes, interpreter_unmeasured, contract_yes, extra_turn):
+    for group in (
+        interpreter_yes,
+        interpreter_unmeasured,
+        interpreter_flaky,
+        contract_yes,
+        extra_turn,
+    ):
         assert "、".join(group) in zh, "、".join(group)
         assert ", ".join(group) in en, ", ".join(group)
 
@@ -334,6 +344,16 @@ def test_only_the_one_measured_tone_is_marked_absent():
     second fabricating tone, so a new "absent" entry means someone measured one --
     editing this list is the cheap part, having the probe output is the point."""
     assert [t for t, s in TONE_SERVER_INTERPRETER.items() if s == "absent"] == ["Claude_Sonnet"]
+
+
+def test_a_tone_that_both_computes_and_fabricates_is_recorded_but_stays_silent():
+    """Gpt_5_6_Chat fabricated once and computed twice on fresh nonces. "absent" would
+    tell a tone that provably executes that it cannot, which is the failure mode this
+    map's whole comment warns about, and "verified" would erase a measured fabrication.
+    Only "absent" appends the sentence, so flaky records the finding and changes no
+    behaviour -- if a future measurement settles it, that is a one-word edit here."""
+    assert TONE_SERVER_INTERPRETER["Gpt_5_6_Chat"] == "flaky"
+    assert _NO_INTERPRETER_NOTE not in _combine_text("hash this", [], "Gpt_5_6_Chat")
 
 
 def test_an_unmeasured_tone_stays_silent():

@@ -64,10 +64,17 @@ from m365_copilot_openai_proxy.tone_options import TONE_OPTIONS
 # back unknown. Tone matching is case-insensitive (``magic`` and ``claude_sonnet``
 # both answer), so those misses are real absences rather than spelling slips: the
 # enum is GPT + Claude + a handful of non-model modes, nothing else.
+# Also settled 2026-08-28: gpt-5.6-sol / -terra / -luna and gpt-image-2, reported
+# working on another tenant, are not tone values here. 12 spellings (Sol, Terra, Luna,
+# Gpt_5_6_Sol, Gpt_5_6_Terra, Gpt_5_6_Luna, Gpt_5_6_Sol_Reasoning, Gpt_Image,
+# Gpt_Image_2, Gpt_Image_2_Chat, Image, Image_2) all answered nothing. Do not re-add
+# without a new reason: matching is case-insensitive, so these were real absences.
 CANDIDATE_TONES = [
     # Real modes that this account was refused on 2026-08-02. Worth re-probing:
-    # availability follows Microsoft's rollout, not anything on our side.
-    "Claude_Opus", "Gpt_5_6_Chat", "Gpt_5_3_Reasoning",
+    # availability follows Microsoft's rollout, not anything on our side. Gpt_5_6_Chat
+    # and Gpt_5_3_Reasoning left this list on 2026-08-28 by starting to answer -- the
+    # first is now in TONE_OPTIONS, the second already was.
+    "Claude_Opus",
     "Balanced", "Creative", "Precise",
     # Usable on 2026-08-02 but missing from TONE_OPTIONS -- probed until someone
     # adds them to /admin -> 运行设置 -> 对话模式列表.
