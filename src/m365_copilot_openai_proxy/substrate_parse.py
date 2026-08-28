@@ -17,9 +17,33 @@ _MARKDOWN_CITE_RE = re.compile(
     re.IGNORECASE,
 )
 # Bare markers look like: \ue200cite\ue202turn1file1\ue201
-# Only consume PUA + ascii id pieces — never trailing prose/CJK.
+# Only consume PUA + ascii id pieces, never trailing prose/CJK.
+#
+# One marker can carry SEVERAL ids, and the separator between them is another
+# private-use character: \ue200cite\ue202turn4search10\ue202turn4search12\ue201
+# The id run therefore repeats without bound, and consuming it once left every id
+# after the first sitting in the delivered text ("...直接触发这个错误。
+# turn4search10turn4search12"). The run is `*` rather than `+` so a delta that
+# ends right after the word "cite" still loses the opener instead of shipping it.
 _BARE_PUA_CITE_RE = re.compile(
-    r"[\uE000-\uF8FF]cite[\uE000-\uF8FF][A-Za-z0-9_]*[\uE000-\uF8FF]?",
+    r"[\uE000-\uF8FF]cite(?:[\uE000-\uF8FF][A-Za-z0-9_]*)*",
+    re.IGNORECASE,
+)
+
+# The closing half of a marker whose opening half went out in an earlier delta.
+# Upstream splits its stream mid-marker and the streaming path cleans each delta
+# alone (substrate_client feeds every writeAtCursor straight in), so the halves
+# are never in hand together: the rule above strips "\ue200cite\ue202" on its
+# own, and without this one the remainder ("turn3search5\ue201") matched nothing
+# and reached the client butted against the prose. Anchored on the trailing
+# private-use delimiter rather than on the id shape alone, so prose that merely
+# names an id -- a bug report, this project's own docs -- keeps the word it is
+# about. One id per match is all this needs: the substitution is global, so a
+# tail that orphaned a whole run of ids is taken one id at a time. A split
+# *inside* an id still leaks that fragment; closing that needs cross-delta
+# buffering, not a wider pattern.
+_ORPHAN_CITE_TAIL_RE = re.compile(
+    r"turn\d+[a-z]+\d*[\uE000-\uF8FF]",
     re.IGNORECASE,
 )
 
@@ -42,8 +66,12 @@ _BRACKET_CITE_RE = re.compile(r"【\d+-[0-9a-z]{3,}】", re.IGNORECASE)
 def clean_m365_citations(text: str) -> str:
     """Strip M365 citation markers from model text.
 
-    Safe on partial stream deltas: every pattern requires its closing delimiter,
-    so a marker split across two deltas is left alone rather than half-stripped.
+    Safe on partial stream deltas, but by handling each half rather than by
+    waiting for both: the streaming path cleans every delta on its own, so a
+    marker split mid-way is never in hand whole. The PUA rule takes an opening
+    half alone and _ORPHAN_CITE_TAIL_RE takes the closing half alone. Leaving
+    either for a closing delimiter that arrives in a different call is what put
+    bare ids in front of readers.
     """
     if not text:
         return ""
@@ -55,6 +83,7 @@ def clean_m365_citations(text: str) -> str:
         return text
     cleaned = _MARKDOWN_CITE_RE.sub("", text)
     cleaned = _BARE_PUA_CITE_RE.sub("", cleaned)
+    cleaned = _ORPHAN_CITE_TAIL_RE.sub("", cleaned)
     cleaned = _LITERAL_CITE_TAG_RE.sub("", cleaned)
     cleaned = _BRACKET_CITE_RE.sub("", cleaned)
     # Collapse whitespace left by removed markers (keep newlines).

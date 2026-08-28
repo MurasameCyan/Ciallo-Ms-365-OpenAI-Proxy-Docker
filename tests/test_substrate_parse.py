@@ -167,6 +167,113 @@ def test_clean_m365_citations_leaves_normal_text_and_urls():
     assert clean_m365_citations(raw) == raw
 
 
+# One marker can carry SEVERAL ids, separated by the same private-use character
+# that opens the id run. Every case above has exactly one id, which is how the
+# pattern below shipped for weeks only ever consuming the first: production
+# delivered "已有更高版本的 Node.js 也可能直接触发这个错误。turn4search10turn4search12"
+# to a client, the ids butted straight against the prose.
+
+def test_clean_m365_citations_strips_every_id_in_a_multi_id_marker():
+    raw = (
+        "已有更高版本也可能触发这个错误。"
+        "citeturn4search10turn4search12"
+        "\n\n先检查是否已安装。"
+    )
+    cleaned = clean_m365_citations(raw)
+    assert "turn4search10" not in cleaned
+    assert "turn4search12" not in cleaned
+    assert not any("" <= c <= "" for c in cleaned)
+    assert "已有更高版本也可能触发这个错误。" in cleaned
+    assert "先检查是否已安装。" in cleaned
+
+
+def test_clean_m365_citations_strips_a_three_id_marker():
+    """The id run repeats without bound, so two ids cannot be the whole rule."""
+    raw = (
+        "没有可靠来源确认这项联动。"
+        "citeturn2search15turn2search20turn2search21"
+        " 初步判断如下。"
+    )
+    cleaned = clean_m365_citations(raw)
+    for marker in ("turn2search15", "turn2search20", "turn2search21"):
+        assert marker not in cleaned
+    assert not any("" <= c <= "" for c in cleaned)
+    assert "没有可靠来源确认这项联动。" in cleaned
+    assert "初步判断如下。" in cleaned
+
+
+# Upstream splits its stream wherever it likes, including inside a marker, and
+# the streaming path cleans each delta on its own (substrate_client feeds every
+# writeAtCursor straight in), so the two halves are never seen together and each
+# has to be handled alone. Production leaked "优先选择 LTS。turn3search5" exactly
+# this way: the opening half was stripped by itself, then nothing matched the rest.
+
+def test_clean_m365_citations_strips_both_halves_of_a_marker_split_across_deltas():
+    deltas = ["官方建议优先选择 LTS。cite", "turn3search5\n\n### 方法一"]
+    joined = "".join(clean_m365_citations(d) for d in deltas)
+    assert "turn3search5" not in joined
+    assert "cite" not in joined.lower()
+    assert not any("" <= c <= "" for c in joined)
+    assert "官方建议优先选择 LTS。" in joined
+    assert "### 方法一" in joined
+
+
+# The two shapes where the id run's own repetition is what saves the text: a
+# delta that stops mid-run, and one that stops on the word "cite" itself. Neither
+# leaves a trailing private-use delimiter behind, so the orphan rule below cannot
+# reach them -- taking the whole run in one match is the only thing that does. A
+# mutation run is what turned these up: with the id run narrowed back to a single
+# id, every other case in this file still passed, because the orphan rule covered
+# each of them. These two are the reason that pattern reads the way it does.
+
+def test_clean_m365_citations_strips_an_id_run_cut_off_without_its_delimiter():
+    raw = "已有更高版本也可能触发这个错误。citeturn4search10turn4search12"
+    cleaned = clean_m365_citations(raw)
+    assert "turn4search10" not in cleaned
+    assert "turn4search12" not in cleaned
+    assert "cite" not in cleaned.lower()
+    assert "已有更高版本也可能触发这个错误。" in cleaned
+
+
+def test_clean_m365_citations_strips_an_opener_that_ends_on_the_word_cite():
+    """A delta can stop between "cite" and the delimiter that follows it."""
+    cleaned = clean_m365_citations("官方建议优先选择 LTS。cite")
+    assert "cite" not in cleaned.lower()
+    assert not any("" <= c <= "" for c in cleaned)
+    assert "官方建议优先选择 LTS。" in cleaned
+
+
+def test_clean_m365_citations_strips_an_orphaned_multi_id_tail():
+    """A split can land mid-id-run, orphaning several ids at once."""
+    tail = clean_m365_citations("turn4search10turn4search12 后续段落")
+    assert "turn4search10" not in tail
+    assert "turn4search12" not in tail
+    assert not any("" <= c <= "" for c in tail)
+    assert "后续段落" in tail
+
+
+def test_clean_m365_citations_keeps_an_id_shaped_word_that_is_real_prose():
+    """The orphan rule keys on the trailing delimiter, not the id shape alone.
+
+    Without the delimiter requirement, prose that merely mentions a marker id --
+    a bug report, this project's own docs -- would lose the word it is about.
+
+    The bare sentence proves less than it looks: carrying no marker character at
+    all, it comes back off the fast path before any pattern runs, so it passed
+    even with the delimiter made optional. The second case is the one that
+    reaches the rule, and it is also the realistic one -- a turn that cites a
+    source while its prose discusses an id.
+    """
+    plain = "日志里残留了 turn3search5 这个锚点，是清理漏了。"
+    assert clean_m365_citations(plain) == plain
+
+    mixed = plain + "citeturn1search4"
+    cleaned = clean_m365_citations(mixed)
+    assert "turn3search5" in cleaned
+    assert "turn1search4" not in cleaned
+    assert not any("" <= c <= "" for c in cleaned)
+
+
 # The two NON-PUA citation renderings, both seen in a single live turn against a
 # real deployment: the streamed deltas carried literal <cite> tags while the
 # cumulative snapshot of the same sentences carried bracket marks. Leaving either
