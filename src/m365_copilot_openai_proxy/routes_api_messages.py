@@ -446,7 +446,6 @@ def register_messages_routes(
 
         try:
             async def inline_answer() -> str:
-                nonlocal actual_planning
                 return await client.chat(
                     translated.prompt,
                     translated.additional_context,
@@ -455,7 +454,7 @@ def register_messages_routes(
                 )
 
             async def router_answer(fallback_turn) -> str:
-                nonlocal actual_planning, shortfall_note, declined_note
+                nonlocal actual_planning
                 if router_prompt or planning_mode in {"studio", "router"}:
                     actual_planning = "router"
                     call_record["tool_planning"] = "router"
@@ -476,7 +475,7 @@ def register_messages_routes(
                 )
 
             async def studio_answer(fallback_turn) -> str:
-                nonlocal actual_planning, shortfall_note, declined_note
+                nonlocal actual_planning
                 if studio_client is None or studio_translated is None:
                     return await inline_answer()
                 actual_planning = "studio"

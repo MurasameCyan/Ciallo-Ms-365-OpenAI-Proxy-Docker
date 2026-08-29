@@ -320,3 +320,106 @@ def test_no_dead_unused_imports():
         "stale _KNOWN_UNUSED_IMPORTS entries (no longer unused or now "
         "auto-exempt -- remove them):\n" + "\n".join(stale)
     )
+
+
+def _names_bound_in_own_scope(func: ast.AST) -> set[str]:
+    """Names the function body rebinds, ignoring nested function/class scopes.
+
+    A nested scope gets its own ``nonlocal``/``global`` declaration, so its
+    assignments say nothing about whether the outer declaration carries weight.
+    Comprehension targets are likewise skipped: they live in the comprehension's
+    own scope and never touch the enclosing function's binding.
+    """
+    bound: set[str] = set()
+    _NESTED_SCOPES = (
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.Lambda,
+        ast.ClassDef,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+    )
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            bound.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _NESTED_SCOPES):
+                # The def/class statement itself binds its own name here; what it
+                # does inside is governed by its own scope declarations.
+                name = getattr(child, "name", None)
+                if name:
+                    bound.add(name)
+                continue
+            visit(child)
+
+    for stmt in getattr(func, "body", []):
+        if isinstance(stmt, _NESTED_SCOPES):
+            name = getattr(stmt, "name", None)
+            if name:
+                bound.add(name)
+            continue
+        visit(stmt)
+    return bound
+
+
+def _own_scope_nonlocal_names(func: ast.AST) -> set[str]:
+    """Names declared ``nonlocal`` by this function itself, not by a nested def."""
+    names: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue  # nested scope owns its own declarations
+            if isinstance(child, ast.Nonlocal):
+                names.update(child.names)
+            visit(child)
+
+    visit(func)
+    return names
+
+
+def test_no_redundant_nonlocal_declarations():
+    """Fail on ``nonlocal x`` in a function that never rebinds ``x``.
+
+    Reading a closed-over name needs no declaration -- the free-variable lookup
+    already finds it -- so a ``nonlocal`` naming a read-only name is noise that
+    reads as "this function writes here". pyflakes has no check for it, which is
+    how routes_api_messages accumulated four such names across three closures
+    (`shortfall_note`/`declined_note` in router_answer and studio_answer,
+    `actual_planning` in inline_answer) while every gate stayed green.
+
+    The declaration is kept whenever the function's own body binds the name by
+    any means -- assignment, augmented assignment, walrus, for/with/except
+    target, del, import, nested def/class -- so this only ever flags a name the
+    function provably cannot write.
+    """
+    offenders: list[str] = []
+    for path in sorted(_SRC.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            declared = _own_scope_nonlocal_names(node)
+            if not declared:
+                continue
+            writable = _names_bound_in_own_scope(node)
+            for name in sorted(declared - writable):
+                offenders.append(
+                    f"{path.name}:{node.lineno} {node.name}(): "
+                    f"nonlocal {name!r} but never assigns it"
+                )
+
+    assert not offenders, (
+        "redundant nonlocal declarations (the name is only read -- drop it from "
+        "the nonlocal statement):\n" + "\n".join(offenders)
+    )
