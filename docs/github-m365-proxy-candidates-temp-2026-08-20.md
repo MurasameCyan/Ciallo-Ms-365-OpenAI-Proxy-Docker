@@ -22,7 +22,7 @@
 | 3 | [jairbj/m365-copilot-proxy](https://github.com/jairbj/m365-copilot-proxy) | MIT；2026-08-17 创建的新项目；持续提交 | 单用户设计；从真实 Web 请求捕获 tone、variants、optionsSets；区分 Work IQ 开关；PKCE/MSAL 静默刷新 | 项目很新；主要只有 Chat Completions；工具调用整段缓冲；API Key 被忽略且仅适合 loopback | 借鉴“动态协议 profile/capture”思路，先观察稳定性 |
 | 4 | [HEXUXIU/M365-Copilot2API](https://github.com/HEXUXIU/M365-Copilot2API) | MIT；268 stars；2026-08-18 活跃 | ChatHub 事件处理；图片生成；usage 估算；断线重连；单账号健康状态；图片下载 SSRF 防护 | 当前 Issues 集中在工具调用、图片和长上下文；尚无稳定 Release；私有协议风险；下游鉴权存在“eyJ 前缀直接放行”问题，不能原样公网部署 | 忽略账号池部分，只做源码对照和隔离环境黑盒测试 |
 | 5 | [KilimcininKorOglu/M365Bridge](https://github.com/KilimcininKorOglu/M365Bridge) | 无标准 OSS LICENSE；README 标注 Research Only；38 stars | Responses/Anthropic/MCP；工具解析、schema 校验和修复；图片生成/编辑；RT + SSO Cookie 续期 | 默认保留全部权利，不能直接复制或商业整合；工具仍是提示词模拟；鉴权可选，默认配置需审计 | 仅黑盒比较协议行为，不搬代码 |
-| 6 | [sideefffect/m365_openai_proxy.py](https://github.com/sideefffect/m365_openai_proxy.py) | Apache-2.0；单文件 Python；带多项协议测试 | SignalR/ChatHub 逆向说明；token refresh race、会话连续性、限流、图片等测试思路 | 单账号、本机工具；无下游鉴权；工具调用是概率性模拟；无标准 Docker 服务架构 | 适合补协议回归测试，不适合直接部署 |
+| 6 | [sideeffffect/m365_openai_proxy.py](https://github.com/sideeffffect/m365_openai_proxy.py) | Apache-2.0；单文件 Python；带多项协议测试 | SignalR/ChatHub 逆向说明；token refresh race、会话连续性、限流、图片等测试思路 | 单账号、本机工具；无下游鉴权；工具调用是概率性模拟；无标准 Docker 服务架构 | 适合补协议回归测试，不适合直接部署 |
 | 7 | [kuchris/m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy) | Apache-2.0；61 stars；Python/FastAPI | 小而清晰的 Substrate SignalR、token store、协议翻译基线 | 无工具、图片、Docker和真实下游鉴权；短效浏览器 token；整体能力低于当前项目 | 保留为最小参考实现 |
 | 8 | [shenping1200/m365-copilot-bridge](https://github.com/shenping1200/m365-copilot-bridge) | MIT；15 stars；2026-08-16 活跃 | PKCE、会话粘性、每账号代理、API Key 哈希和较完整的管理端鉴权 | 主要差异化能力是多账号轮询，当前架构不需要；usage 仍是占位；工具为模拟 | 只核对认证和协议实现，不列入优先试用 |
 | 9 | [lamdt1/ms-copilot365-2api](https://github.com/lamdt1/ms-copilot365-2api) | 无许可证；新项目；活跃度和使用量低 | Camoufox + noVNC 自助登录；浏览器凭据轮换；容器化登录流程 | 无许可证；浏览器镜像重；成熟度不足；现有项目已经有 PKCE/CDP/Camoufox 链路 | 只参考登录 UX，不复制代码 |
@@ -323,6 +323,60 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 
 同时补了三条端到端管线测试，盯住「map 的 key 在生产轮次里真的取得到」：`claude-sonnet-4-6` → `resolve_tone` → `Claude_Sonnet`（也断言 `/user` 指的出路 `claude-sonnet-4-5` 解析得到），以及真的建一个 `SubstrateCopilotClient`、按 `apply_request_model` 的方式赋 `_tone`、截获 `_stream_turn_with_retry` 收到的 `text` 断言那句话在里面。少了这层，改个 label 或者 tone 解析回落到默认，都会让这句话在生产里静默不发，而只测 `_combine_text` 的单测一个都不会红。
 
+## 2026-08-30 GitHub 复扫：找可以直接用的代码（不是找可以换的仓）
+
+这轮的问法和 08-20 那批不同：不问「有没有更好的反代」，问「有没有**许可证允许我们拿进来**的代码能补我们已知的缺口」。本项目是 Apache-2.0，所以 MIT / Apache-2.0 / BSD / ISC 可以采纳，AGPL / 无许可证只能读不能抄。
+
+### 方法上的一个坑（别重复踩）
+
+GitHub 仓库搜索只对 **name + description** 做 AND 匹配，不做全文。所以 `tiktoken o200k tokenizer language:python stars:>50` 这种多词查询必然 0 结果 —— 第一轮六条 gap 查询全空，不是「没有项目」而是查询写法错了。改成单词级 loose query（`copilot2api`）+ 已知仓库直查 + `gh search code` 三条腿才拿到信号。另外未认证的 search 配额只有 10 次/分钟，`gh` 已登录（scopes `repo` / `read:org`）能用 code search，走本机就行；只有 `api.github.com` 不通时才需要绕到 m365-server。
+
+### 许可证警报：两处不能抄
+
+- **HEXUXIU/M365-Copilot2API 又收紧了。** 我们记的是「v0.5.1 起转 AGPL」，现在实际是 **AGPL-3.0 + 依 Section 7 追加的非商业 API 中继限制**（明文禁止把它或其修改版作为付费/商业 API 中继运营），GitHub 因此把 spdx 标成 `NOASSERTION`。它已经不是 OSS，`docs/protocol-options-diff.md` 那种「只抄协议字段与端点」的边界要继续严守，代码一行都不能进来。
+- **`jerbehe/m365-copilot2api`（3★，Go）看着可采纳，实际不能碰。** GitHub API 报 `fork:false`、仓库自带一份 MIT LICENSE（署名 "m365-copilot2api contributors"），但它的 README 第一行写着「分叉自 HEXUXIU/M365-Copilot2API」，README 里的 license badge 还指向 **HEXUXIU 的**仓库。也就是手工复制后重新许可为 MIT —— AGPL 洗不成 MIT，从它这里抄等于抄 HEXUXIU。**把它当 AGPL 对待。**
+
+### 真正可采纳的三样
+
+| 项目 | 许可证 | 补的缺口 | 状态 |
+|---|---|---|---|
+| [protella/chatgpt-bots](https://github.com/protella/chatgpt-bots) | MIT，6★，2026-08-28 活跃 | 引用标记清理的**关键字无关**写法 + 残留 PUA 兜底扫；另有 prefix-stable 流式 hold-back | 见下面实测，按需 |
+| [astral-sh/setup-uv](https://github.com/astral-sh/setup-uv) | MIT，853★ | 我们 CI 完全不跑测试 | 直接可用 |
+| [openai/tiktoken](https://github.com/openai/tiktoken) | MIT，19117★ | usage 仍是 estimate | 容器能到 `openaipublic`（200），但当前未安装 |
+
+### protella 的清理器：形状差异是真的，但生产 0 样本
+
+它清同一套 substrate PUA 引用体系，写法比我们宽：`.*?` 吃任意 opener→closer 跨段（**不要求出现 `cite` 这个词**），再加一条 `[-]` 残留扫。我们的 `_BARE_PUA_CITE_RE` 要求字面量 `cite`。实测（`.probe/cite_keyword_gap.py`）差异后果比「漏一个 id」更难看：
+
+| 输入 | 我们的输出 | 用户看到 |
+|---|---|---|
+| `citeturn3search5` | 干净 | 正常（这是 `2ad5b6a` 修好的那半） |
+| `navlistturn0search1` | `navlist` | `参考这些来源。navlist继续正文` + 2 个裸 PUA |
+| `fileciteturn0search1` | 同上 | `filecite` 也漏 —— 我们的规则要求 PUA **紧邻** `cite` |
+
+孤儿尾规则把 **id** 吃掉了，却把**关键字和两个裸 PUA 码点**留给客户端（裸 PUA 在下游会渲染成任意字形/emoji）。
+
+**但生产没有这个形状。** 扫 100 条 call_log（`.probe/prod_pua_keywords.py`）：含 PUA 的 4 条，码点库存只有 `U+E201`×7 和 `U+E202`×2，**`U+E200` opener 0 个、非 `cite` 关键字 0 个**。按我们否决 HEXUXIU 内容策略分类和卡死工具循环时的同一条标准（0 生产样本不排期），这条也不排期。要做的话理由只能是纵深防御，而不是「有新形状出现」。
+
+顺带用同一批数据确认了两件事：
+
+- **`2ad5b6a` 的引用修复在生产是干净的。** 4 条泄漏最晚 2026-08-25 22:44，修复上线是 08-28 05:37，**上线后 0 泄漏**；把这 4 条喂回当前 cleaner，正好 4 条会被改变（147 条无变化），即它确实盖住了这些形状。
+- **我们 docstring 自认没盖住的「id 内部被切开」，生产 0 样本**（`.probe/mid_id_split_leak.py`；唯一命中是我的正则在一段随机 token 里匹配到 `Turn6`，假阳性）。protella 的 `stream_safe_text` 正是那条路的解（遇到未闭合 opener 就截断并 hold back，保证 append-only 流的 prefix 稳定），值得记着，但同样没有活样本。
+
+如果哪天要做，安全边界已经量过：**narrow 扫 `E200-E20F` 是安全的，broad 扫 `E000-F8FF` 不安全** —— Powerline `U+E0A0`、Devicons `U+E73C`、Seti-UI `U+E5FA`、Font Awesome `U+F09B` 都落在 broad 区间内、都不在 narrow 区间内，而一个编码代理完全可能在讨论 shell 提示符或字体时正常携带这些字形。
+
+### 一处对我自己先前结论的更正：Anthropic 静默期保活**已经在**
+
+我此前两次报告「`_anthropic_stream_with_tools` 在 `async for` 缓冲期间什么都不发，只有开头一个 ping」，并据此说本文件第 195 行「上游静默期间每 10 秒发 ping」与代码不符。**第 195 行是对的，我错了。** 缓冲循环体内确实不 yield，但 `routes_api_messages.py:423` 把整个生成器包在 `keepalive_stream(stream, heartbeat=ANTHROPIC_PING)` 里，`DEFAULT_KEEPALIVE_SECONDS=10.0`；`keepalive_stream` 用 `asyncio.wait({pending}, timeout=interval)`，内层 `__anext__` 未 resolve 就 yield 心跳 —— 所以「整轮缓冲」和「周期 ping」不冲突。实测（`.probe/anthropic_silence_keepalive.py`，interval=0.25s 驱动 stall 1.1s 的生成器）：**4 个 ping，等于预期**，真实帧在 stall 后到达；`aclose()` 后内层生成器 `finally` 执行，断连释放也在。教训：判断流式行为不能只读生成器函数体，得看它在 `StreamingResponse` 里被什么包着。
+
+### 其余核对
+
+- **CI 确实只有一个 job**（`.github/workflows/docker.yml` 里的 `build-and-push`，全仓库仅此一个 workflow，`pytest` 一次都没出现），所以那 1725 条测试是纯本地门禁 —— 谁忘了跑，CI 不会拦。`astral-sh/setup-uv` 是现成解法。
+- **`microsoft/Agents-M365Copilot` 状态未变**：MIT、104★、2026-08-24 活跃，但最新 release 仍是 `preview.19`（2026-08-05，`prerelease=true`），5 个 open issue。仍是「下一个候选」，不是「已可用」。
+- **`sideeffffect` 是四个 f**（本文件原先写成三个 f，已改）。仓库活着，2026-08-04 有推送，不是消失。
+- **GitHub Copilot 系不算候选**（`StarryKira/copilot2api-go` 138★、`whtsky/copilot2api` 29★ MIT）：上游是 GitHub Copilot 不是 M365，与本文件开头的排除项一致。
+- 其余新面孔都不构成候选：`Bosco1262/…-on-Cloudflare-Worker`（2★ NOASSERTION）、`6Kmfi6HP/copilot-openai-proxy`（1★ NOASSERTION）、`avryhof/m365-copilot-bridge`（1★ MIT）、`NicolaiLassen/m365-copilot-openai-proxy`（0★ Apache-2.0）。
+
 ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。
@@ -330,7 +384,7 @@ v1.4.0（2026-08-20 12:58Z 发布）确实有值得抄的东西。仓库仍无 L
 3. 下一候选：若租户具备所需权限，验证官方 Graph chatOverStream Provider。
 4. usage 从 `estimated` 升级为带 `token_source`，精确计数放可选开关。
 5. 工具调用卫生：tool_call id 唯一性、孤立 tool_result 拒绝、单轮工具轮数上限。
-6. 需要补协议测试时，再从 sideefffect 和 kuchris 提取可验证的测试思路。
+6. 需要补协议测试时，再从 sideeffffect 和 kuchris 提取可验证的测试思路。
 
 ## 当前判断
 
