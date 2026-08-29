@@ -13,7 +13,7 @@ from referencing import Registry
 from referencing.exceptions import Unresolvable
 
 from .session_store import PersistentSession
-from .studio_planner import PlannerTurn, ordered_or_streamed, planned_or_streamed
+from .studio_planner import PlannerTurn, ordered_or_streamed
 from .substrate_client import (
     SubstrateCopilotClient,
     SubstrateCopilotError,
@@ -32,7 +32,6 @@ from .tool_call_parser import (
 from .tool_router import routed_or_streamed
 from .usage_store import (
     anthropic_usage,
-    estimate_upstream_input_tokens,
     openai_usage,
     responses_usage,
     usage_for_record,

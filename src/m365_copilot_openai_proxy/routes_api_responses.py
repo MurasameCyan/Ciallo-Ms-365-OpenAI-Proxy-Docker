@@ -47,8 +47,6 @@ from .studio_planner import (
     STUDIO_TONE,
     PlannerTurn,
     ordered_or_answered,
-    ordered_or_streamed,
-    planned_or_answered,
 )
 from .studio_agent_discovery import ensure_studio_client_snapshot
 from .tone_resolver import normalized_session_model

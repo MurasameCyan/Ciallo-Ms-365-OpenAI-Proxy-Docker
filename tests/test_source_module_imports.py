@@ -189,7 +189,6 @@ _KNOWN_UNUSED_IMPORTS: set[tuple[str, str]] = {
     ("refresh_scheduler.py", "_normalize_cookie_same_site"),
     ("refresh_scheduler.py", "_auth_headers_for_token"),
     ("refresh_scheduler.py", "_is_teams_media_url"),
-    ("session_store.py", "Any"),
 }
 
 
@@ -230,6 +229,33 @@ def _all_exports() -> dict[str, set[str]]:
     return exports
 
 
+def _line_has_f401_noqa(filename: str, lineno: int) -> bool:
+    """Whether that source line silences F401 with a ``# noqa`` comment.
+
+    pyflakes does not implement ``# noqa`` itself -- measured: it reports the
+    import regardless of the marker -- while this codebase uses the marker as its
+    convention for an import kept deliberately for its side effect. The live case
+    is consumer_camoufox's ``import camoufox.async_api  # noqa: F401`` inside
+    ``camoufox_available()``, where the import IS the test: binding the name is
+    beside the point and deleting it would delete the probe.
+
+    Honouring the marker here keeps that idiom expressible without parking a
+    permanent entry in _KNOWN_UNUSED_IMPORTS, which exists for unreviewed debt
+    rather than for intent the author already stated in the source.
+    """
+    try:
+        line = Path(filename).read_text(encoding="utf-8").splitlines()[lineno - 1]
+    except (OSError, IndexError):
+        return False
+    comment = line.partition("#")[2].lower()
+    if "noqa" not in comment:
+        return False
+    codes = comment.split("noqa", 1)[1].lstrip()
+    if not codes.startswith(":"):
+        return True  # bare `# noqa` silences every code, F401 included
+    return "f401" in codes
+
+
 def test_no_dead_unused_imports():
     """Fail on any NEW unused import that is not a re-export bridge.
 
@@ -253,6 +279,8 @@ def test_no_dead_unused_imports():
 
         def flake(self, message) -> None:  # noqa: ANN001
             if not isinstance(message, pyflakes_messages.UnusedImport):
+                return
+            if _line_has_f401_noqa(message.filename, message.lineno):
                 return
             fname = Path(message.filename).name
             # message_args[0] is the full import string, e.g. ".cli_cdp._foo" or

@@ -34,6 +34,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.4.0,<9.0.0",
+    # tests/test_source_module_imports.py gates the three-layer symbol audit on
+    # this. It is an `importorskip`, so WITHOUT the dependency declared the two
+    # pyflakes gates skip silently and `pytest -q` still reports all green --
+    # which is how 7 dead imports accreted unnoticed. Declared so the F821 and
+    # dead-import gates actually run.
+    "pyflakes>=3.2.0,<4.0.0",
 ]
 # Unattended consumer-credential refresh. Kept optional because the browser it
 # downloads is ~936 MB on disk, which is not a cost an M365-only deployment

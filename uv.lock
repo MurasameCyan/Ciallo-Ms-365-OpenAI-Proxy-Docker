@@ -1041,6 +1041,7 @@ camoufox = [
     { name = "camoufox", extra = ["geoip"] },
 ]
 dev = [
+    { name = "pyflakes" },
     { name = "pytest" },
 ]
 
@@ -1053,6 +1054,7 @@ requires-dist = [
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.0,<1.0.0" },
     { name = "jsonschema", specifier = ">=4.23.0,<5.0.0" },
     { name = "pydantic-settings", specifier = ">=2.10.0,<3.0.0" },
+    { name = "pyflakes", marker = "extra == 'dev'", specifier = ">=3.2.0,<4.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0,<9.0.0" },
     { name = "python-socks", extras = ["asyncio"], specifier = ">=2.4.0,<3.0.0" },
     { name = "tzdata", specifier = ">=2025.1" },
@@ -1781,6 +1783,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8b/04/e7c1fe4dc78a6fdbfd6c337b1c3732ff543b8a397683ab38378447baa331/pyee-13.0.1.tar.gz", hash = "sha256:0b931f7c14535667ed4c7e0d531716368715e860b988770fc7eb8578d1f67fc8", size = 31655, upload-time = "2026-02-14T21:12:28.044Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/c4/b4d4827c93ef43c01f599ef31453ccc1c132b353284fc6c87d535c233129/pyee-13.0.1-py3-none-any.whl", hash = "sha256:af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228", size = 15659, upload-time = "2026-02-14T21:12:26.263Z" },
+]
+
+[[package]]
+name = "pyflakes"
+version = "3.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/dc/fd034dc20b4b264b3d015808458391acbf9df40b1e54750ef175d39180b1/pyflakes-3.4.0.tar.gz", hash = "sha256:b24f96fafb7d2ab0ec5075b7350b3d2d2218eab42003821c06344973d3ea2f58", size = 64669, upload-time = "2025-06-20T18:45:27.834Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/2f/81d580a0fb83baeb066698975cb14a618bdbed7720678566f1b046a95fe8/pyflakes-3.4.0-py2.py3-none-any.whl", hash = "sha256:f742a7dbd0d9cb9ea41e9a24a918996e8170c799fa528688d40dd582c8265f4f", size = 63551, upload-time = "2025-06-20T18:45:26.937Z" },
 ]
 
 [[package]]
