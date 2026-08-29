@@ -7,6 +7,7 @@ import re
 import time
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
+from .auth_helpers import constant_time_equals
 from .runtime_settings import _DEFAULT_MEDIA_PROXY_SUFFIXES, normalize_media_proxy_suffixes
 
 _MEDIA_PROXY_TTL_SECONDS = 10 * 60
@@ -120,7 +121,10 @@ def verify_signed_media_proxy_params(
     if expires < int(now if now is not None else time.time()):
         return None
     expected = _sign(account_id, expires, source_url, secret)
-    if not hmac.compare_digest(expected, signature):
+    # constant_time_equals, not hmac.compare_digest: `signature` is a query
+    # parameter on an endpoint the auth middleware exempts, so a non-ASCII sig
+    # was an unhandled TypeError -- HTTP 500 from an anonymous caller (measured).
+    if not constant_time_equals(expected, signature):
         return None
     return source_url
 

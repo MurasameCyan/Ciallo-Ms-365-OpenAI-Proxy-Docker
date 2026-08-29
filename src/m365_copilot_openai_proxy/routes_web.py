@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import secrets
 import time
 from collections.abc import Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from .auth_helpers import constant_time_equals
 from .build_info import check_for_update, current_build_id, inject_build_info, resolve_build_info
 from .templates import _ADMIN_HTML, _LOGIN_HTML, _USER_HTML
 
@@ -64,7 +64,11 @@ def register_web_routes(
 
         body = await request.json()
         password = body.get("password", "")
-        if admin_secret and secrets.compare_digest(password, admin_secret):
+        # constant_time_equals, not secrets.compare_digest: `password` is a
+        # request-body string, and compare_digest raises TypeError on any
+        # non-ASCII codepoint -- measured as an unhandled HTTP 500 here, which
+        # also locked out any admin whose ADMIN_PASSWORD is not pure ASCII.
+        if admin_secret and constant_time_equals(password, admin_secret):
             resp = JSONResponse({"status": "ok"})
             resp.set_cookie("admin_auth", admin_session_token, max_age=86400 * 7, httponly=True, samesite="lax", secure=bool(int(os.environ.get("ADMIN_COOKIE_SECURE", "0"))), path="/")
             return resp

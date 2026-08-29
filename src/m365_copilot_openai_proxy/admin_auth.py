@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from .auth_helpers import constant_time_equals
 from .config import Settings
 
 
@@ -23,7 +24,7 @@ class AdminAuth:
         if self.admin_session_token is None:
             return False
         cookie_val = request.cookies.get("admin_auth", "")
-        return secrets.compare_digest(cookie_val, self.admin_session_token)
+        return constant_time_equals(cookie_val, self.admin_session_token)
 
     def require_admin(self, request: Request):
         if self.admin_secret and not self.is_admin_authenticated(request):

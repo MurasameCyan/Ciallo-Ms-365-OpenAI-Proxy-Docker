@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import Request
 
+from .auth_helpers import constant_time_equals
 from .history_index import normalize_history
 from .models import AnthropicMessagesRequest, OpenAIChatRequest, OpenAIResponsesRequest
 from .session_store import PersistentSession
@@ -97,7 +98,10 @@ def _decode_responses_session_id(
         expected = hmac.new(
             secret.encode(), f"{parts[0]}.{parts[1]}".encode(), hashlib.sha256
         ).hexdigest()[:32]
-        if not hmac.compare_digest(parts[2], expected):
+        # constant_time_equals, not hmac.compare_digest: parts[2] comes from the
+        # request body's previous_response_id, so one non-ASCII character there
+        # would raise TypeError instead of failing the signature check.
+        if not constant_time_equals(parts[2], expected):
             return None
     try:
         padded = token + "=" * (-len(token) % 4)
