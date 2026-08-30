@@ -145,6 +145,14 @@ class OpenAIResponsesRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
     parallel_tool_calls: bool | None = None
+    # Declared only so the proxy can answer for them. Under extra="allow" these
+    # land in model_extra and are dropped without a word, which is how a
+    # text.format=json_schema caller ends up parsing free prose as JSON.
+    # translator._check_responses_params decides which of them are fatal.
+    include: list[str] | None = None
+    text: dict[str, Any] | None = None
+    service_tier: str | None = None
+    context_management: Any | None = None
 
 
 class ImageData(BaseModel):

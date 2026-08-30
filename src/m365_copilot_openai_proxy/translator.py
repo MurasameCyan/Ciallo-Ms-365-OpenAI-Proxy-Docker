@@ -1192,6 +1192,35 @@ def _responses_last_action_index(items) -> int | None:
     return None
 
 
+def _check_responses_params(request: OpenAIResponsesRequest) -> None:
+    """Reject Responses params whose silent removal would corrupt the reply.
+
+    Only fields the caller *parses* are fatal. ``include``, ``service_tier`` and
+    ``text.verbosity`` stay ignored on purpose: they are additive or routing-only
+    hints, and Codex sends ``include=["reasoning.encrypted_content"]`` on every
+    request, so rejecting it would lock that client out of the proxy entirely.
+    """
+    text = request.text
+    if isinstance(text, dict):
+        fmt = text.get("format")
+        if isinstance(fmt, dict):
+            fmt_type = fmt.get("type")
+            if fmt_type not in (None, "text"):
+                raise ValueError(
+                    "Responses text.format is not supported by this proxy: "
+                    f"'{fmt_type}' cannot be enforced upstream, so the reply "
+                    "would be free text rather than the requested shape."
+                )
+        elif fmt is not None:
+            raise ValueError("Responses text.format must be a JSON object.")
+    if request.context_management is not None:
+        # The caller is asking the server to own history trimming. We never do,
+        # so staying silent here would show up as an unexplained context loss.
+        raise ValueError(
+            "Responses context_management is not supported by this proxy."
+        )
+
+
 def translate_responses_request(
     request: OpenAIResponsesRequest,
     system_override: str | None = None,
@@ -1200,6 +1229,7 @@ def translate_responses_request(
     *,
     incremental: bool = False,
 ) -> TranslatedRequest:
+    _check_responses_params(request)
     instructions = (request.instructions or "").strip()
     choice, tools = responses_tool_config(
         request.tools,

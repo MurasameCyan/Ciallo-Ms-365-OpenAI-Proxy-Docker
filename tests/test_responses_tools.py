@@ -3126,3 +3126,49 @@ def test_responses_undeclined_fake_claim_still_retries(tmp_path, stream):
 
     assert response.status_code == 200
     assert _upstream_calls(made) == 2
+
+
+@pytest.mark.parametrize("payload,error", [
+    (
+        {"text": {"format": {"type": "json_schema", "name": "r", "schema": {}}}},
+        "text.format is not supported",
+    ),
+    (
+        {"text": {"format": {"type": "json_object"}}},
+        "text.format is not supported",
+    ),
+    ({"text": {"format": "json_object"}}, "text.format must be a JSON object"),
+    (
+        {"context_management": {"strategy": "truncate"}},
+        "context_management is not supported",
+    ),
+])
+def test_responses_rejects_params_it_cannot_honour(payload, error):
+    # These used to be swallowed by extra="allow": a json_schema caller got a
+    # 200 carrying free prose and blamed its own parser.
+    request = OpenAIResponsesRequest.model_validate({
+        "model": "m365-copilot",
+        "input": "hi",
+        **payload,
+    })
+
+    with pytest.raises(ValueError, match=error):
+        translate_responses_request(request)
+
+
+@pytest.mark.parametrize("payload", [
+    # Codex sends this on every single request; rejecting it would lock the
+    # client out of the proxy for no gain, so it stays ignored.
+    {"include": ["reasoning.encrypted_content"]},
+    {"service_tier": "flex"},
+    {"text": {"verbosity": "low"}},
+    {"text": {"format": {"type": "text"}}},
+])
+def test_responses_ignores_additive_params(payload):
+    request = OpenAIResponsesRequest.model_validate({
+        "model": "m365-copilot",
+        "input": "hi",
+        **payload,
+    })
+
+    assert translate_responses_request(request).prompt == "hi"
