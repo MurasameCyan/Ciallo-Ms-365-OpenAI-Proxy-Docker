@@ -21,6 +21,7 @@ from .substrate_parse import (
     _dedupe_signature,
     _extract_image_urls,
     _image_markdown,
+    _is_answer_entry,
     _is_image_loading_placeholder,
     _message_content,
     _final_fallback_remainder,
@@ -44,6 +45,7 @@ __all__ = [
     "_dedupe_signature",
     "_extract_image_urls",
     "_image_markdown",
+    "_is_answer_entry",
     "_is_image_loading_placeholder",
     "_message_content",
     "_final_fallback_remainder",
@@ -629,10 +631,18 @@ class SubstrateCopilotClient:
                             msgs = args.get("messages")
                             if msgs:
                                 entries = msgs if isinstance(msgs, list) else [msgs]
+                                # Keep scanning past narration (Progress / reasoning
+                                # transcript) instead of stopping at the last non-user
+                                # entry: a Progress frame that won this scan replaced
+                                # the good snapshot with narration, which then shipped
+                                # as the answer's opening or tail.
                                 for entry in reversed(entries):
-                                    if entry.get("author") != "user":
-                                        fallback_text = _message_content(entry)
-                                        break
+                                    if entry.get("author") == "user":
+                                        continue
+                                    if not _is_answer_entry(entry):
+                                        continue
+                                    fallback_text = _message_content(entry)
+                                    break
                                 # The snapshot is cumulative. When it runs ahead of
                                 # the deltas it holds the only copy of the skipped
                                 # run, so deliver that run NOW to keep the answer in
@@ -646,10 +656,19 @@ class SubstrateCopilotClient:
                         if t == 2:
                             item = msg.get("item") or {}
                             item_msgs = item.get("messages") or []
+                            # Same skip as the snapshot scan above, and the site that
+                            # was measured wrong: the completion frame lists the whole
+                            # turn, so a trailing ChainOfThoughtSummary became the
+                            # authoritative full answer for the t==3 reconciliation.
+                            # Replaying a captured turn showed it handed 996 chars of
+                            # transcript where the answer was 9326.
                             for entry in reversed(item_msgs):
-                                if entry.get("author") != "user":
-                                    fallback_text = _message_content(entry)
-                                    break
+                                if entry.get("author") == "user":
+                                    continue
+                                if not _is_answer_entry(entry):
+                                    continue
+                                fallback_text = _message_content(entry)
+                                break
                             # The completion frame states the verdict for the whole
                             # turn; a rejected tone lands here as Failed/InternalError.
                             result = item.get("result") or {}

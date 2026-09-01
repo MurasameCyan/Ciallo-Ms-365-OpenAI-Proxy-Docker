@@ -384,6 +384,60 @@ def _dedupe_repeated_delta(streamed_text: str, delta: str) -> str:
     return delta
 
 
+# messageTypes that narrate what the turn is DOING rather than carrying the answer.
+# The reverse scan that fills `fallback_text` used to take the last non-user entry
+# whatever it was, so any of these could become the turn's answer-of-record.
+#
+# Measured on live ChatHub (2026-09-01, .probe/fallback_shapes.py, three
+# search-triggering turns): the answer always arrives with NO messageType and
+# `contentOrigin: "DeepLeo"` (24 wins), while every non-answer that won the scan was
+# a Progress frame -- `ChainOfThoughtSummary` reasoning transcript (6),
+# `Searching...` (6), `EarlyProgress`/"Gathering details..." (3) -- plus an empty
+# `ReferencesListComplete` (3). One of those transcripts shipped to a client:
+# .probe/cot_leak.py turn P2 delivered `**Considering SSE vs WebSocket...**` appended
+# to the answer, because it was the last entry in the completion frame.
+#
+# Deny-list rather than an allow-list of answer types on purpose: the answer's own
+# shape is "no messageType at all", so an allow-list would have to guess at every
+# type an answer might one day arrive under, and guessing wrong DROPS THE ANSWER --
+# a far worse failure than letting one narration line through. Refusal detection is
+# unaffected for the same reason: the canned refusal carries `BotConnection` with no
+# messageType, so it still wins the scan and still raises.
+_NON_ANSWER_MESSAGE_TYPES = frozenset({
+    "Progress",
+    "ReferencesListComplete",
+    "InternalSearchQuery",
+    "InternalLoaderMessage",
+    "SearchQuery",
+    "SemanticSerp",
+    "AdsQuery",
+    "GenerateContentQuery",
+    "DeveloperLogs",
+    "Suggestion",
+})
+
+
+def _is_answer_entry(entry: dict) -> bool:
+    """Whether a bot message may be taken as (part of) the turn's answer.
+
+    Two independent signals, because they fail differently. `messageType` is the
+    one measured to separate answers from narration across every observed shape.
+    `addToChainOfThought` is checked as well so a build that moves the reasoning
+    transcript to a different messageType still cannot land in the answer -- that
+    flag means "this is reasoning about the answer" no matter what carries it.
+
+    ponytail: an answer arriving under a denied messageType would be skipped. Nothing
+    in the live capture does that, and the t==3 refusal path plus the delta stream are
+    both independent of this, so the visible cost would be a missing fallback on a
+    turn that streamed nothing, not a wrong answer.
+    """
+    if bool(entry.get("addToChainOfThought")):
+        return False
+    if str(entry.get("contentOrigin") or "") == "ChainOfThoughtSummary":
+        return False
+    return str(entry.get("messageType") or "") not in _NON_ANSWER_MESSAGE_TYPES
+
+
 def _message_content(entry: dict) -> str:
     text = clean_m365_citations(normalize_m365_media_text(str(entry.get("text") or "")))
     image_urls = _extract_image_urls(entry)
