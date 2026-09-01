@@ -71,7 +71,7 @@ def test_final_fallback_remainder_avoids_repeating_media_citation_variant():
 
 
 def test_final_fallback_remainder_avoids_repeating_proxied_audio_and_citation_variant():
-    proxy_url = "http://multi.qovop.cyou/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
+    proxy_url = "http://proxy.example/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
     streamed = (
         "已生成流水声（WAV 格式）：\n\n"
         f"🎧 `{proxy_url}` \n\n"

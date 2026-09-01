@@ -28,6 +28,13 @@ proxies_*.txt
 /.ruff_cache/
 
 # Local coding-agent state; plans/specs stay local and are not pushed
-/.claude/worktrees/
+/.claude/
 /.superpowers/
 /docs/superpowers/
+/.mossx/
+
+# Scratch dirs for one-off investigations. .tmp-github-scan holds clones of
+# third-party repos surveyed in docs/upstream-candidates.md -- some are AGPL or
+# have broken attribution, so their source must never enter this Apache-2.0 tree.
+/.tmp/
+/.tmp-github-scan/

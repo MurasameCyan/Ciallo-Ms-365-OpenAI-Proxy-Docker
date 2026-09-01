@@ -93,7 +93,7 @@ def _path_from_url(url: str) -> str:
 
 
 def test_normalize_m365_media_text_converts_raw_proxy_image_url_to_markdown():
-    proxy_url = "http://multi.qovop.cyou/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
+    proxy_url = "http://proxy.example/v1/m365-media?account_id=acct_1&u=abc&exp=123&sig=abc"
 
     assert normalize_m365_media_text(f"! `{proxy_url}` ") == f"![image]({proxy_url})"
 
