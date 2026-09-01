@@ -377,6 +377,61 @@ GitHub 仓库搜索只对 **name + description** 做 AND 匹配，不做全文�
 - **GitHub Copilot 系不算候选**（`StarryKira/copilot2api-go` 138★、`whtsky/copilot2api` 29★ MIT）：上游是 GitHub Copilot 不是 M365，与本文件开头的排除项一致。
 - 其余新面孔都不构成候选：`Bosco1262/…-on-Cloudflare-Worker`（2★ NOASSERTION）、`6Kmfi6HP/copilot-openai-proxy`（1★ NOASSERTION）、`avryhof/m365-copilot-bridge`（1★ MIT）、`NicolaiLassen/m365-copilot-openai-proxy`（0★ Apache-2.0）。
 
+## 2026-09-01 复扫：25 个新仓，唯一收获是别人的协议知识挖出了我们自己的缺陷
+
+延续 08-30 的问法（找**许可证允许拿进来**的代码），这轮新克隆 25 个仓。**没有一行代码可搬**，但其中一份文档指出的协议事实让我们查出一个真实缺陷并修掉。
+
+### 许可证与派生判决
+
+可采纳许可证（MIT/Apache-2.0）的：`mahmoudsallem/m365-copilot-proxy-claude`(MIT,1★,TS)、`uefi2333/m365-native`(MIT,47★,Go)、`winnstorm/m365-copilot-api`(MIT,4★,Py)、`lezi-fun/m365-copilot-client`(MIT,11★,Py)、`renepajta/m365-copilot-mcp`(MIT,10★,Py)、`imxiaorong/M365-Copilot-API`(MIT,2★,Py)、`Scluzlep/E5-M365Copilot-API`(MIT,3★,Py)、`renefichtmueller/adaptive-llm-gateway`(Apache-2.0,11★,TS)。
+
+不可采纳（NONE/NOASSERTION，只能读）：`clabrado/mcopilot`、`ryc2077/m365plus`、`ryc2077/M365-Copilot2API-simulated-tools`、`miau/ms-copilot-gateway`、`notBlubbll/g365-headless-relay`、`BufferingForever`/`JARVIS-no1`/`wade019599`/`xinyc11260`/`Yang-iyu`/`s12ryt`/`zyads`/`ElSrJuez` 各自的仓。
+
+两条派生判决：
+
+- **`xiaocongyu66/m365-copilot2xapi`（MIT,0★,Go）按不可采纳对待。** 三个信号叠加：LICENSE 署名 **Chenyme**（不是仓库主），`backend/cmd/grok2api` 说明骨架来自别人的 grok2api，仓库名 `M365Copilot2ApiX` + `go.mod` 的 `M365Copilot2ApiX/backend` 指向 HEXUXIU 的 `M365-Copilot2API`，且 README 对两者都无致谢。逐文件哈希比对 hexuxiu(131 个 go) × xiaocong(329 个 go) = **0 个字节相同**，所以不是复制粘贴，但同 `jerbehe` 那次一样，署名链断了就按 AGPL 处理。
+- **`uefi2333/m365-native`（MIT,47★）是独立实现。** README 把 HEXUXIU 列在「Reference repositories」而非声明分叉，`addToChainOfThought` 在它代码里 0 命中（HEXUXIU 有 3 处），只有 `ChatHub` 这类协议名重合。可采纳。
+
+### 真正的收获：`mahmoud` 的 F17.10 指出了 ChatHub 会发推理旁白
+
+`mahmoudsallem/m365-copilot-proxy-claude` 的 `docs/hypotheses.md` F17.10 记着（并致谢 HEXUXIU 的解析器）：bot 消息带 `contentOrigin:"ChainOfThoughtSummary"` 或 `addToChainOfThought:true` 时载有多步推理转录。我们代码里 `contentOrigin` 只在一句注释里出现过，`ChainOfThought` 零命中。
+
+实测（`.probe/cot_frames2.py` / `fallback_shapes.py`，tone=Reasoning，搜索型提问）确认帧是真的，并测出比上游两家更准的判据：
+
+| 赢下 `fallback_text` 反向扫描的条目 | 次数 | 是答案吗 |
+|---|---:|---|
+| `messageType` 缺失 + `contentOrigin:DeepLeo` | 24 | 是 |
+| `Progress` + `ChainOfThoughtSummary` + cot=true | 6 | 否，推理转录 |
+| `Progress` + cot=true（`Searching...`） | 5 | 否 |
+| `Progress` + `EarlyProgress` + cot=false（`Gathering details…`） | 3 | 否 |
+| `ReferencesListComplete`（空文本） | 3 | 否 |
+| `Progress` + cot=false（`Searching...`） | 1 | 否 |
+
+**判据是 `messageType`，不是 CoT 标记。** HEXUXIU 和 mahmoud 都只认那两个 CoT 标记，那样会漏掉最后两行（`EarlyProgress` 与无标记的 `Searching...`）——它们同样能赢下扫描。
+
+### 缺陷与修复
+
+`substrate_client` 的反向扫描取「最后一条非 user 消息」，不问是什么，所以旁白能成为本轮的权威全文。回放一次抓下来的生产轮（`.probe/cot_capture_frames.py` + `cot_replay.py`，277 帧，同一输入跑两版）：
+
+- 未修：t==3 拿到的 `fallback_text` 是 **996 字的推理转录**（`fallback_is_cot=True`）
+- 已修：是 **9326 字的真答案**（开头 `# Recommendation: SSE with explicit heartbeats`）
+
+那一轮两版交付文本**完全相同**——它把整个答案都流出去了，下游 `_fallback_tail_after_delivered` 的锚点逻辑把追加抑制住了。所以这是**潜在缺陷**：只在「一个 delta 都没流出」或「只流出一部分」的轮次外显，那正是 `fallback_text` 存在的理由。修前/修后各三轮线上验证，`remainder_fallback_was_cot` 从 true 全变 false。
+
+一处对我自己的更正：`.probe/cot_leak.py` 第一轮报过「P2 轮泄漏 1 条」，那是用 `cot_text in delivered` 判的，**无法归因**且后续三轮 + 回放都未复现。改用直接埋点（`cot_source.py` 记 `_final_fallback_remainder` 的入参与返回）后，真正站得住的证据是上面的 `fallback_text` 被替换，而不是「旁白出现在答案里」。别再用子串测试判这类泄漏。
+
+修法：`substrate_parse._is_answer_entry`，两个独立信号（`messageType` 拒绝表 + CoT 标记），两处扫描点改为**跳过旁白继续找答案**而不是停在第一条非 user 消息（跳过后不赋值，好快照因此不再被旁白冲掉）。用拒绝表而非答案白名单：答案自身的形状是「根本没有 messageType」，白名单猜错会**丢答案**，比漏一行旁白严重得多；拒绝表也让固定文案拒绝（`BotConnection`，无 messageType）继续赢下扫描，tone 拒绝检测不受影响。
+
+`tests/test_substrate_cot_narration.py` 19 条，帧形状照抄实测。变异测试跑了两个变异体（分别废掉 CoT 分支与 messageType 分支）确认无假绿：第一版有一条测试在变异下仍绿（短文本被锚点逻辑抑制），已换成「流一半靠兜底补尾」的场景；`ReferencesListComplete` 那条原先也不承重（完成帧把它修好了），已改成完成帧同样以它结尾。全量 1752 passed, 2 skipped。
+
+### 顺带确认与否决
+
+- **F17.11（sol/terra/luna → `Gpt_5_6_Reasoning`）我们已有**，`tone_options.py:32` 就是它，且我们 08-02 扫过那十二种拼法全空。无事可做。
+- **上游把推理转录渲染成 Anthropic `thinking` 块 / OpenAI `reasoning_content`**：现在已知帧真实存在，这条从「不可行」变成「可做」，但要动三个协议渲染器，未做。
+- `uefi2333`(3 文件) 与 `shenping1200`(5 文件) 用 tiktoken 做精确计数，只是印证 08-30 已定的方向（直接用 MIT 的 `openai/tiktoken`，不必移植 Go）。
+- `xiaocong` 有 8 个文件涉及 write deadline（我们的待办 2），但按上面的判决只能读不能抄，且是 Go。
+- `diegosouzapw/OmniRoute`（MIT,59385★）是个 352-provider 聚合器，含一个 `copilot-m365-connection.ts`；量级和目标与本项目不同，不构成候选。
+
 ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。
@@ -385,6 +440,7 @@ GitHub 仓库搜索只对 **name + description** 做 AND 匹配，不做全文�
 4. usage 从 `estimated` 升级为带 `token_source`，精确计数放可选开关。
 5. 工具调用卫生：tool_call id 唯一性、孤立 tool_result 拒绝、单轮工具轮数上限。
 6. 需要补协议测试时，再从 sideeffffect 和 kuchris 提取可验证的测试思路。
+7. 推理转录已确认在线（2026-09-01），可选做：渲染成 Anthropic `thinking` 块与 OpenAI `reasoning_content`。要动三个协议渲染器，收益是把现在丢掉的转录变成可见的推理过程。
 
 ## 当前判断
 
