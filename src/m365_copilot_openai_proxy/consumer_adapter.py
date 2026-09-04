@@ -10,9 +10,11 @@ single seam between them, so the routes need no per-provider branching:
 * It preserves the shared ``_combine_text`` result while it fits, then compacts
   only Consumer prompts that exceed the configured upstream character budget.
   Consumer tool requests carry a dedicated compact prompt contract.
-* It drops the substrate-only ``session`` and ``images`` arguments. Consumer is
-  a stateless text bridge: the full transcript is re-sent as ``additional_context``
-  every turn, so a fresh conversation per turn loses no context.
+* It forwards ``images`` -- Consumer uploads them itself (``/c/api/attachments``)
+  rather than through the M365 upload path -- and drops the substrate-only
+  ``session`` argument. Consumer is stateless: the full transcript is re-sent as
+  ``additional_context`` every turn, so a fresh conversation per turn loses no
+  context.
 * It re-raises upstream failures as ``SubstrateCopilotError`` so the existing
   route error mapping keeps working unchanged.
 """
@@ -55,9 +57,6 @@ class ConsumerClientAdapter:
         session=None,
         images=None,
     ) -> AsyncIterator[str]:
-        # ponytail: images are dropped -- the consumer bridge is text-only. Ceiling:
-        # a request carrying an image gets a text-only answer. Upgrade path: port
-        # the browser's image-upload handshake into ConsumerCopilotClient.
         context = additional_context or []
         if any(part.startswith("Consumer tool contract:") for part in context):
             text = compact_consumer_prompt(prompt, context, self.max_prompt_chars)
@@ -66,7 +65,7 @@ class ConsumerClientAdapter:
             if len(text) > self.max_prompt_chars:
                 text = compact_consumer_prompt(prompt, context, self.max_prompt_chars)
         try:
-            async for chunk in self._client.chat_stream(text):
+            async for chunk in self._client.chat_stream(text, images=images):
                 yield chunk
         except ConsumerCopilotError as exc:
             # Collapses ClearanceRequired/RegionBlocked too: the routes only know

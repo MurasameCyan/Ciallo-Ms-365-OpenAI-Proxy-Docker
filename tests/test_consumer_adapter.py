@@ -1,6 +1,7 @@
 """ConsumerClientAdapter contract: flattens prompt+context like the substrate
-client, drops substrate-only session/images, and re-raises upstream failures
-as SubstrateCopilotError so the /v1 route error mapping is unchanged."""
+client, drops the substrate-only session while forwarding images to the consumer
+client's own upload path, and re-raises upstream failures as
+SubstrateCopilotError so the /v1 route error mapping is unchanged."""
 
 from __future__ import annotations
 
@@ -18,9 +19,11 @@ class FakeConsumerClient:
         self._chunks = chunks
         self._fail = fail
         self.prompts = []
+        self.images = []
 
-    async def chat_stream(self, prompt, conversation_id=""):
+    async def chat_stream(self, prompt, conversation_id="", images=None):
         self.prompts.append((prompt, conversation_id))
+        self.images.append(images)
         if self._fail:
             raise self._fail
         for chunk in self._chunks:
@@ -163,12 +166,39 @@ def test_adapter_counts_unicode_characters_not_utf8_bytes():
     assert prompt.endswith("结尾")
 
 
-def test_adapter_drops_session_and_images_arguments():
+def test_adapter_drops_the_session_but_hands_images_to_the_consumer_client():
+    """``session`` is a substrate-only handle and means nothing here, while images
+    must survive the seam: the consumer client uploads them itself
+    (`/c/api/attachments`). Swallowing them here is what made every consumer
+    model answer picture turns blind."""
     adapter = ConsumerClientAdapter(FakeConsumerClient())
-    _collect(adapter.chat_stream("hi", session={"id": 1}, images=[{"mime": "image/png"}]))
+    images = [{"mime": "image/png"}]
+
+    _collect(adapter.chat_stream("hi", session={"id": 1}, images=images))
+
     (prompt, conv_id) = adapter._client.prompts[0]
     assert conv_id == ""
     assert prompt == "hi"
+    assert adapter._client.images == [images]
+
+
+def test_adapter_forwards_images_on_the_non_stream_path_too():
+    adapter = ConsumerClientAdapter(FakeConsumerClient())
+    images = [{"mime": "image/png"}]
+
+    async def _once():
+        return await adapter.chat("hi", None, None, images)
+
+    assert asyncio.run(_once()) == "hello world"
+    assert adapter._client.images == [images]
+
+
+def test_adapter_passes_no_images_as_none_rather_than_inventing_a_list():
+    adapter = ConsumerClientAdapter(FakeConsumerClient())
+
+    _collect(adapter.chat_stream("hi"))
+
+    assert adapter._client.images == [None]
 
 
 def test_adapter_reraises_stable_consumer_error_unchanged():

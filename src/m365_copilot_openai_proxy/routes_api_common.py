@@ -399,8 +399,20 @@ def build_consumer_models_list(
             # Consumer entries used to carry no tool hint at all, which a client
             # gating on the field reads as "no" -- the same pessimistic silence
             # this reports its way out of.
-            "capabilities": {"tools": status != "unsupported"},
+            "capabilities": {"tools": status != "unsupported", "vision": True},
             "tool_calling": status,
+            # Image *input*, unlike drawing and tools, is uniform across modes: it
+            # is an upload to /c/api/attachments plus an image content part, all
+            # decided before a mode is chosen. Advertised in the same two fields
+            # the M365 catalogue uses (build_models_list explains which client
+            # reads which) because omitting them is not neutral -- a client that
+            # gates its attach button on this field refuses to send a picture the
+            # bridge would have carried.
+            "architecture": {
+                "modality": "text+image->text",
+                "input_modalities": ["text", "image"],
+                "output_modalities": ["text"],
+            },
             # Measured, same spirit as the tool hint: four of the nine Consumer
             # modes send no image frame when asked for a picture, and `reasoning`
             # answers "here is your image" having sent nothing. A client picking a

@@ -576,7 +576,7 @@ class _FakeConsumer:
         self.answer = answer
         self.prompts: list[str] = []
 
-    async def chat_stream(self, prompt, conversation_id=""):
+    async def chat_stream(self, prompt, conversation_id="", images=None):
         self.prompts.append(prompt)
         yield self.decision if ROUTER_MARKER in prompt else self.answer
 

@@ -262,39 +262,40 @@ def test_openai_last_message_from_the_assistant_is_still_refused():
         )
 
 
-# --- Consumer accounts cannot upload images at all -------------------------
+# --- Consumer accounts upload images too -----------------------------------
 #
-# ConsumerClientAdapter drops inbound images, so an image-only turn would arrive
-# upstream as an empty text part. Measured 2026-09-04 on the live consumer
-# account: that yields `Copilot error: empty-text` with the raw frame dump glued
-# onto the reply (Anthropic) or a silent 200 with zero characters (Responses).
-# A 400 naming the limit is the honest outcome. consumer_tool_max_chars is the
-# provider signal -- the routes pass the budget for Consumer, None for M365.
+# The bridge used to drop inbound images, so an image-only turn was refused here
+# with a 400 rather than reaching upstream as an empty text part. It now uploads
+# them (`ConsumerCopilotClient._upload_images` -> `/c/api/attachments`, measured
+# 2026-09-04 against the live account: the model named both halves of a freshly
+# minted two-colour PNG), so translation must hand the images on for Consumer
+# exactly as it does for M365 -- no provider branch at all. consumer_tool_max_chars
+# is the provider signal: the routes pass the budget for Consumer, None for M365.
 _CONSUMER = {"consumer_tool_max_chars": 8000}
-_CONSUMER_REFUSAL = "cannot upload images"
 
 
-def test_openai_image_only_turn_is_refused_for_a_consumer_account():
-    with pytest.raises(ValueError, match=_CONSUMER_REFUSAL):
-        _openai(_IMAGE_ONLY_OPENAI, **_CONSUMER)
+@pytest.mark.parametrize(
+    "translate, parts",
+    [
+        (_openai, _IMAGE_ONLY_OPENAI),
+        (_anthropic, _IMAGE_ONLY_ANTHROPIC),
+        (_responses, _IMAGE_ONLY_RESPONSES),
+    ],
+    ids=["openai", "anthropic", "responses"],
+)
+def test_consumer_image_only_turn_is_translated_not_refused(translate, parts):
+    translated = translate(parts, **_CONSUMER)
+
+    assert translated.prompt == ""
+    assert len(translated.images) == 1
 
 
-def test_anthropic_image_only_turn_is_refused_for_a_consumer_account():
-    with pytest.raises(ValueError, match=_CONSUMER_REFUSAL):
-        _anthropic(_IMAGE_ONLY_ANTHROPIC, **_CONSUMER)
-
-
-def test_responses_image_only_turn_is_refused_for_a_consumer_account():
-    with pytest.raises(ValueError, match=_CONSUMER_REFUSAL):
-        _responses(_IMAGE_ONLY_RESPONSES, **_CONSUMER)
-
-
-def test_consumer_turn_carrying_both_text_and_image_is_still_accepted():
-    """The image is dropped downstream and the turn answered as text-only -- the
-    documented ceiling, not a failure, so it must not be refused here."""
+def test_consumer_turn_carrying_both_text_and_image_keeps_both():
     translated = _openai(
         [ContentPart(type="text", text="what is this"), *_IMAGE_ONLY_OPENAI],
         **_CONSUMER,
     )
 
     assert translated.prompt == "what is this"
+    assert len(translated.images) == 1
+    assert translated.images[0].base64 == _B64

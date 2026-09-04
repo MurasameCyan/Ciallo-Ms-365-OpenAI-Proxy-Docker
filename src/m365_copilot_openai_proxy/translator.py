@@ -162,32 +162,6 @@ def extract_images(content: str | list[ContentPart] | None) -> list[ImageData]:
     return images
 
 
-def _reject_consumer_image_only_turn(
-    prompt: str,
-    images: list[ImageData],
-    consumer_tool_max_chars: int | None,
-) -> None:
-    """Refuse an image-only turn on the Consumer bridge instead of sending nothing.
-
-    ``consumer_tool_max_chars`` is not None only for a Consumer account (the routes
-    pass the prompt budget for those and None for M365). That bridge is text-only --
-    ConsumerClientAdapter drops inbound images -- so a turn whose sole content is an
-    image arrives upstream as an empty text part. Measured 2026-09-04 on the live
-    consumer account that produces either ``Copilot error: empty-text`` with the raw
-    frame dump appended to the reply, or a silent 200 carrying zero characters,
-    depending on the protocol. Both read as "the proxy is broken"; a 400 naming the
-    real limit does not. A turn that has text as well is left alone: it still gets a
-    text-only answer, which is the documented ceiling, not a failure.
-    """
-    if consumer_tool_max_chars is None or prompt.strip() or not images:
-        return
-    raise ValueError(
-        "This account is a personal (consumer) Copilot account and its bridge "
-        "cannot upload images, so an image-only message would reach the upstream "
-        "empty. Send the image with a text question, or use an M365 account."
-    )
-
-
 def _join_lines(lines: Iterable[str]) -> str:
     return "\n".join(line for line in lines if line).strip()
 
@@ -898,7 +872,6 @@ def translate_openai_request(
 
     if not prompt and not images:
         raise ValueError("A final user message is required.")
-    _reject_consumer_image_only_turn(prompt, images, consumer_tool_max_chars)
 
     if consumer_tools_contract:
         validate_consumer_required_content(
@@ -1442,7 +1415,6 @@ def translate_responses_request(
 
     if not prompt and not images:
         raise ValueError("No user message found in input.")
-    _reject_consumer_image_only_turn(prompt, images, consumer_tool_max_chars)
     if consumer_tools_contract:
         validate_consumer_required_content(
             prompt, consumer_tools_contract, consumer_tool_max_chars
@@ -1550,8 +1522,6 @@ def translate_anthropic_request(
 
     if not prompt and not images:
         raise ValueError("A final user message is required.")
-
-    _reject_consumer_image_only_turn(prompt, images, consumer_tool_max_chars)
 
     if consumer_tools_contract:
         validate_consumer_required_content(

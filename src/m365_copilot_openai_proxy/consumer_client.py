@@ -10,8 +10,11 @@ when they replay the same browser cookies and ChatAI access token.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import json
+import logging
 import math
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -31,6 +34,43 @@ from curl_cffi.requests.exceptions import RequestException
 BASE_URL = "https://copilot.microsoft.com"
 CHAT_WEBSOCKET_URL = f"{BASE_URL.replace('https', 'wss')}/c/api/chat?api-version=2"
 CONVERSATION_URL = f"{BASE_URL}/c/api/conversations"
+ATTACHMENT_URL = f"{BASE_URL}/c/api/attachments"
+
+_log = logging.getLogger(__name__)
+
+# Inbound image upload, measured against the live account 2026-09-04 (see
+# .probe/consumer_attachment_*.py). The protocol shape is g4f's Copilot provider;
+# everything below is what re-measuring it here changed:
+#   * COOKIES ARE NOT ENOUGH. Cookie-only (what the reference client sends) is
+#     HTTP 403; the same request with `authorization: Bearer <chat token>` is 200.
+#     Same rule as conversation create, opposite of the reference's comment.
+#   * The reply is `{"id", "url", "expiresAt"}` and `url` is SITE-RELATIVE
+#     ("/attachments/<id>.png"). It goes into the send frame verbatim -- a turn
+#     carrying the relative path had the model name both halves of a freshly
+#     minted two-colour PNG.
+#   * `content-type` is an allow-list of png/jpeg/webp, and it is required: gif,
+#     bmp, a missing header and `application/octet-stream` are all 400
+#     `unsupported-content-type`. So a sniffer must never fall back to
+#     octet-stream the way the reference one does -- that turns every unrecognised
+#     image into a failed upload.
+#   * The bytes are decoded independently of the header (PNG bytes labelled
+#     `image/jpeg` are accepted and come back as .jpeg), and 7MB uploads are fine,
+#     so there is no size or fidelity gate worth enforcing on this side.
+#   * A non-image type can answer 200 with `"url": null` (measured with
+#     text/plain, which is the document path). A missing url is a failed image.
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+)
+_UPLOADABLE_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
+# gif and bmp are refused by header, yet the same bytes sent as image/png come
+# back with a url (measured), because the header is only an allow-list and the
+# decoder reads the real format. So they are relabelled rather than dropped -- a
+# turn that silently loses the picture is the bug this path exists to fix. Best
+# effort, not a promise: acceptance was measured, a relabelled gif being *read*
+# was not.
+_RELABEL_IMAGE_TYPE = "image/png"
+_MAX_IMAGES_PER_TURN = 10
 
 # The lists advertise what a UI could render. Measured on live turns (2026-08-23):
 # they do not gate image generation -- upstream sends `generatingImage` and the
@@ -303,6 +343,51 @@ def drain_json(raw: str | bytes) -> list[dict]:
     return messages
 
 
+def image_content_type(data: bytes, declared: str = "") -> str:
+    """Content-type to upload ``data`` under, or ``""`` if it is not an image.
+
+    The bytes decide, because a client's declared ``media_type`` is a hint and
+    the endpoint's allow-list is checked against what the decoder finds. An image
+    format upstream refuses by header but can still decode is relabelled rather
+    than dropped; anything that does not look like an image at all is skipped, so
+    a stray attachment cannot cost the turn a 400.
+    """
+    for magic, sniffed in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return sniffed
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    declared = str(declared or "").strip().lower()
+    if declared in _UPLOADABLE_IMAGE_TYPES:
+        return declared
+    return _RELABEL_IMAGE_TYPE if declared.startswith("image/") else ""
+
+
+async def image_upload_bytes(image) -> tuple[bytes, str]:
+    """Raw bytes plus declared media type for one inbound image.
+
+    Remote images are fetched through the M365 side's downloader so both
+    providers share one SSRF guard, redirect cap and size cap instead of this
+    module growing a second, subtly different one.
+    """
+    encoded = str(getattr(image, "base64", "") or "")
+    media_type = str(getattr(image, "media_type", "") or "")
+    url = str(getattr(image, "url", "") or "")
+    if not encoded and url:
+        from .substrate_upload import _fetch_remote_image
+
+        fetched = await _fetch_remote_image(url)
+        if not fetched:
+            return b"", ""
+        encoded, media_type = fetched
+    if not encoded:
+        return b"", ""
+    try:
+        return base64.b64decode(encoded, validate=False), media_type
+    except (binascii.Error, ValueError):
+        return b"", media_type
+
+
 class ConsumerCopilotClient:
     """Stream consumer-Copilot replies through browser-impersonated curl_cffi.
 
@@ -352,13 +437,15 @@ class ConsumerCopilotClient:
         return url + "&features=anonymous-block-page&setflight=anonymous-block-page"
 
     async def chat_stream(
-        self, prompt: str, conversation_id: str = ""
+        self, prompt: str, conversation_id: str = "", images: list | None = None
     ) -> AsyncIterator[str]:
         """Yield one turn, refreshing the browser gate once before any output."""
         emitted = retried = False
         while True:
             try:
-                async for chunk in self._chat_stream_once(prompt, conversation_id):
+                async for chunk in self._chat_stream_once(
+                    prompt, conversation_id, images
+                ):
                     # Only visible output closes the retry window. Upstream can
                     # open a turn with an empty appendText and demand clearance
                     # right after; counting that as emitted spent the one
@@ -383,8 +470,82 @@ class ConsumerCopilotClient:
                 conversation_id = ""
                 retried = True
 
+    async def _upload_images(self, session, images: list | None) -> list[dict]:
+        """Upload inbound images and return their ``send``-frame content parts.
+
+        Uploaded on the turn's own session, so Cloudflare sees one browser and a
+        re-minted credential re-uploads with the token it was minted for.
+
+        A failed image is skipped rather than fatal -- the turn still carries the
+        user's question, same call as the M365 side makes -- but never silently:
+        from the outside, "the model never got my picture" and "the model
+        answered badly" look identical, so the log line is the only way to tell
+        them apart.
+        """
+        if not images:
+            return []
+        if len(images) > _MAX_IMAGES_PER_TURN:
+            _log.warning(
+                "consumer turn carries %d images; uploading the first %d and "
+                "dropping the rest",
+                len(images),
+                _MAX_IMAGES_PER_TURN,
+            )
+            images = images[:_MAX_IMAGES_PER_TURN]
+        headers = {"authorization": f"Bearer {self._token}"} if self._token else {}
+        if self._identity_type:
+            headers["x-useridentitytype"] = self._identity_type
+        parts: list[dict] = []
+        for index, image in enumerate(images):
+            data, media_type = await image_upload_bytes(image)
+            if not data:
+                _log.warning("consumer image %d has no usable bytes; skipping", index)
+                continue
+            content_type = image_content_type(data, media_type)
+            if not content_type:
+                _log.warning(
+                    "consumer image %d is not an uploadable image (declared %r); "
+                    "skipping",
+                    index,
+                    media_type,
+                )
+                continue
+            try:
+                response = await session.post(
+                    ATTACHMENT_URL,
+                    headers={**headers, "content-type": content_type},
+                    data=data,
+                )
+            except RequestException as exc:
+                _log.warning("consumer image %d upload failed: %s", index, exc)
+                continue
+            if response.status_code == 403:
+                # Same verdict as conversation create: the gate re-mints once and
+                # the retry re-uploads. Raising beats skipping here because a
+                # clearance failure will take the whole turn down anyway.
+                raise ClearanceRequired(
+                    "Copilot refused the image upload (HTTP 403): "
+                    f"{response.text[:200]}"
+                )
+            url = ""
+            if response.status_code == 200:
+                try:
+                    url = str((response.json() or {}).get("url") or "")
+                except ValueError:
+                    url = ""
+            if not url:
+                _log.warning(
+                    "consumer image %d upload returned no url (HTTP %s): %s",
+                    index,
+                    response.status_code,
+                    (response.text or "")[:200],
+                )
+                continue
+            parts.append({"type": "image", "url": url})
+        return parts
+
     async def _chat_stream_once(
-        self, prompt: str, conversation_id: str = ""
+        self, prompt: str, conversation_id: str = "", images: list | None = None
     ) -> AsyncIterator[str]:
         session_kwargs = {
             "impersonate": _IMPERSONATE,
@@ -425,10 +586,26 @@ class ConsumerCopilotClient:
                         "Copilot returned a conversation with no id."
                     )
 
+            image_parts = await self._upload_images(session, images)
+            # Image parts lead, as in the browser's own frame. An EMPTY text part
+            # is not "no question": upstream answers `{"errorCode":"empty-text"}`
+            # and drops the socket, while a frame carrying only image parts is
+            # answered and describes the picture (measured 2026-09-04, two
+            # freshly minted colours). So an image-only turn omits the text part
+            # rather than sending a blank one, and a turn left with nothing at all
+            # fails here instead of spending a round trip to be told so.
+            content: list[dict] = list(image_parts)
+            if prompt:
+                content.append({"type": "text", "text": prompt})
+            if not content:
+                raise ConsumerCopilotError(
+                    "Nothing left to send: the turn carried no text, and none of "
+                    "its images could be uploaded."
+                )
             send_frame = {
                 "event": "send",
                 "conversationId": conversation_id,
-                "content": [{"type": "text", "text": prompt}],
+                "content": content,
                 "mode": self._mode,
                 "context": {},
             }

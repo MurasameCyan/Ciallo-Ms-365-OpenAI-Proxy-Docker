@@ -25,10 +25,12 @@ class _FakeConsumerClient:
         self.fail = None
         self.calls = 0
         self.prompts = []
+        self.images = []
 
-    async def chat_stream(self, prompt, conversation_id=""):
+    async def chat_stream(self, prompt, conversation_id="", images=None):
         self.calls += 1
         self.prompts.append(prompt)
+        self.images.append(images)
         if self.fail:
             raise self.fail
         yield "ok"
@@ -155,6 +157,126 @@ def test_consumer_routes_cap_long_history_and_keep_current_prompt(
     assert "OLD_HISTORY_HEAD" not in sent
     assert "OLD_HISTORY_TAIL" in sent
     assert made_m365 == []
+
+
+# --- inbound images reach the consumer client -------------------------------
+#
+# End to end for the seam the bridge used to sever: the route translates the
+# image, the adapter forwards it, and the consumer client is the one that
+# uploads it (`/c/api/attachments`). Before 2026-09-04 the translator refused an
+# image-only consumer turn with a 400 and the adapter dropped images from every
+# other turn, so all three endpoints answered blind while Copilot's own web UI
+# read pictures fine.
+
+_PNG_DATA_URL = "data:image/png;base64,aGVsbG8="
+
+_IMAGE_ROUTE_CASES = [
+    (
+        "/v1/chat/completions",
+        {
+            "model": "deep-alias",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "what is this"},
+                        {"type": "image_url", "image_url": {"url": _PNG_DATA_URL}},
+                    ],
+                }
+            ],
+        },
+    ),
+    (
+        "/v1/messages",
+        {
+            "model": "deep-alias",
+            "max_tokens": 64,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "what is this"},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "aGVsbG8=",
+                            },
+                        },
+                    ],
+                }
+            ],
+        },
+    ),
+    (
+        "/v1/responses",
+        {
+            "model": "deep-alias",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "what is this"},
+                        {"type": "input_image", "image_url": {"url": _PNG_DATA_URL}},
+                    ],
+                }
+            ],
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize("endpoint,body", _IMAGE_ROUTE_CASES)
+def test_consumer_routes_hand_inbound_images_to_the_client(
+    provider_app, endpoint, body,
+):
+    app, consumer_key, _m365_key, made_consumers, _made_m365 = provider_app
+    app.state.consumer_mode_options = [
+        {"model": "deep-alias", "mode": "smart", "status": "stable"},
+    ]
+
+    response = TestClient(app).post(
+        endpoint,
+        headers={"Authorization": f"Bearer {consumer_key.key}"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    images = made_consumers[-1].images[-1]
+    assert images and len(images) == 1
+    assert images[0].base64 == "aGVsbG8="
+    assert made_consumers[-1].prompts[-1].endswith("what is this")
+
+
+@pytest.mark.parametrize("endpoint,body", _IMAGE_ROUTE_CASES)
+def test_consumer_image_only_turn_is_answered_not_rejected(
+    provider_app, endpoint, body,
+):
+    """The picture is the whole question. This used to be a 400 from the
+    translator; upstream answers it (measured against the live account)."""
+    app, consumer_key, _m365_key, made_consumers, _made_m365 = provider_app
+    app.state.consumer_mode_options = [
+        {"model": "deep-alias", "mode": "smart", "status": "stable"},
+    ]
+    stripped = dict(body)
+    key = "input" if endpoint == "/v1/responses" else "messages"
+    turn = dict(stripped[key][0])
+    turn["content"] = [
+        part
+        for part in turn["content"]
+        if part["type"] not in ("text", "input_text")
+    ]
+    stripped[key] = [turn]
+
+    response = TestClient(app).post(
+        endpoint,
+        headers={"Authorization": f"Bearer {consumer_key.key}"},
+        json=stripped,
+    )
+
+    assert response.status_code == 200
+    assert len(made_consumers[-1].images[-1]) == 1
 
 
 @pytest.mark.parametrize("endpoint,body", _ROUTE_CASES)
