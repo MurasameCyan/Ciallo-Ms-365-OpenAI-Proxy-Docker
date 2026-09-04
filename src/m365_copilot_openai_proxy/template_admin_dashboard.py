@@ -161,10 +161,29 @@ function renderUsageOverview(){
   if(!box)return;
   const usage=window.__usageStats;
   if(!usage){box.innerHTML='<span style="color:var(--faint)">'+t('no_calls_yet')+'</span>';return}
+  // The ring shares calls per model, the centre stays the token total. Fold the
+  // tail into one grey slice when a model can earn neither a row nor an arc: the
+  // legend box is a fixed 120px (six rows, and its scrollbar is styled
+  // invisible), and an arc under donut()'s 16.5px threshold is shorter than the
+  // ring is thick, so it draws as a block rather than an arc whatever caps it
+  // gets -- 3% of 331 calls is 8.7px of a 289px ring. Three names survive the
+  // arc rule regardless, or a flat spread would collapse into one grey circle.
   const counts=usage.model_counts||{};
   const pal=['#38bdf8','#a78bfa','#22c55e','#f59e0b','#ef4444','#06b6d4','#e879f9'];
-  const parts=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map((entry,index)=>({
-    value:Number(entry[1])||0,color:pal[index%pal.length],label:esc(entry[0])
+  const otherLabel='other',otherColor='#94a3b8',maxSlices=6,minShare=16.5/(2*Math.PI*46);
+  const ranked=Object.entries(counts).map(e=>[e[0],Number(e[1])||0]).filter(e=>e[1]>0).sort((a,b)=>b[1]-a[1]);
+  const sum=ranked.reduce((s,e)=>s+e[1],0)||1;
+  let keep=ranked.length>maxSlices?maxSlices-1:ranked.length;
+  while(keep>3&&ranked[keep-1][1]/sum<minShare)keep--;
+  // The store has an "other" bucket of its own past 25 models; merge into it
+  // rather than drawing a second slice under the same name.
+  const rest=ranked.splice(keep).reduce((s,e)=>s+e[1],0),seen=ranked.find(e=>e[0]===otherLabel);
+  if(rest>0){if(seen)seen[1]+=rest;else ranked.push([otherLabel,rest])}
+  // The share is the whole point of the ring; the raw count would cost the model
+  // name the width it needs to stay readable, and it is still in /admin/stats.
+  const parts=ranked.map((entry,index)=>({
+    value:entry[1],color:entry[0]===otherLabel?otherColor:pal[index%pal.length],label:esc(entry[0]),
+    text:Math.round(entry[1]/sum*100)+'%'
   }));
   const total=_fmtCompactNumber(usage.total_tokens);
   box.innerHTML=donut(parts,t('dash_token_total'),total.value,total.unit);

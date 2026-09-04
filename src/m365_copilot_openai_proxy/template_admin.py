@@ -455,12 +455,18 @@ function donut(parts,centerLabel,centerVal,centerUnit){
       const ratio=p.value/total,len=C*ratio;
       const outerR=R+5,innerR=R-8,outerC=2*Math.PI*outerR,innerC=2*Math.PI*innerR;
       const outerLen=outerC*ratio,innerLen=innerC*ratio,outerOff=outerC*(off/C),innerOff=innerC*(off/C);
-      const ringCap=8.25,outerCap=10,innerCap=1.3;
+      // A round cap adds half the stroke width past each end of the dash, so an
+      // arc shorter than two caps cannot be drawn to scale with them: the dash
+      // clamps to 0.01 and the caps alone still paint ~15px — 5% of the ring —
+      // over whatever slice comes next. Below that width the slice switches to
+      // butt caps and draws its true arc instead of a minimum-size blob.
+      const tiny=len<16.5,cap=tiny?'butt':'round';
+      const ringCap=tiny?0:8.25,outerCap=tiny?0:10,innerCap=tiny?0:1.3;
       const ringLen=Math.max(0.01,len-ringCap*2),outerDrawLen=Math.max(0.01,outerLen-outerCap*2),innerDrawLen=Math.max(0.01,innerLen-innerCap*2);
       const ringStart=off+ringCap,outerStart=outerOff+outerCap,innerStart=innerOff+innerCap;
-      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="round" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/></circle>';
-      halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="round" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.4"/>';
-      halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.18"/>';
+      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="'+cap+'" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/></circle>';
+      halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="'+cap+'" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.4"/>';
+      halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.8" stroke-linecap="'+cap+'" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.18"/>';
       off+=len;
     });
   }
@@ -474,7 +480,17 @@ function donut(parts,centerLabel,centerVal,centerUnit){
   let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+'<g class="donut-spin">'+halo+ring+'</g>'+sheen
     +'<text class="donut-center-label" x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+unit+'</text></svg>';
   let legend='<div class="donut-legend-scroll"><div class="donut-legend-items" style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
-  parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted)"><span style="width:10px;height:10px;border-radius:3px;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span>'+p.label+' <b style="color:var(--strong)">'+p.value+'</b></div>'});
+  // A part may carry its own legend `text` (e.g. "34%") when the raw value is
+  // not what a reader wants to see; otherwise the value is printed.
+  // One row per part, always: the box is 120px tall, so a model name that wraps
+  // to three lines pushes the parts below it out of a box whose scrollbar is
+  // styled invisible. The name is the only part that may be clipped — the
+  // swatch and the value keep their width, and the full name stays on hover.
+  // The value takes the row's slack as a left margin so the values line up in a
+  // column instead of trailing names of four different widths. That column edge
+  // is the legend's right edge, which .donut-legend-scroll's flex:1 stretches to
+  // the ring column's edge — the same edge as the KPI card directly above it.
+  parts.forEach(p=>{legend+='<div style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted);white-space:nowrap"><span style="width:10px;height:10px;border-radius:3px;flex-shrink:0;background:'+p.color+';display:inline-block;box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.4)"></span><span title="'+p.label+'" style="overflow:hidden;text-overflow:ellipsis">'+p.label+'</span><b style="color:var(--strong);flex-shrink:0;margin-left:auto">'+(p.text==null?p.value:esc(p.text))+'</b></div>'});
   legend+='</div></div>';
   return '<div style="display:flex;gap:.8rem;align-items:center">'+svg+legend+'</div>';
 }

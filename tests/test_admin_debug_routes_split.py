@@ -270,6 +270,80 @@ def test_dashboard_renders_model_share_donut_with_total_tokens_in_center():
     assert _ADMIN_HTML.count("dash_token_total:'") == 2
 
 
+def test_cumulative_usage_ring_folds_what_cannot_be_drawn_into_one_grey_slice():
+    """Twenty models produced twenty arcs on a 120px ring and a 6-row legend.
+
+    Two rules fold the tail. The legend box hides its scrollbar, so rows past the
+    sixth were invisible while still claiming a slice; and an arc under the 16.5px
+    cap threshold is shorter than the ring is thick, so a 3%-of-331-calls model
+    drew as an 8.7px block rather than an arc. Three names survive the arc rule
+    regardless, the folded slice is grey because it is not one model, and it
+    merges with the store's own overflow bucket of the same name.
+    """
+    from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
+
+    assert "maxSlices=6,minShare=16.5/(2*Math.PI*46)" in _ADMIN_DASHBOARD_JS
+    assert "let keep=ranked.length>maxSlices?maxSlices-1:ranked.length;" in _ADMIN_DASHBOARD_JS
+    assert "while(keep>3&&ranked[keep-1][1]/sum<minShare)keep--;" in _ADMIN_DASHBOARD_JS
+    assert "otherLabel='other',otherColor='#94a3b8'" in _ADMIN_DASHBOARD_JS
+    assert "if(seen)seen[1]+=rest;else ranked.push([otherLabel,rest])" in _ADMIN_DASHBOARD_JS
+    assert "entry[0]===otherLabel?otherColor:pal[index%pal.length]" in _ADMIN_DASHBOARD_JS
+    # the share alone: the raw count cost the model name the width it needs
+    assert "text:Math.round(entry[1]/sum*100)+'%'" in _ADMIN_DASHBOARD_JS
+
+
+def test_donut_draws_sub_cap_slices_to_scale_instead_of_minimum_blobs():
+    """A round cap paints half the stroke width past each end of the dash.
+
+    An arc shorter than two caps therefore rendered as a ~15px blob (5% of the
+    ring) that covered the next slice, so 16 sub-percent models claimed 83% of
+    the ring between them.
+    """
+    from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+
+    assert "const tiny=len<16.5,cap=tiny?'butt':'round'" in _ADMIN_HTML
+    assert "const ringCap=tiny?0:8.25,outerCap=tiny?0:10,innerCap=tiny?0:1.3" in _ADMIN_HTML
+    assert _ADMIN_HTML.count("stroke-linecap=\"'+cap+'\"") == 3
+    assert 'stroke-linecap="round" stroke-dasharray="\'+ringLen' not in _ADMIN_HTML
+    # a part may label itself; the plain value stays the default
+    assert "(p.text==null?p.value:esc(p.text))" in _ADMIN_HTML
+
+
+def test_donut_legend_keeps_every_part_on_one_row():
+    """A wrapped model name pushed the rows below it out of a 120px box.
+
+    The box scrolls with its scrollbar styled ``display:none``, so ``gpt-5.6``
+    wrapping to two lines did not scroll -- it deleted the fourth part from view.
+    The same squeeze flattened the 10px swatch into a 5px bar, because a flex
+    item shrinks below its own width before the text beside it does. Only the
+    name may be clipped, and it keeps a title so a clipped name is still legible.
+    """
+    from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+
+    assert "color:var(--muted);white-space:nowrap" in _ADMIN_HTML
+    assert "border-radius:3px;flex-shrink:0;background:" in _ADMIN_HTML
+    assert "color:var(--strong);flex-shrink:0" in _ADMIN_HTML
+    assert (
+        "<span title=\"'+p.label+'\" style=\"overflow:hidden;text-overflow:ellipsis\">'+p.label+'</span>"
+        in _ADMIN_HTML
+    )
+
+
+def test_donut_legend_values_share_one_right_edge_with_the_column():
+    """Values trailing names of four different widths read as a ragged column.
+
+    Two halves: the value takes the row's slack as a left margin, and the legend
+    box grows to the ring column instead of shrink-wrapping its own text -- which
+    is what puts that shared edge on the column border, i.e. on the right border
+    of the KPI card directly above (measured in .probe/check_legend_alignment.py:
+    dropping either half moves values 2-35px off the edge).
+    """
+    from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+
+    assert "color:var(--strong);flex-shrink:0;margin-left:auto" in _ADMIN_HTML
+    assert ".donut-legend-scroll{height:120px;max-height:120px;flex:1;" in _ADMIN_HTML
+
+
 def test_dashboard_donut_shows_center_unit_and_scrolls_long_model_legend_inline():
     from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
     from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS

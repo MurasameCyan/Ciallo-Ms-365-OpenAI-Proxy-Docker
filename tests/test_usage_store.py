@@ -116,6 +116,9 @@ def test_usage_store_normalizes_and_bounds_model_buckets(tmp_path):
     assert len(summary["model_counts"]) <= 25
     assert max(map(len, summary["model_counts"])) <= 80
     assert summary["model_counts"]["other"] > 0
+    # The usage ring divides these by their own sum, so no call may fall out of
+    # the per-model view when overflow models collapse into the "other" bucket.
+    assert sum(summary["model_counts"].values()) == summary["calls_total"]
 
 
 def test_usage_store_compacts_legacy_high_cardinality_file_on_load(tmp_path):

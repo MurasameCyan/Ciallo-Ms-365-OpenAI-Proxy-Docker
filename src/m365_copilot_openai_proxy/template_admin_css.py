@@ -33,7 +33,7 @@ details[open] summary:after{display:none}
 .card:has(details[open])::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 .flow-box{scrollbar-gutter:stable}
 .flow-box::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent,rgba(96,242,255,.85),rgba(255,94,219,.58),transparent);background-size:240% 100%;animation:flowBorder 2.4s linear infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
-.donut-legend-scroll{height:120px;max-height:120px;min-width:0;max-width:calc(100% - 128px);overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;scrollbar-width:none;-ms-overflow-style:none}
+.donut-legend-scroll{height:120px;max-height:120px;flex:1;min-width:0;max-width:calc(100% - 128px);overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;scrollbar-width:none;-ms-overflow-style:none}
 .donut-legend-items{width:100%;margin-block:auto}
 .donut-legend-scroll::-webkit-scrollbar{display:none}
 @keyframes flowBorder{to{background-position:220% 0}}
