@@ -112,7 +112,7 @@ curl -s http://localhost:8000/v1/chat/completions \
 
 #### 能力说明
 
-- **多模态输入（仅 M365）**：M365 目录中的每个模型都声明 `vision` / `input_modalities: text+image`（底层均为 M365 多模态后端）。Consumer 个人版当前丢弃图片，只能返回纯文本。部分客户端（如 CherryStudio）可能仍依赖内置模型名正则，需在客户端手动开启图片。
+- **多模态输入（仅 M365）**：M365 目录中的每个模型都声明 `vision` / `input_modalities: text+image`（底层均为 M365 多模态后端）。三种协议都接受**纯图片消息**（不带任何文字），上游会照常描述图片。Consumer 个人版当前丢弃图片，带文字时只能返回纯文本，纯图片消息会被 400 拒掉。部分客户端（如 CherryStudio）可能仍依赖内置模型名正则，需在客户端手动开启图片。
 - **响应中的 `model` 字段**：返回体里的 `model` 使用运行时别名（默认 `m365-copilot`，可由 `M365_MODEL_ALIAS` 或 Key 级 `model_alias` 覆盖），**不等于**请求时选用的对话模式 ID。
 - **可自定义模式列表**：在 `/admin` → 运行设置中编辑「对话模式列表」，格式每行：`底层tone值 | 显示名`。保存后立即反映到 `/v1/models` 与解析逻辑；显示名会作为模型 ID，空格转下划线，每个模式仍生成普通 + `-持续` 两个模型。
 
@@ -670,7 +670,7 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 | 提示词增强 | ❌ | 该文本在 M365 客户端内部注入（`substrate_client.py`），个人版客户端不经过那条路径 |
 | 系统提示词 | ⚠️ | 请求自带的 system 消息会拼进正文；管理页的工具系统提示词只在存在有效工具合同的请求中注入，无工具或 `tool_choice=none` 时不注入 |
 | 工具调用（提示词模拟） | ⚠️ | 非原生工具协议；客户端 tools 压缩为签名后随正文发送。`copilot-reasoning` / `copilot-thinking` / `copilot-research` / `copilot-coco` 已完成真实工具循环，其他映射可能忽略工具或断开 |
-| 图片输入 | ❌ | 适配器丢弃图片，带图请求会得到**纯文本回复**而不是报错 |
+| 图片输入 | ❌ | 适配器丢弃图片。带文字的图片请求会得到**纯文本回复**（模型看不到图，可能凭上下文瞎猜）；**纯图片消息**直接 400，因为丢图后正文为空，发上去只会换回 `Copilot error: empty-text` 或一条空回复 |
 | 图片生成 | ✅ | 让它画图会返回 Markdown 图片链接。个人版不需要企业版那套「媒体授权」——链接是匿名可取的（实测无 Cookie、无 token 直接 200） |
 | 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
 | Token / Cookie 自动保活 | ⚠️ | RT / CDP 两条 M365 链路都不适用。`-camoufox` 镜像用持久 Microsoft 登录 profile 静默重铸新 Token 与 Cookie（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)）；默认镜像只能手动重推 |
