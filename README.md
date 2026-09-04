@@ -38,7 +38,8 @@
 - **分层界面** — `/admin` 运营总控台（账户池 + Key 管理），`/` 用户自助页（用自己的 Key 管理对话模式、提示词和对应 provider 的账户凭据）
 - **运行概览面板** — `/admin` 首页四个环形图：账户有效 / 过期、用户启用 / 停用、用户绑定 / 未绑定、累计用量。累计用量按**调用次数**分份额（环心是 Token 总量），份额小到画不成弧形（短于环的厚度）或排不进图例六行的模型合并成灰色 `other`；图例一行一个模型、只显示百分比并统一右对齐到上方 KPI 卡片的右边框，原始次数仍在 `GET /admin/stats` 的 `usage.model_counts` 里
 - **请求前凭据检查** — 每个 `/v1/` 请求先检查绑定账户；M365 到期时自动续期，Consumer 遇到明确认证失败时可重铸一次并重试
-- **油猴脚本** — Tampermonkey 一键推送 Token + Cookie（及 media / designer 凭据）
+- **油猴脚本** — Tampermonkey 一键推送 Token + Cookie（及 media / designer 凭据），M365 与个人版共用同一个脚本
+- **M365 授权登录** — `/` 与 `/admin` 均可走 OAuth2 授权码 + PKCE 登录（native client，滑动 `refresh_token`），不装扩展、不抓包，登录后续期纯 HTTP
 - **M365 增量上下文** — 复用会话时只发送新增内容，不重发完整历史
 - **M365 会话持久化** — 容器重启后旧对话仍可正确续接
 - **提示词增强** — Web 可调 tool_call 行为与系统提示词，持久保存；服务端兜底重试 + 散文兜底救援（半成品）
@@ -79,16 +80,18 @@
 | `Claude_Sonnet_Reasoning` | `claude-sonnet-4-5` | `claude-sonnet-4-5-持续` | Claude Sonnet 思考 |
 | `Claude_Fable` | `claude-fable-5` | `claude-fable-5-持续` | Claude Fable |
 | `Claude_Opus` | `claude-opus` | `claude-opus-持续` | Claude Opus |
+| `Gpt_5_6_Chat` | `gpt-5.6_Chat` | `gpt-5.6_Chat-持续` | GPT 5.6 快速 |
 | `Gpt_5_6_Reasoning` | `gpt-5.6` | `gpt-5.6-持续` | GPT 5.6 思考 |
 | `Gpt_5_5_Chat` | `gpt-5.5_Chat` | `gpt-5.5_Chat-持续` | GPT 5.5 快速 |
 | `Gpt_5_5_Reasoning` | `gpt-5.5` | `gpt-5.5-持续` | GPT 5.5 思考 |
 | `Gpt_5_4_Chat` | `gpt-5.4_Chat` | `gpt-5.4_Chat-持续` | GPT 5.4 快速 |
 | `Gpt_5_4_Reasoning` | `gpt-5.4` | `gpt-5.4-持续` | GPT 5.4 思考 |
 | `Gpt_5_3_Chat` | `gpt-5.3_Chat` | `gpt-5.3_Chat-持续` | GPT 5.3 快速 |
+| `Gpt_5_3_Reasoning` | `gpt-5.3` | `gpt-5.3-持续` | GPT 5.3 思考 |
 | `Gpt_5_2_Chat` | `gpt-5.2_Chat` | `gpt-5.2_Chat-持续` | GPT 5.2 快速 |
 | `Gpt_5_2_Reasoning` | `gpt-5.2` | `gpt-5.2-持续` | GPT 5.2 思考 |
 
-共 **30** 个默认可选模型 ID（15 模式 × 2 变体）。
+共 **34** 个默认可选模型 ID（17 模式 × 2 变体）。`Gpt_5_6_Chat` 与 `Gpt_5_3_Reasoning` 是后来才被上游放开的两个模式（2026-08-02 还在被拒名单里，08-28 / 08-25 复测已可用），因此**旧部署升级后不会自动出现**：持久化的 `runtime_settings.json` 优先于代码默认，只有当它仍与旧版默认逐字节相同才会自动迁移。已改过「对话模式列表」的实例请在 `/admin` → 运行设置里手工补这两行。
 
 某个模式能不能用由 M365 侧的 rollout 决定，与本项目无关：M365 拒绝服务的模式会返回 **400** 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。用 400 而非 502，是因为重试改变不了上游的拒绝——502 会让客户端把它当成网关故障反复重试。传输层故障（空闲超时、断流）与凭据问题仍然是 502。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
 
@@ -113,7 +116,7 @@ curl -s http://localhost:8000/v1/chat/completions \
 
 #### 能力说明
 
-- **多模态输入（仅 M365）**：M365 目录中的每个模型都声明 `vision` / `input_modalities: text+image`（底层均为 M365 多模态后端）。三种协议都接受**纯图片消息**（不带任何文字），上游会照常描述图片。Consumer 个人版当前丢弃图片，带文字时只能返回纯文本，纯图片消息会被 400 拒掉。部分客户端（如 CherryStudio）可能仍依赖内置模型名正则，需在客户端手动开启图片。
+- **多模态输入（M365 与个人版都支持）**：M365 目录中的每个模型都声明 `vision` / `input_modalities: text+image`（底层均为 M365 多模态后端）。三种协议都接受**纯图片消息**（不带任何文字），上游会照常描述图片。Consumer 个人版自 2026-09-04 起同样识图，图片改由个人版自己的附件接口上传，与选哪个模型 / `mode` 无关（格式与张数上限见[个人版图片能力](#consumer-个人版模型目录)）。部分客户端（如 CherryStudio）可能仍依赖内置模型名正则，需在客户端手动开启图片。
 - **响应中的 `model` 字段**：返回体里的 `model` 使用运行时别名（默认 `m365-copilot`，可由 `M365_MODEL_ALIAS` 或 Key 级 `model_alias` 覆盖），**不等于**请求时选用的对话模式 ID。
 - **可自定义模式列表**：在 `/admin` → 运行设置中编辑「对话模式列表」，格式每行：`底层tone值 | 显示名`。保存后立即反映到 `/v1/models` 与解析逻辑；显示名会作为模型 ID，空格转下划线，每个模式仍生成普通 + `-持续` 两个模型。
 
@@ -138,6 +141,11 @@ curl -s http://localhost:8000/v1/chat/completions \
 | `copilot-smart` | `smart` | ✅ | ❌ 与 `copilot` 相同 | 仅建议文本 |
 | `copilot-chat` | `chat` | ✅ | ⚠️ 可能忽略工具或直接编造结果 | 仅建议文本 |
 | `copilot-study` | `study` | ✅ | ❌ 工具路径曾在开始响应后断开 | 仅建议文本 |
+
+**图片能力**（两个方向要分开看，实测 2026-08-25 与 2026-09-04）：
+
+- **识图（发图给模型）—— 支持，与 `model` / `mode` 无关**（2026-09-04 移植了浏览器那套图片上传握手）：代理把入站图片先 `POST /c/api/attachments` 上传，再把返回的相对 URL 作为 `{"type":"image","url":...}` 放在文字之前发给上游，与网页版同形。三种协议都可用，**纯图片消息**（不带任何文字）也能得到对图片的描述。实测细节：`png` / `jpeg` / `webp` 直接接受；`gif` / `bmp` 会被上游按 `content-type` 拒收，代理改标为 `image/png` 再试（尽力而为，上游收下了但能否读懂未逐格实测）；单轮最多 10 张，多出的会被丢弃并记 WARNING；单张实测 7MB 可用，上游会自行转码。上传失败时只丢这张图、照常发问（日志里有 WARNING），只有「一张都没上传成功且本来没有文字」才在本地报错。远程 `http(s)` 图片沿用 M365 那套下载器（同一份 SSRF 与体积限制）。
+- **出图（让模型画图）—— 按 `mode` 分**：`copilot` / `copilot-smart`（`smart`）、`copilot-chat`（`chat`）、`copilot-search`（`search`）实测会真的返回图片；`copilot-reasoning` / `copilot-thinking` 会声称「已为你生成」却一帧图都不发，`copilot-study` 只讲不画，`copilot-research` 返回的是网页图搜结果，`copilot-coco` 会先反问一句。后四种是上游行为，代理这边没有图可交付。`/` 自助页在选到不出图的模式时会显示同样的提示。
 
 `copilot-default` 与 `copilot-computer-use` 当前连续返回 `invalid-event`，不列入默认可用清单。升级时，若持久配置仍精确等于旧版 11 项默认目录，或等于此前旧顺序的 9 项默认目录，会自动迁移到上述顺序；不精确匹配旧默认的自定义目录不会因本次升级被自动删减或重排，仍只执行既有的大小写、空白和 `status` 规范化。个人版没有 `-持续` / `:persist` 变体；每轮会新建上游对话，并在本地压缩、重发必要历史。`/admin` → 运行设置中的「个人版模型 / Mode」可编辑这份目录，格式为 `model | mode | status`。其中 `experimental` 只标记 rollout 风险并影响错误提示，不改变请求执行策略。
 
@@ -173,31 +181,48 @@ docker compose up -d
 - `/` — 用户自助页（用自己的 API Key 登录）
 - `/admin` — 运营总控台（管理密码：`ADMIN_PASSWORD`，未设则回退 `API_KEY`）
 
-### 3. 推送 Token
+### 3. 登录账号
 
-#### 方式一：油猴脚本（推荐）
+账户池里的每个账户都要有自己的凭据。`/admin` 新建的空账户先绑定 Key，之后用户在 `/` 自助页自己完成登录即可，不必找管理员代劳。M365 与个人版的登录方式不同，下面按推荐顺序列出。
+
+#### 方式一：M365 授权登录（推荐，仅 M365）
+
+`/` 自助页的「授权登录 ( M365 Only )」走标准 OAuth2 授权码 + PKCE：不装扩展、不抓包，拿到的是**滑动过期**的 `refresh_token`（native client `c0ab8ce9-e9a0-42e7-b064-33d422df41f1`），之后续期是纯 HTTP 交换，不拉浏览器、不消耗 Copilot 配额。
+
+1. 先让 Key 绑上一个账户 —— 由管理员在 `/admin` 添加并绑定，或先用下面任一方式推一次凭据（未绑定时面板会直接提示）
+2. 点 **授权登录**：服务端生成登录链接并弹出微软登录页（被拦了就点「没弹窗？点这里打开」）
+3. 用**该账户对应的**微软账号登录。成功后地址栏会跳到 `https://login.microsoftonline.com/common/oauth2/nativeclient`，页面本身是空白的 —— 要的就是地址栏里那条带 `?code=...` 的完整 URL
+4. 把整个 URL 粘进输入框，点 **完成登录**
+
+服务端兑换授权码后写入 substrate token 与 `refresh_token`，并用同一个 RT 顺手铸出附件 key 与图片 key（这两个失败不影响聊天，保活会补）。四条硬约束：
+
+- 只对 **M365** 账户有效；个人版账户调用返回 400
+- 一次登录 15 分钟内有效且一次性，超时或重复提交返回 400，重新点「授权登录」即可
+- 登录的微软身份必须与该账户已绑定的 tenant / object id 一致，换成别人登录返回 409 —— 防止把另一个人的凭据写进你的账户
+- 管理员侧有等价端点 `POST /admin/pkce/start` / `complete` / `mint`，在请求体里点名 `account_id`
+
+#### 方式二：油猴脚本一键推送（M365 与个人版都可用）
 
 1. 安装 [Tampermonkey BETA](https://www.tampermonkey.net/) 浏览器扩展
 2. 点击 [一键脚本](https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js) 安装油猴脚本
-3. 打开 [M365 Copilot](https://m365.cloud.microsoft/chat) 并登录你的 M365 账号
-4. 在 Copilot 对话框中**输入任意字符**触发 WebSocket 连接
-5. 页面右上角弹出推送面板
-6. 点击 **One-Click Setup** — 自动推送 Cookie + Token 到代理服务
+3. 面板（右上角，`Ctrl+Shift+M` 开合）里填两项：**代理地址** = 本服务地址（如 `http://localhost:8000`），**用户 API Key** = 你在 `/` 页面拿到的 Key
+4. **M365**：打开 [M365 Copilot](https://m365.cloud.microsoft/chat) 登录后，在对话框**输入任意字符**触发 WebSocket；面板显示 `✓ Token 可用` 后点 **一键推送**（Token + Cookie 一起推）
+5. **个人版**：打开 [copilot.microsoft.com](https://copilot.microsoft.com) 登录后**发送一条消息** —— ChatAI token 只出现在聊天 WebSocket 的 URL 里，不发消息抓不到；面板「个人版 Copilot」显示 `✓ ChatAI Token 可用` 后点 **一键推送个人版**（Cookie + ChatAI Token 一起推，并把该账户切到 `consumer` provider）
 
-> **首次需要先推送 Cookie** 让 Chromium 登录 M365，之后 Auto Capture 即可自动刷新 Token。
+> 脚本按当前域名切换面板内容：在 copilot.microsoft.com 上只展开「个人版 Copilot」，M365 那套收进底部「其他产品」抽屉，反之亦然。个人版的完整步骤与代理配置见[个人版账户 → 推送凭据](#2-推送凭据)；媒体 / Designer 凭据见[媒体 / Designer 授权抓取](#媒体--designer-授权抓取)。
 
-#### 方式二：手动粘贴
+#### 方式三：手动粘贴 Token（应急，仅 M365）
 
 1. 在浏览器中打开 M365 Copilot
 2. F12 → Network → WS → 找到 `wss://substrate.office.com/...` 连接
 3. 复制 URL 中的 `access_token` 参数值
-4. 粘贴到 Web 页面的 **Update Token** 输入框，点击更新
+4. 粘到 `/` 自助页「推送 / 更新账户 Token」框并点更新（整条 `wss://` URL 也接受，服务端自己取参数）
 
-> **注意：手动导入无法自动刷新 Token，也无法启用按需刷新。**
+> **手动 Token 不带任何续期材料**：没有 `refresh_token`、没有 Cookie，substrate token 本身不到两小时就过期，到期只能再粘一次。要让账户自己活下去，用方式一或方式二。
 
 #### 查看状态
 
-Web 页面显示 Token 有效性与刷新相关状态。
+`/` 与 `/admin` 都会显示账户的 Token 剩余有效期、Cookie 状态、`refresh_token` 是否入库。个人版的 ChatAI token 不是可解码的 JWT，只能显示「有没有存」—— 过期表现为 `/v1/` 返回 502，处理方式见[凭据过期后手动重推](#3-凭据过期后手动重推)。
 
 > **Check Login / Auto Capture / Cookie 注入依赖共享 admin Chromium（9222），仅在 `ENABLE_ADMIN_CDP=true` 时可用**。默认多租户部署下这些按钮对应的端点未注册；请改用 `/` 用户自助页推送账户 Token / Cookie，刷新由每账户独立 Chromium 或 RT 承担。
 
@@ -235,6 +260,9 @@ Web 页面显示 Token 有效性与刷新相关状态。
 | `POST /admin/accounts/{id}/rename` | 重命名账户 |
 | `POST /admin/accounts/{id}/refresh` | 立即刷新账户 Token（CDP） |
 | `POST /admin/accounts/{id}/cookie-refresh` | 用 Cookie 拉起 Chromium 刷新 |
+| `POST /admin/pkce/start` | 为指定账户生成 PKCE 授权登录链接（仅 M365） |
+| `POST /admin/pkce/complete` | 提交回调 URL，兑换 substrate token + 滑动 `refresh_token` |
+| `POST /admin/pkce/mint` | 用已入库的 RT 铸媒体 / Designer key（`kind=media\|designer`） |
 | `DELETE /admin/accounts/{id}` | 删除账户（解绑其 Key） |
 | `GET POST /admin/keys` | 列出 / 新建 API Key |
 | `POST /admin/keys/{id}` | 更新 Key（绑定/模式/启停等） |
@@ -288,6 +316,9 @@ Web 页面显示 Token 有效性与刷新相关状态。
 | `POST /user/tool-prompt` | 设置自己的提示词增强 |
 | `POST /user/system-prompt` | 设置自己的系统提示词 |
 | `POST /user/account/token` | 推送/更新绑定账户的 Token（无则自动创建） |
+| `POST /user/pkce/start` | 对自己绑定的 M365 账户发起授权登录 |
+| `POST /user/pkce/complete` | 提交回调 URL 完成登录（只认自己那次登录） |
+| `POST /user/pkce/mint` | 用自己账户的 RT 铸媒体 / Designer key |
 | `POST /user/account/cookies` | 推送绑定账户的 Cookie（供 CDP 刷新） |
 | `POST /user/account/consumer` | 推送个人版（消费者版 Copilot）凭据，把账户切到 consumer provider |
 | `POST /user/account/refresh-token` | 立即刷新绑定账户的 Token |
@@ -422,7 +453,7 @@ Model:    Copilot_自动
           或 gpt-5.5_Chat / claude-sonnet-4-6 / gpt-5.5-持续 等
 ```
 
-也可在客户端「刷新模型列表」拉取 `GET /v1/models` 后点选。M365 模型若被客户端忽略 vision 能力字段，请手动开启图片上传；Consumer 当前不支持图片输入。
+也可在客户端「刷新模型列表」拉取 `GET /v1/models` 后点选。若客户端忽略 vision 能力字段，请手动开启图片上传；M365 与 Consumer 两类账户都能识图。
 
 ## 认证
 
@@ -607,11 +638,11 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 ### 2. 推送凭据
 
-1. 安装同一个[油猴脚本](#方式一油猴脚本推荐)（`@match` 已覆盖 `copilot.microsoft.com`，无需另装）
+1. 安装同一个[油猴脚本](#方式二油猴脚本一键推送m365-与个人版都可用)（`@match` 已覆盖 `copilot.microsoft.com`，无需另装）
 2. 在 `/` 用户自助页拿到自己的 **API Key**，填进油猴面板的「用户 API Key」框；「代理地址」填**本代理服务**的地址（如 `http://localhost:8000`）
 3. 打开 [copilot.microsoft.com](https://copilot.microsoft.com) 并登录个人微软账号
 4. **发送一条消息** —— ChatAI token 只出现在聊天 WebSocket 的 URL 里，不发消息就抓不到
-5. 面板「个人版 Copilot」一栏变绿显示 `✓ ChatAI Token 可用` 后，点 **推送个人版 Copilot**
+5. 面板「个人版 Copilot」一栏变绿显示 `✓ ChatAI Token 可用` 后，点 **一键推送个人版**
 
 > 脚本按域名自动切换面板内容：在 copilot.microsoft.com 上只显示「个人版 Copilot」，企业版那套（`Token` / `Media Bearer` / 模式抓包）收进底部的「其他产品」折叠抽屉里 —— 它们是企业版专用的，个人版账户不需要。反过来在 m365.cloud.microsoft 上，个人版一栏同样收进抽屉。登录域（`login.live.com` 等）两栏都显示，因为登录中途无法判断你要用哪个产品。
 >
@@ -671,7 +702,7 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 | 提示词增强 | ❌ | 该文本在 M365 客户端内部注入（`substrate_client.py`），个人版客户端不经过那条路径 |
 | 系统提示词 | ⚠️ | 请求自带的 system 消息会拼进正文；管理页的工具系统提示词只在存在有效工具合同的请求中注入，无工具或 `tool_choice=none` 时不注入 |
 | 工具调用（提示词模拟） | ⚠️ | 非原生工具协议；客户端 tools 压缩为签名后随正文发送。`copilot-reasoning` / `copilot-thinking` / `copilot-research` / `copilot-coco` 已完成真实工具循环，其他映射可能忽略工具或断开 |
-| 图片输入 | ❌ | 适配器丢弃图片。带文字的图片请求会得到**纯文本回复**（模型看不到图，可能凭上下文瞎猜）；**纯图片消息**直接 400，因为丢图后正文为空，发上去只会换回 `Copilot error: empty-text` 或一条空回复 |
+| 图片输入 | ✅ | 图片经 `POST /c/api/attachments` 上传（需聊天 Token，仅 Cookie 会 403），返回的相对 URL 排在文字之前发给上游，与网页版同形；纯图片消息也能识图。`png`/`jpeg`/`webp` 直接接受，`gif`/`bmp` 改标为 `image/png` 后再试（尽力而为），单轮上限 10 张，上传失败只丢该图并记 WARNING |
 | 图片生成 | ✅ | 让它画图会返回 Markdown 图片链接。个人版不需要企业版那套「媒体授权」——链接是匿名可取的（实测无 Cookie、无 token 直接 200） |
 | 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
 | Token / Cookie 自动保活 | ⚠️ | RT / CDP 两条 M365 链路都不适用。`-camoufox` 镜像用持久 Microsoft 登录 profile 静默重铸新 Token 与 Cookie（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)）；默认镜像只能手动重推 |
@@ -720,11 +751,12 @@ Consumer refresh for <account-id>: re-minted <N> cookies
               两条路径共享全局浏览器锁，同一时刻最多一个浏览器，峰值内存接近单租户
 ```
 
+
 ## 开发与调试
 
 ```bash
 uv sync --extra dev
-uv run pytest -q          # 全量约 1.3k 条，25s 左右
+uv run pytest -q          # 全量约 1.8k 条，25s 左右
 ```
 
 模板里的内联 JS 由多个 `template_*.py` 拼出来，`tests/test_template_inline_js_syntax.py` 用 `node --check` 兜住拼错；单个渲染函数的行为（例如抓包面板对畸形字段的容忍）可以像 `tests/test_admin_capture_options_sets.py` 那样把函数抠出来丢给 node 跑。装了 node 才跑，没装自动 skip。
@@ -734,7 +766,7 @@ uv run pytest -q          # 全量约 1.3k 条，25s 左右
 | 目录 | 放什么 |
 | ---- | ------ |
 | `.probe/` | 协议探针脚本（上游抓包、活体轮次、代理出口扫描等） |
-| `.probe/ui/` | 浏览器布局探针（Playwright，需 `channel="chrome"` + headed，headless 布局不一样） |
+| `.probe/ui/` | 浏览器布局探针（Playwright 必须 `channel="chrome"`，仓库没下 chromium；布局量测 headless 就够，只有 CPU / invalidation trace 需要 headed） |
 | `.probe/shots/` | 探针截图 |
 | `.probe/out/` | 抓下来的请求 / 响应体、日志 |
 
@@ -749,4 +781,5 @@ Apache License 2.0
 - [kuchris/m365-copilot-openai-proxy](https://github.com/kuchris/m365-copilot-openai-proxy)
 - [KilimcininKorOglu/M365Bridge](https://github.com/KilimcininKorOglu/M365Bridge)
 - [HEXUXIU/M365-Copilot2API](https://github.com/HEXUXIU/M365-Copilot2API)
+- [xtekky/gpt4free](https://github.com/xtekky/gpt4free) —— 个人版附件上传端点的字段形状线索（仅端点与字段名，实现与其余行为均自行实测）
 - [LINUX DO](https://linux.do/)
