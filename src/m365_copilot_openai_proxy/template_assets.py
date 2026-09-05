@@ -128,42 +128,46 @@ _STILL_DECOR_CSS = """
 *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }"""
 
-# The dashboard donut rings rotate. Kept out of _STILL_DECOR_CSS on purpose:
-# this is the one piece of ambient motion that was asked for back after the
-# freeze, so it is spelled out here with what it costs.
+# The dashboard donut rings hold still: the shares are a static colour band and
+# the only motion left is the blurred halo behind them breathing. Kept out of
+# _STILL_DECOR_CSS on purpose -- this is the one piece of ambient motion that was
+# asked for back after the freeze, so it is spelled out here with what it costs.
 #
-# Two changes make it affordable. First, one CSS rotation of a wrapper <g>
-# replaces the nine SMIL <animate> elements that used to slide each arc's
-# stroke-dashoffset. Same look -- every arc moving at the same speed through a
-# full circumference IS a rotation -- but style recalculation goes to 0% of a
-# core, from 82%.
+# What it replaces, in order: nine SMIL <animate> elements per ring sliding each
+# arc's stroke-dashoffset (82% of a core in style recalculation), then one stepped
+# CSS rotation of a wrapper <g> (9%), now nothing on the ring itself (0%) plus a
+# stepped opacity breath on the halo group.
 #
-# Second, and this is the part that actually matters: the rotation is stepped,
-# not continuous. Measured on the live dashboard, idle, whole Chrome process
-# tree:
+# The stepping carries over from the rotation unchanged, because an always-on
+# animation here is priced per frame drawn, not per property changed. Measured on
+# the live dashboard, idle, whole Chrome process tree:
 #
 #     linear (continuous, 60fps)   115-137%   of one CPU core
 #     steps(60)  ~92ms per notch       9%
 #     steps(36) ~153ms per notch       6%
 #     steps(24) ~229ms per notch       3%
-#     not rotating at all              0%
+#     not animating at all             0%
 #
 # The cost is not the filters and not the compositor. Stripping every SVG
 # filter still left 104%, `will-change`/`contain` made it worse (142%), and even
 # with every `backdrop-filter` on the page disabled it was 97%. The donut sits
 # in a stack of 37 backdrop-filter surfaces that cannot be composited, so each
 # frame is a real repaint of that stack -- the only lever left is drawing fewer
-# frames. steps(60) advances every ~92ms, which reads as smooth rotation at this
-# size while costing 13x less than continuous.
+# frames.
 #
-# ponytail: 60 notches is picked as the cheapest count that still looks
-# continuous at 120px, not derived. Fewer notches keep helping until they become
-# visible as stepping (steps(12) measured 11%, worse than 24 and 36 -- below
-# ~24 the repaint per notch grows faster than the frame count falls). If the
-# rings ever need to be larger, re-measure rather than assuming 60 still holds.
-_DONUT_SPIN_CSS = """
-.donut-spin{transform-origin:60px 60px;animation:donutSpin 5.5s steps(60,end) infinite}
-@keyframes donutSpin{to{transform:rotate(360deg)}}"""
+# steps() on a keyframe list runs per segment, so 14 steps across a 5.6s cycle
+# that goes .62 -> 1 -> .62 is 28 notches of ~200ms each, which the table above
+# prices between 3% and 6%. Only the halo group carries it: the coloured band is
+# what a reader measures shares against, and opacity on an already-blurred layer
+# never invalidates layout the way the old SMIL stroke-width breathing did.
+#
+# ponytail: 14 notches is read off the table above as the cheapest rate that
+# still breathes rather than blinks, not derived. One notch is ~0.027 of opacity
+# on a layer blurred by 4px, well under where stepping becomes visible. If the
+# rings get larger or the cycle gets shorter, re-measure.
+_DONUT_BREATHE_CSS = """
+.donut-breathe{animation:donutBreath 5.6s steps(14,end) infinite}
+@keyframes donutBreath{0%,100%{opacity:.62}50%{opacity:1}}"""
 
 _GLASS_SELECT_JS = """function initGlassSelect(root){
   const scope=root||document;

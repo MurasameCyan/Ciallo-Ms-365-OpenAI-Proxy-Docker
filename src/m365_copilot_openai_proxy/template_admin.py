@@ -424,19 +424,44 @@ function kpiCard(label,val,color){
 function donut(parts,centerLabel,centerVal,centerUnit){
   // parts: [{value,color,label}] — render a glassy SVG ring + legend.
   //
-  // The rings used to spin and breathe via SMIL: each segment carried three
-  // indefinitely-repeating <animate> elements, on stroke-dashoffset, opacity and
-  // stroke-width. On an idle dashboard that alone was 105% of a CPU core in
-  // style recalculation (~1460 recalcs/s), because SMIL drives the same
-  // per-frame restyle as CSS but sits outside it — `animation:none` cannot
-  // reach it and `document.getAnimations()` does not report it. `stroke-width`
-  // made it worse by invalidating layout each frame too.
+  // The ring does not move. It used to spin and breathe via SMIL: each segment
+  // carried three indefinitely-repeating <animate> elements, on
+  // stroke-dashoffset, opacity and stroke-width. On an idle dashboard that alone
+  // was 105% of a CPU core in style recalculation (~1460 recalcs/s), because
+  // SMIL drives the same per-frame restyle as CSS but sits outside it —
+  // `animation:none` cannot reach it and `document.getAnimations()` does not
+  // report it. `stroke-width` made it worse by invalidating layout each frame.
+  // That became one stepped CSS rotation of a wrapper <g>, and is now nothing at
+  // all on the band itself: the shares are a fixed colour ring, and the only
+  // motion left is the halo group behind it breathing (see .donut-breathe).
   //
-  // The spin is back, rebuilt two ways: one CSS rotation of a wrapper <g>
-  // instead of nine SMIL animations (0% recalc, down from 82%), stepped rather
-  // than continuous (see .donut-spin for why steps, and the measurements). The
-  // opacity/stroke-width breathing is not restored — it was the part nobody
-  // asked for, and static values near the old midpoints keep the glow.
+  // Slices are wedges, each running from the ring's start to its own end boundary,
+  // painted last slice first so every wedge sits above the one after it — and the
+  // last wedge is an undashed circle, so the ring is completely covered before any
+  // boundary exists. That is what makes a join seamless: the antialiasing at a
+  // boundary is colour against colour, never the track.
+  //
+  // Stacking them this way puts the cap a reader sees at each boundary on the slice
+  // that ENDS there, with the next colour closing around it, so the ")" faces the
+  // same way at every join — the way overlapping ribbons lie. Stacked the other way
+  // up (first slice at the bottom) the visible cap belongs to the slice that starts
+  // there instead, and then the join at 12 o'clock, which is always the last
+  // slice's tail, curves against all the others.
+  //
+  // A cap is a half-disc of half the stroke width, so a wedge's dash stops a cap radius
+  // short of its own boundary: that lands the tip on the boundary exactly, and the
+  // crescent either side of the tip belongs to whatever is underneath, which is the
+  // next slice along. Butt caps meeting at a point are what left an antialiased
+  // hairline of the track between two slices; a cap that overpaints cannot.
+  //
+  // The wrap join at 12 o'clock is the one place the stack cannot reach: the first
+  // slice is on top there, so its own leading cap would be the visible edge and that
+  // join alone would curve the other way. So the last slice's tail is drawn once more
+  // above everything — and the wedges lap a cap radius back over the ring's end to give
+  // that cap something to sit on, because a cap only reads as a cap where the colour it
+  // laps over is present on both sides of the tip. Both halves are needed: the lap-back
+  // alone paints the first slice over the end of the last one, and the cap alone
+  // recedes at the band edges to reveal the first slice's own cap right behind it.
   const total=parts.reduce((s,p)=>s+p.value,0);
   const R=46,C=2*Math.PI*R;let off=0;
   const uid='d'+Math.random().toString(36).slice(2,8);
@@ -446,39 +471,59 @@ function donut(parts,centerLabel,centerVal,centerUnit){
     +'<filter id="'+uid+'halo" x="-55%" y="-55%" width="210%" height="210%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
     +'<linearGradient id="'+uid+'gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
     +'</defs>';
-  let ring='',halo='';
-  // base track ring (glass groove)
-  ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="var(--track)" stroke-width="16" opacity=".72"/>';
+  // One group per layer at the layer's own opacity, with the wedges inside fully
+  // opaque: overlapping strokes at 0.4 composite to 0.64 and then 0.78 as the
+  // wedges stack, so per-wedge opacity would brighten the glow towards the end
+  // of the ring instead of reading as one even halo. The filters move to the
+  // group for the same reason — a per-wedge drop shadow paints a dark edge
+  // across the neighbour it overlaps, which is the gap this is meant to remove.
+  let ring='',outer='',inner='';
   if(total>0){
-    const visibleParts=parts.filter(p=>p.value>0);
-    visibleParts.forEach((p,i)=>{
-      if(p.value<=0)return;
-      const ratio=p.value/total,len=C*ratio;
-      const outerR=R+5,innerR=R-8,outerC=2*Math.PI*outerR,innerC=2*Math.PI*innerR;
-      const outerLen=outerC*ratio,innerLen=innerC*ratio,outerOff=outerC*(off/C),innerOff=innerC*(off/C);
-      // A round cap adds half the stroke width past each end of the dash, so an
-      // arc shorter than two caps cannot be drawn to scale with them: the dash
-      // clamps to 0.01 and the caps alone still paint ~15px — 5% of the ring —
-      // over whatever slice comes next. Below that width the slice switches to
-      // butt caps and draws its true arc instead of a minimum-size blob.
-      const tiny=len<16.5,cap=tiny?'butt':'round';
-      const ringCap=tiny?0:8.25,outerCap=tiny?0:10,innerCap=tiny?0:1.3;
-      const ringLen=Math.max(0.01,len-ringCap*2),outerDrawLen=Math.max(0.01,outerLen-outerCap*2),innerDrawLen=Math.max(0.01,innerLen-innerCap*2);
-      const ringStart=off+ringCap,outerStart=outerOff+outerCap,innerStart=innerOff+innerCap;
-      ring+='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="'+p.color+'" stroke-width="15" stroke-linecap="'+cap+'" stroke-dasharray="'+ringLen+' '+(C-ringLen)+'" stroke-dashoffset="'+(-ringStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'sh)" opacity="0.96"><animate attributeName="stroke-dasharray" from="0 '+C+'" to="'+ringLen+' '+(C-ringLen)+'" dur="0.55s" fill="freeze"/></circle>';
-      halo+='<circle cx="60" cy="60" r="'+outerR+'" fill="none" stroke="'+p.color+'" stroke-width="14" stroke-linecap="'+cap+'" stroke-dasharray="'+outerDrawLen+' '+(outerC-outerDrawLen)+'" stroke-dashoffset="'+(-outerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.4"/>';
-      halo+='<circle cx="60" cy="60" r="'+innerR+'" fill="none" stroke="'+p.color+'" stroke-width="1.8" stroke-linecap="'+cap+'" stroke-dasharray="'+innerDrawLen+' '+(innerC-innerDrawLen)+'" stroke-dashoffset="'+(-innerStart)+'" transform="rotate(-90 60 60)" filter="url(#'+uid+'halo)" opacity="0.18"/>';
-      off+=len;
+    const vis=parts.filter(p=>p.value>0),tail=vis[vis.length-1];
+    // Room for the wrap cap: it sits half behind the ring's end, so a last slice
+    // thinner than a whole cap would have its other half nosing over the slice before
+    // it. One slice is no join at all. No wrap cap means no lap-back either — the lap
+    // only stays out of sight because that cap covers it.
+    const cover=(r,w)=>vis.length>1&&2*Math.PI*r*(tail.value/total)>w;
+    vis.forEach((p,i)=>{
+      off+=C*(p.value/total);   // off is this slice's end boundary, not its start
+      const last=i===vis.length-1;
+      // The last wedge is undashed and covers the whole ring; every earlier one runs
+      // from a cap radius before the ring's start to its own boundary, over the wedges
+      // after it, so its trailing cap lands its tip on the boundary it marks and its
+      // leading cap laps back under the wrap cap.
+      // A wedge with less than one stroke width of ring behind it cannot host a cap
+      // — it would draw past its own boundary — so it falls back to a butt cap on its
+      // exact interval.
+      const wedge=(r,w)=>{const c=2*Math.PI*r,e=c*(off/C),h=e>w?w/2:0,s=cover(r,w)?0:h;
+        return '<circle cx="60" cy="60" r="'+r+'" fill="none" stroke="'+p.color+'" stroke-width="'+w+'"'
+          +(last?'':(h?' stroke-linecap="round"':'')+' stroke-dasharray="'+(e-h-s)+' '+c+'" stroke-dashoffset="'+(-s)+'"')
+          +' transform="rotate(-90 60 60)"/>'};
+      ring=wedge(R,15)+ring;outer=wedge(R+5,14)+outer;inner=wedge(R-8,1.8)+inner;
     });
+    // The wrap join, above everything: a dot is a dash between two round caps, so one
+    // placed a cap radius before the ring's end lands its clockwise tip exactly on the
+    // end — the last slice's tail, over the first slice's lap-back. The dash is a hair
+    // long rather than zero because Skia drops a zero-length dash segment, caps and all
+    // (measured: nothing painted at any radius).
+    const wrap=(r,w)=>{const c=2*Math.PI*r,h=w/2;
+      return cover(r,w)
+        ?'<circle cx="60" cy="60" r="'+r+'" fill="none" stroke="'+tail.color+'" stroke-width="'+w+'" stroke-linecap="round" stroke-dasharray="0.01 '+c+'" stroke-dashoffset="'+(h+0.01-c)+'" transform="rotate(-90 60 60)"/>'
+        :''};
+    ring+=wrap(R,15);outer+=wrap(R+5,14);inner+=wrap(R-8,1.8);
   }
   // glossy highlight arc over the top of the ring for a glass sheen — stays put,
   // it reads as a fixed reflection on the glass rather than part of the ring.
   const sheen='<circle cx="60" cy="60" r="'+(R+3.5)+'" fill="none" stroke="url(#'+uid+'gl)" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+(C*0.4)+' '+C+'" transform="rotate(-108 60 60)" pointer-events="none"/>';
-  // The rings spin as one group (see .donut-spin) instead of each arc animating
-  // its own stroke-dashoffset. Same look — every arc moved at the same speed
-  // through a full circumference, which is a rotation — at a fraction of the cost.
+  // The breath sits on the parent group and the blur on its children, so the
+  // animated property is on an unfiltered element: the two blur results stay
+  // cached and a notch only recomposites their alpha.
+  const track='<circle cx="60" cy="60" r="'+R+'" fill="none" stroke="var(--track)" stroke-width="16" opacity=".72"/>';
+  const halo='<g class="donut-breathe"><g filter="url(#'+uid+'halo)" opacity="0.4">'+outer+'</g>'
+    +'<g filter="url(#'+uid+'halo)" opacity="0.18">'+inner+'</g></g>';
+  const band='<g filter="url(#'+uid+'sh)" opacity="0.96">'+ring+'</g>';
   const unit=centerUnit?'<tspan dx=".18em" font-size="10" font-weight="600">'+esc(centerUnit)+'</tspan>':'';
-  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+'<g class="donut-spin">'+halo+ring+'</g>'+sheen
+  let svg='<svg viewBox="0 0 120 120" style="width:120px;height:120px;flex-shrink:0;overflow:visible;filter:drop-shadow(0 0 14px rgba(96,242,255,.38)) drop-shadow(0 0 28px rgba(140,107,255,.28)) drop-shadow(0 0 42px rgba(255,94,219,.16))">'+defs+halo+track+band+sheen
     +'<text class="donut-center-label" x="60" y="66" text-anchor="middle" fill="var(--strong)" font-size="24" font-weight="700">'+centerVal+unit+'</text></svg>';
   let legend='<div class="donut-legend-scroll"><div class="donut-legend-items" style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">';
   // A part may carry its own legend `text` (e.g. "34%") when the raw value is

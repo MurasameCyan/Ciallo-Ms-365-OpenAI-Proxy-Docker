@@ -172,16 +172,19 @@ def test_ambient_decor_does_not_animate_forever(page: str) -> None:
     )
 
 
-def test_donut_spin_is_stepped_not_continuous() -> None:
-    """The dashboard rings may rotate, but only in discrete notches.
+def test_donut_ring_holds_still_and_only_its_halo_breathes() -> None:
+    """The rings may keep one ambient animation, and only in discrete notches.
 
-    This is the one ambient animation deliberately kept: it was asked for back
-    after the freeze. It is affordable only because it is stepped. Measured on
-    the live dashboard, idle, whole Chrome process tree:
+    The colour band carries nothing: it was asked to hold still, and the shares
+    are what a reader measures off it. What is left is the blurred halo group
+    breathing its opacity, which is affordable only because it is stepped.
+    Measured on the live dashboard, idle, whole Chrome process tree:
 
         linear (continuous)          115-137% of one core
         steps(60), ~92ms per notch        9%
-        not rotating                      0%
+        steps(36), ~153ms per notch       6%
+        steps(24), ~229ms per notch       3%
+        not animating                     0%
 
     The donut sits in a stack of 37 backdrop-filter surfaces that cannot be
     composited, so every frame is a real repaint -- stripping all SVG filters
@@ -191,12 +194,17 @@ def test_donut_spin_is_stepped_not_continuous() -> None:
     identical and cost 13x more, which is exactly the regression to catch.
     """
     css = _css_of(_ADMIN_HTML)
-    rules = [body for sel, body in _RULE_RE.findall(css) if ".donut-spin" in sel and "animation" in body]
-    assert rules, "admin dashboard no longer rotates its donut rings; .donut-spin lost its animation"
+    spun = [f"{sel} -> {body.strip()[:110]}" for sel, body in _RULE_RE.findall(css) if ".donut-spin" in sel]
+    assert not spun and 'class="donut-spin"' not in _ADMIN_HTML, (
+        "the dashboard rings rotate again; the ring was asked to be a static colour "
+        "band:\n" + "\n".join(spun)
+    )
+    rules = [body for sel, body in _RULE_RE.findall(css) if ".donut-breathe" in sel and "animation" in body]
+    assert rules, "admin dashboard donut lost its halo breath; .donut-breathe has no animation"
     for body in rules:
         assert re.search(r"animation\s*:[^;]*steps\(", body), (
-            f"admin .donut-spin rotates continuously; on this page that is 115-137% of a CPU "
-            f"core versus 9% stepped:\n  {body.strip()[:140]}"
+            f"admin .donut-breathe animates continuously; on this page that is 115-137% of a "
+            f"CPU core versus 3-6% stepped:\n  {body.strip()[:140]}"
         )
 
 

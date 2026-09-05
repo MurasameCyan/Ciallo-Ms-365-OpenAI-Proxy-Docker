@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
+import subprocess
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
@@ -274,10 +277,10 @@ def test_cumulative_usage_ring_folds_what_cannot_be_drawn_into_one_grey_slice():
     """Twenty models produced twenty arcs on a 120px ring and a 6-row legend.
 
     Two rules fold the tail. The legend box hides its scrollbar, so rows past the
-    sixth were invisible while still claiming a slice; and an arc under the 16.5px
-    cap threshold is shorter than the ring is thick, so a 3%-of-331-calls model
-    drew as an 8.7px block rather than an arc. Three names survive the arc rule
-    regardless, the folded slice is grey because it is not one model, and it
+    sixth were invisible while still claiming a slice; and an arc under 16.5px is
+    shorter than the ring is thick, so a 3%-of-331-calls model draws as an 8.7px
+    block rather than an arc whatever it is drawn with. Three names survive the arc
+    rule regardless, the folded slice is grey because it is not one model, and it
     merges with the store's own overflow bucket of the same name.
     """
     from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
@@ -290,23 +293,146 @@ def test_cumulative_usage_ring_folds_what_cannot_be_drawn_into_one_grey_slice():
     assert "entry[0]===otherLabel?otherColor:pal[index%pal.length]" in _ADMIN_DASHBOARD_JS
     # the share alone: the raw count cost the model name the width it needs
     assert "text:Math.round(entry[1]/sum*100)+'%'" in _ADMIN_DASHBOARD_JS
-
-
-def test_donut_draws_sub_cap_slices_to_scale_instead_of_minimum_blobs():
-    """A round cap paints half the stroke width past each end of the dash.
-
-    An arc shorter than two caps therefore rendered as a ~15px blob (5% of the
-    ring) that covered the next slice, so 16 sub-percent models claimed 83% of
-    the ring between them.
-    """
+    # ...and the legend prints that label when a part carries one
     from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
 
-    assert "const tiny=len<16.5,cap=tiny?'butt':'round'" in _ADMIN_HTML
-    assert "const ringCap=tiny?0:8.25,outerCap=tiny?0:10,innerCap=tiny?0:1.3" in _ADMIN_HTML
-    assert _ADMIN_HTML.count("stroke-linecap=\"'+cap+'\"") == 3
-    assert 'stroke-linecap="round" stroke-dasharray="\'+ringLen' not in _ADMIN_HTML
-    # a part may label itself; the plain value stays the default
     assert "(p.text==null?p.value:esc(p.text))" in _ADMIN_HTML
+
+
+def _donut_js() -> str:
+    """The real donut() source, sliced out of the page it ships in."""
+    from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+
+    start = _ADMIN_HTML.index("function donut(")
+    return _ADMIN_HTML[start : _ADMIN_HTML.index("function renderDashboard()", start)]
+
+
+def _run_node(tmp_path, script: str) -> str:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required to render the real donut JS")
+    path = tmp_path / "donut-geometry.js"
+    path.write_text(script, encoding="utf-8")
+    done = subprocess.run(
+        [node, str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    assert done.returncode == 0, (done.stderr or "") + (done.stdout or "")
+    return done.stdout
+
+
+_DONUT_GEOMETRY_JS = r"""
+const parts=[{value:114,color:'#38bdf8',label:'gpt-5.6',text:'34%'},
+             {value:79,color:'#a78bfa',label:'copilot',text:'24%'},
+             {value:43,color:'#22c55e',label:'deep',text:'13%'},
+             {value:29,color:'#f59e0b',label:'sonnet',text:'9%'},
+             {value:66,color:'#94a3b8',label:'other',text:'20%'}];
+const html=donut(parts,'Token',331);
+const fail=m=>{console.log('FAIL '+m);process.exit(1)};
+if(/<animate/.test(html))fail('the ring animates again: '+html.match(/<animate[^>]*>/));
+const band=/<g filter="url\(#\w+sh\)" opacity="0\.96">(.*?)<\/g>/.exec(html);
+if(!band)fail('no single ring group: per-wedge opacity stacks 0.4 into 0.64 and 0.78');
+const arcs=band[1].match(/<circle[^>]*>/g)||[];
+const n=parts.length;
+if(arcs.length!==n+1)fail('expected '+(n+1)+' arcs, one per slice plus the wrap cap, got '+arcs.length);
+const C=2*Math.PI*46,total=parts.reduce((s,p)=>s+p.value,0),ends=[];
+parts.reduce((a,p)=>{a+=C*(p.value/total);ends.push(a);return a},0);
+if(Math.abs(ends[n-1]-C)>0.01)fail('shares cover '+ends[n-1].toFixed(2)+'px of a '+C.toFixed(2)+'px ring');
+const paint=a=>({colour:/stroke="([^"]+)"/.exec(a)[1],
+  width:Number(/stroke-width="([\d.]+)"/.exec(a)[1]),
+  dash:/stroke-dasharray="([\d.]+) ([\d.]+)"/.exec(a),
+  at:/stroke-dashoffset="(-?[\d.]+)"/.exec(a),
+  round:/stroke-linecap="round"/.test(a)});
+arcs.slice(0,n).forEach((arc,j)=>{
+  // Painted last slice first, so every slice sits above the ones after it and the cap
+  // on top at each boundary is the tail of the slice that ends there.
+  const i=n-1-j,a=paint(arc),want=parts[i];
+  if(a.colour!==want.color)fail('arc '+j+' is '+a.colour+' where '+want.label+' ('+want.color+') belongs: the wedges are not stacked last slice first, so the visible cap at a boundary is the head of the slice starting there instead of the tail of the one ending there');
+  if(j===0){
+    if(a.dash||a.at)fail('the bottom wedge is dashed, so the track shows through wherever no wedge reaches');
+    console.log(want.label+' -> undashed base');
+    return;
+  }
+  if(!a.dash||!a.at)fail(want.label+' is undashed and buries every wedge under it');
+  if(!a.round)fail(want.label+' has no round cap, so its join is a straight radial cut, not a curve');
+  // Each cap is a half-disc of half the stroke width reaching out from its end of the
+  // dash, so a join lands where it should only if the dash stops a cap radius short of
+  // that boundary. Off by that much either way and two slices are mis-sized: short of
+  // the boundary leaves the next colour a nose over this one, past it noses the other
+  // way. The other end is NOT inset: the dash starts on the ring's start, so its cap
+  // laps a cap radius back over the ring's end, which is what the wrap cap below sits
+  // on -- a cap only reads as a cap where the colour under it runs past its tip.
+  const s=-Number(a.at[1]),len=Number(a.dash[1]),tip=s+len+a.width/2;
+  if(len<=0)fail(want.label+' has a dash of '+len.toFixed(2)+'px; a negative dasharray is dropped and the wedge buries the ring');
+  if(Math.abs(s)>0.01)fail(want.label+" starts "+s.toFixed(2)+"px into the ring, so its cap does not lap back over the ring's end and the wrap cap has nothing to sit on at 12 o'clock");
+  if(Math.abs(tip-ends[i])>0.01)fail(want.label+' caps at '+tip.toFixed(2)+'px, its share boundary is '+ends[i].toFixed(2)+'px');
+  console.log(want.label+' -> tail cap on '+tip.toFixed(2)+'px');
+});
+// 12 o'clock is the one join the stack cannot reach: the first slice is on top there, so
+// the last slice's tail is drawn once more above everything, as a hair-length dash
+// between two round caps placed a cap radius short of the end.
+const wrap=paint(arcs[n]);
+if(wrap.colour!==parts[n-1].color)fail('the wrap cap is '+wrap.colour+', not '+parts[n-1].label+", whose tail 12 o'clock is");
+if(!wrap.round)fail("the wrap cap is not round, so the join at 12 o'clock is a straight radial cut");
+// A hair, not zero: Skia drops a zero-length dash segment and paints no cap at all
+// (measured). Any longer and it stops being one cap and repaints a stretch of the ring.
+const wlen=wrap.dash?Number(wrap.dash[1]):-1;
+if(!(wlen>0&&wlen<0.1))fail('the wrap cap is a '+(wrap.dash?wrap.dash[1]:'missing')+'px dash, not one cap');
+const wtip=-Number(wrap.at[1])+wlen+wrap.width/2;
+if(Math.abs(wtip-C)>0.01)fail('the wrap cap tips at '+wtip.toFixed(2)+'px, the ring ends at '+C.toFixed(2)+'px');
+console.log('wrap cap -> tip on '+wtip.toFixed(2)+'px');
+
+// A slice with less than one stroke width of ring behind it cannot host a cap: its dash
+// would go negative, and a negative dasharray is dropped, which paints that colour over
+// the whole ring. The wrap cap needs the same room at the other end -- half of it lies
+// behind the ring's end, so a sliver last slice would put that half over its predecessor
+// and read as the wrong colour there. Cap and lap-back come as a pair: with no wrap cap
+// above it, a wedge lapping back would show as the first colour over the last slice.
+const tiny=[{value:99,color:'#38bdf8',label:'big'},{value:1,color:'#94a3b8',label:'sliver'}];
+const cut=h=>/<g filter="url\(#\w+sh\)" opacity="0\.96">(.*?)<\/g>/.exec(h)[1].match(/<circle[^>]*>/g)||[];
+const tarcs=cut(donut(tiny,'Token',100));
+if(tarcs.length!==2)fail('a 1% last slice has no room for the wrap cap, so 2 arcs were expected, got '+tarcs.length);
+const base=paint(tarcs[0]),big=paint(tarcs[1]);
+if(base.colour!=='#94a3b8'||base.dash)fail('the 1% sliver is not the undashed base, so nothing covers the ring before the first boundary');
+const btip=-Number(big.at[1])+Number(big.dash[1])+big.width/2;
+if(Math.abs(btip-C*0.99)>0.01)fail('the 99% wedge caps at '+btip.toFixed(2)+'px, its boundary is '+(C*0.99).toFixed(2)+'px, so the sliver is not 1% wide');
+if(Math.abs(-Number(big.at[1])-big.width/2)>0.01)fail('the 99% wedge starts at '+(-Number(big.at[1])).toFixed(2)+'px with no wrap cap above it, so its leading cap laps '+(big.width/2).toFixed(2)+"px of the 1% sliver's share in the wrong colour");
+// The same sliver first: 1% of the ring is less than one cap, so it draws butt on its
+// exact interval instead of insetting a dash it has no room for.
+const farcs=cut(donut([tiny[1],tiny[0]],'Token',100));
+if(farcs.length!==3)fail('a 1% first slice: 3 arcs expected (base, sliver, wrap cap), got '+farcs.length);
+const sliver=paint(farcs[1]);
+if(sliver.round)fail('a 1% first slice kept its round cap, so its dash goes negative and its colour buries the ring');
+if(Math.abs(Number(sliver.at[1]))>0.01||Math.abs(Number(sliver.dash[1])-C*0.01)>0.01)fail('the 1% first slice draws '+Number(sliver.dash[1]).toFixed(2)+'px from '+(-Number(sliver.at[1])).toFixed(2)+'px; its share is 0 to '+(C*0.01).toFixed(2)+'px');
+const breathe=html.slice(html.indexOf('<g class="donut-breathe">'));
+const closed=breathe.indexOf('</g></g>');
+if(html.indexOf('<g class="donut-breathe">')<0||closed<0)fail('the halo no longer breathes');
+if(/opacity="0\.96"/.test(breathe.slice(0,closed)))fail('the colour band breathes; it was asked to hold still');
+console.log('OK');
+"""
+
+
+def test_donut_wedges_tile_the_ring_with_no_seam_and_no_animation(tmp_path):
+    """Every join is an overpaint, so no join can show a gap -- and every one curves
+    the same way round.
+
+    Two butt caps meeting at a point still leave an antialiased hairline of the track
+    between them, which is what a gap looked like here. Each slice is now a wedge from
+    the ring's start to its own boundary, painted last slice first so it lies over the
+    slices after it, with the last wedge undashed so the ring is covered before any
+    boundary exists. Stacked that way the cap on top at each boundary belongs to the
+    slice that ENDS there: the ")" faces the same way at every join. Stacked the other
+    way up it belongs to the slice that starts there, and then 12 o'clock -- always the
+    last slice's tail -- curves against all the others.
+
+    Measured off the emitted SVG rather than asserted about the source, because what
+    matters is where the arcs land: each cap reaches half a stroke width out from its end
+    of the dash, so a wedge that does not stop exactly that far short of its own boundary
+    draws its join in the wrong place, by 2.6% of the ring. The other end laps that far
+    back over the ring's end instead, which is the only thing the wrap cap at 12 o'clock
+    has to sit on.
+    """
+    out = _run_node(tmp_path, "const esc=s=>String(s==null?'':s);\n" + _donut_js() + _DONUT_GEOMETRY_JS)
+    assert "OK" in out, out
 
 
 def test_donut_legend_keeps_every_part_on_one_row():
