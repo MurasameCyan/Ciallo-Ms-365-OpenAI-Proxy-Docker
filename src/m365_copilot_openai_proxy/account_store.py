@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .account_crypto import SENSITIVE_FIELDS, AccountCipher, load_or_create_key
+from .atomic_write import write_text_atomic
 from .token_store import decode_jwt_payload, is_substrate_token_claims
 
 
@@ -359,10 +360,11 @@ class AccountStore:
                 if fname in record:
                     record[fname] = self._cipher.encrypt_value(record[fname])
         try:
-            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._persist_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(self._persist_path)
+            write_text_atomic(
+                self._persist_path,
+                json.dumps(data, ensure_ascii=False, indent=2),
+                durable=True,
+            )
         except OSError:
             pass  # Persistence is best-effort; never break a request over a disk error
 
