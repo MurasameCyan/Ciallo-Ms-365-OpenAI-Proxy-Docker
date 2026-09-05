@@ -108,6 +108,7 @@ async function loadAccounts(localOnly=false){
         +'<button onclick="toggleAccountToken(\\''+a.id+'\\')" style="font-size:.8rem;padding:6px 14px;background:var(--chip)">'+t('kf_cancel')+'</button>'
         +'</div><div id="atok-msg-'+a.id+'" style="font-size:.78rem;color:#ef4444;margin-top:.4rem"></div>'
         +_pkcePanel(a)
+        +_personalizationPanel(a)
         +'</td></tr>';
     });
     h+='</tbody></table></div>'+_pageFoot('accounts',__pg);
@@ -206,6 +207,10 @@ function toggleAccountToken(id){
   const open=row.style.display==='none';
   row.style.display=open?'table-row':'none';
   if(open){const m=document.getElementById('atok-msg-'+id);if(m)m.textContent='';const v=document.getElementById('atok-val-'+id);if(v){v.value='';v.focus()}}
+  // The personalization flags are one upstream call per read, so they are fetched
+  // when the drawer opens rather than for every row of the table. No panel means
+  // a consumer account, which has no such endpoint to call.
+  if(open&&document.getElementById('pers-'+id))loadPersonalization(id);
 }
 async function submitAccountToken(id){
   const v=document.getElementById('atok-val-'+id),m=document.getElementById('atok-msg-'+id);

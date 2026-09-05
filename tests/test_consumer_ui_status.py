@@ -99,6 +99,7 @@ def _admin_accounts_render_script(
             # Cross-module render helpers are stubbed here the same way
             # renderDashboard is: the real page concatenates every template.
             "function _pkcePanel(){return ''}",
+            "function _personalizationPanel(){return ''}",
             _admin_status_helpers(),
             _ADMIN_ACCOUNTS_JS,
             # Anything that has to be true *before* the render goes here;

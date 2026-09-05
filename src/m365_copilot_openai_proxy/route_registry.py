@@ -10,6 +10,7 @@ from .routes_admin import register_admin_account_key_routes
 from .routes_admin_debug import register_admin_debug_routes
 from .routes_admin_modeltest import register_admin_model_test_routes
 from .routes_admin_observability import register_admin_observability_routes
+from .routes_admin_personalization import register_admin_personalization_routes
 from .routes_admin_settings import register_admin_settings_routes
 from .routes_admin_token import register_admin_token_routes
 from .routes_api import register_api_routes
@@ -53,6 +54,8 @@ def register_app_routes(
     register_admin_settings_routes(app, admin_auth.require_admin, resolved_settings, TONE_OPTIONS, TONE_VALUES)
 
     register_admin_account_key_routes(app, admin_auth.require_admin, TONE_VALUES)
+
+    register_admin_personalization_routes(app, admin_auth.require_admin)
 
     register_user_routes(app, resolved_settings, TONE_OPTIONS)
 
