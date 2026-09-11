@@ -432,6 +432,161 @@ GitHub 仓库搜索只对 **name + description** 做 AND 匹配，不做全文�
 - `xiaocong` 有 8 个文件涉及 write deadline（我们的待办 2），但按上面的判决只能读不能抄，且是 Go。
 - `diegosouzapw/OmniRoute`（MIT,59385★）是个 352-provider 聚合器，含一个 `copilot-m365-connection.ts`；量级和目标与本项目不同，不构成候选。
 
+## 2026-09-11 复扫：一个新的可采纳仓、一个全新上游、两个我们自己的缺口
+
+延续 08-30 / 09-01 的问法（找**许可证允许拿进来**的代码补已知缺口）。窗口 2026-09-01..09-11。搜到 144 个仓，其中 138 个不在已知清单里；绝大多数是 **GitHub** Copilot 反代或 M365 管理/报表/readiness 工具，按本文件开头的排除项一句话否决。真正触到 substrate/ChatHub 或同族上游的只有下面几个。
+
+方法提醒（与 08-30 那条并列）：仓库搜索仍只匹配 name+description，所以本轮用「单词级 loose query + 已知仓直查 + `gh search code`」三条腿。另外本轮 `gh api .../commits?since=` 有一次对 `protella/chatgpt-bots` 返回空、随后同一 endpoint 又正常返回 5 条 —— 空结果不能当「没有提交」，必须用第二次调用或换 `sha=<branch>` 复核。
+
+### 唯一新的可采纳仓：`MasayukiTa/m365-copilot-companion-mcp`
+
+MIT，6★，Python，973 文件，`fork=false`、`parent=none`、LICENSE 署名 "m365-copilot-companion-mcp contributors"，创建于 2026-05-27。派生核查：全树 `HEXUXIU` / `Copilot2API` / `addToChainOfThought` **各 0 命中**，是独立实现，可采纳。
+
+它的 `relay/chathub.py` + `relay/chathub_capture.py` 打的是同一个 `wss://substrate.office.com/m365Copilot/Chathub`，而且整套是「先抓包再发」的：每个字段都注明是观测到的还是被服务端拒绝过的。逐条对照我们的代码：
+
+| 它测到的事 | 我们的状态 |
+|---|---|
+| Researcher 的模型选择走请求而不是页面状态：同一 session 把 picker 分别停在 Default 和 Claude 各抓一次，只有一个非易变字段动了 —— `gpts[0].clientOverrides.deepResearchModels[0]: "Default" -> "Claude"` | **我们有缺口**，见下面「缺口二」 |
+| `conversationId` 属于 URL 参数，写进 chat 帧是服务端回 `InvalidRequest` 的原因之一 | 已符合：`_chat_invoke` 的 payload 里没有 `conversationId`（`substrate_client.py:305-355`） |
+| type 4 的 StreamInvocation 是用 SignalR **stream item**（type 2、载荷在 `item`）回的，只读 type 1 `update` 会拿到空答案 | 已有：`substrate_client.py:596-600` 读 type 1，`656-657` 读 type 2 |
+| `messages` 快照不是增量，当成增量会把一个 `166` 变成 `166166166` | 已有：锚点抑制逻辑（`substrate_parse` + `_fallback_tail_after_delivered`） |
+| `Progress` / `ChainOfThoughtSummary` 是旁白，不能进答案，但值得单独留下 | 09-01 已修并有 19 条测试 |
+| 一个 session key 同时进 `chatsessionid` / `clientrequestid` / `XRoutingParameterSessionKey`；发三个不同的 per-turn id 是它测出的失败形态之一 | **差异但未验证后果**：我们只发 `ClientRequestId`（`substrate_client.py:268`），另两个键根本不发，而我们的请求是成功的。所以这条只记为差异，不记为缺陷 |
+| 每次 capture 的 idle 等待：200 次里 min 8s / 中位 8s / p90 9s / max 16s；token 生命期 15-79 分钟 | 仅作参考量级 |
+
+值得单独记一笔的是它的**取证边界**，因为它点到了我们：它明确拒绝「拿微软自家 first-party client id + family refresh token（FOCI）行为去 mint token」，理由是那是 2022 年起就有文档的滥用手法、绕过租户的 app-consent 治理，并且用测试断言这个文件里不出现任何 IdP 主机名。
+
+我们必须诚实地对照：我们确实在 `refresh_via_rt.py:50` 和 `pkce_login.py:69` 用了 `c0ab8ce9-e9a0-42e7-b064-33d422df41f1`（Office web Copilot 的 native public client）。但**我们不是 FOCI 那个形态**：`_stored_binding` 把 client_id 钉在**签发这个 RT 的那个 client** 上（`M365_REFRESH_CLIENT_IDS`，`refresh_via_rt.py:46/50/99-118`），换不成另一个 client 去兑换，且 RT 本身来自用户自己走完的交互式 PKCE 登录。差别是「用签发它的 client 续期」而不是「跨 client 兑换」。剩下的那半——在交互式登录里报出微软自家的 client id——是真实存在的，本文件不替它辩解。
+
+顺带交叉印证：下面那个完全独立的 Cowork 仓也把 `c0ab8ce9-…` 记成 Cowork 的公开 **M365ChatClient** app id（scope `6ab48b67-cd74-4ad4-81af-5932984589be/access_as_user`），两个互不相干的仓给出同一个值。
+
+### 全新上游：M365 Copilot **Cowork**（`bakapiano/m365-copilot-cowork-proxy`）
+
+无许可证（只能读），JS，0★，2026-09-09 才建。重要的不是代码而是**它打的不是 substrate**：
+
+- 上游 `https://mcsaetherruntime-seas.as-ia101.gateway.prod.island.powerapps.com`，即 Power Apps 侧的 runtime，不是 `substrate.office.com`。
+- 不是 SignalR：`GET /v1/subscribe?conversationId=…` 拿 SSE，再 `POST /v1/messages` 投递（`{content:[{text,type}],conversationId,messageId,queue:true,role:"user"}`），另有 `GET /v1/models`。
+- 事件名是两字母的：`dx`（增量在 `data.t`）、`fr`（权威全文在 `data.content` + `stop`）、`rl`（`st=="ok"` 才算完成）、`error`/`err`。**没有 `fr` 就没有权威答案**，它据此报错而不是拿增量凑。
+- 载荷可压缩：`{compressed:true,data:<base64(gzip)>}`，它对 base64 做了往返校验并把解压上限钉在 4 MiB、SSE 单帧上限 1 MiB。
+- 头部是 `x-tenant-id` / `x-user-id` / `x-conversation-id` / `x-request-id` / `x-copilot-timezone` / `x-container-config`，模型和推理档位都在 `x-container-config` 里以 `model=…;reasoningEffort=…` 的形式传，Origin 是 `https://copilot.cloud.microsoft`。
+- 模型 `melon` = Fable 5.1；它自陈 Cowork 的流里**没有权威 token 计数**，usage 全填 0 并靠响应头标注。
+
+这是我们从未记录过的第二个上游面。**本账号是否有 Cowork 权限未测**，所以这条现在只是协议知识，不是候选。
+
+### `KilimcininKorOglu/M365Bridge` v1.5.0（2026-09-04）
+
+今天再查一次：**仍然没有 LICENSE**（`.license` 为空），所以边界不变，只取思路。47 个提交里 09-10 那一批全是 `refactor(servers): …` 的搬家，行为变化集中在 v1.5.0 的发布说明：
+
+- 唯一的新测量：`feature.EnableMergingPureDeltas` 让同一条长答案的 `writeAtCursor` 从约 840 个降到约 130 个、字节相同；并称 `variants` 里其余每个 flag 对活体后端都是惰性的。**我们已经在发这个 flag**（`_VARIANTS` 里有），本条只是印证。
+- 它 v1.5.0 的 personalization 读写 + 「POST 回 200 但不动 flag，所以只有读回来才算证据」——我们的 `personalization.py` 开头的 docstring 记的是同一件事，且我们还多记了一条「部分 POST 有字段耦合」。已有。
+- 图片改写成本地引用、生成中提示、`snapshotDelta` 拒绝计数：前者我们有签名的 `/v1/m365-media`，后两者是遥测/提示细节，未排期。
+
+### `protella/chatgpt-bots`（MIT）：G5 的不变量，可以直接抄
+
+读了 v3.1.11（`85451fb2`）和 v3.2.2（`48fce8c`）的 `openai_client/api/tool_loop.py`。这是本轮对我们待办 5（工具调用卫生）最有价值的一份，全部是可复用的不变量：
+
+1. **两个独立的上限，取小者**：每轮 fan-out 上限与本轮剩余的整轮预算，互不能放宽。动机是实测事故：一个响应里 20 个并行调用在 20 秒内烧掉约 1000 次 API 调用，第一轮就打满整轮预算，导致被迫的收尾轮无话可说。
+2. **上限必须在 dispatch 之前生效**：一轮的调用是并行发出的，事后计费只能拦住下一轮。
+3. **超额调用要「拒绝」而不是「丢弃」**：留下没有配对 `function_call_output` 的 `function_call`，下一次请求直接 400。所以超额的那些要喂一个合成的失败结果回去。这正是我们待办里「孤立 tool_result」的镜像面，直接适用于 Responses 续接路径。
+4. **两种拒绝话术必须分开**：打满整轮预算是「预算已用尽，就用手上的信息作答」；只是撞到单轮 fan-out 上限是「装得下的已经跑了，读结果，下一轮再调」。用错话术会让模型在还有预算时就放弃。
+5. **沉默/终止路径也要占用两个预算各一格**，否则 `no_response_needed` 带 19 个兄弟调用就能从安静的那条路绕过单轮上限。
+6. **empty-final 兜底**：被上限逼出来的收尾轮返回 0 字符时，追加一条 developer 消息要求它现在就用已有信息作答，每轮最多一次，再不行才用固定兜底文案；而且兜底要**整体替换** segment 列表，只换文本会被下游重新拼成空串。
+7. **v3.2.2 的自我更正值得照抄**：`tool_choice="required"` 且轮数上限为 1 时要**关掉**这个兜底 —— 「只有一轮、调用本身就是答案」是合法形状，它的收尾轮本来就该是空的，兜底在那里只会每次多花两次模型调用并打印两条误导性告警。
+8. 兜底的 input item 每次要新建 dict：input 列表会被追加并重放，共享的模块级 dict 会同时挂到两轮上。
+
+它的 `GPT-6 Astra default` 是 **OpenAI API 的模型**（这个仓走 `openai_client/api/responses.py`），**不是 M365 substrate tone**，不要当 tone 证据用；我只按仓库性质和该路径判定，没有再去读那个 commit 的 diff。
+
+### 我们自己的两个缺口
+
+**缺口一：`stop` 声明了但没人读，`stop_sequences` 根本没声明。** `models.py:72` 在 chat 请求模型上声明了 `stop: str | list[str] | None`，但全 `src/` 没有任何一处读它（`.stop` 的命中全是 `finish_reason:"stop"` / `stop_reason` / 前端一个同名局部变量），`stop_sequences` 在 `src/` 和 `tests/` 里都是 0 命中。也就是说客户端要求「遇到某个序列就停」时，我们静默忽略并继续输出到自然结束。是 OpenAI/Anthropic 兼容面上一个真实的小缺陷，且和上游能力无关，完全在我们这一侧。
+
+**缺口一已修（2026-09-11，容器内实测通过）。** 新增 `stop_sequences.py`：`normalize_stop`（两种拼法归一，丢掉空串——空串会在 index 0 命中并把每个回答截成空）、`apply_stop`（**按位置**取最早命中，同位置取更长的那条，这样上报的 `stop_sequence` 是更具体的那个）、`StopSequenceTrimmer`（流式 hold-back）。四条投递路径全部接上，`models.py` 补了 `stop_sequences`。
+
+边界与理由，都有测试盯着：
+
+1. **截断是投递边界，不是提前退出。** 命中后仍把上游这一轮抽干，因为 usage 合计、会话里存的 assistant 消息、完成帧的记账都跟最后一个 delta 一起（或之后）到。为省几百毫秒 `break` 掉迭代器，换来的是错的 usage 行和错的会话记录，而客户端根本观察不到那点延迟。
+2. **流式必须 hold-back。** 上游在哪切 delta 是它的自由，所以 `CHARLIE` 会以 `CHAR` + `LIE` 到达；逐 delta 检查永远看不见它，而一旦把尾部是某条 stop 前缀的 delta 转发出去就已经泄漏了。trimmer 因此扣住「还可能长成匹配」的最长后缀，只在它不可能再长成时才放出去——SSE 是 append-only，交出去的文本不能收回。
+3. **扣住但最终没匹配的尾巴必须交付。** 一个正好以 `CHAR` 结尾的回答不能因为像 `CHARLIE` 的开头就被吞掉。
+4. **只切模型的正文。** 不切 `tool_calls`（截断的参数对象不是合法 JSON），也不切我们自己那条「为什么这轮没有 tool_call」的说明——那是我们的话不是模型的话，截了等于把解释藏起来。
+5. **`tool_use` 轮次仍报 `tool_use`**，不因为命中就改成 `stop_sequence`：调用方还得去跑那个工具。
+
+一处真实教训，写下来免得重犯：**生产永远传 `text_transform=media_rewriter`**（两个流式调用点都是），而两个流式生成器里 `if text_transform is not None: continue` 在 trimmer 之前，所以**生产走的根本不是 hold-back 那条分支**，而是整轮缓冲完在尾部 `apply_stop`。我最初 10 条测试全部不传 `text_transform`，也就是说四条流式测试测的都是生产不走的那条路——活体测试之所以过，靠的是缓冲分支。已补两条 `text_transform` 版本的测试（`…cuts_the_transformed_text…`），并用只改缓冲分支的变异体确认恰好是这两条红、其余 10 条全绿。hold-back 那条分支现在是纵深防御（`media_rewriter` 若哪天不再无条件传入就会承重），不是当前生产路径。
+
+另一处：变异测试之后我用 `git diff` 判断是否恢复——**新文件未入库，`git diff` 是空的**，`apply_stop` 的 `<` 被留成了 `>=` 而我以为已还原，直到全量跑出 6 red 才发现。判据要用文件内容本身，不是 `git diff`。
+
+容器内实测（`ciallo-ms365-proxy-multi`，`/app/src` 是 editable 安装，改完重启生效；改前先把 4 个原文件备份到容器内 `/tmp/stopseq-backup-20260911/`，5 个文件传输后逐一比对 SHA-256 与本地一致）。提问固定要求逐行输出 `ALPHA/BRAVO/CHARLIE/DELTA`，`stop=CHARLIE`：
+
+| 路径 | 修前 | 修后 |
+|---|---|---|
+| chat 非流式 | 全文，`DELTA` 泄漏 | `ALPHA\nBRAVO\n`，`finish_reason=stop` |
+| chat 流式 | 全文，`DELTA` 泄漏 | 同上 |
+| Anthropic 非流式 | 全文，`stop_reason=end_turn` | `ALPHA\nBRAVO\n`，`stop_reason=stop_sequence`、`stop_sequence=CHARLIE` |
+| Anthropic 流式 | 全文，`DELTA` 泄漏 | 同上 |
+| 对照（不带 stop） | — | 全文照出，未被误截 |
+
+另外三格也在容器内量过：截断后 usage 仍完整（`prompt 22 / completion 7 / total 29`）；带 tools 的一轮 `finish_reason=tool_calls`、参数 `{"city":"Paris"}` 完好；Anthropic 带 tools 仍 `stop_reason=tool_use`、`stop_sequence=None`。全量 `2013 passed, 3 skipped`。
+
+#### 三种规划模式 × 三协议的回归矩阵（2026-09-11）
+
+上面那张表只覆盖了「stop 生不生效」，没有回答「改完之后直连 / 路由 / studio 会不会有一条不能用」。补测：每种 `tool_planning_mode` 各跑一遍 OpenAI chat、Anthropic Messages、OpenAI Responses 的工具轮（流式与非流式）、stop 轮，以及「工具与 stop 同时出现」这一格，共 27 格真实上游轮（`.probe/final_matrix.py`，仅本地保存）。
+
+探针模型固定为 `claude-sonnet-4-6`，因为绑定 Key 的 tone 是 `Claude_Fable`，而它在 native 下回的是 `X-M365-Tool-Calling: unsupported` —— 用它测 native 只会测出这个 tone 本来就不支持本地工具调用（代理自己那条「不支持本地工具调用」的说明就是这么写的），不是回归。
+
+| 模式 | chat 工具（非流式/流式） | Anthropic 工具（非流式/流式） | Responses 工具 | stop（chat/Anthropic） | 工具+stop 同轮 |
+|---|---|---|---|---|---|
+| studio | PASS / PASS | PASS / PASS | PASS | PASS / PASS | PASS |
+| router | PASS / PASS | PASS / PASS | PASS | PASS / PASS | PASS |
+| native（直连） | PASS / PASS | **1 次 FAIL** / PASS | PASS | PASS / PASS | PASS |
+
+`TOTAL 27 PASS 26`。唯一那格失败**不是这次改动造成的**，三条独立证据：
+
+1. **不带 stop 参数也复现。** 同一请求连发 5 次，`tool_use` 命中 4/5，请求体只有 `model` / `max_tokens` / `messages` / `tools`，没有 `stop_sequences`（`.probe/anthropic_native_repeat.py`）。没有 stop 参数时 `apply_stop` 是严格 no-op，所以这个失败不可能归因于它。
+2. **结构上到不了。** Anthropic 非流式处理器里 `stop_reason=tool_use` 那条分支在**第 632 行 return**，而 `apply_stop` 在**第 638 行**；`_anthropic_stream_with_tools` 里 `apply_stop` 只作用于 `text_out`，从不碰 `blocks[]`。
+3. **失败会换位置。** 一轮是 native+chat 非流式失败、Anthropic 通过，下一轮正好相反。代码缺陷不会换位置。
+
+失败形态本身也一致指向模型侧：那一轮 header 是 `hdr=verified`（即该 tone 实测支持工具调用），但模型直接用正文答了天气，正文里还带着 `"Sure! Let me fetch the current weather in Paris for you.'s the current weather..."` 这种自我打断的痕迹，没有 fenced `tool_call` 块可解析。也就是说 native 模式下模型有时就是不按契约走 —— 这正是 router / studio 两种模式存在的理由，两者在本矩阵里 18/18 全绿。
+
+为了排除「是不是我改坏了 native」，还做了一次 A/B：把 4 个改动文件换成 `git show HEAD:` 的原版（0 处 stop 引用）重启后跑同一个 native 复发探针，得到 4/4；换回改动版是 3/4。**样本太小不足以证明差异**，真正的判据是上面那三条，尤其是第 1 条（不带 stop 也复现）与第 2 条（结构不可达）。
+
+A/B 过程里踩到一个必须记下的坑：还原时把容器内路径当成 `docker cp` 的源，而 `docker cp` 的源是**宿主机**路径，于是还原静默失败、容器带着原版代码继续跑了一段。是靠「数 stop 引用条数」发现的，不是靠命令返回码。之后改成从本地重推 5 个文件、逐个比对 SHA-256、再重启，容器 `healthy`、`restarts=0`、5 个文件与本地逐字节一致。教训与前面那条 `git diff` 的坑同源：**判据要落在文件内容上，不要落在「命令看起来成功了」上**。
+
+还没做的那半：`/v1/responses` 没接。OpenAI 的 Responses API 本身没有 stop 参数，接了等于自造契约，所以是有意留空，不是漏。
+
+**缺口二：`deepResearchModels` 只发了类型注解，没发值。** `substrate_client.py:369` 发的是 `"deepResearchModels@odata.type": "Collection(String)"` —— 一个 OData 类型注解，而它注解的那个属性我们从来不发（全 `src/` 只有这一处 `deepResearchModels`）。按 companion-mcp 的抓包，Researcher 的模型正是走 `gpts[0].clientOverrides.deepResearchModels[0]`。所以现状是「声明了会传一个字符串集合，然后不传」。
+
+**缺口二已定案：删掉那条注解（2026-09-11，容器内四变体实测）。**
+
+判据用服务端自己的裁决，不用正文 —— 完成帧的 `item.result.value`（`Success` / `InvalidRequest` 之类）加 `item.turnState`（`Completed`/`Failed`），这也正是 `substrate_client` 本来就在读的字段。正文answers不了这个问题：一个「格式不对但被容忍」的帧照样会返回一个完全正常的回答。四个变体各跑一轮真实上游，全部用一次性会话，不碰任何持久 session（`.probe/deepresearch_ab.py`，仅本地保存）：
+
+| 变体 | `clientOverrides` 形状 | 服务端裁决 |
+|---|---|---|
+| A（现网原样） | `capabilities` + 注解，无值 | `Success` / `Completed` |
+| B（删掉注解） | 只有 `capabilities` | `Success` / `Completed` |
+| C（注解 + 值） | `capabilities` + 注解 + `["Default"]` | `Success` / `Completed` |
+| D（只有值） | `capabilities` + `["Default"]` | `Success` / `Completed` |
+
+四个全过，所以**这条注解是惰性的**：删掉它在下游观察不到任何差别。
+
+差点被当成信号的一格：第一轮里 A 收到 8 帧、B 只有 7 帧，看着像「注解让服务端多发一帧」。复跑推翻了它 —— 第二轮那个 7 落在了 **D** 头上，然后 A/B 交替各跑 3 轮得到 `A=[8,8,8]`、`B=[8,8,8]`，两组完全重叠（`.probe/deepresearch_repeat.py`）。**帧数是流噪声，不是效应**；只跑一轮就下结论会得出反的答案。
+
+**为什么是删而不是补值。** 补值等于凭空造一个我们没有的功能：`deepResearchModels` 在全 `src/` 只有那一处，`DeepResearch` 同样只有那一处，没有任何 Researcher / Deep Research 的模式、模型或路由（`runtime_settings.py` 里的 `copilot-research` 是**个人版**的 mode，与 Studio 的 `gpts[0]` 无关）。而留着一条为不存在属性准备的注解，等于在帧里宣布「有个字符串集合要来」然后永远不发。两害相权，删掉是唯一诚实的收尾。companion-mcp 抓到的 `"Default" -> "Claude"` 只证明**它的**客户端在用这个字段，不证明我们该发。
+
+删除后在容器内复验 Studio 全链路（`.probe/studio_after_removal.py`）：chat 工具轮 `hdr=studio` / `finish=tool_calls`、Anthropic `stop_reason=tool_use`、Responses `function_call`、stop 仍生效，**4/4 PASS**。`tests/test_studio_planner.py` 里钉住这条注解的断言同步删掉（留着它会把「上游容忍」误记成「上游要求」）。全量 `2013 passed, 3 skipped`。
+
+### tone：本轮无新证据
+
+`Gpt_6_Reasoning` 全站 12 个文件 / 3 个仓，除我们自己外两个是 `Hexpy-Games/butler` 和 `einhaus/meteoric-helpers`，读了都是 OpenAI 的推理档位表（`["low","medium","high","xhigh","max"]`），不是 substrate tone。`Gpt_6_Chat` 只在 `jeremychone/rust-genai` 命中 1 处（按仓库性质是 OpenAI 模型目录，未逐行读）。`Gpt_6_Astra`、`Claude_Fable` 在我们仓之外 0 命中。09-07 那份 tone 调查的结论不变。
+
+### 顺带否决
+
+- `MIGHTYBLANK001/M365-Copilot2API-CE-Build`（无许可证，2 个文件）：没有源码，只是给上游 `s12ryt/M365-Copilot2API-CE` 自动构建 ARM64 镜像的 Actions 仓。上游属于 09-01 已判不可采纳的那一族，本身也没有可抄的东西。
+- `microsoft/Agents-M365Copilot`：7 个提交全是各语言 v1/beta 的 request builder 与 model 生成更新加一个 release chore，没有新的能力信号，定位不变（下一候选，不是已可用）。
+- `site-speed/M365-Copilot-Chat-Export-{userscript,extension}`（MIT）：从网页 UI 导出对话，走 DOM/JSON 不走协议。
+- `cristiancastineiras/M365CopilotVSCode`（无许可证）：token 捕获 userscript + VS Code provider，形态与我们的 userscript 重合且不可采纳。
+- `microsoft/m365-copilot-eval`（NOASSERTION）：评测 CLI。
+- `nickhou1983/copilot2api-multiusers`（MIT）：上游是 GitHub Copilot（whtsky 的分叉），按开头的排除项不算候选。
+
+
 ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。
@@ -441,6 +596,9 @@ GitHub 仓库搜索只对 **name + description** 做 AND 匹配，不做全文�
 5. 工具调用卫生：tool_call id 唯一性、孤立 tool_result 拒绝、单轮工具轮数上限。
 6. 需要补协议测试时，再从 sideeffffect 和 kuchris 提取可验证的测试思路。
 7. 推理转录已确认在线（2026-09-01），可选做：渲染成 Anthropic `thinking` 块与 OpenAI `reasoning_content`。要动三个协议渲染器，收益是把现在丢掉的转录变成可见的推理过程。
+8. `stop` / `stop_sequences` **已完成**（2026-09-11，见上）。剩 `/v1/responses` 有意未接（该 API 无此参数）。
+9. `deepResearchModels`：要么补值（Studio 路径选 Researcher 模型），要么删掉那条无值的 `@odata.type` 注解。上线前必须本账号实测。
+10. Cowork（`mcsaetherruntime-*.gateway.prod.island.powerapps.com`）是第二个上游面，协议已记录；先确认本账号有无权限，再谈是否值得做 Provider。
 
 ## 当前判断
 
@@ -450,3 +608,6 @@ GitHub 仓库搜索只对 **name + description** 做 AND 匹配，不做全文�
 - jairbj 式动态协议 profile 已落地为 `protocol_profile.py` + 抓包捕获，可 apply/rollback；usage 与首页调用占比圆环已实测有数据。
 - 最值得长期补充的是官方 Graph Provider；缓冲流的 SSE preamble/保活已落地，统一断连和写超时仍待补齐。
 - 任何候选都不能原样公网部署；必须保留当前项目的下游鉴权、用户隔离、凭据加密和媒体 SSRF 防护。
+- 本轮唯一可采纳的新仓是 `MasayukiTa/m365-copilot-companion-mcp`（MIT，独立实现）；它的抓包驱动做法印证了我们大部分帧处理，并挖出上面的缺口二。
+- 发现了一个我们从未记录的第二上游面（M365 Copilot Cowork，Power Apps runtime + SSE + gzip 事件），但本账号权限未测，暂不构成候选。
+- `protella/chatgpt-bots`（MIT）的工具循环不变量可直接用于待办 5，含一条它自己的更正（强制单轮时要关掉 empty-final 兜底）。

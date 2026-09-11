@@ -13,6 +13,7 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import OpenAIChatRequest
 from .response_helpers import _openai_stream
+from .stop_sequences import apply_stop, normalize_stop
 from .routes_api_common import (
     REQUIRED_NO_CALL_OUTCOME,
     REQUIRED_REJECTED_CALL_OUTCOME,
@@ -110,6 +111,10 @@ def register_chat_routes(
             tools and request.messages and request.messages[-1].role == "tool"
         )
         allow_final_answer = is_tool_result_continuation and choice[0] == "auto"
+        # M365 has no upstream stop parameter, so `stop` is honoured on delivery.
+        # Resolved once here: every path below (buffered, streamed, tool-bearing)
+        # needs the same list.
+        stops = normalize_stop(request.stop)
         _log.info("[/v1/chat/completions] stream=%s tools=%d messages=%d model=%s tool_choice=%s",
                   request.stream, len(tools) if tools else 0,
                   len(request.messages), request.model, choice[0])
@@ -451,6 +456,7 @@ def register_chat_routes(
                         on_router_fallback=note_router_fallback,
                         skip_router_fallback=is_tool_result_continuation,
                         allow_final_answer=allow_final_answer,
+                        stops=stops,
                     )
                     header_status = (
                         actual_planning
@@ -476,6 +482,7 @@ def register_chat_routes(
                             text_transform=media_rewriter,
                             images=translated.images,
                             call_record=call_record,
+                            stops=stops,
                             on_response_done=lambda assistant: record_auto_session_response(
                                 app, raw_request, request, session, assistant
                             ),
@@ -678,8 +685,11 @@ def register_chat_routes(
         # Tools were offered but no call is being delivered: say why -- a dropped
         # call, a deliberate decline, or a tone that ignores the contract. Appended,
         # never substituted: the model's own answer is still the response.
+        # The stop sequence cuts the model's prose only, never the note: the note is
+        # ours and explains the turn, so truncating it would hide the explanation.
+        prose, _ = apply_stop(media_rewriter(text), stops)
         delivered = prose_with_reason(
-            media_rewriter(text),
+            prose,
             shortfall_note="" if allow_final_answer and text.strip() else shortfall_note,
             declined_note=declined_note,
             declined=declined,
@@ -738,6 +748,7 @@ async def _openai_stream_with_tools(
     on_router_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
     allow_final_answer: bool = False,
+    stops: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Buffer full stream, then emit as tool_calls if found, else normal content stream.
 
@@ -931,9 +942,13 @@ async def _openai_stream_with_tools(
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
         yield "data: [DONE]\n\n"
     else:
-        # No tool calls found — re-stream as normal content
+        # No tool calls found — re-stream as normal content. The stop sequence cuts
+        # the MODEL's prose only; the note below is ours, explains why a
+        # tools-bearing turn produced text, and would be a lie to truncate.
+        prose = text_transform(full_text) if text_transform is not None else full_text
+        prose, _ = apply_stop(prose, stops or [])
         delivered = prose_with_reason(
-            text_transform(full_text) if text_transform is not None else full_text,
+            prose,
             shortfall_note="" if allow_final_answer and full_text.strip() else shortfall_note,
             declined_note=declined_note,
             declined=declined,

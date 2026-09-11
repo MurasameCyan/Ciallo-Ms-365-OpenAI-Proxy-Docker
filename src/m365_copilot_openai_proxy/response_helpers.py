@@ -29,6 +29,7 @@ from .tool_call_parser import (
     split_no_tool_marker,
     _strip_tool_call_blocks,
 )
+from .stop_sequences import StopSequenceTrimmer, apply_stop
 from .tool_router import routed_or_streamed
 from .usage_store import (
     anthropic_usage,
@@ -61,6 +62,7 @@ async def _openai_stream(
     images: list | None = None,
     call_record: dict | None = None,
     on_response_done: Callable[[dict], None] | None = None,
+    stops: list[str] | None = None,
 ) -> AsyncIterator[str]:
     completion_id = f"chatcmpl_{uuid.uuid4().hex}"
     created = int(time.time())
@@ -74,6 +76,9 @@ async def _openai_stream(
     yield f"data: {json.dumps(first_chunk)}\n\n"
     raw_text = ""
     full_text = ""
+    # Truncation is a delivery boundary, not an early exit: the turn keeps being
+    # drained after a hit so usage and the stored session message stay whole.
+    trimmer = StopSequenceTrimmer(stops or [])
     try:
         async for delta in client.chat_stream(prompt, additional_context, session, images):
             delta = _dedupe_repeated_delta(raw_text, delta)
@@ -81,6 +86,11 @@ async def _openai_stream(
                 continue
             raw_text += delta
             if text_transform is not None:
+                continue
+            if trimmer.stopped:
+                continue
+            delta = trimmer.feed(delta)
+            if not delta:
                 continue
             full_text += delta
             chunk = {
@@ -131,6 +141,7 @@ async def _openai_stream(
         return
     if text_transform is not None:
         full_text = _transform_complete_text(raw_text, text_transform)
+        full_text, _ = apply_stop(full_text, stops or [])
         if full_text:
             chunk = {
                 "id": completion_id,
@@ -138,6 +149,19 @@ async def _openai_stream(
                 "created": created,
                 "model": model_alias,
                 "choices": [{"index": 0, "delta": {"content": full_text}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+    else:
+        # Whatever the trimmer was still holding can never complete a match now.
+        tail = trimmer.flush()
+        if tail:
+            full_text += tail
+            chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model_alias,
+                "choices": [{"index": 0, "delta": {"content": tail}, "finish_reason": None}],
             }
             yield f"data: {json.dumps(chunk)}\n\n"
     if on_text_done is not None:
@@ -895,6 +919,7 @@ async def _anthropic_stream(
     images: list | None = None,
     call_record: dict | None = None,
     on_response_done: Callable[[dict], None] | None = None,
+    stops: list[str] | None = None,
 ) -> AsyncIterator[str]:
     msg_id = f"msg_{uuid.uuid4().hex}"
 
@@ -907,6 +932,9 @@ async def _anthropic_stream(
 
     raw_text = ""
     full_text = ""
+    # See stop_sequences.py: the turn is drained past a hit so usage and the
+    # stored session message stay whole; only delivery stops.
+    trimmer = StopSequenceTrimmer(stops or [])
     try:
         async for delta in client.chat_stream(prompt, additional_context, session, images):
             delta = _dedupe_repeated_delta(raw_text, delta)
@@ -914,6 +942,11 @@ async def _anthropic_stream(
                 continue
             raw_text += delta
             if text_transform is not None:
+                continue
+            if trimmer.stopped:
+                continue
+            delta = trimmer.feed(delta)
+            if not delta:
                 continue
             full_text += delta
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
@@ -948,14 +981,23 @@ async def _anthropic_stream(
         yield sse("message_stop", {"type": "message_stop"})
         return
 
+    matched = trimmer.matched_sequence
     if text_transform is not None:
         full_text = _transform_complete_text(raw_text, text_transform)
+        full_text, matched = apply_stop(full_text, stops or [])
         if full_text:
             yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
+    else:
+        # A held partial can no longer complete a match, so release it.
+        tail = trimmer.flush()
+        if tail:
+            full_text += tail
+            yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": tail}})
     if on_text_done is not None:
         on_text_done(full_text)
     if on_response_done is not None:
         on_response_done({"role": "assistant", "content": full_text})
     yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
-    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
+    stop_reason = "stop_sequence" if matched else "end_turn"
+    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": matched or None}, "usage": anthropic_usage(usage_for_record(call_record))})
     yield sse("message_stop", {"type": "message_stop"})

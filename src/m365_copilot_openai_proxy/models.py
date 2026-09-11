@@ -110,6 +110,9 @@ class AnthropicMessagesRequest(BaseModel):
     stream: bool = False
     max_tokens: int | None = None
     temperature: float | None = None
+    # Anthropic's spelling of OpenAIChatRequest.stop. M365 has no upstream stop
+    # parameter, so both are enforced on delivery (see stop_sequences.py).
+    stop_sequences: list[str] | None = None
     tools: list[AnthropicToolDefinition] | None = None
     tool_choice: dict[str, Any] | None = None
 

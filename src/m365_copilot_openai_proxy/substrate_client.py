@@ -360,13 +360,28 @@ class SubstrateCopilotClient:
                 "id": studio_agent_id,
                 "source": "MOS3",
             }
+            # capabilities only. The captured browser frame also carries a
+            # `deepResearchModels@odata.type: "Collection(String)"` annotation,
+            # which we used to send verbatim -- an OData type annotation for a
+            # property we never populate, since `deepResearchModels` (the
+            # Researcher's model picker) appears nowhere else in this codebase.
+            # Measured inert 2026-09-11 against this account's own agent: four
+            # frame shapes (annotation only / neither / annotation+value / value
+            # only), one real turn each, all answered `result.value=Success`,
+            # `turnState=Completed`. A/B'd 3x more on the two that matter and the
+            # frame counts overlap exactly ([8,8,8] both ways), so the one 8-vs-7
+            # difference in the first pass was stream noise -- it landed on a
+            # different variant the second time.
+            # Dropped rather than completed: sending a value would be inventing a
+            # Researcher feature this proxy does not expose (no model, mode or
+            # route reaches it), and an annotation for an absent property claims
+            # a collection is coming and then never sends one.
             argument["gpts"] = [{
                 "id": studio_agent_id,
                 "source": "MOS3",
                 "version": "1.0.0",
                 "clientOverrides": {
                     "capabilities": [],
-                    "deepResearchModels@odata.type": "Collection(String)",
                 },
             }]
             argument.pop("plugins", None)

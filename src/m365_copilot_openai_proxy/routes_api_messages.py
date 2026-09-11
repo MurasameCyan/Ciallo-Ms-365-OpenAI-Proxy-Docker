@@ -13,6 +13,7 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import AnthropicMessagesRequest
 from .response_helpers import _anthropic_stream
+from .stop_sequences import apply_stop, normalize_stop
 from .routes_api_common import (
     TOOL_CALLING_HEADER,
     apply_request_model,
@@ -120,6 +121,9 @@ def register_messages_routes(
             for t in (_tools or [])
             if getattr(t, "name", "")
         }
+        # Anthropic's stop_sequences, honoured on delivery for the same reason as
+        # the chat route's `stop`: M365 has no upstream equivalent.
+        stops = normalize_stop(request.stop_sequences)
         try:
             # Apply the provider-specific upstream selector: M365 tone or
             # Consumer mode. Session suffix normalization remains M365-specific.
@@ -428,6 +432,7 @@ def register_messages_routes(
                         on_router_fallback=note_router_fallback,
                         skip_router_fallback=is_tool_result_continuation,
                         allow_final_answer=allow_final_answer,
+                        stops=stops,
                 )
                 if tool_names and planning_mode in {"studio", "router"}:
                     extra_headers = {TOOL_CALLING_HEADER: actual_planning}
@@ -449,6 +454,7 @@ def register_messages_routes(
                         text_transform=media_rewriter,
                         images=translated.images,
                         on_response_done=record_response_message,
+                        stops=stops,
                     ),
                     heartbeat=ANTHROPIC_PING,
                 ),
@@ -628,7 +634,9 @@ def register_messages_routes(
         # Tools were offered but no tool_use is being delivered: say why as a
         # trailing text block rather than returning a plain answer that reads as a
         # broken proxy.
-        blocks = [{"type": "text", "text": media_rewriter(raw_text)}]
+        # The stop sequence cuts the model's prose; the reason block below is ours.
+        prose, matched_stop = apply_stop(media_rewriter(raw_text), stops)
+        blocks = [{"type": "text", "text": prose}]
         reason = prose_with_reason(
             "",
             shortfall_note="" if allow_final_answer and raw_text.strip() else shortfall_note,
@@ -645,8 +653,8 @@ def register_messages_routes(
             "role": "assistant",
             "model": model_alias,
             "content": blocks,
-            "stop_reason": "end_turn",
-            "stop_sequence": None,
+            "stop_reason": "stop_sequence" if matched_stop else "end_turn",
+            "stop_sequence": matched_stop or None,
             "usage": anthropic_usage(call_record.get("usage")),
         }, headers=extra_headers)
 
@@ -698,6 +706,7 @@ async def _anthropic_stream_with_tools(
     on_router_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
     allow_final_answer: bool = False,
+    stops: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Buffer the turn, then emit Anthropic tool_use blocks if tool_calls are found.
 
@@ -824,6 +833,10 @@ async def _anthropic_stream_with_tools(
     text_out = _strip_tool_call_blocks(full_text) if tool_calls else full_text
     if text_transform is not None:
         text_out = text_transform(text_out)
+    # The stop sequence cuts the MODEL's prose. It is not applied to tool_use
+    # blocks (a truncated argument object is not valid JSON), and not to the note
+    # below, which is ours rather than the model's.
+    text_out, matched_stop = apply_stop(text_out, stops or [])
     if not blocks:
         text_out = prose_with_reason(
             text_out,
@@ -854,7 +867,14 @@ async def _anthropic_stream_with_tools(
         yield sse("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"], ensure_ascii=False)}})
         yield sse("content_block_stop", {"type": "content_block_stop", "index": index})
 
-    stop_reason = "tool_use" if blocks else "end_turn"
+    # A hit only decides the turn's end when nothing else already did: a tool_use
+    # turn is still reported as tool_use, since the caller must run the tool.
+    if blocks:
+        stop_reason = "tool_use"
+    elif matched_stop:
+        stop_reason = "stop_sequence"
+    else:
+        stop_reason = "end_turn"
     if on_text_done is not None:
         on_text_done(full_text)
     if on_response_done is not None:
@@ -863,5 +883,5 @@ async def _anthropic_stream_with_tools(
             delivered_content.append({"type": "text", "text": text_out})
         delivered_content.extend(blocks)
         on_response_done({"role": "assistant", "content": delivered_content})
-    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
+    yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": matched_stop or None}, "usage": anthropic_usage(usage_for_record(call_record))})
     yield sse("message_stop", {"type": "message_stop"})

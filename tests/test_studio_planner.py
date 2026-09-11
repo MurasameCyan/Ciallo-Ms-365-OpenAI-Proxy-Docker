@@ -81,9 +81,13 @@ def test_studio_payload_changes_only_agent_attachment_fields():
             "id": "title.bot.gpt.default",
             "source": "MOS3",
             "version": "1.0.0",
+            # capabilities only. The browser's own frame also carries a
+            # `deepResearchModels@odata.type` annotation for a property nothing
+            # in this codebase populates; measured inert against a real agent
+            # (2026-09-11) and dropped rather than completed, because sending a
+            # value would invent a Researcher feature the proxy does not expose.
             "clientOverrides": {
                 "capabilities": [],
-                "deepResearchModels@odata.type": "Collection(String)",
             },
         }
     ]
