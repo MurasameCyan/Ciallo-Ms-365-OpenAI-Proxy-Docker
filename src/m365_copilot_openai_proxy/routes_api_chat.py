@@ -61,6 +61,7 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
     split_no_tool_marker,
 )
+from .tool_hygiene import dedupe_tool_call_ids, dedupe_tool_call_payloads
 from .usage_store import estimate_text_tokens, estimate_upstream_input_tokens, openai_usage, usage_for_record
 from .translator import effective_tools, normalize_tool_choice, tool_description_lines, translate_openai_request
 from .tool_router import build_router_prompt, routed_or_answered, routed_or_streamed, router_applies
@@ -611,7 +612,10 @@ def register_chat_routes(
         # synthesized Write has to clear the client's schema like any other call.
         rejected: list[str] = []
         if tool_calls:
+            tool_calls, duplicate_reasons = dedupe_tool_call_payloads(tool_calls)
+            tool_calls, id_reasons = dedupe_tool_call_ids(tool_calls)
             tool_calls, rejected = _filter_schema_valid_tool_calls(tool_calls, tool_schemas)
+            rejected = duplicate_reasons + id_reasons + rejected
             if rejected:
                 _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
         _log.info("[/v1/chat/completions] response len=%d tool_calls=%d", len(text), len(tool_calls))
@@ -896,7 +900,10 @@ async def _openai_stream_with_tools(
             pass  # Keep original response if retry fails
     rejected: list[str] = []
     if tool_calls and tool_schemas is not None:
+        tool_calls, duplicate_reasons = dedupe_tool_call_payloads(tool_calls)
+        tool_calls, id_reasons = dedupe_tool_call_ids(tool_calls)
         tool_calls, rejected = _filter_schema_valid_tool_calls(tool_calls, tool_schemas)
+        rejected = duplicate_reasons + id_reasons + rejected
         if rejected:
             _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
     _log.info("[stream_with_tools] full_text len=%d tool_calls=%d", len(full_text), len(tool_calls))

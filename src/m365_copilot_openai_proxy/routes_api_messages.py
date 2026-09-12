@@ -58,6 +58,7 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
     split_no_tool_marker,
 )
+from .tool_hygiene import dedupe_tool_call_ids, dedupe_tool_call_payloads
 from .translator import (
     _anthropic_tools_as_openai,
     effective_tools,
@@ -585,7 +586,10 @@ def register_messages_routes(
         # Judged last: only calls we would otherwise deliver are worth checking.
         rejected: list[str] = []
         if tool_calls:
+            tool_calls, duplicate_reasons = dedupe_tool_call_payloads(tool_calls)
+            tool_calls, id_reasons = dedupe_tool_call_ids(tool_calls)
             tool_calls, rejected = _filter_schema_valid_tool_calls(tool_calls, tool_schemas)
+            rejected = duplicate_reasons + id_reasons + rejected
             if rejected:
                 _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
 
@@ -800,7 +804,10 @@ async def _anthropic_stream_with_tools(
                     call_record["retried"] = True
         rejected: list[str] = []
         if tool_calls and tool_schemas is not None:
+            tool_calls, duplicate_reasons = dedupe_tool_call_payloads(tool_calls)
+            tool_calls, id_reasons = dedupe_tool_call_ids(tool_calls)
             tool_calls, rejected = _filter_schema_valid_tool_calls(tool_calls, tool_schemas)
+            rejected = duplicate_reasons + id_reasons + rejected
             if rejected:
                 _log.warning("  dropped unusable tool_call(s): %s", "; ".join(rejected))
     except SubstrateCopilotError as exc:
