@@ -104,6 +104,13 @@ function renderAccountStatus(d){
   const valid=!!st.valid;
   const login=!!(a&&a.cookie_valid);
   const refresh=!!(a&&(a.provider==='consumer'||a.token_source==='cdp'||a.has_refresh_token));
+  // Why the fast RT path is gone, when it is. The marks above stay green on a
+  // CDP account (renewal genuinely still works, just via a browser), so without
+  // this line a dead RT is invisible on this page -- which is exactly how a SPA
+  // token silently hitting its 24h ceiling went unnoticed for days.
+  const rtDead=(a&&!a.has_refresh_token&&a.refresh_token_disabled_reason)?String(a.refresh_token_disabled_reason):'';
+  const rtKey='rt_dead_'+rtDead;
+  const rtNote=(rtDead&&i18n[lang]&&i18n[lang][rtKey])?t(rtKey):'';
   const expiryKnown=!!st.expires_at;
   const name=boundAccountName(a);
   const mark=(ok)=>'<span class="status-mark '+(ok?'ok':'bad')+'"></span>';
@@ -115,7 +122,8 @@ function renderAccountStatus(d){
     +'<div class="status-line"><span>'+t('status_valid')+'</span><b>'+mark(valid)+'</b></div>'
     +'<div class="status-line"><span>'+t('status_remaining')+'</span><b'+(expiryKnown?' data-user-remaining':'')+'>'+(expiryKnown?fmtRemaining(st.seconds_remaining):t('status_unknown'))+'</b></div>'
     +'<div class="status-line"><span>'+t('status_expire')+'</span><b>'+fmtExpire(st.expires_at)+'</b></div>'
-    +'</div>';
+    +'</div>'
+    +(rtNote?'<div class="status-rt-note"><b>'+t('rt_dead_label')+'</b> '+esc(rtNote)+'</div>':'');
 }
 
 let _userMeCache=null;

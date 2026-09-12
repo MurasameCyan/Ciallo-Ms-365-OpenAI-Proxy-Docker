@@ -181,6 +181,12 @@ body[data-lang="en"] .card h2{font-size:.95rem}
 .status-line{display:flex;justify-content:space-between;gap:.8rem;font-size:.78rem;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08);padding:.5rem 0}
 .status-line:first-child{border-top:1px solid rgba(255,255,255,.08)}
 .status-line b{color:var(--strong);font-weight:700;text-align:right;word-break:break-word}
+/* The RT post-mortem. Deliberately not a `.status-line`: those are one-line
+   label/value pairs and this is a paragraph the user has to act on, so it gets
+   its own block under the grid rather than squeezing prose into a value cell. */
+.status-rt-note{margin-top:.6rem;padding:.55rem .65rem;border-radius:10px;font-size:.72rem;line-height:1.55;color:var(--muted);background:rgba(255,196,84,.08);border:1px solid rgba(255,196,84,.28)}
+.status-rt-note b{color:var(--strong);font-weight:800}
+body[data-theme="light"] .status-rt-note{background:rgba(180,120,10,.07);border-color:rgba(180,120,10,.22);color:#6b6b70}
 /* The session list is as long as the store allows (1000 rows), so it scrolls
    instead of stretching the card: a `.card` taller than the compositor's max
    texture (16384px in Chrome) silently stops painting its `backdrop-filter`,

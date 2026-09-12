@@ -118,6 +118,44 @@ def _stored_binding(account) -> tuple[str, str, str, str] | None:
     return client_id, authority, tenant_id, object_id
 
 
+# Why a stored RT was discarded, as a STABLE CODE rather than prose: the value is
+# persisted and rendered in two languages, so English sentences in the store
+# would be untranslatable and would pin wording we may reword. The UI maps these
+# in template_*_i18n.py.
+#
+# `spa_lifetime` is the one that actually bit us (measured 2026-09-09): AADSTS700084
+# says a SPA-issued RT has "a fixed, limited lifetime of 1.00:00:00, which cannot
+# be extended". Rotation hands back a new RT string but does NOT restart that
+# absolute clock, so four successful rotations still died on the original
+# deadline. The only recovery is a fresh interactive sign-in -- and via PKCE,
+# which binds M365_NATIVE_CLIENT_ID, because the userscript can only ever capture
+# the SPA client's RT and would reinstate the same 24h ceiling.
+_DISABLED_REASON_BY_CODE = {
+    "700084": "spa_lifetime",
+    "50173": "credential_changed",
+    "70008": "inactive",
+    "700082": "inactive",
+    "70043": "max_age",
+}
+
+
+def _disabled_reason(aadsts_codes: set[str], client_id: str) -> str:
+    """A stable code naming why this RT is being discarded.
+
+    Ordered by the code set rather than by first match so a response carrying
+    several AADSTS numbers still resolves deterministically.
+    """
+    for code in ("700084", "50173", "70043", "700082", "70008"):
+        if code in aadsts_codes:
+            reason = _DISABLED_REASON_BY_CODE[code]
+            # A native-client RT has no 24h ceiling, so 700084 from one would
+            # mean something we have not measured; do not claim the SPA story.
+            if reason == "spa_lifetime" and client_id != M365_REFRESH_CLIENT_ID:
+                return "revoked"
+            return reason
+    return "revoked"
+
+
 def _token_request_headers(client_id: str) -> dict[str, str]:
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     if client_id == M365_REFRESH_CLIENT_ID:
@@ -208,7 +246,10 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
     binding = _stored_binding(account)
     if binding is None:
         accounts.set_refresh_token(
-            account_id, "", expected_refresh_token=rt
+            account_id,
+            "",
+            expected_refresh_token=rt,
+            disabled_reason="unbound",
         )
         elog(
             f"RT refresh skipped for {account_id}: stored RT has no verified "
@@ -237,8 +278,18 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
     if resp.status_code != 200:
         oauth_error, aadsts_codes, detail = _error_info(resp)
         if oauth_error == "invalid_grant" and aadsts_codes & _TERMINAL_AADSTS_CODES:
+            # Terminal means the grant itself is gone, so retrying only burns a
+            # round trip per keepalive tick. Record WHY: measured 2026-09-09, a
+            # userscript-pushed SPA RT died on AADSTS700084 after ~24h, every
+            # renewal silently fell back to a Chromium cold start, and the only
+            # trace was one log line nobody reads. `has_refresh_token: false`
+            # cannot distinguish "never had one" from "the 24h SPA ceiling was
+            # reached and you need to sign in again".
             accounts.set_refresh_token(
-                account_id, "", expected_refresh_token=rt
+                account_id,
+                "",
+                expected_refresh_token=rt,
+                disabled_reason=_disabled_reason(aadsts_codes, client_id),
             )
             suffix = "stored RT expired/revoked and was disabled"
         else:
@@ -281,7 +332,10 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
     captured_object = normalize_microsoft_id(claims.get("oid"))
     if captured_tenant != tenant_id or captured_object != object_id:
         accounts.set_refresh_token(
-            account_id, "", expected_refresh_token=rt
+            account_id,
+            "",
+            expected_refresh_token=rt,
+            disabled_reason="subject_mismatch",
         )
         elog(
             f"RT refresh rejected for {account_id}: subject mismatch "

@@ -258,6 +258,70 @@ def _proxy_option(proxy_url: str = "") -> dict | None:
     return option
 
 
+def _proxy_endpoint(option: dict | None) -> tuple[str, int] | None:
+    """The (host, port) a proxy option dials, or None when going direct.
+
+    Parsed off the same option `_proxy_option` hands Playwright, so the precheck
+    below can never disagree with what the browser will actually use.
+    """
+    if not option:
+        return None
+    server = str(option.get("server") or "")
+    if not server:
+        return None
+    _scheme, separator, body = server.partition("://")
+    host_port = body if separator else server
+    host, _colon, port = host_port.rpartition(":")
+    if not host or not port.isdigit():
+        return None
+    return host, int(port)
+
+
+async def _assert_proxy_reachable(option: dict | None, timeout: float = 5.0) -> None:
+    """Fail fast when the configured proxy will not accept a connection.
+
+    WHY THIS EXISTS. Camoufox is launched with `geoip=True`, and that makes its
+    own `public_ip()` call go out THROUGH this proxy before the browser starts.
+    A dead proxy therefore fails all six of its IP-lookup URLs and aborts the
+    launch with `Failed to get IP address: ... ipecho.net ...` -- a message that
+    names the last URL tried and says nothing about the proxy that actually
+    broke. Measured 2026-09-08..09-12 on this deployment: an account pinned to a
+    proxy that answers `Connection refused` re-spawned Camoufox every 30 minutes
+    for four days, ~190 log lines, never once succeeding, and the log blamed
+    `ipecho.net` throughout.
+
+    A TCP connect is the whole check: it is what the proxy must accept for any
+    of the rest to work, it costs milliseconds against the ~30s a doomed launch
+    burns, and it cannot produce a false failure that a launch would survive --
+    if the port refuses us here, Firefox gets the same refusal.
+
+    Raises CamoufoxUnavailable (not ConsumerCopilotError) deliberately: the
+    caller already treats that as "cannot run right now" and logs it as
+    unavailable rather than as a failed refresh, which is exactly what a
+    misconfigured egress is.
+    """
+    endpoint = _proxy_endpoint(option)
+    if endpoint is None:
+        return
+    host, port = endpoint
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+    except Exception as exc:  # noqa: BLE001 - refused, timeout and DNS all count
+        raise CamoufoxUnavailable(
+            f"the configured outbound proxy {host}:{port} is unreachable "
+            f"({type(exc).__name__}), so Camoufox would fail its own geoip "
+            "lookup before the browser starts. Fix or clear this account's "
+            "proxy; credentials are untouched."
+        ) from exc
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except Exception:  # noqa: BLE001 - the probe already succeeded
+        pass
+
+
 class CamoufoxConsumerGate:
     """Unattended consumer-credential refresh, shaped like ConsumerBrowserGate.
 
@@ -299,6 +363,10 @@ class CamoufoxConsumerGate:
                 "refreshed without a human. Re-push them from the userscript, or "
                 "install the camoufox extra to enable unattended refresh."
             ) from exc
+
+        # Before spending a browser: is this account's proxy even up? See
+        # _assert_proxy_reachable for the measured failure this prevents.
+        await _assert_proxy_reachable(_proxy_option(self._proxy_url))
 
         self._profile_dir.mkdir(parents=True, exist_ok=True)
         _clear_profile_locks(self._profile_dir)

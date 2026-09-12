@@ -130,6 +130,15 @@ class Account:
     refresh_token_tenant_id: str = ""
     refresh_token_object_id: str = ""
     refresh_token_retry_after: float = 0.0
+    # Why the last stored RT was discarded, for the UI to explain instead of just
+    # flipping has_refresh_token to false. A SPA-issued RT dies at a fixed 24h
+    # (AADSTS700084) no matter how often it rotates, and the only cure is a fresh
+    # interactive PKCE sign-in on the native client -- a userscript re-push mints
+    # another SPA RT that dies on the same schedule. Without this the operator
+    # sees an account that silently stopped using the fast path and reads it as a
+    # bug in the refresh code.
+    refresh_token_disabled_reason: str = ""
+    refresh_token_disabled_at: float = 0.0
     # A specific chat conversation URL (m365.cloud.microsoft/chat/conversation/..)
     # that contains media. The refresh flow navigates here to re-trigger the
     # asyncgw/teams/designer media fetches so their Authorization headers can be
@@ -298,6 +307,12 @@ class AccountStore:
                     refresh_token_tenant_id=str(raw.get("refresh_token_tenant_id", "") or ""),
                     refresh_token_object_id=str(raw.get("refresh_token_object_id", "") or ""),
                     refresh_token_retry_after=float(raw.get("refresh_token_retry_after", 0.0) or 0.0),
+                    refresh_token_disabled_reason=str(
+                        raw.get("refresh_token_disabled_reason", "") or ""
+                    ),
+                    refresh_token_disabled_at=float(
+                        raw.get("refresh_token_disabled_at", 0.0) or 0.0
+                    ),
                     media_seed_url=str(raw.get("media_seed_url", "") or ""),
                     cdp_port=loaded_port,
                     # An unusable value degrades to "" (fall back to the global
@@ -674,7 +689,17 @@ class AccountStore:
         tenant_id: str | None = None,
         object_id: str | None = None,
         expected_refresh_token: str | None = None,
+        disabled_reason: str = "",
     ) -> Account | None:
+        """Store, rotate, or clear this account's RT.
+
+        ``disabled_reason`` is recorded only when clearing. Without it the UI can
+        say a refresh token is gone but not why, and the two causes need opposite
+        actions from the user: a SPA-issued RT that hit its unextendable 24h
+        ceiling needs an interactive PKCE sign-in (which mints a native-client RT
+        instead), while a revoked one needs the credential re-pushed. Both look
+        identical once the field is blank.
+        """
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
@@ -692,7 +717,17 @@ class AccountStore:
                 acc.refresh_token_authority = ""
                 acc.refresh_token_tenant_id = ""
                 acc.refresh_token_object_id = ""
+                # Only on a real discard: clearing an already-empty RT (an
+                # idempotent no-op) must not overwrite the reason the previous
+                # one died with a blank.
+                if disabled_reason:
+                    acc.refresh_token_disabled_reason = disabled_reason
+                    acc.refresh_token_disabled_at = time.time()
             else:
+                # A live RT clears any past post-mortem: the account is healthy
+                # again and a stale reason would keep nagging the user.
+                acc.refresh_token_disabled_reason = ""
+                acc.refresh_token_disabled_at = 0.0
                 # None preserves the verified binding when AAD rotates the RT.
                 if client_id is not None:
                     acc.refresh_token_client_id = client_id.strip()

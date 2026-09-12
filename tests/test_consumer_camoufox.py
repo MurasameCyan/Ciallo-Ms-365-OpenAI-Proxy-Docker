@@ -470,3 +470,88 @@ def test_gate_lock_is_shared_per_profile(tmp_path):
     same, cross = asyncio.run(check())
     assert same is True
     assert cross is False
+
+
+# ------------------------------------------------------- dead-proxy precheck
+#
+# Camoufox launches with geoip=True, which resolves the public IP THROUGH the
+# configured proxy before Firefox starts. Measured on the deployment
+# 2026-09-08..09-12: an account pinned to a refused proxy re-spawned a browser
+# every 30 minutes for four days, ~190 log lines, never once succeeding -- and
+# every line blamed `ipecho.net` (the last IP service tried) rather than the
+# proxy that was actually down. These guard the precheck that stops that.
+
+
+def _closed_port() -> int:
+    """A port nothing is listening on: bound to learn the number, then released."""
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def test_proxy_endpoint_reads_the_host_and_port_the_browser_will_dial():
+    """Parsed off the same option handed to Playwright, so the precheck cannot
+    disagree with where the browser actually goes."""
+    assert cc._proxy_endpoint({"server": "http://10.0.0.9:3128"}) == ("10.0.0.9", 3128)
+    assert cc._proxy_endpoint({"server": "socks5://host:1080"}) == ("host", 1080)
+    assert cc._proxy_endpoint({"server": "127.0.0.1:8080"}) == ("127.0.0.1", 8080)
+
+
+def test_proxy_endpoint_is_none_when_there_is_nothing_to_probe():
+    assert cc._proxy_endpoint(None) is None
+    assert cc._proxy_endpoint({}) is None
+    assert cc._proxy_endpoint({"server": "http://no-port-here"}) is None
+
+
+def test_reachability_check_is_skipped_for_a_direct_connection():
+    """No proxy means nothing to probe; a direct deployment must not be gated."""
+    assert asyncio.run(cc._assert_proxy_reachable(None)) is None
+
+
+def test_reachability_check_passes_through_a_listening_proxy():
+    import socket
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = int(listener.getsockname()[1])
+        option = {"server": f"http://127.0.0.1:{port}"}
+        assert asyncio.run(cc._assert_proxy_reachable(option)) is None
+
+
+def test_reachability_check_rejects_a_refused_proxy():
+    option = {"server": f"http://127.0.0.1:{_closed_port()}"}
+    with pytest.raises(cc.CamoufoxUnavailable, match="unreachable"):
+        asyncio.run(cc._assert_proxy_reachable(option))
+
+
+def test_dead_account_proxy_costs_no_browser_and_no_profile(tmp_path, monkeypatch):
+    """THE regression: the refresh must abort before spending a browser.
+
+    Asserting on the launch itself rather than on the message, because the whole
+    cost being avoided is the process spawn -- a version that logged a nicer
+    error and still launched would pass a message-only check.
+    """
+    import camoufox.async_api
+
+    launched = []
+
+    def _factory(**kwargs):
+        launched.append(kwargs)
+        raise AssertionError("the browser must not be launched behind a dead proxy")
+
+    monkeypatch.setattr(camoufox.async_api, "AsyncCamoufox", _factory)
+
+    profile = tmp_path / "profile"
+    gate = cc.CamoufoxConsumerGate(
+        profile, proxy_url=f"http://127.0.0.1:{_closed_port()}"
+    )
+    with pytest.raises(cc.CamoufoxUnavailable, match="unreachable"):
+        asyncio.run(gate._refresh())
+
+    assert launched == []
+    # The precheck runs ahead of the profile mkdir, so a doomed attempt leaves
+    # nothing behind to clean up either.
+    assert not profile.exists()

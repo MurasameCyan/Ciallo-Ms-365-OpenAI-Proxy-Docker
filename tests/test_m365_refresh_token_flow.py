@@ -256,6 +256,12 @@ def test_terminal_spa_rt_expiry_clears_the_bad_rt_before_cdp_fallback(
     assert stored.refresh_token_authority == ""
     assert stored.refresh_token_tenant_id == ""
     assert stored.refresh_token_object_id == ""
+    # Clearing the RT is only half the job: without a recorded reason the page
+    # can only flip has_refresh_token to false, which is indistinguishable from
+    # an account that never had one. 700084 means the SPA's fixed 24h ceiling was
+    # reached, and the only recovery is an interactive PKCE sign-in.
+    assert stored.refresh_token_disabled_reason == "spa_lifetime"
+    assert stored.refresh_token_disabled_at > 0
 
 
 def test_terminal_error_codes_clear_rt_even_without_an_english_description(
