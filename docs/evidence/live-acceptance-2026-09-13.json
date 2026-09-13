@@ -10,9 +10,10 @@
     "consumer_camoufox_profile_copied": true,
     "scratch_removed": true
   },
+  "source_commit": "ad7beb3c3dde614a6daef08686df4389fd42c774",
   "source_module_count": 109,
-  "source_archive_sha256": "dd7ad511cc674daaafcecb4404b04b3de2a0d570cd21f0aa2b8853bbbaff2845",
-  "source_content_sha256": "af9bbfb7e813f34a592401c1b8a9730afd9104b3421f3617398c528af162093f",
+  "source_sha256": "7217c8c3b2611580d9e92d636fe4b15989cb47c4da3d452572af20c09011c650",
+  "source_digest_method": "sha256 over sorted <relpath>\\u0000<committed blob bytes>\\u0000 for src/**/*.py at the commit above. The final run shipped those committed bytes rather than the working tree, so the digest is reproducible: the earlier archive digest embedded file mtimes, and the earlier content digest was taken before a git autocrlf rewrite changed 80 working-tree files from LF to CRLF without changing any code.",
   "api_matrix_final_run": {
     "checks_total": 28,
     "passed": 28,
@@ -176,9 +177,13 @@
       "classification": "upstream model drift, not code"
     },
     {
+      "observation": "The isolated Camoufox preflight minted a fresh Consumer token in 12s on most runs but never minted inside 75s on one, which silently fell back to the stored credential (then ~7.7 days old) and failed every Consumer cell with HTTP 401 on conversation create. The preflight budget was widened to 240s/180s with one clean retry on a fresh profile copy.",
+      "classification": "environment, not code"
+    },
+    {
       "observation": "The isolated harness refuses to start when the M365 token has under 600s left; the production credential was refreshed through the admin endpoint before each run.",
       "classification": "harness precondition"
     }
   ],
-  "interpretation": "The final run passed every matrix cell with no repeats. Earlier misses in this change are retained above with their measured cause rather than rewritten as first-pass successes; none of them were traced to the transport or continuation code under test."
+  "interpretation": "The final run shipped the committed bytes of the commit named above and passed every matrix cell with no repeats. Earlier misses in this change are retained above with their measured cause rather than rewritten as first-pass successes; every one was traced to egress, browser-mint, or upstream model drift, and none to the transport or continuation code under test."
 }
