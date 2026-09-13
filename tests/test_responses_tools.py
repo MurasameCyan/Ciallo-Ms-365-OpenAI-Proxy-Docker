@@ -1665,45 +1665,78 @@ def test_responses_continuation_cleanup_cannot_clear_a_new_reservation():
     assert session.begin_response_continuation(response_id)
 
 
-def test_responses_stream_finalizes_before_completed_event_is_yielded():
-    statuses: list[bool] = []
+def test_responses_continuation_waits_for_completed_event_delivery():
+    session = PersistentSession()
+    parent_id = "resp_parent"
+    child_id = "resp_child"
+    session.record_response(parent_id, [])
+    reservation = session.begin_response_continuation(parent_id)
+    assert reservation
+    pending_calls: list[str] | None = None
+    stream_succeeded = False
 
-    async def read_until_completed():
+    def record_issued(_response_id: str, call_ids: list[str]) -> None:
+        nonlocal pending_calls
+        pending_calls = call_ids
+
+    def note_stream_done(success: bool) -> None:
+        nonlocal stream_succeeded
+        stream_succeeded = success
+
+    def finish(delivered: bool) -> None:
+        if delivered and stream_succeeded and pending_calls is not None:
+            session.complete_response_continuation(
+                parent_id, reservation, child_id, pending_calls, False
+            )
+        else:
+            session.finish_response_continuation(parent_id, reservation, False)
+
+    async def stall_completed_event():
+        await session.response_lock.acquire()
         stream = response_helpers._responses_stream(
             "m365-copilot",
             _ReplyClient("hello"),
             "hi",
             [],
-            on_request_done=statuses.append,
+            response_id=child_id,
+            on_response_issued=record_issued,
+            on_request_done=note_stream_done,
         )
-        async for event in stream:
-            if "event: response.completed" in event:
-                assert statuses == [True]
-                break
-        await stream.aclose()
-
-    asyncio.run(read_until_completed())
-
-
-def test_responses_tool_stream_finalizes_before_completed_event_is_yielded():
-    statuses: list[bool] = []
-
-    async def read_until_completed():
-        stream = response_helpers._responses_stream_with_tools(
-            "m365-copilot",
-            _ReplyClient(READ_CALL),
-            "read README",
-            [],
-            tool_names={"Read"},
-            on_request_done=statuses.append,
+        response = routes_api_responses._ResponsesStreamingResponse(
+            stream,
+            on_request_done=finish,
+            response_lock=session.response_lock,
+            write_timeout=0.05,
         )
-        async for event in stream:
-            if "event: response.completed" in event:
-                assert statuses == [True]
-                break
-        await stream.aclose()
 
-    asyncio.run(read_until_completed())
+        async def receive():
+            await asyncio.sleep(3600)
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            if (
+                message["type"] == "http.response.body"
+                and b"event: response.completed" in message.get("body", b"")
+            ):
+                await asyncio.sleep(3600)
+
+        await asyncio.wait_for(
+            response(
+                {"type": "http", "asgi": {"spec_version": "2.4"}},
+                receive,
+                send,
+            ),
+            timeout=2,
+        )
+
+    asyncio.run(stall_completed_event())
+
+    assert not session.response_lock.locked()
+    retry = session.begin_response_continuation(parent_id)
+    assert retry
+    session.finish_response_continuation(parent_id, retry, False)
+
+
 
 
 def test_responses_stream_finalizes_before_failed_event_is_yielded():

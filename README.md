@@ -129,7 +129,7 @@ Docker 部署升级时，需要在部署目录执行 `docker compose pull`，再
 
 三个兼容 API 的 Studio 工具首轮、结果续轮、纠正重试，以及进入 Studio 的路由回退，都使用客户端所选模型解析出的 tone。升级前固定 `Magic` 的 Studio 会话会与新版会话隔离；切换 tone 会隔离上游线程，A→B→A 切回时按客户端历史恢复必要上下文。这里保证的是代理实际发送的 tone；回退到普通路径能否成功，仍取决于该 tone 在那条路径上的可用性。
 
-某个模式能不能用由 M365 侧的 rollout 决定：M365 拒绝服务的模式在响应尚未开始时会返回 **400** 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。流式响应已经开始时，HTTP 状态可能仍为 200，错误会写入流或正文，调用方必须检查最终内容。用 400 而非 502，是因为重试改变不了上游的拒绝——502 会让客户端把它当成网关故障反复重试。传输层故障（空闲超时、断流）与凭据问题仍然是 502。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
+某个模式能不能用由 M365 侧的 rollout 决定：M365 拒绝服务的模式在响应尚未开始时会返回 **400** 并在错误里点名该模式，不会静默回一句「Sorry, I wasn't able to respond to that.」当成模型回复。流式响应已经开始时，HTTP 状态可能仍为 200，错误会写入流或正文，调用方必须检查最终内容。用 400 而非 502，是因为重试改变不了上游的拒绝——502 会让客户端把它当成网关故障反复重试。传输层故障（空闲超时、断流）与凭据问题仍然是 502。SSE 的每次正文写入有 60 秒截止：客户端保持连接但停止读取时，代理会终止该流并关闭上游迭代器，释放 WebSocket、账户并发槽，以及 Responses 续接占用的请求锁；响应已经开始后不能改写 HTTP 状态，因此该情况只记录 warning 并截断连接。想知道当前账号实际能用哪些，跑仓库根目录的 `scan_tones.py`。
 
 #### Claude Opus 使用限制
 
@@ -396,14 +396,14 @@ docker compose up -d
 
 ### CC / Codex 工具调用实测
 
-**2026-09-08**，使用同一 M365 账户、有效 Studio agent 和 `Gpt_6_Astra`，在目标容器内运行候选源码，由真实客户端执行文件创建，再回传真实工具结果：
+**2026-09-13**，使用同一 M365 账户和有效 Studio agent，在目标容器的凭据快照上运行隔离的候选应用，由真实客户端执行文件创建，再回传真实工具结果：
 
-| 客户端 | 接口 | 实际工具流程 | 结果 |
+| 客户端 | 接口与模型 | 实际工具流程 | 结果 |
 | --- | --- | --- | --- |
-| Claude Code 2.1.261 | 流式 `/v1/messages` | `Write` 创建 SVG 动画 HTML → `tool_result` → 最终确认 | 2 轮成功，文件 2327 字节，CLI 退出码 0 |
-| Codex CLI 0.153.4 | 流式 `/v1/responses` | 内建 `exec_command` 创建 HTML → `function_call_output` → 最终确认 | 2 轮成功，文件 129 字节，CLI 退出码 0 |
+| Claude Code 2.1.269 | 流式 `/v1/messages`；`claude-sonnet-4-6` → `Claude_Sonnet` | `Write` 创建 SVG 动画 HTML → `tool_result` → 最终确认 | 2 轮成功，文件 9346 字节，CLI 退出码 0 |
+| Codex CLI 0.153.4 | 流式 `/v1/responses`；`Gpt_6_Astra` | 内建 `exec_command` 创建 HTML → `function_call_output` → 最终确认 | 2 轮成功，文件 129 字节，CLI 退出码 0 |
 
-两种客户端都保留实际工具声明与默认/auto 工具选择，文件内容经过 SHA-256 比对；两轮出站 tone 均为 `Gpt_6_Astra`，保持同一 Studio 会话，没有额外纠错重试或 Router/普通路径回退。测试使用固定会话 Header，覆盖完整工具历史的会话复用；没有改写 Codex 的 tools 或 input 来适配测试。
+两种客户端都保留实际工具声明与默认/auto 工具选择，文件内容经过 SHA-256 比对；两轮都保持同一 Studio 会话，没有额外纠错重试或 Router/普通路径回退。Claude Code 的请求模型按现有映射解析为 `Claude_Sonnet`；Codex 两轮出站 tone 均为 `Gpt_6_Astra`。测试使用固定会话 Header，覆盖完整工具历史的会话复用；没有改写 Codex 的 tools 或 input 来适配测试。六条验收路径（含两个客户端协议的 API 级工具循环）最终一轮 28/28 全通过，期间观测到的环境漂移（出口代理中断、上游 planner 偶发漏调用）也一并记录，见[脱敏证据](docs/evidence/live-acceptance-2026-09-13.json)。
 
 使用上述流程需要将 Key 的「工具调用规划」设为 **Studio Agent**，确保绑定账户的 agent 已就绪，并在结果续轮保留模型和有效工具定义。文件写入还需要代理的有效运行权限为 `full`，客户端自身允许写入。模型默认显示名为 `gpt-6_Chat`；自定义名称以实际配置映射为准，排查时可直接传 `Gpt_6_Astra` 并核对调用日志中的 `tone`。
 

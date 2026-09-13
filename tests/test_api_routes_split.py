@@ -89,3 +89,69 @@ def test_chat_stream_does_not_emit_duplicate_media_citation_fallback_after_proxy
         emitted += payload.get("choices", [{}])[0].get("delta", {}).get("content", "")
     assert emitted.count("已生成流水声（WAV 格式）") == 1
     assert "/v1/m365-media?" in emitted
+
+
+class _CountingCopilotClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, prompt, additional_context, session=None, images=None):
+        self.calls += 1
+        return "unexpected upstream response"
+
+
+def _orphan_test_client(tmp_path):
+    upstream = _CountingCopilotClient()
+    app = create_app(
+        Settings(TOKEN_DIR=str(tmp_path), API_KEY="k", ADMIN_PASSWORD=""),
+        copilot_client_factory=lambda **_kwargs: upstream,
+    )
+    return TestClient(app), upstream
+
+
+def test_chat_rejects_an_orphan_tool_result_before_calling_upstream(tmp_path):
+    client, upstream = _orphan_test_client(tmp_path)
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer k"},
+        json={
+            "model": "m365-copilot",
+            "messages": [
+                {"role": "tool", "tool_call_id": "ghost_chat", "content": "42"}
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "ghost_chat" in response.json()["error"]["message"]
+    assert upstream.calls == 0
+
+
+def test_messages_rejects_an_orphan_tool_result_before_calling_upstream(tmp_path):
+    client, upstream = _orphan_test_client(tmp_path)
+
+    response = client.post(
+        "/v1/messages",
+        headers={"x-api-key": "k", "anthropic-version": "2023-06-01"},
+        json={
+            "model": "m365-copilot",
+            "max_tokens": 64,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "ghost_messages",
+                            "content": "42",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "ghost_messages" in response.json()["error"]["message"]
+    assert upstream.calls == 0

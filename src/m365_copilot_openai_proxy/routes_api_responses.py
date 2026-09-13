@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from .call_log_store import append_call_log, record_response_text
 from .config import Settings
@@ -30,6 +30,7 @@ from .routes_api_common import (
     upstream_http_error,
 )
 from .routes_media_proxy import request_media_rewriter
+from .stream_guard import GuardedStreamingResponse
 from .session_helpers import (
     _decode_responses_response_claims,
     _decode_responses_session_id,
@@ -117,8 +118,20 @@ def _restore_router_answer_context(translated, parent: dict):
     )
 
 
-class _ResponsesStreamingResponse(StreamingResponse):
-    """Own the request lock until the SSE transport has fully terminated."""
+class _ResponsesStreamingResponse(GuardedStreamingResponse):
+    """Own the request lock until the SSE transport has fully terminated.
+
+    Inherits the write deadline: the Responses route holds the MOST state of the
+    three (request lock plus the continuation record plus the upstream socket), so
+    a stalled reader here is the most expensive one to leave unbounded.
+
+    The base class closes the body iterator in its own ``finally``, so this one
+    only owns what the base does not know about. Order is load-bearing and is why
+    the release sits in a nested ``finally``: upstream is closed first, then the
+    continuation is marked done, then the lock is released -- releasing the lock
+    while the substrate socket is still open would admit the next turn into a slot
+    this one has not vacated.
+    """
 
     def __init__(
         self,
@@ -137,15 +150,11 @@ class _ResponsesStreamingResponse(StreamingResponse):
             await super().__call__(scope, receive, send)
         finally:
             try:
-                close = getattr(self.body_iterator, "aclose", None)
-                if close is not None:
-                    await close()
+                self._on_request_done(self.transport_complete)
             finally:
-                try:
-                    self._on_request_done(False)
-                finally:
-                    if self._response_lock is not None:
-                        self._response_lock.release()
+                if self._response_lock is not None:
+                    self._response_lock.release()
+
 
 
 def register_responses_routes(
@@ -620,6 +629,12 @@ def register_responses_routes(
                 else choice[0]
             )
             response_tools = request.tools or []
+            stream_succeeded = False
+
+            def note_stream_done(success: bool) -> None:
+                nonlocal stream_succeeded
+                stream_succeeded = success
+
 
             if request.stream:
                 call_record["streaming"] = True
@@ -649,7 +664,7 @@ def register_responses_routes(
                         call_record=call_record,
                         required_tool_retry_prompt=required_tool_retry_prompt,
                         on_response_issued=record_issued_response,
-                        on_request_done=finish_continuation,
+                        on_request_done=note_stream_done,
                         router_prompt=router_prompt,
                         on_router_call=mark_router_classified_call,
                         studio_turn=(
@@ -691,12 +706,14 @@ def register_responses_routes(
                         instructions=request.instructions,
                         call_record=call_record,
                         on_response_issued=record_issued_response,
-                        on_request_done=finish_continuation,
+                        on_request_done=note_stream_done,
                     )
                 stream = keepalive_stream(stream)
                 response = _ResponsesStreamingResponse(
                     stream,
-                    on_request_done=finish_continuation,
+                    on_request_done=lambda delivered: finish_continuation(
+                        delivered and stream_succeeded
+                    ),
                     response_lock=response_lock,
                     media_type="text/event-stream",
                     headers=merge_sse_headers(

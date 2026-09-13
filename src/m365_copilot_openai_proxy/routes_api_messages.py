@@ -7,7 +7,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from .call_log_store import append_call_log, record_response_text
 from .config import Settings
@@ -35,6 +35,7 @@ from .session_helpers import (
     _studio_session_namespace,
 )
 from .session_store import PersistentSession
+from .stream_guard import GuardedStreamingResponse
 from .sse_stream import ANTHROPIC_PING, keepalive_stream, merge_sse_headers
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateThrottled
 from .studio_planner import (
@@ -58,7 +59,7 @@ from .tool_call_parser import (
     _strip_tool_call_blocks,
     split_no_tool_marker,
 )
-from .tool_hygiene import dedupe_tool_call_ids, dedupe_tool_call_payloads
+from .tool_hygiene import dedupe_tool_call_ids, dedupe_tool_call_payloads, orphan_tool_results
 from .translator import (
     _anthropic_tools_as_openai,
     effective_tools,
@@ -107,6 +108,12 @@ def register_messages_routes(
         settings: Settings = Depends(get_settings),
     ):
         _log = logging.getLogger("copilot_proxy")
+        orphan_reasons = orphan_tool_results(request.messages)
+        if orphan_reasons:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid tool transcript: " + "; ".join(orphan_reasons),
+            )
         model_alias = request_model_alias(app, raw_request, settings)
         # Effective list, not the raw one: tool_choice={"type":"none"} empties it so
         # parsing and the corrective retry are disabled along with the prompt
@@ -437,12 +444,12 @@ def register_messages_routes(
                 )
                 if tool_names and planning_mode in {"studio", "router"}:
                     extra_headers = {TOOL_CALLING_HEADER: actual_planning}
-                return StreamingResponse(
+                return GuardedStreamingResponse(
                     keepalive_stream(stream, heartbeat=ANTHROPIC_PING),
                     media_type="text/event-stream",
                     headers=merge_sse_headers(extra_headers),
                 )
-            return StreamingResponse(
+            return GuardedStreamingResponse(
                 keepalive_stream(
                     _anthropic_stream(
                         model_alias,

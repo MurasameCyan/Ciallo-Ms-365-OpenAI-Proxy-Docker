@@ -1,0 +1,184 @@
+{
+  "date": "2026-09-13",
+  "scope": "Live end-to-end acceptance against an isolated app built from the candidate source and the deployed target container's credential snapshot. Every check is a real HTTP request over a real socket, because the change under test lives in the ASGI send path.",
+  "raw_credentials_included": false,
+  "response_bodies_included": false,
+  "session_identifiers_included": false,
+  "isolation": {
+    "production_state_copied_never_written": true,
+    "isolated_refresh_scheduler_neutered": true,
+    "consumer_camoufox_profile_copied": true,
+    "scratch_removed": true
+  },
+  "source_module_count": 109,
+  "source_archive_sha256": "dd7ad511cc674daaafcecb4404b04b3de2a0d570cd21f0aa2b8853bbbaff2845",
+  "source_content_sha256": "af9bbfb7e813f34a592401c1b8a9730afd9104b3421f3617398c528af162093f",
+  "api_matrix_final_run": {
+    "checks_total": 28,
+    "passed": 28,
+    "failed": 0,
+    "consumer_egress_source": "fallback_proxy",
+    "consumer_pinned_proxy_alive": false,
+    "paths": [
+      {
+        "path": "m365_native",
+        "result": "pass",
+        "passed": 3,
+        "failed": 0,
+        "checks": ["nonstream_text", "stream_text", "nonstream_tool_call"]
+      },
+      {
+        "path": "router_planning_tools",
+        "result": "pass",
+        "passed": 8,
+        "failed": 0,
+        "checks": [
+          "openai_nonstream",
+          "openai_stream",
+          "anthropic_nonstream",
+          "anthropic_stream",
+          "responses_nonstream",
+          "responses_stream",
+          "responses_stream_tool_loop",
+          "responses_parent_single_use"
+        ]
+      },
+      {
+        "path": "studio_planning_tools",
+        "result": "pass",
+        "passed": 8,
+        "failed": 0,
+        "checks": [
+          "openai_nonstream",
+          "openai_stream",
+          "anthropic_nonstream",
+          "anthropic_stream",
+          "responses_nonstream",
+          "responses_stream",
+          "responses_stream_tool_loop",
+          "responses_parent_single_use"
+        ]
+      },
+      {
+        "path": "anthropic_messages_api",
+        "result": "pass",
+        "passed": 2,
+        "failed": 0,
+        "checks": ["stream_tool_use", "stream_tool_result_continuation"],
+        "api_level_tool_loop": true,
+        "tool_arguments_assembled_from_input_json_delta": true
+      },
+      {
+        "path": "openai_responses_api",
+        "result": "pass",
+        "passed": 2,
+        "failed": 0,
+        "checks": ["stream_function_call", "stream_function_output_continuation"],
+        "api_level_tool_loop": true
+      },
+      {
+        "path": "microsoft_365_personal_consumer",
+        "result": "pass",
+        "passed": 5,
+        "failed": 0,
+        "checks": [
+          "refresh_preflight",
+          "openai_nonstream_text",
+          "openai_stream_text",
+          "anthropic_stream_text",
+          "responses_stream_text"
+        ],
+        "refresh_preflight": {
+          "unattended_camoufox_refresh": true,
+          "identity_matches_pinned_account": true,
+          "reusable_cookies": true,
+          "production_profile_mutated": false
+        }
+      }
+    ]
+  },
+  "client_level_runs": {
+    "note": "Recorded earlier in this same change with real CLI clients; NOT re-executed in the final API-level run above. The Anthropic Messages and OpenAI Responses protocols are covered API-level in every run.",
+    "runs": [
+      {
+        "path": "claude_code_anthropic_messages",
+        "result": "pass",
+        "client_version": "2.1.269",
+        "client_model": "claude-sonnet-4-6",
+        "resolved_m365_tone": "Claude_Sonnet",
+        "endpoint": "/v1/messages",
+        "stream": true,
+        "requests": 2,
+        "tool": "Write",
+        "tool_calls": 1,
+        "tool_result_success": true,
+        "final_answer_after_tool": true,
+        "same_upstream_conversation": true,
+        "studio_only": true,
+        "file_bytes": 9346,
+        "file_sha256": "0e5c669a163bdb47dcbb2d2c4acee5ebc9da2224496863e809df3b542a1ce5b2",
+        "file_content_verified": true,
+        "cli_exit_code": 0,
+        "container_temp_removed": true,
+        "source_archive_sha256": "6fe2b52ec76bec242768b77a64f3558e1e461839c64981d7542549e5fa0524a2"
+      },
+      {
+        "path": "codex_openai_responses",
+        "result": "pass",
+        "client_version": "0.153.4",
+        "model": "Gpt_6_Astra",
+        "endpoint": "/v1/responses",
+        "stream": true,
+        "requests": 2,
+        "tool": "exec_command",
+        "tool_calls": 1,
+        "tool_result_success": true,
+        "final_answer_after_tool": true,
+        "same_upstream_conversation": true,
+        "studio_only": true,
+        "request_tools_rewritten": false,
+        "sandbox_mode": "workspace-write",
+        "file_bytes": 129,
+        "file_sha256": "e5613cc5cc7e65ae5d3e3cbaeaddd283da3059e16cd3514100d54a401ae16b0d",
+        "file_content_verified": true,
+        "cli_exit_code": 0,
+        "container_temp_removed": true,
+        "source_archive_sha256": "20a44f9781562f13e42e207594d6034830f5a46871280085e4ab057ed50ce25b"
+      }
+    ]
+  },
+  "transport_change": {
+    "behavior": "Each SSE body write has a 60 second deadline; every response exit closes the upstream iterator. The Responses continuation is committed only after the terminal body write is accepted, so a stalled downstream reader releases the request lock and leaves the parent id retryable.",
+    "live_scope": "All six protocol/provider matrix paths exercised streaming responses, including API-level tool loops on both client-compatible protocols and single-use enforcement of the Responses parent id.",
+    "not_live_verified": "A real socket stall is neither safe nor deterministic against the shared deployed target, so stalled-reader release is covered by targeted tests rather than by the live matrix.",
+    "targeted_tests": [
+      "tests/test_stream_guard.py",
+      "tests/test_api_routes_split.py",
+      "tests/test_responses_tools.py"
+    ],
+    "targeted_test_result": "165 passed"
+  },
+  "environment_drift_observed": [
+    {
+      "observation": "The Consumer account's pinned proxy 204.76.203.9 refuses connections; the harness probes the pinned egress first and falls back, recording which egress carried the traffic.",
+      "classification": "environment, not code"
+    },
+    {
+      "observation": "A fallback proxy died mid-run (Camoufox reported NS_ERROR_PROXY_CONNECTION_REFUSED and every Consumer cell reported curl (7)), failing all Consumer cells in that run; the same code passed them before and after. The candidate egress list was widened to three measured-reachable exits.",
+      "classification": "environment, not code"
+    },
+    {
+      "observation": "Isolated runs also hit an upstream Consumer refusal (challenge with method=null, and a conversation-create HTTP 415 on the immediate repeat) while the other three Consumer protocol cells passed in the same run over the identical conversation-create code path.",
+      "classification": "upstream, not code"
+    },
+    {
+      "observation": "Individual planner tool cells intermittently returned text instead of a tool call, or two tool calls instead of one. Each miss is recorded and the identical request is measured once more; the final run needed no repeats.",
+      "classification": "upstream model drift, not code"
+    },
+    {
+      "observation": "The isolated harness refuses to start when the M365 token has under 600s left; the production credential was refreshed through the admin endpoint before each run.",
+      "classification": "harness precondition"
+    }
+  ],
+  "interpretation": "The final run passed every matrix cell with no repeats. Earlier misses in this change are retained above with their measured cause rather than rewritten as first-pass successes; none of them were traced to the transport or continuation code under test."
+}
