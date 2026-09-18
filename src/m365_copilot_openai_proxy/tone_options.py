@@ -25,6 +25,9 @@ from __future__ import annotations
 # docs/gpt6-tone-verification-2026-09-07.md. Gpt_6_Reasoning is listed by request
 # after successful Studio tool workflows, but ordinary calls still fail and
 # Router fails on the tool-result continuation. See README's GPT-6 restrictions.
+# `Grok_4_5` returned valid structured text on 2026-09-18 for the measured
+# account. The response does not attest the underlying model identity; related
+# `Grok_4_6` and suffixed variants were not promoted without a successful probe.
 TONE_OPTIONS = [
     {"value": "Magic", "label": "Copilot_自动", "label_zh": "Copilot_自动", "label_en": "Copilot_自动"},
     {"value": "Chat", "label": "Copilot_快速答复", "label_zh": "Copilot_快速答复", "label_en": "Copilot_快速答复"},
@@ -45,6 +48,7 @@ TONE_OPTIONS = [
     {"value": "Gpt_5_3_Reasoning", "label": "gpt-5.3", "label_zh": "gpt-5.3", "label_en": "gpt-5.3"},
     {"value": "Gpt_5_2_Chat", "label": "gpt-5.2_Chat", "label_zh": "gpt-5.2_Chat", "label_en": "gpt-5.2_Chat"},
     {"value": "Gpt_5_2_Reasoning", "label": "gpt-5.2", "label_zh": "gpt-5.2", "label_en": "gpt-5.2"},
+    {"value": "Grok_4_5", "label": "grok-4.5", "label_zh": "grok-4.5", "label_en": "grok-4.5"},
 ]
 TONE_VALUES = {option["value"] for option in TONE_OPTIONS}
 

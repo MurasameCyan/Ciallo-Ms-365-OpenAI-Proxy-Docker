@@ -92,10 +92,11 @@
 | `Gpt_5_3_Reasoning` | `gpt-5.3` | `gpt-5.3-持续` | GPT 5.3 思考 |
 | `Gpt_5_2_Chat` | `gpt-5.2_Chat` | `gpt-5.2_Chat-持续` | GPT 5.2 快速 |
 | `Gpt_5_2_Reasoning` | `gpt-5.2` | `gpt-5.2-持续` | GPT 5.2 思考 |
+| `Grok_4_5` | `grok-4.5` | `grok-4.5-持续` | 同一 M365 账户直连实测返回结构化文本；底层型号未确认 |
 
-共 **38** 个默认可选模型 ID（19 模式 × 2 变体）。目录表示可选择的 tone，**不表示当前账户能在所有路径下调用成功**。`Gpt_5_6_Chat` 与 `Gpt_5_3_Reasoning` 分别在此前的 08-28 / 08-25 复测中确认可用。
+共 **40** 个默认可选模型 ID（20 模式 × 2 变体）。目录表示可选择的 tone，**不表示当前账户能在所有路径下调用成功**。`Gpt_5_6_Chat`、`Gpt_5_3_Reasoning` 与 `Grok_4_5` 分别在此前的 08-28 / 08-25 / 09-18 复测中确认返回有效结果。
 
-**与历史默认列表完全相同的旧配置会在升级时自动迁移**，包括加入 Astra 之前的 17 模式列表和仅加入 Astra 的 18 模式列表。与这些历史默认列表不相同的自定义配置会被保留；需要新增模式时，请在 `/admin` → 运行设置中添加 `Gpt_6_Astra | gpt-6_Chat`、`Gpt_6_Reasoning | gpt-6`。
+**与历史默认列表完全相同的旧配置会在升级时自动迁移**，包括加入 Grok 之前的 19 模式列表、加入 Astra 之前的 17 模式列表和仅加入 Astra 的 18 模式列表。与这些历史默认列表不相同的自定义配置会被保留；需要新增模式时，请在 `/admin` → 运行设置中添加 `Grok_4_5 | grok-4.5`。
 
 Docker 部署升级时，需要在部署目录执行 `docker compose pull`，再执行 `docker compose up -d --force-recreate`，拉取新镜像并重建容器；之后在客户端刷新模型列表。代码推送和镜像构建不会自动更新已经运行的容器。
 
@@ -138,6 +139,10 @@ Docker 部署升级时，需要在部署目录执行 `docker compose pull`，再
 使用时选择 `claude-opus`（或直接传 `Claude_Opus`），并遵循[上节的 Studio 步骤和限制](#astra-与-reasoning-的区别及使用限制)：账户的 Studio agent 必须已就绪，工具调用规划设为 `studio`，请求的有效 `tools` 非空且 `tool_choice` 不是 `none`；续轮继续保留相同模型和有效工具定义。无工具纯聊天即使设置了 Studio 也会走普通直连，不能据附加 agent 的问答实验认定纯聊天可用。
 
 默认映射仍为 `Claude_Opus | claude-opus`。候选 `Claude_Opus_4_8`、`Claude_Opus_5` 在普通和 Studio 路径都只返回 SignalR type 3 调用错误，未测通可单独指定版本的新 tone；通用 `Claude_Opus` 的成功也不能确认底模为 Opus 4.8 或 5。普通直连失败时，改显示名、拼接版本名或模型自述都不能作为调用恢复或底层版本确认的依据。
+
+#### Grok_4_5 使用限制
+
+**2026-09-18、同一 M365 账户**的直接 substrate 探针确认 `Grok_4_5` 返回有效结构化文本（`GROK45_STRUCTURAL_OK`）。这只证明该账户当前接受这个 tone 并返回了可解析的响应，不证明上游底层型号、版本或长期可用性；`Grok_4_6`、`Grok_4_5_Reasoning` 与 `Grok_4_5_Chat` 未通过同一探针，不加入默认目录。工具调用、Studio agent、个人版 Consumer 路径和三种兼容 API 的完整 Grok 闭环尚未单独验证，发现异常时先运行 `scan_tones.py` 并按实际返回处理。
 
 #### 请求示例
 

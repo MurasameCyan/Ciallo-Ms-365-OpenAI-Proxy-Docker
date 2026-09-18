@@ -58,6 +58,10 @@ SENSITIVE_FIELDS = (
     "refresh_token",
     "media_seed_url",
     "consumer_token",
+    # The consumer refresh_token is a long-lived bearer credential -- strictly
+    # more valuable than the ~8h ChatAI token it mints -- so it must never sit
+    # in plaintext in accounts.json or a backup of it.
+    "consumer_refresh_token",
     "consumer_account_id",
     # An outbound proxy URL may embed credentials (http://user:pass@host:port),
     # which normalize_proxy_url explicitly accepts -- so it is at-rest sensitive.

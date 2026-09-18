@@ -69,6 +69,53 @@ process.stdout.write(JSON.stringify({{email, account_id: getConsumerAccountId()}
     )
     return json.loads(completed.stdout)
 
+def _resolve_consumer_refresh_binding(storage: dict, access_token: str) -> dict:
+    source = _email_resolution_source()
+    program = f"""
+const storageValues = {json.dumps(storage)};
+const localStorage = {{
+    get length() {{ return Object.keys(storageValues).length; }},
+    key(index) {{ return Object.keys(storageValues)[index] ?? null; }},
+    getItem(key) {{ return Object.prototype.hasOwnProperty.call(storageValues, key) ? storageValues[key] : null; }},
+}};
+{source}
+process.stdout.write(JSON.stringify(getConsumerRefreshBinding({json.dumps(access_token)})));
+"""
+    completed = subprocess.run(
+        ["node", "-e", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def _refresh_token(home_id: str, client_id: str, token: str) -> str:
+    return json.dumps(
+        {
+            "credentialType": "RefreshToken",
+            "homeAccountId": home_id,
+            "clientId": client_id,
+            "secret": token,
+        }
+    )
+
+
+def _bound_access_token(
+    home_id: str, local_id: str, client_id: str, token: str, expires_at: int
+) -> str:
+    return json.dumps(
+        {
+            "credentialType": "AccessToken",
+            "homeAccountId": home_id,
+            "localAccountId": local_id,
+            "clientId": client_id,
+            "target": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+            "secret": token,
+            "expiresOn": str(expires_at),
+        }
+    )
+
 
 def _account(
     home_id: str, local_id: str, email: str | None, name: str | None = None
@@ -314,3 +361,79 @@ def test_userscript_rejects_a_token_without_one_matching_msal_subject():
         "account_id": "",
     }
     assert "if (!consumerAccountId)" in SCRIPT
+
+
+def test_userscript_selects_only_the_refresh_token_bound_to_the_captured_chat_token():
+    client_id = "14638111-3389-403d-b206-a6a71d9f8f16"
+    storage = {
+        "token-a": _bound_access_token(
+            "home-a", "local-a", client_id, "captured-chat-token", 2_000_000_000
+        ),
+        "rt-a": _refresh_token("home-a", client_id, "right-refresh-token-" + "a" * 32),
+        "rt-other-account": _refresh_token(
+            "home-b", client_id, "wrong-account-refresh-token-" + "b" * 32
+        ),
+        "rt-other-client": _refresh_token(
+            "home-a",
+            "00000000-0000-4000-8000-000000000000",
+            "wrong-client-refresh-token-" + "c" * 32,
+        ),
+    }
+
+    assert _resolve_consumer_refresh_binding(storage, "captured-chat-token") == {
+        "refresh_token": "right-refresh-token-" + "a" * 32,
+        "client_id": client_id,
+        "scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+        "account_id": "home:home-a",
+        "expires_at": 2_000_000_000,
+    }
+
+
+def test_userscript_does_not_export_an_rt_when_the_chat_token_has_no_exact_subject_match():
+    client_id = "14638111-3389-403d-b206-a6a71d9f8f16"
+    storage = {
+        "token-a": _bound_access_token(
+            "home-a", "local-a", client_id, "captured-chat-token", 2_000_000_000
+        ),
+        "rt-b": _refresh_token("home-b", client_id, "other-refresh-token-" + "b" * 32),
+    }
+
+    assert _resolve_consumer_refresh_binding(storage, "captured-chat-token") == {
+        "refresh_token": "",
+        "client_id": client_id,
+        "scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+        "account_id": "home:home-a",
+        "expires_at": 2_000_000_000,
+    }
+
+
+def test_userscript_does_not_cross_bind_local_only_consumer_subjects():
+    client_id = "14638111-3389-403d-b206-a6a71d9f8f16"
+    storage = {
+        "token-local-a": json.dumps(
+            {
+                "credentialType": "AccessToken",
+                "localAccountId": "local-a",
+                "clientId": client_id,
+                "target": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+                "secret": "captured-local-token",
+                "expiresOn": "2000000000",
+            }
+        ),
+        "rt-local-b": json.dumps(
+            {
+                "credentialType": "RefreshToken",
+                "localAccountId": "local-b",
+                "clientId": client_id,
+                "secret": "wrong-local-refresh-token-" + "b" * 32,
+            }
+        ),
+    }
+
+    assert _resolve_consumer_refresh_binding(storage, "captured-local-token") == {
+        "refresh_token": "",
+        "client_id": client_id,
+        "scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+        "account_id": "local:local-a",
+        "expires_at": 2_000_000_000,
+    }

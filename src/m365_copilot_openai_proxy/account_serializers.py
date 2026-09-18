@@ -20,6 +20,24 @@ def _provider_fields(acc: Account) -> dict:
         "provider": getattr(acc, "provider", "m365"),
         "has_consumer_token": bool(getattr(acc, "consumer_token", "")),
         "consumer_updated_at": getattr(acc, "consumer_updated_at", 0.0),
+        # Presence only, never the value: this is a long-lived bearer credential.
+        # Surfaced because it is what decides whether renewal costs ~1.4s of HTTP
+        # or a ~7s browser launch, so an operator needs to see it went missing.
+        "has_consumer_refresh_token": bool(
+            getattr(acc, "consumer_refresh_token", "")
+        ),
+        "consumer_refresh_token_updated_at": getattr(
+            acc, "consumer_refresh_token_updated_at", 0.0
+        ),
+        # Why the fast path is gone, as a stable code the UI maps to text. Without
+        # it a discarded RT is indistinguishable from one that never existed, and
+        # the two need different actions from the user.
+        "consumer_refresh_token_disabled_reason": str(
+            getattr(acc, "consumer_refresh_token_disabled_reason", "") or ""
+        ),
+        "consumer_refresh_token_disabled_at": getattr(
+            acc, "consumer_refresh_token_disabled_at", 0.0
+        ),
         # Exposed in full, not as a presence flag: the user has to see and edit
         # the value. Credentials in a proxy URL are the user's own and were
         # supplied through this same endpoint.

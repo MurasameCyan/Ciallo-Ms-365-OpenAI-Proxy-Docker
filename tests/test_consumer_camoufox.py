@@ -12,6 +12,10 @@ import asyncio
 
 import pytest
 
+import json
+import shutil
+import subprocess
+
 from m365_copilot_openai_proxy import consumer_camoufox as cc
 from m365_copilot_openai_proxy.consumer_client import ConsumerCopilotError
 
@@ -222,11 +226,18 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
         async def goto(self, url, **kw):
             seen["events"].append("goto")
             seen["url"] = url
-
         async def evaluate(self, script):
             if "consumer:clear-chat-token" in script:
                 seen["events"].append("clear_token")
                 return 1
+            if "consumer:msal-refresh-token" in script:
+                seen["events"].append("read_refresh_token")
+                return {
+                    "refresh_token": "captured-refresh-token-" + "x" * 40,
+                    "client_id": "14638111-3389-403d-b206-a6a71d9f8f16",
+                    "scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+                    "account_id": "home:account-a",
+                }
             return {
                 "access_token": "minted-token",
                 "account_id": "home:account-a",
@@ -278,6 +289,7 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
     assert seen["url"] == cc.COPILOT_URL
     assert seen["events"][:2] == ["add_cookies", "goto"]
     assert seen["events"][2:4] == ["clear_token", "reload"]
+    assert seen["events"][4] == "read_refresh_token"
     assert [cookie["name"] for cookie in seen["seed_cookies"]] == [
         "__Host-MSAAUTHP",
         "ESTSAUTH",
@@ -298,6 +310,10 @@ def test_gate_passes_the_prefs_and_profile_to_the_browser(tmp_path):
     ]
     # MSAL mints without an X-UserIdentityType, so the caller keeps what it holds.
     assert auth["identity_type"] == ""
+    assert auth["refresh_token"] == "captured-refresh-token-" + "x" * 40
+    assert auth["refresh_token_client_id"] == "14638111-3389-403d-b206-a6a71d9f8f16"
+    assert auth["refresh_token_scope"] == "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite"
+    assert auth["refresh_token_account_id"] == "home:account-a"
 
 
 def test_gate_passes_the_account_proxy_to_the_browser(tmp_path, monkeypatch):
@@ -555,3 +571,53 @@ def test_dead_account_proxy_costs_no_browser_and_no_profile(tmp_path, monkeypatc
     # The precheck runs ahead of the profile mkdir, so a doomed attempt leaves
     # nothing behind to clean up either.
     assert not profile.exists()
+
+
+def test_msal_refresh_reader_rejects_a_different_local_subject():
+    """A profile may contain several MSA grants. When MSAL exposes only local
+    account ids, the reader must not return another account's RT just because its
+    client id matches."""
+    client_id = "14638111-3389-403d-b206-a6a71d9f8f16"
+    storage = {
+        "access": json.dumps(
+            {
+                "credentialType": "AccessToken",
+                "localAccountId": "local-a",
+                "clientId": client_id,
+                "target": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+                "secret": "fresh-chat-token",
+            },
+            separators=(",", ":"),
+        ),
+        "refresh": json.dumps(
+            {
+                "credentialType": "RefreshToken",
+                "localAccountId": "local-b",
+                "clientId": client_id,
+                "secret": "other-account-refresh-token-" + "b" * 32,
+            },
+            separators=(",", ":"),
+        ),
+    }
+    program = f"""
+const storageValues = {json.dumps(storage)};
+const localStorage = {{
+  get length() {{ return Object.keys(storageValues).length; }},
+  key(index) {{ return Object.keys(storageValues)[index] ?? null; }},
+  getItem(key) {{ return storageValues[key] ?? null; }},
+}};
+const result = {cc._FIND_MSAL_REFRESH_JS};
+process.stdout.write(JSON.stringify(result));
+"""
+    result = subprocess.run(
+        [shutil.which("node") or "node", "-e", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == {
+        "refresh_token": "",
+        "client_id": client_id,
+        "scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+        "account_id": "local:local-a",
+    }

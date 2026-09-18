@@ -103,12 +103,16 @@ function renderAccountStatus(d){
   const a=d.account||null,st=a?(a.token_status||{}):{};
   const valid=!!st.valid;
   const login=!!(a&&a.cookie_valid);
-  const refresh=!!(a&&(a.provider==='consumer'||a.token_source==='cdp'||a.has_refresh_token));
-  // Why the fast RT path is gone, when it is. The marks above stay green on a
-  // CDP account (renewal genuinely still works, just via a browser), so without
-  // this line a dead RT is invisible on this page -- which is exactly how a SPA
-  // token silently hitting its 24h ceiling went unnoticed for days.
-  const rtDead=(a&&!a.has_refresh_token&&a.refresh_token_disabled_reason)?String(a.refresh_token_disabled_reason):'';
+  const consumer=!!(a&&a.provider==='consumer');
+  const refresh=!!(a&&(consumer||a.token_source==='cdp'||a.has_refresh_token));
+  // Consumer accounts still have the Camoufox fallback when their HTTP RT is
+  // gone, so keep the capability mark green but explain why the fast path is
+  // unavailable. M365 accounts use their separate RT fields below.
+  const rtDead=consumer
+    ? (a&&!a.has_consumer_refresh_token&&a.consumer_refresh_token_disabled_reason
+      ? String(a.consumer_refresh_token_disabled_reason) : '')
+    : (a&&!a.has_refresh_token&&a.refresh_token_disabled_reason
+      ? String(a.refresh_token_disabled_reason) : '');
   const rtKey='rt_dead_'+rtDead;
   const rtNote=(rtDead&&i18n[lang]&&i18n[lang][rtKey])?t(rtKey):'';
   const expiryKnown=!!st.expires_at;

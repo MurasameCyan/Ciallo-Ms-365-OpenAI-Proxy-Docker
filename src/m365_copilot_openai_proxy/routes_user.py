@@ -13,6 +13,11 @@ from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
 from .routes_api_common import effective_run_permission
+from .consumer_refresh_via_rt import (
+    normalize_consumer_client_id,
+    normalize_consumer_refresh_token,
+    normalize_consumer_scope,
+)
 from .refresh_via_rt import (
     M365_REFRESH_CLIENT_IDS,
     account_matches_refresh_subject,
@@ -472,6 +477,70 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                 409,
                 "A different Microsoft account is already bound; log out or unbind it before switching accounts",
             )
+        # The RT half of the push is validated HERE, before any write below: a
+        # snapshot carrying an unusable or foreign refresh token must leave the
+        # working credentials exactly as they were. Validating after the
+        # set_consumer_auth call would replace a live session with a token whose
+        # renewal path we then refuse to store -- strictly worse than rejecting.
+        raw_refresh_token = body.get("refresh_token", "")
+        raw_refresh_token = (
+            raw_refresh_token if isinstance(raw_refresh_token, str) else ""
+        )
+        consumer_refresh_token = ""
+        consumer_rt_client_id = ""
+        consumer_rt_scope = ""
+        if raw_refresh_token.strip():
+            consumer_refresh_token = normalize_consumer_refresh_token(raw_refresh_token)
+            if not consumer_refresh_token:
+                return _json_err(400, "Consumer refresh token is not a plausible token")
+            consumer_rt_client_id = normalize_consumer_client_id(
+                body.get("refresh_token_client_id", "")
+            )
+            if not consumer_rt_client_id:
+                return _json_err(
+                    400, "Consumer refresh token client_id is missing or malformed"
+                )
+            consumer_rt_scope = normalize_consumer_scope(
+                body.get("refresh_token_scope", "")
+            )
+            if not consumer_rt_scope:
+                return _json_err(
+                    400, "Consumer refresh token scope is missing or malformed"
+                )
+            # An MSA refresh token is a long-lived credential for ONE personal
+            # account. Storing one that belongs to a different subject than the
+            # ChatAI token in this same push would let a later silent renewal
+            # quietly replace this account with someone else's session, so the
+            # subject is required rather than merely compared when present.
+            rt_subject = _normalize_consumer_account_id(
+                body.get("refresh_token_account_id", "")
+            )
+            if not rt_subject:
+                return _json_err(
+                    400,
+                    "Consumer refresh token identity was not captured; send a new Copilot message and push again",
+                )
+            if rt_subject != consumer_account_id:
+                return _json_err(
+                    400,
+                    "The refresh token belongs to a different Microsoft account than the pushed session",
+                )
+        # The issuer's own expiry, which is what lets renewal run BEFORE a turn
+        # fails. Both forms are accepted: a token response carries `expires_in`,
+        # while the MSAL cache entry carries an absolute `expiresOn`.
+        consumer_expires_at: float | None = None
+        raw_expires_at = body.get("expires_at")
+        raw_expires_in = body.get("expires_in")
+        if isinstance(raw_expires_at, (int, float)) and not isinstance(
+            raw_expires_at, bool
+        ):
+            consumer_expires_at = float(raw_expires_at)
+        elif (
+            isinstance(raw_expires_in, (int, float))
+            and not isinstance(raw_expires_in, bool)
+            and raw_expires_in > 0
+        ):
+            consumer_expires_at = time.time() + float(raw_expires_in)
         username = body.get("username")
         account_name = username.strip() if isinstance(username, str) else ""
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
@@ -485,6 +554,10 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             identity_type,
             email,
             consumer_account_id,
+            expires_at=consumer_expires_at,
+            consumer_refresh_token=consumer_refresh_token or None,
+            consumer_refresh_token_client_id=consumer_rt_client_id or None,
+            consumer_refresh_token_scope=consumer_rt_scope or None,
         )
         if acc is None:
             return _json_err(400, "No bound account")

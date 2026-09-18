@@ -210,6 +210,9 @@ def test_userscript_pushes_consumer_snapshot_to_dedicated_endpoint():
     assert "'/user/account/consumer'" in SCRIPT
     assert "access_token: latestConsumerToken" in SCRIPT
     assert "identity_type: latestConsumerIdentity" in SCRIPT
+    assert "getConsumerRefreshBinding(latestConsumerToken)" in SCRIPT
+    assert "body.refresh_token = binding.refresh_token" in SCRIPT
+    assert "body.refresh_token_account_id = binding.account_id" in SCRIPT
     assert "id=\"m365-push-consumer\"" in SCRIPT
     assert "pushConsumer" in SCRIPT
 

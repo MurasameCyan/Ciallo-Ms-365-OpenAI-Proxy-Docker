@@ -102,6 +102,66 @@ _CLEAR_CHAT_TOKEN_JS = """
 })() /* consumer:clear-chat-token */
 """
 
+# The MSAL cache also holds the REFRESH token behind the ChatAI access token, and
+# reading it here is what lets an account that was captured before the
+# browserless path existed acquire one without asking the user to re-push.
+#
+# Read as one evaluate rather than folded into _FIND_CHAT_TOKEN_JS because the
+# two answer different questions: that one waits for a *fresh* access token,
+# while this collects the redemption inputs once the wait has succeeded. The
+# scope comes off the AccessToken entry because an MSAL RefreshToken entry
+# carries an empty `target` -- the audience is chosen at redemption time.
+_FIND_MSAL_REFRESH_JS = """
+(() => {
+  let clientId = '', scope = '', home = '', local = '';
+  for (let i = 0; i < localStorage.length; i++) {
+    const value = localStorage.getItem(localStorage.key(i));
+    if (!value || !value.includes('"credentialType":"AccessToken"')) continue;
+    try {
+      const token = JSON.parse(value);
+      if (token && token.secret && token.target && token.target.includes('ChatAI')) {
+        clientId = String(token.clientId || '');
+        scope = String(token.target || '');
+        home = String(token.homeAccountId || token.home_account_id || '');
+        local = String(token.localAccountId || token.local_account_id || '');
+        break;
+      }
+    } catch (error) {}
+  }
+  const subject = home || local;
+  if (!clientId || !subject) return {refresh_token: '', client_id: clientId, scope: scope, account_id: ''};
+  for (let i = 0; i < localStorage.length; i++) {
+    const value = localStorage.getItem(localStorage.key(i));
+    if (!value || !value.includes('"credentialType":"RefreshToken"')) continue;
+    try {
+      const entry = JSON.parse(value);
+      if (!entry || !entry.secret) continue;
+      if (String(entry.clientId || '') !== clientId) continue;
+      // Same canonical subject only: when the access token exposes a home id,
+      // it is the stable cross-tenant identity; otherwise local id is the only
+      // subject we can verify. Never accept a grant merely because clientId
+      // matches -- one profile can cache multiple personal accounts.
+      const entryHome = String(entry.homeAccountId || entry.home_account_id || '');
+      const entryLocal = String(entry.localAccountId || entry.local_account_id || '');
+      const entrySubject = entryHome || entryLocal;
+      if (entrySubject !== subject) continue;
+      return {
+        refresh_token: entry.secret,
+        client_id: clientId,
+        scope: scope,
+        account_id: home ? 'home:' + home.toLowerCase() : 'local:' + local.toLowerCase(),
+      };
+    } catch (error) {}
+  }
+  return {
+    refresh_token: '',
+    client_id: clientId,
+    scope: scope,
+    account_id: home ? 'home:' + home.toLowerCase() : 'local:' + local.toLowerCase(),
+  };
+})() /* consumer:msal-refresh-token */
+"""
+
 # Firefox allows one process per profile and enforces it with an on-disk lock, so
 # concurrent refreshes for one account must serialise rather than race.
 _GATE_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -419,6 +479,18 @@ class CamoufoxConsumerGate:
                 raise ConsumerCopilotError(
                     "Camoufox minted a token but returned no reusable consumer cookies."
                 )
+            # Read only after the token wait succeeded: the RT is worth storing
+            # solely alongside a verified subject, and that wait is what
+            # establishes the subject. A profile without a readable RT is not an
+            # error -- this gate's own credential is already in hand, and the
+            # caller simply keeps using the browser path next time.
+            refresh: dict = {}
+            try:
+                read = await page.evaluate(_FIND_MSAL_REFRESH_JS)
+                if isinstance(read, dict):
+                    refresh = read
+            except Exception as exc:  # noqa: BLE001 - evaluate can race navigation
+                elog(f"Camoufox refresh-token read failed: {exc}")
         return {
             "cookies": cookies,
             "access_token": token,
@@ -427,6 +499,15 @@ class CamoufoxConsumerGate:
             # URL, so no X-UserIdentityType is observed here. Callers keep the
             # value they already hold.
             "identity_type": "",
+            # The redemption inputs for the browserless path. Empty when this
+            # profile's cache held no matching RefreshToken entry; the caller
+            # treats that as "no fast path yet", not as a failure.
+            "refresh_token": str(refresh.get("refresh_token") or ""),
+            "refresh_token_client_id": str(refresh.get("client_id") or ""),
+            "refresh_token_scope": str(refresh.get("scope") or ""),
+            "refresh_token_account_id": _normalize_consumer_account_id(
+                refresh.get("account_id")
+            ),
         }
 
     async def _await_token(self, page) -> tuple[str, str]:

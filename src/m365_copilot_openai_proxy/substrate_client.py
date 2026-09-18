@@ -5,8 +5,9 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
+from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -214,6 +215,42 @@ _REFUSED_TURN_MARKER = "refused this turn"
 _EMPTY_TURN_MARKER = "empty response twice"
 
 
+def _conversation_quota_from(payload: Any) -> dict[str, int] | None:
+    """The server's own conversation-message quota, or None if this frame lacks it.
+
+    WHY THIS EXISTS. Every token count we report is an estimate -- upstream sends
+    no token usage at all, which three independent clients confirm. But it DOES
+    send how many user messages this conversation has spent against its ceiling,
+    and we were throwing that away: the only use of `throttling` was reading the
+    boolean-ish `Throttled` verdict off a failed turn. Measured 2026-09-14 in the
+    deployed container: `num` advances 1 -> 2 -> 3 across three turns on one
+    session and `max` holds at 600, on BOTH the update frames (`arguments[0]`)
+    and the completion frame (`item`) -- hence one parser called from both.
+
+    RETURNS None, NOT ZERO, when the frame has no throttling object. A turn that
+    never reported its quota is a different fact from a turn that reported zero
+    spent, and collapsing them would show every non-reporting build as "0/0".
+
+    `max` is deliberately passed through rather than compared to a constant: 600
+    came from one account on one tone, and a different licence almost certainly
+    differs.
+    """
+    if not isinstance(payload, dict):
+        return None
+    throttling = payload.get("throttling")
+    if not isinstance(throttling, dict):
+        return None
+    current = throttling.get("numUserMessagesInConversation")
+    maximum = throttling.get("maxNumUserMessagesInConversation")
+    if not isinstance(current, int) or not isinstance(maximum, int):
+        return None
+    quota = {"messages": max(0, current), "max_messages": max(0, maximum)}
+    long_doc = throttling.get("numLongDocSummaryUserMessagesInConversation")
+    if isinstance(long_doc, int):
+        quota["long_doc_messages"] = max(0, long_doc)
+    return quota
+
+
 class SubstrateCopilotError(RuntimeError):
     pass
 
@@ -239,6 +276,13 @@ class SubstrateCopilotClient:
         self._extra_tool_prompt = extra_tool_prompt or ""
         self._studio_agent_id = str(studio_agent_id or "")
         self._response_debug_sink = None
+        # Set by the dependency layer so each turn's server-reported conversation
+        # quota reaches the app-wide store. That quota is the ONLY non-estimated
+        # usage number this protocol offers -- token counts do not exist here at
+        # all -- and it is FORWARDED rather than also kept on the client, because
+        # the store is the only thing that ever reads it. Keeping a second copy
+        # here would be state nothing consults. None on hand-built clients/tests.
+        self._quota_sink: Callable[[dict[str, int]], None] | None = None
         try:
             claims = decode_jwt_payload(access_token)
         except Exception as exc:
@@ -254,6 +298,33 @@ class SubstrateCopilotClient:
             )
         self._oid: str = claims["oid"]
         self._tid: str = claims["tid"]
+
+    def _note_quota(self, payload: Any) -> None:
+        """Forward this frame's quota to the sink, if it carries one.
+
+        Called from both frame sites because which frame carries `throttling`
+        varies by turn (measured: both did, on every turn of a 3-turn session).
+        A frame without one is silence rather than a reset, so nothing is emitted
+        and the store keeps the last reading it was given -- which is why absence
+        needs no handling here.
+
+        The sink is read with `getattr`, matching how `_response_debug_sink` is
+        read in the frame loop: clients built with `__new__` (every substrate test
+        fixture, and scan_tones) never run `__init__`, so a direct attribute read
+        would turn any frame carrying throttling into an AttributeError mid-turn.
+        """
+        quota = _conversation_quota_from(payload)
+        if quota is None:
+            return
+        sink = getattr(self, "_quota_sink", None)
+        if sink is None:
+            return
+        try:
+            # `_conversation_quota_from` already returns a fresh dict, so there is
+            # nothing to defend against by copying it again.
+            sink(quota)
+        except Exception as exc:  # pragma: no cover - telemetry must not kill a turn
+            _log.warning("conversation-quota sink failed: %s", exc)
 
     def _ws_url(self, conv_id: str, session_id: str, req_id: str) -> str:
         token = quote(self._token, safe="")
@@ -614,6 +685,11 @@ class SubstrateCopilotClient:
                         _capture_suspicious_response_event(getattr(self, "_response_debug_sink", None), msg)
                         if t == 1 and msg.get("target") == "update":
                             args = (msg.get("arguments") or [{}])[0]
+                            # Both frame kinds carry the quota, and which one has it
+                            # varies by turn, so read it at both sites rather than
+                            # picking one. Later frames win: the count grows during a
+                            # turn and the last statement is the one that is current.
+                            self._note_quota(args)
                             delta = args.get("writeAtCursor")
                             if delta and not _is_image_loading_placeholder(delta):
                                 delta = clean_m365_citations(delta)
@@ -670,6 +746,7 @@ class SubstrateCopilotClient:
                                     yielded_any = True
                         if t == 2:
                             item = msg.get("item") or {}
+                            self._note_quota(item)
                             item_msgs = item.get("messages") or []
                             # Same skip as the snapshot scan above, and the site that
                             # was measured wrong: the completion frame lists the whole

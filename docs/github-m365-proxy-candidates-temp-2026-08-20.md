@@ -586,8 +586,510 @@ A/B 过程里踩到一个必须记下的坑：还原时把容器内路径当成 
 - `microsoft/m365-copilot-eval`（NOASSERTION）：评测 CLI。
 - `nickhou1983/copilot2api-multiusers`（MIT）：上游是 GitHub Copilot（whtsky 的分叉），按开头的排除项不算候选。
 
+## 2026-09-14 复扫：Cowork 从「协议知识」变成「可测候选」，外加我们自己两处死代码/丢字段
 
-## 后续顺序
+延续 08-30 / 09-01 / 09-11 的问法（找**许可证允许拿进来**的代码补已知缺口）。窗口 2026-09-01..09-14，819 个去重仓里 432 个不在已知清单，193 个 m365 相关。绝大多数是 **Claude Cowork**（Anthropic 的桌面 agent，与微软的 Copilot Cowork 同名不同物）和 M365 管理/报表仓，一句话否决。
+
+### 方法上的两个坑
+
+1. **单词歧义把噪声放大了一个数量级。** 本轮 `cowork` 命中的绝大多数是 Anthropic 的 Claude Cowork 插件生态，不是微软的 Copilot Cowork。同名不同物，先按描述里有没有 `Microsoft`/`M365`/`powerapps` 过滤，再看代码。
+2. **协议字符串搜索仍然是唯一高信号的一条腿。** 真正有价值的四个仓，没有一个能靠仓名或描述找到：`microsoft/PyRIT` 是红队框架、`kdeps/kdeps` 是 YAML agent 构建器、`artlovan/copilot_cowork_mcp` 是 MCP server。它们是靠 `substrate.office.com/m365Copilot/Chathub`、`mcsaetherruntime`、`XRoutingParameterSessionKey`、`deepResearchModels` 这些字面量搜出来的。
+
+### 判决表
+
+| 仓 | 许可证 | 派生核查 | 结论 |
+|---|---|---|---|
+| [`microsoft/PyRIT`](https://github.com/microsoft/PyRIT) | MIT，4465★，微软自家 | 微软原创 | **可采纳，但没有可搬的东西**：见下 |
+| [`kdeps/kdeps`](https://github.com/kdeps/kdeps) | Apache-2.0，37★，Go，09-14 仍活跃 | `HEXUXIU`/`Copilot2API`/`addToChainOfThought`/`cramt`/`M365Bridge` **各 0 命中**，NOTICE 署名 Kdeps KvK 94834768 → 独立实现 | **可采纳**，本轮最有价值 |
+| [`artlovan/copilot_cowork_mcp`](https://github.com/artlovan/copilot_cowork_mcp) | MIT，3★，Python，4 个源文件 | `HEXUXIU`/`Copilot2API`/`bakapiano`/`cramt` **各 0 命中** → 独立实现 | **可采纳**，Cowork 的答案 |
+| [`chrischall/opencode-copilot-plugin`](https://github.com/chrischall/opencode-copilot-plugin) | MIT，2★，TS，09-11 活跃 | `cramt` 4 处命中**全在文档**（README/AGENTS/CONTRIBUTING/issue 模板的致谢与链接），`src/` 里 0 命中 → 独立实现 | 可采纳，只印证 |
+| [`uefi233/m365-copilot-gateway`](https://github.com/uefi233/m365-copilot-gateway) | Apache-2.0 | `docs/ATTRIBUTIONS.md` 把 HEXUXIU 列为「payload 参考」，且 `src/mcg/substrate/protocol.py:8` 的 docstring 直接写「HEXUXIU/M365-Copilot2API (payload.py)」 | **按不可采纳对待**（同 `jerbehe` / `xiaocongyu66` 先例：源文件里向 AGPL 仓致谢 payload 来源，署名链就不干净）。且**本来就没有可拿的**：见下 |
+
+`uefi233` 那条值得单独说清楚，因为它的 `DEFAULT_VARIANTS` 和 `DEFAULT_OPTIONS_SETS` 看着像我们的。逐字节比过：不是相同，是**我们的严格超集** —— variants 它 890 字符 / 我们 1684，它有的我们全都有、我们多 18 项（`feature.EnableMergingPureDeltas`、`feature.EnableRemoveStreamingMode` 等）；optionsSets 它 14 项 / 我们 33 项，它有的我们全有。所以从它这里**一个新协议字段都拿不到**，判决不影响任何东西。
+
+### `kdeps/kdeps`：我们待办 7 的可用设计（Apache-2.0，可直接采纳）
+
+它把推理转录接到了 `reasoning_content` 上，两条路都接了。可复用的不变量：
+
+1. **旁白与答案分两条 channel**（`stream.go:46/54` `Deltas()` / `ThinkingDeltas()`）。理由写在注释里，正是我们的形状：工具轮的答案必须缓冲到解析完（可能含未闭合的 fenced `tool_call`），**而推理文本任何时候都可以直接流** —— 它不含工具语法。所以推理能在工具轮里实时流，答案不能。
+2. **旁白是快照不是增量**（`stream.go:179-183`）：同一个 `MessageID` 会被服务端反复重发（元数据在长大），所以按 MessageID **每条只发一次**，不能套用答案那套折叠逻辑。这条与我们 09-01 修 `fallback_text` 时踩的「快照当增量会变成 `166166166`」是同一个坑的另一面。
+3. 判据是 `contentOrigin == "ChainOfThoughtSummary"`（`stream.go:175`）。比我们窄 —— 我们 09-01 实测出更准的判据是 `messageType` 拒绝表（能盖住 `EarlyProgress` 和无标记的 `Searching...`），所以**要抄的是它的渲染结构，不是它的判据**。
+4. 非流式：`addReasoning` 在 `message` 上加 `reasoning_content`（`server.go:803-812`），`tool_calls` 那支也加（`server.go:831`）。流式：`onThinking` 回调发 `chunk(base, {"reasoning_content": t})`（`server.go:903-908`）。
+
+顺带三条与我们已有结论互相印证的（不是新知识，但是独立第二来源）：
+
+- **Claude tone 要保持 agent-less**：它的文档明说 tool calling 走自动创建的 Studio agent，**除非 tone 是 `Claude_*`，那时它故意不挂 agent，因为挂上会强制变成 GPT-5**。这正是我们 08-25 记的「本仓从来不创建 agent」那条路，且给出了「为什么不能挂」的机制。
+- **服务端代码解释器会抢工具**：`server.go:597-605` 记着 gpt-5.x reasoning tone 会无视系统提示去用自己的 `/mnt/data` 沙箱、并且编造 bash 调用，重试也是同样失败，而 Claude tone 没这个习惯。与我们 08-25 那张取舍表同向。
+- **它也没有精确 token 计数**：`server.go:983` 的 usage 是 `prompt_tokens: 0, completion_tokens: 0, total_tokens: 0`。
+
+### 我们自己的缺口一：`tool_hygiene.py` 的单轮/整轮上限是死代码
+
+待办 5（工具调用卫生）只完成了一半，而这一半和另一半在同一个文件里，所以很容易误以为都上线了。实测数（`grep` 全 `src/`，排除 `tool_hygiene.py` 自身与 `__pycache__`）：
+
+| 符号 | `src/` 里除本模块外的调用点 |
+|---|---|
+| `dedupe_tool_call_ids` | chat / messages 各 2 处，**已接** |
+| `dedupe_tool_call_payloads` | chat / messages 各 2 处，**已接** |
+| `orphan_tool_results` | chat / messages 各 1 处，**已接** |
+| `refuse_over_cap` | **0** |
+| `tool_round_allowance` | **0** |
+| `over_cap_reasons` | **0** |
+| `MAX_TOOL_CALLS_PER_ROUND` | **0** |
+| `MAX_TOOL_CALLS_PER_TURN` | **0** |
+
+也就是说 protella 那 8 条不变量里，「两个独立上限取小者」「上限必须在 dispatch 之前生效」「超额要拒绝而不是丢弃」全部**实现了、测试了（`tests/test_tool_hygiene.py` 有 10 条断言）、但没有任何一条投递路径调用**。测试全绿，因为它们直接调函数，不经过路由。这正是「测试不等于上线」的一格 —— 和 09-11 那条「生产永远传 `text_transform`，所以 hold-back 分支根本没走」同源。
+
+`MAX_TOOL_CALLS_PER_TURN = 32` 还有个额外前提：整轮预算需要一个跨轮计数器（会话级），而 `refuse_over_cap` 的 `remaining_turn_budget` 现在没有任何来源。接线时这是真正要设计的那部分，不是改个 import 就完。
+
+#### 实测：这两个上限在真实流量里一次都不会触发（2026-09-14）
+
+接线还是删掉，取决于一个没人量过的事实：真实的一轮到底会不会产出超过 8 个 tool call？`tool_hygiene.py` 自己的注释写的是「声明的工具数见过低二十几个（Claude Code），但一轮真需要几个以上并行调用的情况**没见过**」——「没见过」正是可以查的。
+
+`.probe/toolcall_fanout_census.py` 只读部署容器里的 `call_log.json`（不发上游、不碰账号、不写状态）：
+
+| 指标 | 实测 |
+|---|---|
+| 日志条数 | 100（`call_log_limit` 上界，是近期样本不是全史） |
+| 带 ≥1 个 tool_call 的响应 | 42 |
+| 单轮 tool_call 数分布 | **1 个：42 次；0 个：58 次。没有任何一次 ≥2** |
+| 单轮观测最大值 | **1**（round cap 是 8） |
+| 单轮上限本会拒掉的响应数 | **0** |
+| 已接线的 dedupe/schema 拒绝 | 5 次（`Write` / `Read` / `Client Context Bridge` 不在本轮声明的工具里） |
+
+**结论：接线是纵深防御，不是行为变更。** 观测最大值 1 离 8 有一个数量级，所以接上 `refuse_over_cap` 不会改变任何**当前可观测**的行为——这使它成为低风险改动，而不是「会开始拒绝客户端今天正在成功发出的调用」的策略变更。反过来说，它的收益也同样是假设性的：现在没有任何证据表明有流量正撞上这个上限。
+
+两条样本限制，不能省：**(1)** 日志有界（100 条），所以「最大 1」是**下界**，不是历史最大值的证明；**(2)** `MAX_TOOL_CALLS_PER_TURN = 32` 这条**完全没量到**——日志里没有 conversation id，`turn_count` 在带工具的响应上全是 0，所以那个 32 治理的「每会话工具调用总数」在现有数据里根本不可见。
+
+对比值得记：**已接线的那半在同一份日志里触发了 5 次**（dedupe/schema 拒绝），而两个上限触发 0 次。也就是说这个文件里两半代码的实际承重完全不同——已接的那半在干活，没接的那半即便接上也暂时不干活。
+
+#### 更正我自己上一条建议：`refuse_over_cap` 不是「加个 import」就能接的（2026-09-14）
+
+上面写「选项 (a) 按防御性接线（实测零行为变化，安全）」。**这条建议不准确**，读完它自己的契约才发现问题在架构上，而不是在风险上。
+
+`refuse_over_cap` 的 docstring 明确承诺：超额的调用「**Refused, not dropped**」，理由是「客户端收不到结果的 `tool_calls` 条目会让它的转录不成对，下一个请求就会因为这个 orphan 被拒」，所以超额部分要「**作为一条合成的失败结果回去，让客户端能配对**」。它返回的 `refusals` 就是为此设计的：每项带 `tool_call_id` / `name` / `message`。
+
+问题是**本代理从来不发送工具结果**。实测：
+
+| 事实 | 实测 |
+|---|---|
+| 响应侧发出 `role:"tool"` 或 `tool_result` 的地方 | **0 处** |
+| 工具执行器 / dispatch / run_tool | **0 处** |
+| 响应侧实际发出的形状 | 只有 `{"role":"assistant","content":…,"tool_calls":[…]}`（`routes_api_chat.py:675,943`） |
+
+也就是说本代理只**解析并投递** `tool_calls`，由**客户端**执行、再把结果放进下一个请求发回来（这也正是 `orphan_tool_results` 走的是**入站**转录的原因）。工具结果的方向是 客户端 → 代理，不是 代理 → 客户端。所以那个 `refusals` 字典**在本架构里没有投递通道**——它是为「代理自己跑工具循环、自己维护转录」的架构写的，而我们不是。
+
+连带一条：docstring 担心的 orphan 在这里**不会发生**。我们若把超额调用从投递列表里去掉，客户端根本没见过它们，也就无从产生未配对的结果；orphan 只会由「投递了却没有结果」造成，而结果不由我们产生。
+
+**所以真正能接的只有另一半：** `over_cap_reasons()` 产出的人类可读串，它有现成通道——和 dedupe/schema 拒绝走同一条：`rejected` 列表 → `call_record["tool_calls_rejected"]` → `rejected_calls_note` / `required_tool_call_error`。这也解释了为什么已接线的那半能接：它返回的就是 `(kept, reasons)` 字符串列表，形状本来就吻合。
+
+结论修正为：接线的正确形状是「按 `per_round_cap` 截断 + 把 `over_cap_reasons` 并入现有 `rejected` 通道」，而 `refuse_over_cap` 的字典输出要么弃用、要么等到真有工具循环时再用。加上普查结论（单轮最大 1，会触发 0 次），**这条的优先级应当低于任何有实测承重的改动**，且不该在没有决定「弃用还是保留那个字典」之前动手。
+
+### 我们自己的缺口二：服务端自己报的会话配额，我们收到了然后丢掉
+
+`substrate_client.py` 对 throttling 只做一件事：完成帧的 `turn_failure` 等于 `throttled` 时抛 `SubstrateThrottled`（`substrate_client.py:713-714`）。而帧里带的是**计数器**，不只是布尔：
+
+- `arguments[].throttling.numUserMessagesInConversation` / `.maxNumUserMessagesInConversation`
+- `item.throttling.numUserMessagesInConversation` / `.maxNumUserMessagesInConversation`
+- 另有 `numLongDocSummaryUserMessagesInConversation`
+
+全 `src/` 对这三个键 **0 命中**。三个互不相干的实现都在读它：`kdeps`（`stream.go:363-366` 读 `item.throttling`，`443-448` 读 `arguments[].throttling`，两处都读是因为两种帧都会带）、`chrischall`（`src/session.ts:377-380` 与 `398-401`，同样两处）、以及按 09-11 记录的 HEXUXIU。`kdeps` 进一步把它当**权威配额**上报成 usage 扩展字段（`server.go:983-1000`：`x_m365_conversation_messages` / `_max` / `_pct` / `_remaining`）。
+
+**这个键在我们自己的账号上确实到达，且已在部署容器里实测过值（2026-09-14）。** 此前只有路径没有值（旧捕获只存了 JSON path），所以「Max 是多少、Current 怎么涨」是空的；现在补上了。探针 `.probe/throttling_counters.py` 只挂 `_capture_suspicious_response_event` 记录，不改任何行为，在 `ciallo-ms365-proxy-multi` 内跑同一个 `PersistentSession` 的三轮（`tone=Claude_Sonnet`，账号 `acct_2eed3918214f`）：
+
+| 轮 | 帧数 | 带 throttling 的对象 | `numUserMessagesInConversation` | `maxNumUserMessagesInConversation` | `numLongDocSummary…` |
+|---|---:|---:|---:|---:|---:|
+| 1 | 9 | 2（`arguments[]` 与 `item` 各一） | 1 | 600 | 0 |
+| 2 | 8 | 2 | 2 | 600 | 0 |
+| 3 | 8 | 2 | 3 | 600 | 0 |
+
+三条实测结论：**(1)** 计数器**每轮 +1**，语义是「这个会话用掉的用户消息条数」，不是 token；**(2)** `max=600` 三轮恒定，所以它是会话上限而不是剩余额度；**(3)** `arguments[].throttling` 与 `item.throttling` **两处都到**且同值 —— 这正是 `kdeps` 和 `chrischall` 都读两处的原因，只读一处会在另一种帧上拿不到。接线前提因此已满足（这条原本写的是「接线前要先量一轮」，现在量完了）。
+
+注意 600 这个数不要当成通用常量：它来自这一个账号的一个 tone，个人版和其他 licence 很可能不同，所以上报时应原样透传服务端给的值，不要硬编码。
+
+为什么这条比 tiktoken 更值得做：待办 4 想把 usage 从 `estimated` 升级，而 token 计数在上游**根本不存在**（本轮第三次印证：`kdeps` 报 0，Cowork 自陈无计数，我们自己估算）。而 `throttling` 是**服务端自己算的、权威的**配额消耗。它计的是消息条数不是 token，所以不能替代 token 估算，但它是我们唯一能拿到的非估算用量信号，而且现在正被丢掉。
+
+#### 缺口二已接线（2026-09-14，隔离覆盖层活体验证）
+
+按上面量到的形状接线，五个文件，全部是**新增读取**，没有改任何协议输出：
+
+| 文件 | 改动 |
+|---|---|
+| `substrate_client.py` | 新增 `_conversation_quota_from()`（模块级解析，两个帧位共用）、`conversation_quota` 只读属性、`_note_quota()`；两个帧位（`t==1` 的 `arguments[0]`、`t==2` 的 `item`）各调一次 |
+| `conversation_quota.py` | 新文件：`ConversationQuotaStore`，按账号存最新一条读数，内存、带锁、上限 200 个账号 |
+| `dependencies.py` | 新增 `_attach_quota_sink()`，与既有 `_attach_response_debug_sink()` 并列挂在同一处 |
+| `state_init.py` | `app.state.conversation_quota_store = ConversationQuotaStore()` |
+| `routes_admin_debug.py` | `_cache_stats()` 增加 `conversation_quota` 字段 |
+
+**四条设计约束，都有测试盯着：**
+
+1. **没有帧报告过就是 `None`，不是 0。** 「服务端没说」和「服务端说 0」是两件事，折叠掉会让每个不上报的构建显示成 `0/0`。
+2. **`max` 原样透传，不与常量比较。** 600 只来自一个账号一个 tone。
+3. **不进 `usage_store`。** 两重类别错误：它数的是**消息条数**不是 token，不能加进 token 合计；它是**按会话**的瞬时读数，不能像 lifetime 累计那样累加。所以是独立的小 gauge，不落盘 —— 重启后从磁盘读回来的配额描述的是可能已不存在的会话，而**过期的配额比没有配额更糟，因为它看起来权威**。
+4. **sink 异常不能杀掉一轮。** 遥测失败只记 warning。
+
+**一个差点上线的 bug，靠写测试才发现：** `_note_quota` 最初直接读 `self._quota_sink`，而**所有 substrate 测试夹具和 `scan_tones` 都用 `__new__` 建 client，从不跑 `__init__`** —— 任何带 throttling 的帧都会变成 mid-turn `AttributeError`。全量套件当时是绿的，因为**没有一个夹具帧带 throttling**。改成 `getattr(self, ..., None)`（与帧循环读 `_response_debug_sign` 的写法一致），并加了一条专门用 `__new__` client 喂带 throttling 帧的回归测试。这与 09-11「生产永远传 `text_transform`，所以 hold-back 分支根本没走」是同一类：**夹具没覆盖到的路径，绿色什么都不证明。**
+
+`tests/test_conversation_quota.py` 21 条，帧形状照抄上表实测值。全量 **2071 passed, 3 skipped**，pyflakes 门禁对这五个文件干净。
+
+**活体验证（不动生产代码）。** 部署容器跑的是 `4cb1dae`，且 `/app/src` 是 editable 安装，直接覆盖就等于改线上服务。所以把整棵树复制到容器内 `/tmp/newsrc`、把改动文件盖上去、只从那里 import（`.probe/quota_live_newcode.py`）；探针开头断言 `sc.__file__` 必须以 `/tmp/newsrc` 开头，否则「导入了旧模块」会伪装成「代码没生效」。5 个文件传输后逐一比对 SHA-256（宿主 → 容器），并确认 `/app/src` 对新符号 **0 命中**：
+
+```
+module_path_ok=/tmp/newsrc/m365_copilot_openai_proxy/substrate_client.py
+before_any_turn conversation_quota=None          <- 约束 1
+turn1 answered=True  {'messages': 1, 'max_messages': 600, 'long_doc_messages': 0}
+turn2 answered=True  {'messages': 2, 'max_messages': 600, 'long_doc_messages': 0}
+sink_call_count=4                                 <- 每轮两个帧位各一次
+store.get={'messages': 2, 'max_messages': 600, 'remaining': 598, 'percent': 0.33, ...}
+admin_stats_has_quota=True
+  admin account=acct_2ee… messages=2 max=600 remaining=598 percent=0.33 long_doc=0
+```
+
+即整条线通了：真实帧 → 解析 → client 属性 → sink → store → `/admin/stats`。验证后 `/tmp/newsrc` 已删除，容器 `healthy`、`restarts=0`、生产 `/app/src` 未被触碰。
+
+**这条与缺口一的关系（别忘了）：** 缺口一之所以是死代码，就是因为「实现了 + 测试了 + 没有任何投递路径调用」。所以这次的读取端（`/admin/stats`）是和解析端**同一次**接线的，而不是留到以后 —— 只加 `_note_quota` 不加读取端，等于再造一个缺口一。
+
+#### 三协议 × 三规划模式的 HTTP 验收矩阵（2026-09-14，18/18 PASS）
+
+上面那次验证走的是**直接调 client**，覆盖不到 `get_copilot_client` 那条依赖注入链，而这次改动恰好动了那个漏斗（每条 `/v1` 路由都过它）。所以按 `AGENTS.md` 的矩阵补一次**真实 HTTP** 验证：`.probe/quota_matrix_http.py` 在容器内用覆盖层 `create_app()` 起独立实例（各自的 `TOKEN_DIR`，绑一个 key 到一个账号），用 `TestClient` 打真实路由、真实上游。
+
+| 规划模式 | chat 非流式 | chat 流式 | chat 工具轮 | Anthropic 文本 | Anthropic 工具 | Responses |
+|---|---|---|---|---|---|---|
+| native 配置 | PASS | PASS | PASS `tool_calls` | PASS `end_turn` | PASS `tool_use` | PASS `completed` |
+| router 配置 | PASS | PASS | PASS `tool_calls` | PASS `end_turn` | PASS `tool_use` | PASS `completed` |
+| studio 配置 | PASS | PASS | PASS `tool_calls` | PASS `end_turn` | PASS `tool_use` | PASS `completed` |
+
+每格的判据是「这一轮答出来了 **且** `/admin/stats` 的 `cache.conversation_quota` 里该账号有值」，读到的都是 `1/600`、`remaining=599`、`percent=0.17`；每个实例开跑前先确认是 `None`，所以不是预置值。
+
+**先说一个把我自己骗过去的坑。** 第一次跑，18 格**全 FAIL**、`quota=None`，看着像「接线在 HTTP 路径上根本不工作」。其实是探针的错：`/admin/*` 认的是 `POST /admin/login` 设下的**会话 cookie**，不是 `Authorization: Bearer`，所以每次读都是 401，而我的 `quota_from_admin` 把非 200 折叠成了空 dict。也就是说那 18 个 `None` **从来不是对接线的测量**，是对我自己请求头的测量。改成先登录拿 cookie，18 格全过。教训与前面 Cowork 那次 401 完全同源：**先证明判据本身有效，再用它下结论** —— 一个恒假的判据和一个真实的缺陷长得一模一样。
+
+**两条必须写下来的局限，别把这张表读大了：**
+
+1. **三行其实跑的是同一条路径。** 每个实例的 `call_log` 自报 `planning modes actually used: ['router']` —— 三种 `tool_planning_mode` 配置下实际执行的都是 router。原因已知且是既有设计：绑定 key 的 tone 是 `Claude_Fable`，它实测 `unsupported` 本地工具调用，所以 `auto`/`native` 都会被路由到 router turn（09-11 那份矩阵也踩过同一件事，当时是换成 `claude-sonnet-4-6` 才测到 native）。所以这张表证明的是**三个协议 × 工具/非工具/流式**都通，**不是**三种规划模式各自都通。要补 native/studio，得换一个 tone 重跑。
+2. **`messages` 始终是 1，没看到跨轮递增。** 每个 `/v1` 请求不带会话头就是一轮新会话，所以每次都是该会话的第 1 条。递增是上一节直接调 client 时用同一个 `PersistentSession` 证过的（1→2），这里没有再证一次。
+
+跑完 `/tmp/newsrc`、`/tmp/quotaverify`、探针全部删除；生产 `/app/src` 全程未被触碰（新符号在 `/app/src` 命中数 0），容器 `healthy`、`restarts=0`。
+
+#### 自查：我自己也犯了缺口一那个毛病，外加一个真 bug（2026-09-14）
+
+接完线之后按缺口一的同一把尺子量自己的代码——**「新加的符号里有几个在 `src/` 里没有调用点」**。结果不好看：
+
+| 我新加的符号 | `src/` 里的调用点（不含定义处） | 处置 |
+|---|---|---|
+| `_conversation_quota_from` | 1（`_note_quota`） | 保留 |
+| `_note_quota` | 2（两个帧位） | 保留 |
+| `_attach_quota_sink` | 1（`get_copilot_client`） | 保留 |
+| `ConversationQuotaStore.record` | 1（sink 闭包） | 保留 |
+| `ConversationQuotaStore.stats` | 1（`/admin/stats`） | 保留 |
+| `ConversationQuotaStore.get` | **0** | **已删** |
+| `ConversationQuotaStore.clear` | **0** | **已删** |
+| `SubstrateCopilotClient.conversation_quota`（property） | **0** | **已删** |
+
+也就是说我一边写着「只加 `_note_quota` 不加读取端就等于再造一个缺口一」，一边顺手加了三个没有任何投递路径调用的符号。`get`/`clear` 是「以后可能有用」的臆测 API（`clear` 连一个能触发它的 admin 路由都没有，而 `usage_store` 那类清理路由是显式建的）；`conversation_quota` property 更微妙——sink 才是真正的投递路径，property 只是我下意识觉得「客户端应该能被问到这个值」，但没有任何代码问它。既然 property 删了，它背后那份 `self._conversation_quota` 副本也一起删：那是一份没人读的状态。
+
+**顺带查出一个真 bug（这才是自查的实际收获）。** 这个 gauge 以 account id 为键，而 `DELETE /admin/accounts/{acc_id}` 只做了 `refresh_scheduler.remove_account` + `key_store.detach_account`，**没有清 quota**。账号删掉之后，它那一行会永远留在 `/admin/stats` 里：不会被覆盖（不会再有该账号的 turn），也不会被顶掉（LRU 只在 200 个账号上限时才淘汰）。这正好违反我自己写在模块头上的那句话——「过期的 quota 比没有 quota 更糟，因为它看起来是权威的」。修法是加 `forget(account_id)`，在删账号的路由里紧挨着 `detach_account` 调用，并补一条测试（`test_a_deleted_account_stops_being_reported`）。
+
+注意这条**不是**用「以后可能要清理」论证 `forget` 的存在：它和 `get`/`clear` 的区别就是有没有真实调用点——`forget` 有一个明确的、已接线的调用点，`get`/`clear` 一个都没有。
+
+**同一个毛病的第三次，这次是「测了函数没测路由」。** 上面刚把 `forget` 接进删账号路由，测试却只有 `store.forget(...)` 这种**直接调函数**的——`grep` 全 `tests/` 确认没有任何一条测试打过 `DELETE /admin/accounts/{id}`。这恰恰是缺口一那句话的另一半：`tests/test_tool_hygiene.py` 十条断言全绿，是因为它们直接调函数、不经过路由，所以「实现了」和「接线了」在测试里长得一模一样。于是补两条**走真实路由**的测试（`create_app` + `/admin/login` + `DELETE /admin/accounts/{id}`，再读 `/admin/stats` 的 `cache.conversation_quota`）：一条断言被删账号那行消失、同时另一账号那行还在；一条断言从未上报过 quota 的账号删起来不报错。
+
+**并且验证了这两条测试有牙。** 一条「加了也照样过」的路由测试比没有更糟，因为它会把没接线伪装成已接线。做法是临时把 `routes_admin.py` 里那两行 `forget` 注释掉再跑：`test_deleting_an_account_clears_its_quota_from_the_admin_snapshot` **FAILED**（断言里能看到被删账号 `acct_a052a27b…` 仍在 stats 里），其余 25 条通过；恢复后 26 条全过，且 `git diff` 确认该文件回到 +7 行、mutation 标记无残留。这个「先破坏再确认测试会红」的动作，本轮已经三次证明是必要的：Cowork 那次 401、HTTP 矩阵那次 18/18 FAIL、以及这里——**判据本身有效，才有资格用它下结论**。
+
+净结果：`substrate_client.py` 的改动从 +93 行降到 +79 行，`conversation_quota.py` 少两个方法（`get`/`clear`）多一个方法（`forget`），测试从 21 条增到 26 条（其中 2 条走真实 HTTP 路由），套件 2076 通过 / 3 跳过，pyflakes 门 exit=0。
+
+
+
+
+### Cowork：五个问题全部有答案，本账号**已确认有权限**（2026-09-14 实测）
+
+`artlovan/copilot_cowork_mcp`（MIT，独立实现，4 个源文件）的 `TECHNICAL.md` + `client.py` + `auth.py` 把 09-11 记下的 Cowork 协议补全了，并且**改正了其中三处**。它连的是 GitHub Copilot CLI ↔ Cowork，所以整条链路是完整可读的。
+
+**对 09-11 那份记录的更正（三处）：**
+
+| 09-11 记的（来自 `bakapiano`，无许可证） | 本轮（`artlovan`，MIT） |
+|---|---|
+| 运行时 host 是 `mcsaetherruntime-seas.as-ia101...`（看着像写死的区域码） | **是发现出来的**：先 `GET https://cowork.us-ia888.gateway.prod.island.powerapps.com/v1/routing`（带 `x-ms-user-pdl: NAM`）拿 `{"endpoint": ...}`，失败才回落 `mcsaetherruntime.cus-ia302...`（`client.py:27-28,50-61`） |
+| `GET /v1/subscribe?conversationId=` 拿 SSE，再 `POST /v1/messages` | **首轮是 `POST /v1/subscribe`**（同一个请求既发消息又开流），后续才 `POST /v1/messages` 拿 202、答案回到已开的流上；`GET /v1/subscribe?conversationId=` 只是**断线重连**用（`client.py:204,234,252`） |
+| Origin 是 `https://copilot.cloud.microsoft` | `https://m365.cloud.microsoft`，且 `Authorization` 与 **`x-ms-weave-auth` 两个头必须携带同一个 Bearer**（`client.py:36-46`）。后者我们完全没记过 |
+
+**新事实：**
+
+- `conversationId` 不是随机 uuid，是 `{tid}:{oid}:{uuid}`，前两段从 JWT claims 取（`client.py:80-84`）。
+- 事件比我们记的四个多得多：除 `dx`（增量 `{"t"}`）/ `fr`（**一次回答结束，不是流结束**）/ `rl` 外，还有 `session`（`{"sid"}`）、**`th`（推理/思考块 `{"c"}`）**、`ta`（工具审批请求 `{tn, params, aid, to}`）、`ts`（工具开始）、`tx`（工具结果 `{tn, ok, dur}`）、`tk`（任务进度）、`ti`（标题）、`ps`（进度文案）、`rh`。
+- **Cowork 有一套工具审批协议，而 substrate 没有。** 工具名是 MCP 风格的 `mcp__m365_teams__PostMessage`，拆成 `server_name` / `tool_name`，审批走 `POST /v1/tool-approval`，body 带 `approval_id` / `approved` / `always_allow` / `edited_input`（可改参数再放行）/ `scope`。这是一个我们两个上游面都没有的形态。
+- 它也**没有权威 token 计数**（印证 09-11）。
+
+**认证（这是本轮最要紧的一条）：** 运行时校验 JWT 的 `appid`。要求是 `aud` = `96ff4394-9197-43aa-b393-6a41652e21f8`（Power Virtual Agents）、`scp` = `user_impersonation`、`appid` = `c0ab8ce9-e9a0-42e7-b064-33d422df41f1`（M365ChatClient）。
+
+`c0ab8ce9` **正是我们已经绑定的那个 client**（`refresh_via_rt.py:50` `M365_NATIVE_CLIENT_ID`，在 `M365_REFRESH_CLIENT_IDS` 里），而 `mint_scoped_token`（`refresh_via_rt.py:184-229`）做的事就是「用**签发这个 RT 的那个 client** 把 RT 换成任意 audience 的 token」—— 我们已经用它换 `ic3.teams.office.com`（媒体）和 `designerappservice`（Designer）两个 audience。所以拿 Cowork token 需要的改动是**一个 scope 常量**：
+
+```
+mint_scoped_token(accounts, account_id, "96ff4394-9197-43aa-b393-6a41652e21f8/user_impersonation")
+```
+
+不需要浏览器、不需要新凭据、不需要 Playwright，也**不触碰 09-11 记下的那条 FOCI 边界**（仍然是「用签发它的 client 续期」，不是跨 client 兑换）。`artlovan` 自己走的是 Playwright + `nativeclient` 重定向的交互式授权码流（`auth.py`，RT 约 90 天滑动窗口）—— 我们不需要那半，因为我们的 PKCE 登录已经产出了同一个 client 的 RT。
+
+**这一格已经量掉了，而且答案是「有权限」。** 但过程里我自己先下了一个错的结论，按本文件的惯例把它记下来。
+
+**第一次探测的判据是错的。** `.probe/cowork_entitlement.py` 只调了 `GET /v1/routing`（`cowork.us-ia888…`），拿到 401 `invalid_audience` 就打印了 `VERDICT=NOT_ENTITLED_OR_REFUSED`。**那个结论不成立**：401 是「这个 token 不对」，不是「这个账号没有 Cowork」，而我把两者当成了一回事——同一个坑的老形态（拿一次失败的返回码当事实判据）。真正的判据必须能区分「我发错了」和「上游拒绝我」，所以补了一个只读矩阵（`.probe/cowork_audience_matrix.py`：4 种 audience/scope 拼法 × 3 种 header 组合 × 2 个 host）。
+
+**矩阵结果（全部只读，未 POST 过任何 endpoint，未创建会话）：**
+
+| audience / scope | mint | `routing/v1/routing` | `runtime/v1/models` |
+|---|---|---|---|
+| `96ff4394…/user_impersonation`（artlovan 记的那条） | OK，`aud` 为裸 GUID、`appid=c0ab8ce9`、`scp` 含 `user_impersonation`、`tid`/`oid` 齐全 | 401 `invalid_token` | **200** |
+| `96ff4394…/.default` | OK，同上 | 401 `invalid_token` | **200** |
+| `api://96ff4394…/.default` | OK，但 `aud` 变成 `api://` 前缀形 | 401 `invalid_token` | 401 `INVALID_TOKEN`（"Protocol 'Bearer' failed to validate"） |
+| Power Apps 那个 resource | **MINT_FAILED** `AADSTS65002`：first-party app `c0ab8ce9` 与 first-party resource `475226c6…` 之间未同意 | — | — |
+
+三条结论，按重要性：
+
+1. **本账号有 Cowork，判据是 runtime 自己答了 200。** `GET https://mcsaetherruntime.cus-ia302…/v1/models` 返回真实模型列表（见下），所以「权限」这一格是 **ENTITLED**。这是 Cowork 从 09-11 记录至今第一次有活体证据。
+2. **`aud` 必须是裸 GUID，不能是 `api://` 前缀形。** 同一个 RT、同一个 client、只差这一个拼法，runtime 就从 200 变成 401。这也说明上面那个 401 确实是「token 形状不对」而不是权限问题——两种拼法的权限完全一样。
+3. **`/v1/routing` 那个 host 不吃我们这个 token，而它并不是必需的。** header 组合也量了：只发 `Authorization` → `invalid_token`；只发 `x-ms-weave-auth` → `Missing Bearer token`（所以它确实两个头都要看）；两个都发 → 仍然 `invalid_token`。而 `artlovan` 自己就写了 routing 失败要回落到硬编码 runtime host，我们实测的正是这条回落路径可用。所以 routing 需要的可能是另一个 audience（未知，且不影响可用性）。
+
+**顺带答上 `GET /v1/models`（09-11 列为未知）：** 3 个模型，`provider` 全是 `openai`、`orchestrator_type` 全是 `copilot`：
+
+| id | display_name |
+|---|---|
+| `gpt-5.5` | GPT-5.5 |
+| `gpt-5.6-sol` | GPT-5.6 Sol |
+| `gpt-5.6-terra` | GPT-5.6 Terra |
+
+每个模型带 `default_effort_level` / `supported_effort_levels` / `llm_health_bucket` / `requires_data_retention` / `alias` / `description`，顶层另有 `auto_health_buckets: ["llmapi","openai"]`。
+
+**这解释了一条我们 08-28 记下的「查无此物」，而不是推翻它。** `tone_options.py:18` 记着 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` / `gpt-image-2` 这四个名字在 12 种拼法下全部「empty response twice」，结论是「它们不是本租户的 tone 值」。**那个结论是对的**——它们不是 substrate tone，而是 **Cowork 的 model id**，活在另一个上游面上。所以两条记录一致：同一批名字，在 substrate 上不存在，在 Cowork 上是一等公民。注意只解释了其中 2 个：`luna` 和 `gpt-image-2` 不在这份列表里，仍然无来源。
+
+**与 09-11 记录的一处冲突：** `bakapiano` 记的 Cowork 模型是 `melon` = Fable 5.1，而本账号的列表里**没有 melon，也没有任何 Anthropic 模型**，三个全是 OpenAI。可能是租户/rollout 差异，也可能是它那份记录已经过期。未验证，只记差异。
+
+**下一步不再是权限探测，而是一次真实对话。** 但那需要 `POST /v1/subscribe`（会创建会话、发消息），已超出只读边界，属于要单独决定的动作。在那之前，Cowork 的状态是：**协议已知、权限已确认、token 我们已有能力签发**。
+
+### `microsoft/PyRIT`：微软自家 MIT 代码里有一个 substrate ChatHub target
+
+`pyrit/prompt_target/websocket_copilot_target.py`（716 行）打的就是 `wss://substrate.office.com/m365Copilot/Chathub`，MIT，微软版权头。它的价值是**权威旁证**而不是可搬代码：
+
+- **图片上传与我们逐字段一致**：`POST https://substrate.office.com/m365Copilot/UploadFile`，`scenario=UploadImage` + `conversationId` + `FileBase64`，头 `x-scenario: OfficeWebIncludedCopilot` + `x-variants: feature.EnableImageSupportInUploadFile`，Origin `https://m365.cloud.microsoft`，取回 `docId` 再拼成 `messageAnnotationType: "ImageFile"` 的 annotation。与我们 `substrate_upload.py:25,125-181` 完全同形。我们 08-xx 的实现原本是从 M365Bridge（无许可证）验证来的 —— 现在有了一份**微软自己的 MIT 版本作为同一事实的干净来源**。
+- **一处差异，未验证后果**：上传的 `optionsSets` 它发 `["cwcgptvsan", "flux_v3_gptv_enable_upload_multi_image_in_turn_wo_ch"]`，我们发 `gptvnorm2048`（三个我们都在 chat 的 `_OPTIONS_SETS` 里有）。它的 chat `optionsSets` 是完全另一族（`enterprise_flux_web` / `enterprise_flux_work` / `enterprise_toolbox_with_skdsstore` / **`enterprise_flux_work_code_interpreter`** / `enable_batch_token_processing`），与我们只有 `enable_batch_token_processing` 一项交集。**不要据此改我们的 flag**：08-25 实测过 `cwc_code_interpreter*` 那 6 个在本租户不承重，所以「换一族 flag 名」这种改动必须先有 oracle，否则只是把一组没测过的字符串换成另一组。
+- **它的 `allowedMessageTypes` 比我们窄**（没有 `Progress` / `GeneratedCode` / `EndOfRequest` 等），所以它拿不到我们赖以工作的 `GeneratedCode` 帧；它也只认 type 2 的 `FINAL_CONTENT`，不折叠 type 1 增量。属于「红队一次性取答案」的取舍，不是我们要的形状。
+- **它的认证是我们明确的停损线**：`CopilotAuthenticator` 用 Playwright 驱动登录并要求 `COPILOT_USERNAME` / `COPILOT_PASSWORD` 环境变量（`copilot_authenticator.py`）。存明文密码是我们 08-20 就写进停损条件的那一条，不采纳。`ManualCopilotAuthenticator` 接受外部 token，形态与我们相同。
+
+### 个人版（消费者版）：本轮补上一直欠的那一面，两个 MIT 独立实现印证我们、并给出一条新事实
+
+前几轮复扫都集中在 work/school substrate 那一面，个人版（`copilot.microsoft.com/c/api`）欠测。本轮补上：用我们自己的帧名去搜（`c/api/chat?api-version=2`、`reportLocalConsents`、`partialImageGenerated`、`appendTextSuggestion`），这一面的生态是**独立的一族**，与 substrate 那族几乎不重叠。
+
+**先更正本文件自己的一条判决。** 下面「顺带否决」里原来把 `sums001/Windows-Copilot-API` 等一律按「上游是 Windows/消费者版 Copilot」排除。**这条排除标准用错了**：消费者版正是我们支持的第二个 provider（`consumer_client.py` 2044 行、`consumer_gate.py`、`consumer_camoufox.py`），不是本文件开头要排除的「不同产品」。开头的排除项针对的是 **GitHub** Copilot 和已归档的 Bing Chat，不是个人版。按正确标准重判：
+
+| 仓 | 许可证 | 派生核查 | 结论 |
+|---|---|---|---|
+| [`sums001/Windows-Copilot-API`](https://github.com/sums001/Windows-Copilot-API) | MIT，1237★，Python | `fork=false`、`parent=none` | **可采纳**，本面最完整的一个 |
+| [`atomic-reactor/msco-pi-lot`](https://github.com/atomic-reactor/msco-pi-lot) | MIT，8★，TS | `fork=false`、`parent=none` | 可采纳，带 `TECHNICAL_SPEC.md` |
+| [`badafans/copilot2api`](https://github.com/badafans/copilot2api) | MIT，1★，Go | `fork=false`、`parent=none` | 可采纳，只印证 |
+| `lemon-casino/Microsoft-Copilot-API`、`liwei9745/windows-copilot-api-custom`、`yo-steven/Windows-Copilot-API-exploration-*`、`b8myk8sbfg-stack/OpenClaw` 内嵌副本 | MIT | 与 `sums001` 同源（`copilot/protocol.py` + `copilot/driver.py` 同构） | 同一实现的分身，不重复评估 |
+| `g4f`（`xtekky/gpt4free` 一族，13 个仓） | GPL-3.0 | — | **不可采纳**（GPL 与本项目 Apache-2.0 不兼容），且 `Copilot.py` 只处理 `appendText`/`partialImageGenerated` 两个事件，比我们浅 |
+
+**它们印证了我们三条最贵的结论**（三处都是我们踩过坑才得到的，现在有独立第二来源）：
+
+1. **握手必须在 `connected` 之后、且 `send` 不能早于 `setOptions`/`reportLocalConsents`。** `sums001/copilot/protocol.py` 的 docstring 明写「A `send` issued *before* the setOptions/consents handshake is rejected by the backend with ``error: invalid-event``」——与我们 `consumer_client.py` 里那段「curl_cffi 的 `ws_connect` 在 101 就返回，比 `connected` 早一个往返，所以从那里开轮每次都输掉这个竞态」逐字同义。
+2. **空 challenge（`method`/`parameter` 皆 null）不是 no-op。** 它同样记着「ack an empty challenge with an empty token」是错的，会让 socket 等一个永不到来的 token 然后静默超时。我们的 `solve_challenge` 返回 `None` 并抛 `TurnRefused`（不回答、不重铸凭据），是同一个结论。
+3. **`hashcash` / `copilot` 两种 PoW 可在进程内算，Turnstile 不行。** 分支与我们 `consumer_client.py:302-313` 完全一致。
+
+**一条我们没有的新事实（来自 `sums001`）：** 它抓真实 web 客户端看到的是——网页端会用一个 `method:"cloudflare"` 的 **Turnstile token** 去回答 `{method:null}` 那帧，并且该帧**只在 `cf_clearance` 过期时出现**。这给了我们 08-12 那次「已撤回的 TLS 指纹判读」一个**替代解释**：不是 profile 选错，而是 clearance cookie 的状态。注意这仍是**它的观测、不是我们的**——我们自己的结论（同一账号同一出口，method 会自行漂移）没有被推翻，两者可以同时成立（clearance 过期 → 出现该帧；而何时过期与我们观察到的漂移一致）。**要证实需要一格对照实验**：同一账号，带新鲜 `cf_clearance` 与故意作废的 `cf_clearance` 各发一轮，看 `method` 是否分别为非 null / null。本轮没做。
+
+**一处真实差异，够格成为待办（但仍是假设）：** 它们两个都处理**应用层 `ping`**，我们不处理。
+
+| 实现 | 处理 | 位置 |
+|---|---|---|
+| `atomic-reactor/msco-pi-lot` | 收到 `event:"ping"` 立刻回 `{"event":"pong","id":<pingId 或 lastEventId+".0001">}` | `src/runtime/session-runtime.ts:539-541` |
+| `badafans/copilot2api` | `pong` 列在「已知可忽略」事件里（说明它见过） | `internal/copilot/websocket.go:320` |
+| **我们** | `consumer_client.py` 只认 10 个事件（`connected`/`appendText`/`imageGenerated`/`partialImageGenerated`/`generatingImage`/`done`/`challenge`/`chatMessageError`/`error`/`send`），**`ping` 与 `pong` 全 0 命中** | — |
+
+为什么值得记：我们记了一族「个人版 `partialImageGenerated` 之后上游断连」的错误（08-25 记录里生产 100 条日志中 8 条 error 全是这一族），而出图轮正是**唯一会长时间静默**的轮次（每帧 250-460KB base64、解析慢）。如果上游用应用层 ping 判活、而我们从不回 pong，被断的正会是这种轮次。
+
+**但这条目前只是假设，不能当成结论**：我们 27 个消费者相关的 `.probe` 制品里，**入站帧一个都没存**（唯一命中的 `send` 是我们自己发的），所以「上游到底发不发 ping」我们没有证据。**判据要先量**：加一条只记录不改行为的埋点，把入站 `event` 名去重记下来跑几轮出图轮；只有真的看到 `ping` 才谈回 pong。先改代码等于凭别人的抓包猜我们的上游。
+
+另外 `msco-pi-lot` 还有两个我们没有的请求侧字段，同样未验证：`isIncremental`（把后续消息作为增量而不是整段 prompt 重发）与 URL 上的 `channel` / `edgetab=1`。它的 `TECHNICAL_SPEC.md` 明说 `isIncremental` 是它自己加的实验字段（注释里全是 "NEW FIELD"），不是抓包所得，所以**不要照抄**——那是它对服务端行为的猜测。
+
+### 顺带否决
+
+- `my788525/M365-Copilot2API-FNOS`（license `other`，Go）：描述自陈「enhanced fork of HEXUXIU/M365-Copilot2API」，按 09-11 的判决族直接排除，代码一行不能进。
+- `Bosco1262/M365-Copilot2API-on-Cloudflare-Worker`（2★→6★，`other`）：`addToChainOfThought` 在 `src/chathub/protocol.ts` 命中，形态仍是 HEXUXIU 一族，08-30 的一句话否决不变。
+- `de0921188/m365-copilot2api`、`jiajia2222/M365-Copilot2API-AutoAuth`、`rubber-duck-fly/copilot2api`、`dat267/m365-copilot`：无许可证或 `other`，无描述，属同族。
+- `eduardoalco/cowork-cli`（MIT，TS）：描述称连 M365 Copilot Chat/Retrieval API 与 Cowork MCP，但走的是官方 Chat/Retrieval 面，不是 Cowork runtime，且没有我们缺的协议事实。
+- `diegosouzapw/OmniRoute`（MIT，65917★）及其十余个镜像/vendor 仓（`bloodf/durindoor`、`jaccen/AIRoute`、`zcus0/z-OmniRoute` 等）：`copilot-m365-connection.ts` 里有 `XRoutingParameterSessionKey`，但量级与目标与本项目不同，09-01 的定位不变。
+- `loryanstrant/M365Copilot-Cowork-Reporter`（MIT）/ `M365Copilot-Usage-Reporter` / `microsoft/PAX` 系 / 各类 readiness / prompt library / adoption 仓：报表与治理工具，不触协议。
+- `asllani94/copilot2api`（MIT）、`c0rt3z4/unofficial-copilot-api`（MIT）、`OEvortex/copilot-api`（NOASSERTION）、`Ottitsch/m365-auth`（无许可证）：分别是 GitHub Copilot CLI 包装、旧版 WebSocket 玩具、以及 substrate 的薄封装，均无我们缺的协议事实。个人版那一面已按正确标准单独评估，见上一节。
+- `artlovan/copilot_image_gen_mcp`（MIT，1★）：与 Cowork 同作者，走 Copilot 出图，命中 `XRoutingParameterSessionKey`；已读，无我们缺的字段。
+
+
+
+## 2026-09-15 上线 + 部署容器实测：死代码已删、配额已在生产可见、两条旧结论被推翻
+
+本轮不扫仓，只做三件事：把待办 11 定案执行、把配额接线部署到 `ciallo-ms365-proxy-multi`、按 `AGENTS.md` 在**部署容器内**跑完整验收矩阵。约束是宿主机不落任何文件，所以全部改动经 `docker exec -i ... tee` 由 stdin 流入容器，每个文件逐一核对 SHA-256。
+
+### 待办 11 定案：删，不接线
+
+按上一节两条实测（单轮最大 1 个调用 → 上限零触发；`refuse_over_cap` 的字典输出在本架构里没有投递通道，因为本代理从不发 `role:"tool"`），结论是**整块删除**而不是接线。已从 `tool_hygiene.py` 移除：
+
+`MAX_TOOL_CALLS_PER_ROUND` / `MAX_TOOL_CALLS_PER_TURN` / `REASON_BUDGET_SPENT` / `REASON_TOO_MANY_THIS_ROUND` / `_REFUSAL_MESSAGE` / `tool_round_allowance` / `refuse_over_cap` / `over_cap_reasons`，以及 `tests/test_tool_hygiene.py` 里钉住它们的 allowance/refusals 两节（10 条断言）。
+
+模块 347 → 230 行，测试 319 → 212 行，套件 2076 → 2066 通过（净减 10 条只测死代码的断言）。两个 docstring 都留了「为什么删、别凭直觉加回来」的说明，并指回本文件。剩下的两条卫生（id 去重、孤立 tool_result）本来就已接线，不受影响。
+
+### 部署
+
+改动落到容器 `/app/src`（先 `cp -a` 出 `/app/src.bak-0914`，110 个文件）。7 个文件逐一哈希核对一致，容器内先做导入检查（8 个模块全 OK、被删符号确认不再导出）再 `docker restart`。启动无报错，`healthy`、`restarts=0`。
+
+### 验收矩阵：11/12 PASS
+
+公网端点被 Cloudflare 以 `403 code 1010` 拦掉 urllib 的指纹（不是代理返回的），所以矩阵改从容器内直连 `127.0.0.1:8000` —— 这既绕开 CF，也更贴合「测部署构建本身」。
+
+| 矩阵项 | 结果 |
+|---|---|
+| 1 M365 直连/原生 | PASS 文本 / 流式 / 工具轮（`finish=tool_calls`）/ 工具结果续轮 |
+| 2 Router 规划 | PASS（见下：本轮 router 真实执行了） |
+| 3 Studio 规划 | PASS（同上，studio 真实执行了） |
+| 4 Anthropic Messages | PASS 文本 `end_turn` / `tool_use` / `tool_result` 续轮 |
+| 5 OpenAI Responses | PASS 文本 / function tool / 工具续轮，均 `status=completed` |
+| 6 个人版 | **FAIL**，但原因是环境不是代码，见下 |
+| 新字段 `cache.conversation_quota` | PASS，部署构建上读到 `messages=1 max=600 remaining=599 percent=0.17` |
+
+**规划模式这次是真覆盖，上一轮不是。** 上一轮 HTTP 矩阵三种配置全塌成 `router`，我如实记了那条局限。本轮从部署容器 `call_log.json` 普查，100 条里 `studio` 36 次、`router` 19 次、`inline` 3 次，且最近 10 条里能看到 `Claude_Sonnet -> studio` 带 `get_weather`、以及 `-> router`。所以矩阵 2、3 这次有真实证据，不是「配置写了但没走到」。
+
+### 推翻我自己上一轮的两条记录
+
+**(1) 个人版的阻塞项不是「没有 RT」，是账号自己配了一个死代理。**
+
+待办 13 我写的是「凭据过期且没有可用于无浏览器续期的 RT」。前半对，后半的因果错了。部署后启动日志直接给出真正原因：
+
+```
+Consumer refresh unavailable for acct_b1172aff4361: the configured outbound proxy
+204.76.203.9:3128 is unreachable (ConnectionRefusedError), so Camoufox would fail
+its own geoip lookup before the browser starts. Fix or clear this account's proxy;
+credentials are untouched.
+```
+
+即 Camoufox 续期路径**根本没走到浏览器**就退了：`consumer_camoufox._assert_proxy_reachable` 在启动前先探代理，而该账号 `proxy_url = 'http://204.76.203.9:3128'`（来自 `proxies_20260812_091451.txt` 那批节点，现已拒连）。`_proxy_option` 用 `geoip=True`，Camoufox 自己的 `public_ip()` 要穿这个代理，所以死代理会让整个 launch 失败——这个 fail-fast 是有意加的，日志也点名了修法。**结论变化：个人版凭据重铸不需要人工重推，清掉或换掉这个账号的 `proxy_url` 就能让无人值守续期恢复。** 容器 env 里没有任何代理变量（`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` 全 unset），全局 `proxy_url` 也是空，所以这是纯账号级配置问题。
+
+**(2) 「个人版可能也有 RT」这个猜想：实测否定，而且我上一个探针的判据是错的。**
+
+我先写了个探针打印「has refresh_token field populated: True」，据此以为个人版存了 RT。**那个 True 是假的**：我检查的是 dataclass 上字段是否存在（`Account` 是 M365/consumer 共用的，字段永远存在），不是是否有值。改成检查值之后：个人版 `refresh_token present=False len=0`、`_stored_binding -> None`，即 `mint_scoped_token` / `refresh_via_rt` 会直接拒绝它；M365 那个账号则是 `len=1405`、绑定 `client=c0ab8ce9`（native 滑动 RT）。
+
+所以**个人版这条路径在设计上就不用 RT**，长期凭据是 MSA 会话 cookie（`__Host-MSAAUTHP` / `WLSSC`），续期靠页内 MSAL 静默 SSO 现铸 ChatAI token。「捞 MSAL 缓存里的 RT 来省掉 Camoufox」这个想法本轮无法验证，因为该账号连 profile 目录都还没建（`/home/app/token/profiles/acct_b1172aff4361` 不存在，MSAL 缓存无从检查）——而 profile 建不起来正是因为上面那个死代理。**这条要等代理修好、续期跑通一次之后才有得看。**
+
+### 个人版三个门的分诊：只有第一个能靠改配置解决（2026-09-15 实测）
+
+既然阻塞项从「缺 RT」变成了「死代理」，就该问下一个问题：**清掉那个 `proxy_url` 之后，个人版是不是就通了？** 答案是「传输层通，另外两道门仍未测」。两个只读探针（`.probe/consumer_egress_check.py`、`.probe/consumer_blockers.py`，都不写任何状态）给出：
+
+| 门 | 实测 | 能否靠改配置解决 |
+|---|---|---|
+| 1. 传输层 | **直连 `copilot.microsoft.com` HTTP 200**，回 8 个 cookie（`MUID` / `MUIDB` / `_C_Auth` / `__cf_bm` …）；同一目标经配置的代理 `curl: (7)` 连接被拒 | **能** —— 清掉该账号 `proxy_url` 即可 |
+| 2. 凭据新鲜度 | `consumer_token` 有值（1716 字符）但**不是可解码的 JWT**，所以本地无法判断过期；MSA cookie 快照 **9.6 天** 前更新 | 不能，只能由一次真实调用分类 |
+| 3. 出口地域资格 | 直连出口是 **JP / Tokyo / AS31898 Oracle**。落地页 200 **不代表**该出口有资格聊天——拒绝是以 `chat-service-unavailable` 出现在 chat socket 上（映射成 `RegionBlocked`） | **未测**，且无法在不发真实轮次的前提下测 |
+
+三条要记住的：
+
+1. **`consumer_token` 不是 JWT。** 它是 MSAL 铸出的 ChatAI token，本地拿不到 `exp`，所以「凭据是否还有效」这个问题**在容器内无法离线回答**——我 09-14 写「consumer_token 存在但已失效」时其实没有证据支持「已失效」，那是从 401 反推的猜测。准确说法是：**状态未知，只有一次真实调用能分类**。
+2. **落地页 200 是最弱的一种成功。** 它只说明 TCP+TLS+Cloudflare 放行了这个出口，不说明该出口能开聊天。08-12 记录的 `chat-service-unavailable`（→ `RegionBlocked`）正是「传输通、地域不通」的形态。所以修完代理后如果仍然失败，**要看错误是 `RegionBlocked` 还是 `ClearanceRequired`**：前者要换出口，后者要重铸凭据，两者的修法完全不同。
+3. **9.6 天的 cookie 快照是硬约束。** `consumer_camoufox` 的静默 SSO 是拿这份快照去 seed 的，MSA 会话 cookie 有自己的有效期；快照越旧，静默流回落到登录墙的概率越高。所以「清代理 → 立刻跑续期」这个顺序有时效性，不宜久拖。
+
+**结论：清掉 `proxy_url` 是必要但可能不充分的一步。** 它是唯一一个我们能确定性修好的门，且不需要碰凭据（错误信息自己就写着 `credentials are untouched`）。修完之后立刻跑一次 Camoufox 续期，然后按上面第 2 条读错误类型分流。矩阵第 6 项在此之前无法转 PASS。
+
+### 更正上面那张表：门 2 先于门 3 触发，清代理确定不够（2026-09-16 实测）
+
+上一节把「清掉 `proxy_url` 之后会怎样」留成了推测，并且默认门 3（地域）是下一个要面对的东西。真发一轮就知道排序是反的。
+
+探针 `.probe/consumer_direct_egress_turn.py`（只读：运行时强制 `proxy=None`、`gate=None`，**不改**存储的 `proxy_url`；`gate=None` 保证 Cloudflare 一旦要求验证只会抛异常，不会拉起浏览器去写 profile）。流入容器、SHA-256 `542e15f7…` 双端一致后运行，结果：
+
+```
+cookies handed to the client: 28
+consumer_token present: True
+identity_type: (none)
+VERDICT=OTHER_CONSUMER_ERROR
+  ConsumerCopilotError: Could not create a Copilot conversation (HTTP 401): Unauthorized
+```
+
+**401 不是三种预期错误里的任何一个。** 不是 `RegionBlocked`（那是 chat socket 上的 `chat-service-unavailable`），不是 `ClearanceRequired`（那是 403），也不是 `AccountThrottled`。它是会话创建这一步就被拒。
+
+两条推论：
+
+1. **直连出口的传输层是通的，已经通到应用层了。** 401 是服务本身给出的应用层回答，说明 TCP、TLS、Cloudflare 和路由全部放行——门 1 不只是「落地页 200」那种弱成功，而是真的能把带凭据的请求送到会话创建端点。JP/Oracle 机房出口在**这一步**没有被拦。
+2. **门 2 在门 3 之前触发，而且已经被分类了。** 上一节第 989 条我写「凭据状态未知，只有一次真实调用能分类」——那次调用现在做了，分类结果是**凭据被拒**。所以门 3（地域资格）不是「未测」而是**在拿到有效凭据之前不可测**：请求根本走不到 chat socket，`chat-service-unavailable` 没有机会出现。表里第 3 行的「未测」要按这个理解，不是还差一次测量，是缺前置条件。
+
+**因此上一节的结论要收紧：清掉 `proxy_url` 是必要的，而且现在可以确定它不充分。** 不再是「可能不充分」——401 已经证明存储的 `consumer_token` + 28 个 cookie 这套组合不再能认证。清代理只解锁续期路径，不修凭据；凭据要靠 Camoufox 那次静默 SSO 重铸，而它正是被死代理 fail-fast 挡住的东西。
+
+**关于「换一个活节点」而不是「清掉」：本轮做不到，因为节点表已经不在磁盘上了。** 该值出处 `proxies_20260812_091451.txt` 已不存在；`api.txt` 只有 1 行且不含该节点；`.tmp-github-scan/new_xiaocong{,2}/frontend/data/proxies.txt` 两个路径都是空壳（glob 命中但文件缺失）。而 README 明确把「Consumer 账户级出站代理」列为受支持特性（第 47、598、692 行），所以这个字段**很可能是有意配置的**，不是误填——如果它的用途是绕开机房 IP，那么清掉之后门 3 就会变成真实风险。**要换节点必须由你提供，仓库里已经没有可用来源。**
+
+修复顺序因此是：清掉或换掉 `proxy_url` → 立刻跑一次 Camoufox 续期重铸 ChatAI token → 只有拿到有效凭据后，门 3 才第一次变得可测。续期若自己撞上登录墙，说明 MSA cookie 快照（探针当时 9.6 天）已过期，得走 userscript 重推凭据。矩阵第 6 项在此之前无法转 PASS，阻塞项现在是精确的：**凭据被 401 拒绝，且重铸路径被账号自己的死代理堵住。**
+
+### 再更正：Camoufox 不是唯一的重铸路径，profile 里有一枚仍然有效的 RT（2026-09-16 实测）
+
+上一节写「凭据要靠 Camoufox 那次静默 SSO 重铸」，09-14 我还记过「个人版这条路径在设计上就不用 RT」。两条都错。错因是我 09-15 找 profile 时用的是裸账号 id，而 Camoufox profile 的命名规则带 subject 摘要（`refresh_scheduler.py:187`，`{account_id}-consumer-{sha256(subject)[:24]}`），于是 `acct_b1172aff4361` 查无目录，我据此推断「profile 都还没建，MSAL 缓存无从检查」。真实目录是 `acct_b1172aff4361-consumer-ddd1db7238dd519797a30ab5`，`cookies.sqlite` 最后写入 2026-09-06。
+
+该 profile 的 localStorage 走 Firefox LSNG（`storage/default/https+++copilot.microsoft.com/ls/data.sqlite`，值按 snappy 原始格式压缩；容器 venv 没有 snappy 绑定，探针 `.probe/consumer_msal_rt_metadata.py` 自带解码器，`mode=ro&immutable=1` 只读打开，密钥一律按长度或 sha256 摘要打印）。解出 19 行，MSAL 凭据三枚：
+
+| 凭据 | clientId | target | expiresOn | 相对容器时间 1789488994 |
+|---|---|---|---|---|
+| RefreshToken | `14638111-3389-403d-b206-a6a71d9f8f16` | 空（正常） | 1791246127 | **剩余 20.34 天，有效** |
+| AccessToken | 同上 | `140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite` | 1788682926 | **已过期 9.33 天**，extendedExpiresOn 也过期 9.0 天 |
+| IdToken | 同上 | — | — | — |
+
+`familyId` 字段不存在，所以这不是 FOCI 家族 token，不能跨 client 复用。RT 的 `target` 为空是 MSAL 的正常形态：scope 在兑换时指定，不烘进 RT，空 target 不构成阻塞。
+
+三条结论：
+
+1. **401 的形态就是普通过期。** ChatAI 那枚 AT 在探针发请求前 9.33 天就到期，连 extended 窗口也过了 9.0 天。会话创建返回 401 与此完全一致，不需要更复杂的解释。
+2. **存储的 `consumer_token` 不是 profile 里这枚 AT。** 前者 2361 字符，后者 1716 字符，不同串；`accounts.json` 中该账号 `provider` 已是 `consumer`。**并更正我上一句写过的「28 vs 3 未查明」——没有这个差异。** 磁盘上的 `cookies` 是 AES-GCM 信封而不是 3 条 cookie：`account_crypto.py:19` 定义的 `{"__enc__": 1, "n": <nonce>, "ct": <ciphertext>}` 恰好三个键，我把信封键数当成了 cookie 条数。用 `/app/.venv/bin/python`（系统解释器缺 `httpx`，`AccountStore` 的访问器是 `.get()` / `.list()`）经 store 解密后是 **38 条 cookie 记录**，含 `__Host-MSAAUTHP` 与 `WLSSC`，`consumer_gate._pick_cookies` 按域名白名单过滤到 **28 条**——正是直连探针交给客户端的数量。两个数字自始一致。
+3. **无浏览器重铸从「设计上不可能」变成「值得设计」，但不能顺手试。** 拿这枚 RT 去 `login.microsoftonline.com` 换 ChatAI scope 的 AT，在协议上是通的；可**一旦兑换，MSA/AAD 会轮换 RT**——兑换成功却没把轮换后的新 RT 写回 profile，磁盘上这枚当场作废，唯一的免浏览器路径就被我自己烧掉。所以兑换必须发生在会持久化新 RT 的代码里，不能由一次性只读探针去打。这是本轮**主动没做**的动作。另需注意：MSAL.js 的 SPA 客户端 RT 兑换要求带 `Origin` 且应用注册为 SPA 类型，否则会撞 `AADSTS9002326` 跨源兑换限制——[INFERENCE]，本轮未实测。
+
+修复顺序因此再改一次：不再是「必须先修代理才能重铸」。RT 还有 20 天，兑换打的是 `login.microsoftonline.com`，与该账号那枚死代理无关；死代理只挡 Camoufox 这一条路。两个方案——方案 A：在续期路径里实现 RT 兑换并持久化轮换结果，绕开浏览器与代理；方案 B：继续走 Camoufox，那就得先清掉或换掉 `proxy_url`，而换节点所需的活节点仓库里已无来源。矩阵第 6 项依旧 FAIL，但阻塞项从「凭据被拒且重铸被代理堵住」收敛为「需要你在方案 A / 方案 B 之间选一个」。
+
+方案 A 还有一条本轮实测出来的约束：**账号级 `refresh_token*` 字段全空**（`refresh_token` 长度 0，`refresh_token_authority` / `_client_id` / `_tenant_id` / `_object_id` 皆空串，三个时间戳皆 0.0）。这些字段是 M365 那条 RT 链路用的，个人版从没往里写过。所以方案 A 读不到账号存储里的 RT，唯一的 RT 来源是 profile 的 LSNG localStorage（`storage/default/https+++copilot.microsoft.com/ls/data.sqlite`，snappy 压缩）。这决定了实现形状：要么在兑换后把轮换出的新 RT 写回那个 sqlite（要与 Firefox 的 LSNG 编码一致，风险高），要么给 consumer 账号新增独立的持久化字段，把 RT 从 profile 迁进账号存储后由代码自己接管轮换。后者更可控，但它是一次真实的 schema 变更，不该在没有你确认的情况下就动。
+
+### Cowork：权限有，但真实对话被上游拒绝
+
+09-14 确认了权限（runtime host `/v1/models` 200、3 个模型）。本轮做了那次会写状态的 `POST /v1/subscribe`，结果是**拒绝**，且拒绝方式提供了新信息：
+
+- 不带 `model` 字段 → `409 MODEL_UNAVAILABLE`，body 回显 `"model":""`，即错误点名了缺失字段。
+- 带 `model=gpt-5.5` → `409`，`"No model is available for 'gpt-5.5' right now"`，**`available_models":[]`**。
+- 带 `model=gpt-5.6-sol` → 同样 `409`、`available_models":[]`。
+
+同一次运行里 `GET /v1/models` 仍然 200 并列出那 3 个 id。**所以 `/v1/models` 列出的是产品目录，不是本账号可用的容量**：目录里有、真要用时 `available_models` 是空。这是一条对 09-14 判决的重要修正——「`/v1/models` 200 + 3 个模型」足以证明**有权限访问 runtime**，但**不足以证明能对话**。
+
+两种可能，本轮无法区分：租户没给 Cowork 分配模型容量（需要管理员在 Power Platform 侧配置），或者还缺一个我们没发的字段/前置调用。`artlovan` 的实现里首轮就是 `POST /v1/subscribe`，没有额外的容量声明步骤，所以更像前者。
+
+**Cowork 的状态因此回退半格：协议已知、runtime 可达、token 可自签，但真实对话未通，做 Provider 的前提尚未满足。** 在 `available_models` 非空之前不值得投入。
+
+### 清理
+
+容器内 7 个探针全部删除，`/app/src.bak-0914` 保留（回滚用）。容器 `healthy`、`restarts=0`。宿主机未落任何文件。
+
+## 2026-09-18 复扫：没有新的可直接采纳实现
+
+窗口为 2026-09-14..09-18，补查 M365 Copilot、Copilot2API、SignalR Copilot、Copilot Cowork，以及已知高信号仓的最新提交。结论仍是：**不换仓、不搬代码**。
+
+### 新出现或有更新的候选
+
+| 仓 | 许可证/状态 | 新信号 | 判定 |
+|---|---|---|---|
+| `MasayukiTa/m365-copilot-companion-mcp` | MIT，独立实现 | 09-18 更新集中在 fleet/cockpit 可见性、UploadFile 观测字段、桥接器断线重排队、图片读取；没有新的 substrate 协议字段或个人版帧处理 | **IDEAS-ONLY**；继续作为抓包与证据方法参考 |
+| `Bosco1262/M365-Copilot2API-on-Cloudflare-Worker` | `NOASSERTION`，9★ | 09-17 有推送，但属于 Copilot2API 同族的 Cloudflare Worker 端口；无干净许可证证据 | **REJECTED**；不能复制 |
+| `my788525/M365-Copilot2API-FNOS` | `NOASSERTION`，3★ | 09-16 有推送，明确是 HEXUXIU/M365-Copilot2API 增强分支；无许可证 | **REJECTED**；派生链与许可边界不变 |
+| `HEXUXIU/M365-Copilot2API` | `NOASSERTION`，492★ | 09-15 仍有仓库活动，但许可证字段仍为 `NOASSERTION` | **REJECTED**；只可黑盒参考 |
+| `Yugpat1835/awesome-copilot-cowork-skills` | CC-BY-SA-4.0 | 15 个 Cowork skill/文档集合，不是运行时客户端或协议实现 | **IDEAS-ONLY**；与反代无可搬代码 |
+
+### 已知仓的增量
+
+- `protella/chatgpt-bots` MIT：09-17 的提交修复 Slack 文件挂载首轮浪费轮次（静态文件 ID 枚举、别名解析、错误码日志）；09-16 的提交修复其自有代码解释器沙箱 OOM/容器替换。它是 OpenAI Responses 本地工具执行器，不是 M365 substrate/Consumer 上游；我们的代理也不在服务端执行客户端工具，因此不搬。
+- `microsoft/Agents-M365Copilot` MIT：09-15/16 仍主要是各语言 SDK 的生成模型与 request builder 更新，没有 Graph Provider 新能力可接入当前项目。
+- `MasayukiTa` 09-18 的最新提交虽继续强调“先记录观测再写探针”，但内容是其 fleet UI、UploadFile 和桥接器自身缺陷修复；没有改变 09-14 已记录的 Cowork 结论：runtime 目录可读不等于 `POST /v1/subscribe` 有可用模型。
+
+本轮新增搜索结果中，`SignalR + Copilot` 命中的 `fleetpulsesystem` / `dotnet-enterprise-itsm` 是泛 SignalR 应用；`Copilot Cowork` 的高排名结果主要是 benchmark、skill 和插件文档，不是可复用的运行时。未发现新的 MIT/Apache-2.0、独立、可直接补齐当前 M365/Consumer 缺口的实现。
+
+### 当前可执行结论
+
+1. 继续使用现有 Router 默认、Studio 显式实验、Consumer 独立凭据链；没有证据支持换仓。
+2. 可继续参考 `MasayukiTa` 的抓包证据纪律、`kdeps` 的 reasoning channel 分离、`artlovan` 的 Cowork SSE/审批协议，但不复制与当前架构无关的代码。
+3. 任何 Copilot2API 同族仓仍不得引入：当前 API 元数据均无许可证，且至少两个新仓明确是该族派生分支。
+
+ ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。
 2. 统一三协议的 write deadline/客户端断连释放测试，并覆盖 Studio fallback 的取消路径。
@@ -595,19 +1097,28 @@ A/B 过程里踩到一个必须记下的坑：还原时把容器内路径当成 
 4. usage 从 `estimated` 升级为带 `token_source`，精确计数放可选开关。
 5. 工具调用卫生：tool_call id 唯一性、孤立 tool_result 拒绝、单轮工具轮数上限。
 6. 需要补协议测试时，再从 sideeffffect 和 kuchris 提取可验证的测试思路。
-7. 推理转录已确认在线（2026-09-01），可选做：渲染成 Anthropic `thinking` 块与 OpenAI `reasoning_content`。要动三个协议渲染器，收益是把现在丢掉的转录变成可见的推理过程。
+7. 推理转录已确认在线（2026-09-01），可选做：渲染成 Anthropic `thinking` 块与 OpenAI `reasoning_content`。要动三个协议渲染器，收益是把现在丢掉的转录变成可见的推理过程。**09-14 补充：`kdeps`（Apache-2.0）已实测落地这条，两条不变量可直接用（转录与答案分开成两条流；工具轮里答案要缓冲、转录始终可以直播），见上。**
 8. `stop` / `stop_sequences` **已完成**（2026-09-11，见上）。剩 `/v1/responses` 有意未接（该 API 无此参数）。
-9. `deepResearchModels`：要么补值（Studio 路径选 Researcher 模型），要么删掉那条无值的 `@odata.type` 注解。上线前必须本账号实测。
-10. Cowork（`mcsaetherruntime-*.gateway.prod.island.powerapps.com`）是第二个上游面，协议已记录；先确认本账号有无权限，再谈是否值得做 Provider。
+9. `deepResearchModels`：**已于 09-11 定案删除**，四变体实测证明它是惰性的。
+10. Cowork **09-15 降级：有权限 ≠ 能对话**。09-14 用 `GET /v1/models` 在 runtime host 拿到 200 + 3 个模型，我据此写下「已确认本账号有权限、剩下只差一次真实对话」。09-15 做了那次真实对话，**被拒**：`POST /v1/subscribe` 三次都是 **409 `MODEL_UNAVAILABLE`**，且回包 `"available_models":[]`。不带 `model` 字段时报 `"model":""`，带上 `gpt-5.5` / `gpt-5.6-sol` 后报 `No model is available for 'gpt-5.5' right now`——即字段形状对了、模型池是空的。所以 `/v1/models` 那 200 只证明**目录可读**，不证明**运行时可用**：那是两个不同的东西，而我把前者当成了后者。token 签发（`mint_scoped_token` + 裸 GUID audience）、conversationId 形状（`{tid}:{oid}:{uuid}`）、双 Bearer 头（`Authorization` + `x-ms-weave-auth`）三条仍然有效且已验证。现状：**协议已知、目录可读、运行时无模型**，做 Provider 的前提不成立。是租户未开通、还是 SKU 差异、还是暂时性，本轮无法区分——`available_models` 空数组是上游给的唯一线索。routing host 仍然 401（09-14 的坑不变）。
+11. **已完成（09-15 定案删除）。** `MAX_TOOL_CALLS_PER_ROUND` / `MAX_TOOL_CALLS_PER_TURN` / `refuse_over_cap` / `tool_round_allowance` / `over_cap_reasons` / `REASON_*` / `_REFUSAL_MESSAGE` 全部从 `tool_hygiene.py` 删除，钉住它们的 13 条测试同时删除（`tests/test_tool_hygiene.py` 从 26 条降到 13 条）。删而不接的依据是两次实测：**(1)** 单轮最大调用数 = 1（部署容器 100 条日志里 42 条带 tool_call），上限一次都不会触发；**(2)** `refuse_over_cap` 的契约要求把超额调用变成「客户端可配对的合成失败结果」，但本代理**从不发 `role:"tool"` / `tool_result`**、也没有工具执行器，那个字典在本架构里没有投递通道。模块 docstring 里留了一段「为何删除、什么条件下才该重新引入」，防止凭直觉重建。待办 5 里真正承重的那半（`dedupe_tool_call_ids` / `dedupe_tool_call_payloads` / `orphan_tool_results`）不受影响，仍在四条投递路径上接着，同一份日志里触发过 5 次。
+12. **上游权威配额已接线（2026-09-14 完成）**，这条从「缺口」转为「已交付」。完成帧/更新帧的 `throttling.numUserMessagesInConversation` / `maxNumUserMessagesInConversation` 现在由 `substrate_client._conversation_quota_from` 解析、`_note_quota` **转发给 sink**（client 自己不留副本——留了就是没人读的状态，见下面「自查」），`ConversationQuotaStore` 存最新值，`/admin/stats` 的 `cache.conversation_quota` 呈现，账号被删时 `forget()` 清掉那一行。活体验证两层：直接调 client 时同一 `PersistentSession` 两轮 `messages` 1→2、`max=600`、sink 触发 4 次；真实 HTTP 路由上三协议 18/18 PASS（读到 `1/600`、`remaining=599`）。**它不进 token usage** —— 计的是消息条数不是 token，且是会话级 gauge 而非累计量，混进 `usage_store` 会同时犯两个类别错误。详见上面「缺口二已接线」「HTTP 验收矩阵」「自查」三节。
+13. **个人版 `ping`/`pong` 仍未测到，但 09-15 推翻了我记的阻塞原因。** 我 09-14 写的是「凭据过期且没有可用于无浏览器续期的 RT」，把它当成设计使然。真实原因是**该账号自己的 `proxy_url` 指着一个死代理**：`acct_b1172aff4361.proxy_url = 'http://204.76.203.9:3128'`，连接被拒（`ConnectionRefusedError`）。两条路径都因此断掉——`consumer_camoufox._assert_proxy_reachable` 在启动浏览器前就 fail fast（`geoip=True` 会让 Camoufox 自己的 `public_ip()` 走这个代理），而 curl_cffi 的聊天轮直接 `curl: (7) Failed to connect to copilot.microsoft.com:443 over proxy 204.76.203.9`。容器 env 里**没有**任何代理变量，`runtime_settings.proxy_url` 也是空——纯粹是这一个账号的字段。**修法是清掉或修好该账号的 proxy，不需要重铸凭据**（错误信息自己就写着 `credentials are untouched`），也不需要 userscript 重推。另外更正一个我自己制造的假信号：中途有一个探针报 `has refresh_token field populated: True`，那是在检查 dataclass **字段是否存在**（永远为真），不是是否有值；精确探针的结果是 `refresh_token present=False len=0`、`_stored_binding -> None`，所以「个人版没有 RT、走 MSAL cookie 静默续期」这条原始记录是对的。**个人版 MSAL RT 那条只读探查（我上一轮建议的第 3 项）本轮无法进行**：`/home/app/token/profiles/acct_b1172aff4361` 不存在，没有 profile 就没有磁盘上的 MSAL 缓存可查——而 profile 要等一次成功的 Camoufox 续期才会生成，那又被同一个死代理挡着。所以顺序是：先清代理 → 跑一次续期 → 再查 MSAL 缓存里有没有 RT → 最后才是 `ping` 埋点。
+14. **个人版 `method:null` 挑战多一条外部事实**：`sums001`（MIT，1237★）抓真实网页客户端，看到它用 `method:"cloudflare"` 的 Turnstile token 回这个帧，并断言它只在 `cf_clearance` 过期时出现。我们 08-12 的结论（无 token 可过、不要重铸凭据）在**行为上与它一致**，但它给出了「为什么无解」的机制。我们的 Camoufox 路径理论上能取 Turnstile token —— 是否值得做取决于这个帧在生产里的频率，目前未量。
+
 
 ## 当前判断
 
-- 当前项目不需要换仓，也不需要跨用户账号调度。
+- 当前项目不需要换仓，也不需要跨用户账号调度。本轮（09-14）也没有任何一行外部代码被搬进来。
 - Copilot Studio 两次独立实验各出现 1 次失败（97%），Router 两次 100%，因此不能默认替换 Router；但 180 秒超时未复现，说明那是波动而非固有缺陷。
 - Studio 的延迟优势可复现：正式配对中位快 3636 ms、复测快 4347 ms，值得保留为单人单账号的显式低延迟实验备选，且已在 OpenAI / Anthropic / Responses 三协议（流式与非流式、含工具闭环）实测通过。
 - jairbj 式动态协议 profile 已落地为 `protocol_profile.py` + 抓包捕获，可 apply/rollback；usage 与首页调用占比圆环已实测有数据。
 - 最值得长期补充的是官方 Graph Provider；缓冲流的 SSE preamble/保活已落地，统一断连和写超时仍待补齐。
 - 任何候选都不能原样公网部署；必须保留当前项目的下游鉴权、用户隔离、凭据加密和媒体 SSRF 防护。
-- 本轮唯一可采纳的新仓是 `MasayukiTa/m365-copilot-companion-mcp`（MIT，独立实现）；它的抓包驱动做法印证了我们大部分帧处理，并挖出上面的缺口二。
-- 发现了一个我们从未记录的第二上游面（M365 Copilot Cowork，Power Apps runtime + SSE + gzip 事件），但本账号权限未测，暂不构成候选。
-- `protella/chatgpt-bots`（MIT）的工具循环不变量可直接用于待办 5，含一条它自己的更正（强制单轮时要关掉 empty-final 兜底）。
+- 本轮（09-11）唯一可采纳的新仓是 `MasayukiTa/m365-copilot-companion-mcp`（MIT，独立实现）；它的抓包驱动做法印证了我们大部分帧处理，并挖出上面的缺口二。
+- 09-14 新增三个可采纳仓：`kdeps/kdeps`（Apache-2.0，37★，独立实现，推理转录已落地）、`artlovan/copilot_cowork_mcp`（MIT，独立实现，Cowork 三个未知项全部答上）、`chrischall/opencode-copilot-plugin`（MIT，仅致谢 cramt，读同一批 throttling 字段）。`uefi233/m365-copilot-gateway` 虽为 Apache-2.0 且只在文档/docstring 里引用 HEXUXIU（无代码痕迹），但其 variants/optionsSets 是我们的严格子集，没有可拿的东西。
+- `microsoft/PyRIT`（MIT，4465★，微软自家）里有一个 substrate ChatHub target：这是**微软自己**发布的参考载荷形状，可用于核对；但它的认证是 Playwright + 账号密码，属于我们已判的停损形态，只取载荷不取认证。
+- 发现了一个我们从未记录的第二上游面（M365 Copilot Cowork，Power Apps runtime + SSE + gzip 事件）；**09-14 已实测确认本账号有 Cowork 权限**（runtime host `/v1/models` 200，3 个模型），token 用现成的 `mint_scoped_token` 就能签出，不需要浏览器或新凭据。它现在是**一个真正可做的第二 Provider 候选**，而不是协议知识；剩下的唯一动作是一次会写状态的真实对话（`POST /v1/subscribe`），需单独决定。
+- **一条对旧结论的补充（不是推翻）：** `gpt-5.6-sol` / `gpt-5.6-terra` 在 2026-08-28 按 substrate **tone** 探测时 12 种拼法全部「empty response twice」（`tone_options.py:14-22`），当时记为「本租户不存在」。现在知道它们是 **Cowork 的 model id**（`/v1/models` 直接列出），不是 substrate tone —— 所以那条记录是对的（作为 tone 确实不存在），但「这些名字在别人租户能用」的传闻也有了解释：说的是另一个上游面。不要因此把它们加回 `TONE_OPTIONS`。
+- 个人版这一面本轮才第一次按同样标准扫（此前六轮都只扫工作/学校版）。两个 MIT 独立实现（`atomic-reactor/msco-pi-lot`、`badafans/copilot2api`）逐帧印证了我们的 `consumer_client.py`，没有一条可搬代码；但它们暴露出两处差异：我们不回 `ping`/`pong`（因果未建立，见待办 13），以及 `method:null` 挑战的机制解释（见待办 14）。`sums001/Windows-Copilot-API` 的 1237★ 说明这一面的关注度远高于工作版，值得每轮都扫。
+- `protella/chatgpt-bots`（MIT）的工具循环不变量可直接用于待办 5，含一条它自己的更正（强制单轮时要关掉 empty-final 兜底）。**其中「上限必须在 dispatch 之前生效」这条我们至今没接线**，见待办 11。

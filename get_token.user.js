@@ -588,6 +588,50 @@
     function getConsumerAccountName() {
         return normalizeConsumerName(cachedConsumerEmail.name);
     }
+    function getConsumerRefreshBinding(accessToken) {
+        const empty = { refresh_token: '', client_id: '', scope: '', account_id: '', expires_at: 0 };
+        if (!accessToken) return empty;
+        const entries = getConsumerStorageEntries();
+        const bindings = new Map();
+        for (const [, raw] of entries) {
+            const record = parseConsumerStorageJson(raw);
+            if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+            const credentialType = consumerRecordValue(record, ['credentialType', 'credential_type']);
+            const secret = consumerRecordValue(record, ['secret', 'accessToken', 'access_token']);
+            const scope = consumerRecordValue(record, ['target', 'scope', 'scopes']);
+            if (credentialType.toLowerCase() !== 'accesstoken' || secret !== accessToken || !/chatai/i.test(scope)) continue;
+            const accountId = consumerAccountId(record, '');
+            const clientId = consumerRecordValue(record, ['clientId', 'client_id']).toLowerCase();
+            if (!/^(home|local):/.test(accountId) || !clientId) continue;
+            const rawExpiry = consumerRecordValue(record, ['expiresOn', 'expires_on', 'expiresAt', 'expires_at']);
+            const expiresAt = Number(rawExpiry);
+            const binding = {
+                client_id: clientId,
+                scope,
+                account_id: accountId,
+                expires_at: Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : 0,
+            };
+            bindings.set([binding.client_id, binding.scope, binding.account_id, binding.expires_at].join('\n'), binding);
+        }
+        if (bindings.size !== 1) return empty;
+        const binding = Array.from(bindings.values())[0];
+        const refreshTokens = new Set();
+        for (const [, raw] of entries) {
+            const record = parseConsumerStorageJson(raw);
+            if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+            const credentialType = consumerRecordValue(record, ['credentialType', 'credential_type']);
+            if (credentialType.toLowerCase() !== 'refreshtoken') continue;
+            const clientId = consumerRecordValue(record, ['clientId', 'client_id']).toLowerCase();
+            if (clientId !== binding.client_id || consumerAccountId(record, '') !== binding.account_id) continue;
+            const secret = consumerRecordValue(record, ['secret', 'refreshToken', 'refresh_token']);
+            if (secret) refreshTokens.add(secret);
+        }
+        return {
+            refresh_token: refreshTokens.size === 1 ? Array.from(refreshTokens)[0] : '',
+            ...binding,
+        };
+    }
+
     // ---- End consumer account email resolution -----------------------------
 
     // ---- M365 refresh-token capture helpers -------------------------------
@@ -1279,17 +1323,32 @@
         const username = getConsumerAccountName() || email;
         const consumerAccountId = getConsumerAccountId();
         if (!consumerAccountId) throw new Error(tr('no_consumer_identity'));
+        // The RT half of the snapshot. Read from the SAME MSAL cache entry that
+        // issued the captured chat token, so the pair the server stores is one
+        // account's -- a profile that has seen two personal accounts holds both
+        // their grants, and the server rejects a mismatched pair with a 400.
+        const binding = getConsumerRefreshBinding(latestConsumerToken);
+        const body = {
+            cookies,
+            username,
+            email,
+            consumer_account_id: consumerAccountId,
+            access_token: latestConsumerToken,
+            identity_type: latestConsumerIdentity,
+        };
+        // Only when this cache actually named it: expires_at is what lets the
+        // server renew BEFORE a turn fails instead of after.
+        if (binding.expires_at > 0) body.expires_at = binding.expires_at;
+        if (binding.refresh_token && binding.account_id === consumerAccountId) {
+            body.refresh_token = binding.refresh_token;
+            body.refresh_token_client_id = binding.client_id;
+            body.refresh_token_scope = binding.scope;
+            body.refresh_token_account_id = binding.account_id;
+        }
         const r = await gmFetch(base + '/user/account/consumer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-            body: JSON.stringify({
-                cookies,
-                username,
-                email,
-                consumer_account_id: consumerAccountId,
-                access_token: latestConsumerToken,
-                identity_type: latestConsumerIdentity,
-            })
+            body: JSON.stringify(body)
         });
         return { response: r, data: await r.json() };
     }

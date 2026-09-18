@@ -31,6 +31,7 @@ EXPECTED_TONE_VALUES = {
     "Gpt_5_3_Reasoning",
     "Gpt_5_2_Chat",
     "Gpt_5_2_Reasoning",
+    "Grok_4_5",
 }
 
 EXPECTED_TONE_OPTIONS = [
@@ -53,6 +54,7 @@ EXPECTED_TONE_OPTIONS = [
     ("Gpt_5_3_Reasoning", "gpt-5.3"),
     ("Gpt_5_2_Chat", "gpt-5.2_Chat"),
     ("Gpt_5_2_Reasoning", "gpt-5.2"),
+    ("Grok_4_5", "grok-4.5"),
 ]
 
 PREVIOUS_DEFAULT_LABELS = {
@@ -189,6 +191,10 @@ DEFAULT_VALUES_BEFORE_GPT_5_3_REASONING = [
 ]
 
 
+DEFAULT_VALUES_BEFORE_GROK_4_5 = [
+    value for value, _label in EXPECTED_TONE_OPTIONS if value != "Grok_4_5"
+]
+
 def _default_tone_options_limited_to(values):
     by_value = {option["value"]: option for option in TONE_OPTIONS}
     return [dict(by_value[value]) for value in values]
@@ -200,6 +206,7 @@ def test_read_runtime_settings_migrates_defaults_that_predate_each_added_tone(tm
     # old-label literal nor the current default, and every tone added afterwards
     # was locked out of the picker until someone wrote the list by hand.
     for pinned in (
+        DEFAULT_VALUES_BEFORE_GROK_4_5,
         DEFAULT_VALUES_BEFORE_GPT_6_REASONING,
         DEFAULT_VALUES_BEFORE_GPT_6_ASTRA,
         DEFAULT_VALUES_BEFORE_GPT_5_6_CHAT,

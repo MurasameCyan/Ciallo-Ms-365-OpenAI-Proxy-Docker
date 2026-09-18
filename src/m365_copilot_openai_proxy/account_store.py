@@ -171,6 +171,36 @@ class Account:
     # proxy account pinned to the same personal Microsoft identity.
     consumer_account_id: str = ""
     consumer_updated_at: float = 0.0
+    # When the stored ChatAI token stops being accepted, as reported by the
+    # issuer's own `expires_in` at capture/renewal time. 0 = unknown, which is
+    # every credential captured before the RT path existed (the token is opaque,
+    # so there is no exp to read out of it). Knowing this is what lets renewal
+    # run BEFORE a turn fails instead of after.
+    consumer_token_expires_at: float = 0.0
+    # MSA refresh_token for the personal-account path: redeemable over plain
+    # HTTP for a fresh ChatAI token (measured ~1.4s, versus ~7s for a Camoufox
+    # launch, and no browser at all). Deliberately NOT reusing `refresh_token`
+    # above: that one is an AAD grant issued to an M365 client for the substrate
+    # audience, and sharing one field would let an M365 code path redeem a
+    # consumer grant (or the reverse) on a binding it never verified.
+    # Encrypted at rest; public serializers expose presence only.
+    consumer_refresh_token: str = ""
+    consumer_refresh_token_updated_at: float = 0.0
+    # The client_id and scope this RT was minted for. An MSA refresh token is
+    # bound to its issuing client, and the scope decides which audience comes
+    # back, so both must be replayed verbatim at redemption. Stored rather than
+    # hardcoded because a Microsoft-side client/scope rollout would otherwise
+    # strand every already-captured credential with no way to notice.
+    consumer_refresh_token_client_id: str = ""
+    consumer_refresh_token_scope: str = ""
+    # Why the stored consumer RT was discarded, as a STABLE CODE rather than
+    # prose, for the same reason as refresh_token_disabled_reason: the value is
+    # persisted and rendered in two languages.
+    consumer_refresh_token_disabled_reason: str = ""
+    consumer_refresh_token_disabled_at: float = 0.0
+    # Backoff after a retryable exchange failure, so an AAD blip does not retry
+    # the exchange on every single request.
+    consumer_refresh_token_retry_after: float = 0.0
     # Epoch seconds until which upstream said it will refuse this account's turns,
     # from the throttle frame's own nextAvailableAt. 0 = nothing recorded (and M365
     # never records: its throttle frame names no time). Persisted because the value
@@ -198,14 +228,33 @@ class Account:
     def token_status(self) -> dict[str, Any]:
         """Decode the JWT and report validity / expiry, mirroring AccessTokenStore.status()."""
         if self.provider == "consumer":
-            # The ChatAI token is opaque to us -- no verifiable exp claim -- so
-            # "valid" only means one is stored. Real expiry surfaces upstream as
-            # a ClearanceRequired, which the unattended re-mint recovers from
-            # (RefreshScheduler.refresh_consumer); age since capture is what
-            # keepalive schedules on, since there is no exp to read.
+            # The ChatAI token is opaque -- no readable exp claim -- so expiry is
+            # known only when the issuer reported it (consumer_token_expires_at,
+            # set from `expires_in` at capture/renewal time). A credential
+            # captured before the RT path existed carries 0 and keeps the old
+            # meaning: "one is stored", with upstream as the authority and a
+            # ClearanceRequired driving the re-mint. But a KNOWN past expiry must
+            # never read as valid -- that is precisely the state proactive
+            # renewal exists to act on, and reporting it as valid is what made a
+            # dead credential look healthy until a real turn failed on it.
             if not self.consumer_token:
                 return {"valid": False, "error": "No consumer token", "expires_at": None, "seconds_remaining": 0}
-            return {"valid": True, "expires_at": None, "seconds_remaining": 0}
+            consumer_expires_at = float(self.consumer_token_expires_at or 0.0)
+            if consumer_expires_at <= 0:
+                return {"valid": True, "expires_at": None, "seconds_remaining": 0}
+            from datetime import datetime, timezone
+
+            remaining = max(0, int(consumer_expires_at - time.time()))
+            status: dict[str, Any] = {
+                "valid": remaining > 0,
+                "expires_at": datetime.fromtimestamp(
+                    int(consumer_expires_at), tz=timezone.utc
+                ).isoformat(),
+                "seconds_remaining": remaining,
+            }
+            if not status["valid"]:
+                status["error"] = "Consumer token expired"
+            return status
         token = self.token
         now = time.time()
         if not token:
@@ -336,6 +385,30 @@ class AccountStore:
                         raw.get("consumer_account_id", "")
                     ),
                     consumer_updated_at=float(raw.get("consumer_updated_at", 0.0) or 0.0),
+                    consumer_token_expires_at=float(
+                        raw.get("consumer_token_expires_at", 0.0) or 0.0
+                    ),
+                    consumer_refresh_token=str(
+                        raw.get("consumer_refresh_token", "") or ""
+                    ),
+                    consumer_refresh_token_updated_at=float(
+                        raw.get("consumer_refresh_token_updated_at", 0.0) or 0.0
+                    ),
+                    consumer_refresh_token_client_id=str(
+                        raw.get("consumer_refresh_token_client_id", "") or ""
+                    ),
+                    consumer_refresh_token_scope=str(
+                        raw.get("consumer_refresh_token_scope", "") or ""
+                    ),
+                    consumer_refresh_token_disabled_reason=str(
+                        raw.get("consumer_refresh_token_disabled_reason", "") or ""
+                    ),
+                    consumer_refresh_token_disabled_at=float(
+                        raw.get("consumer_refresh_token_disabled_at", 0.0) or 0.0
+                    ),
+                    consumer_refresh_token_retry_after=float(
+                        raw.get("consumer_refresh_token_retry_after", 0.0) or 0.0
+                    ),
                     throttled_until=float(raw.get("throttled_until", 0.0) or 0.0),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
@@ -567,7 +640,6 @@ class AccountStore:
             acc.updated_at = time.time()
             self._save()
             return acc
-
     def set_consumer_auth(
         self,
         acc_id: str,
@@ -577,6 +649,10 @@ class AccountStore:
         email: str = "",
         consumer_account_id: str | None = None,
         expected_snapshot: tuple[float, str, str] | None = None,
+        expires_at: float | None = None,
+        consumer_refresh_token: str | None = None,
+        consumer_refresh_token_client_id: str | None = None,
+        consumer_refresh_token_scope: str | None = None,
     ) -> Account | None:
         """Store a consumer-Copilot credential snapshot exported from a browser.
 
@@ -622,13 +698,46 @@ class AccountStore:
                 acc.email = ""
             now = time.time()
             acc.consumer_updated_at = now
+            # An issuer that reported its own expiry replaces whatever was known.
+            # One that did not must CLEAR the previous value rather than let a
+            # brand-new token inherit the old token's deadline -- a stale expiry
+            # would either expire a live credential early or, worse, vouch for a
+            # dead one.
+            acc.consumer_token_expires_at = (
+                max(0.0, float(expires_at)) if expires_at is not None else 0.0
+            )
             # Consumer login cookies are session cookies with no useful expiry of
             # their own, so cookie_expires_at stays 0 and the UI's binding state
             # rests on presence alone.
             acc.cookie_expires_at = 0.0
             acc.cookie_valid = bool(acc.cookies)
             acc.cookie_updated_at = now
-            acc.updated_at = now
+            # A validated RT can be committed with the ChatAI token while the
+            # same store lock is held. None means "no RT in this snapshot": keep
+            # the previous grant, which lets a token-only re-push avoid erasing a
+            # still-valid browserless renewal path.
+            if consumer_refresh_token is not None:
+                refresh = str(consumer_refresh_token or "").strip()
+                acc.consumer_refresh_token = refresh
+                acc.consumer_refresh_token_updated_at = time.time() if refresh else 0.0
+                acc.consumer_refresh_token_retry_after = 0.0
+                if refresh:
+                    if consumer_refresh_token_client_id is not None:
+                        acc.consumer_refresh_token_client_id = str(
+                            consumer_refresh_token_client_id
+                        ).strip()
+                    if consumer_refresh_token_scope is not None:
+                        acc.consumer_refresh_token_scope = str(
+                            consumer_refresh_token_scope
+                        ).strip()
+                    acc.consumer_refresh_token_disabled_reason = ""
+                    acc.consumer_refresh_token_disabled_at = 0.0
+                else:
+                    acc.consumer_refresh_token_client_id = ""
+                    acc.consumer_refresh_token_scope = ""
+                    acc.consumer_refresh_token_disabled_reason = ""
+                    acc.consumer_refresh_token_disabled_at = 0.0
+            acc.updated_at = time.time()
             self._save()
             return acc
 
@@ -790,6 +899,117 @@ class AccountStore:
             self._save()
             return acc
 
+    def set_consumer_refresh_token(
+        self,
+        acc_id: str,
+        token: str,
+        *,
+        client_id: str | None = None,
+        scope: str | None = None,
+        expected_refresh_token: str | None = None,
+        disabled_reason: str = "",
+    ) -> Account | None:
+        """Store, rotate, or clear this account's consumer (MSA) refresh token.
+
+        Deliberately separate from set_refresh_token: that one carries an AAD
+        tenant/subject binding for the substrate audience, while an MSA grant is
+        bound to its issuing client and scope only. One shared setter would let
+        an M365 caller overwrite a consumer binding it never verified.
+        """
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None:
+                return None
+            if (
+                expected_refresh_token is not None
+                and acc.consumer_refresh_token != expected_refresh_token
+            ):
+                return None
+            acc.consumer_refresh_token = str(token or "").strip()
+            acc.consumer_refresh_token_updated_at = (
+                time.time() if acc.consumer_refresh_token else 0.0
+            )
+            acc.consumer_refresh_token_retry_after = 0.0
+            if not acc.consumer_refresh_token:
+                acc.consumer_refresh_token_client_id = ""
+                acc.consumer_refresh_token_scope = ""
+                # Only on a real discard: clearing an already-empty RT is an
+                # idempotent no-op and must not blank the reason the previous
+                # one died with.
+                if disabled_reason:
+                    acc.consumer_refresh_token_disabled_reason = disabled_reason
+                    acc.consumer_refresh_token_disabled_at = time.time()
+            else:
+                # A live RT clears any past post-mortem: renewal works again,
+                # and a stale reason would keep nagging the user.
+                acc.consumer_refresh_token_disabled_reason = ""
+                acc.consumer_refresh_token_disabled_at = 0.0
+                # None preserves the verified binding across a rotation.
+                if client_id is not None:
+                    acc.consumer_refresh_token_client_id = str(client_id).strip()
+                if scope is not None:
+                    acc.consumer_refresh_token_scope = str(scope).strip()
+            acc.updated_at = time.time()
+            self._save()
+            return acc
+
+    def defer_consumer_refresh_token(
+        self, acc_id: str, expected_refresh_token: str, retry_after: float
+    ) -> bool:
+        """Back off a failed consumer exchange without touching a newer push."""
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None or acc.consumer_refresh_token != expected_refresh_token:
+                return False
+            acc.consumer_refresh_token_retry_after = max(
+                acc.consumer_refresh_token_retry_after, float(retry_after)
+            )
+            acc.updated_at = time.time()
+            self._save()
+            return True
+
+    def apply_consumer_refresh_result(
+        self,
+        acc_id: str,
+        *,
+        expected_refresh_token: str,
+        expected_consumer_token: str,
+        consumer_token: str,
+        rotated_refresh_token: str = "",
+        expires_at: float = 0.0,
+    ) -> Account | None:
+        """Atomically apply a consumer RT response unless newer credentials won.
+
+        Both halves are checked because either can be replaced mid-exchange: a
+        userscript re-push writes the ChatAI token, and a concurrent renewal
+        rotates the RT. Writing over either would resurrect a credential this
+        account has already moved past.
+        """
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if (
+                acc is None
+                or acc.provider != "consumer"
+                or acc.consumer_refresh_token != expected_refresh_token
+                or acc.consumer_token != expected_consumer_token
+            ):
+                return None
+            fresh = str(consumer_token or "").strip()
+            if not fresh:
+                return None
+            rotated = str(rotated_refresh_token or "").strip()
+            if rotated and rotated != expected_refresh_token:
+                acc.consumer_refresh_token = rotated
+                acc.consumer_refresh_token_updated_at = time.time()
+            acc.consumer_refresh_token_retry_after = 0.0
+            acc.consumer_token = fresh
+            acc.consumer_token_expires_at = max(0.0, float(expires_at or 0.0))
+            now = time.time()
+            acc.consumer_updated_at = now
+            acc.updated_at = now
+            self._save()
+            return acc
+
     def clear_credentials(self, acc_id: str) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
@@ -807,6 +1027,13 @@ class AccountStore:
             acc.refresh_token_tenant_id = ""
             acc.refresh_token_object_id = ""
             acc.refresh_token_retry_after = 0.0
+            acc.consumer_refresh_token = ""
+            acc.consumer_refresh_token_updated_at = 0.0
+            acc.consumer_refresh_token_client_id = ""
+            acc.consumer_refresh_token_scope = ""
+            acc.consumer_refresh_token_retry_after = 0.0
+            acc.consumer_refresh_token_disabled_reason = ""
+            acc.consumer_refresh_token_disabled_at = 0.0
             _clear_studio_agent_binding(acc)
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
@@ -824,6 +1051,7 @@ class AccountStore:
                 acc.consumer_identity_type = ""
                 acc.consumer_account_id = ""
                 acc.consumer_updated_at = 0.0
+                acc.consumer_token_expires_at = 0.0
                 acc.cookies = []
             acc.updated_at = time.time()
             self._save()

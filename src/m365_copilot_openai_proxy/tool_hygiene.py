@@ -3,7 +3,7 @@
 Our tool_calls are PARSED OUT OF PROSE (see tool_call_parser), so every shape the
 model can get wrong arrives here as routine input rather than as an exceptional
 case. `_filter_schema_valid_tool_calls` already rejects calls the client cannot
-execute; this module covers three defects it does not look at, each of which the
+execute; this module covers two defects it does not look at, each of which the
 client turns into a hard error rather than a degraded answer:
 
 1. **A duplicate `id` in one response.** The id is how a client maps a result
@@ -20,11 +20,25 @@ client turns into a hard error rather than a degraded answer:
    about what happened, and the resulting 400 names a field rather than the
    disagreement.
 
-3. **A fan-out storm in one response.** Nothing in this proxy caps how many
-   calls one response may carry, and a round's calls are dispatched in PARALLEL
-   by the client -- so charging them afterwards only ever stops the NEXT round.
-   The cap has to bind BEFORE the calls are delivered, which is why this is a
-   filter over the parsed list rather than a counter somewhere downstream.
+A per-round fan-out cap used to live here as a third guard
+(`MAX_TOOL_CALLS_PER_ROUND` / `MAX_TOOL_CALLS_PER_TURN` / `refuse_over_cap` /
+`tool_round_allowance` / `over_cap_reasons`). It was removed on 2026-09-14 for
+three measured reasons, recorded here so it is not reintroduced on intuition:
+
+* It had NO caller anywhere in `src/` -- only tests, which called it directly and
+  were therefore green while nothing was wired.
+* Its refusal payload assumed this proxy emits a `role:"tool"` / `tool_result`
+  the client can pair with the refused call. This proxy never emits one and has
+  no tool executor: it parses `tool_calls` out of prose and the CLIENT executes
+  them, so those dicts had no delivery channel.
+* A census of the deployed container's call log (100 entries, 42 carrying tool
+  calls) found the largest real fan-out was ONE call per round against a cap of
+  eight, so the guard would never have fired.
+
+If a real fan-out storm ever shows up, the shape to build is a truncation whose
+reasons join the EXISTING `rejected` channel (see `rejected_calls_note`), not a
+second refusal vocabulary. Details:
+docs/github-m365-proxy-candidates-temp-2026-08-20.md.
 
 Every function here is pure: data in, data out, no I/O and no FastAPI. The whole
 point is that each branch is unit-testable without a request, since the failures
@@ -37,47 +51,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
-
-# How many tool calls one response may deliver, and how many one conversation may
-# accumulate. Both are ceilings on OUR fan-out, not on the model's ambition.
-#
-# 8 per round: the largest tool count we have ever observed a real client declare
-# is in the low twenties (Claude Code), but a single ROUND that legitimately needs
-# more than a handful of parallel calls has not been seen -- and the failure mode
-# of guessing too low is mild and self-correcting (the model is told to call again
-# next round), while guessing too high is a parallel storm the client executes
-# before anyone can intervene. Deliberately not derived from the declared tool
-# count: a client offering 20 tools is not asking for 20 simultaneous calls.
-#
-# 32 per turn: eight rounds at the round cap. A conversation that has issued 32
-# tool calls and still has not answered is looping, and one more call will not
-# fix it.
-MAX_TOOL_CALLS_PER_ROUND = 8
-MAX_TOOL_CALLS_PER_TURN = 32
-
-# Stable codes, not prose: these travel back to the model as a tool result and are
-# matched in tests, so the wording can change without breaking either.
-REASON_BUDGET_SPENT = "budget_spent"
-REASON_TOO_MANY_THIS_ROUND = "too_many_calls_this_round"
-
-# The two refusals say DIFFERENT things on purpose, and conflating them is the
-# mistake worth naming. A call refused because the whole turn's budget is gone
-# must be told the work is over ("answer with what you have"), because more calls
-# genuinely will not run. A call refused only because it exceeded THIS round's
-# fan-out still has turn budget behind it, so telling it the budget is spent is a
-# lie that makes the model give up while it could still finish the job -- it has
-# to be told to read the results it did get and call again. Same refusal
-# mechanism, opposite instruction.
-_REFUSAL_MESSAGE = {
-    REASON_BUDGET_SPENT: (
-        "Not run: this turn's tool budget is spent and no further calls will "
-        "execute. Answer now using what you have already gathered."
-    ),
-    REASON_TOO_MANY_THIS_ROUND: (
-        "Not run: too many tool calls were requested at once. The ones that fit "
-        "did run -- read their results, then make any further calls next round."
-    ),
-}
 
 
 def _field(obj: Any, name: str) -> Any:
@@ -254,94 +227,4 @@ def orphan_tool_results(messages: Iterable[Any]) -> list[str]:
                     f"工具结果的 {field_name}={answered_id} 在之前的消息里找不到对应的工具调用"
                 )
         known |= _declared_call_ids(message)
-    return reasons
-
-
-def tool_round_allowance(
-    *,
-    remaining_turn_budget: int | None = None,
-    per_round_cap: int = MAX_TOOL_CALLS_PER_ROUND,
-) -> int:
-    """How many calls this round may deliver: the SMALLER of the two caps.
-
-    Neither cap may be widened by the other. Taking the round cap alone would let
-    a turn that has already spent its budget keep issuing calls a round at a
-    time; taking the turn remainder alone would let one response fan out to the
-    whole remaining budget at once, which is the parallel storm the round cap
-    exists to stop. ``None`` means "no turn budget tracked", not "unlimited
-    round".
-    """
-    round_cap = max(0, int(per_round_cap))
-    if remaining_turn_budget is None:
-        return round_cap
-    return min(round_cap, max(0, int(remaining_turn_budget)))
-
-
-def refuse_over_cap(
-    tool_calls: Sequence[Any],
-    *,
-    remaining_turn_budget: int | None = None,
-    per_round_cap: int = MAX_TOOL_CALLS_PER_ROUND,
-) -> tuple[list[Any], list[dict[str, str]]]:
-    """``(kept, refusals)`` -- the first N calls run, the excess is REFUSED.
-
-    Refused, not dropped: a `tool_calls` entry the client never sees a result for
-    leaves its transcript unpaired, and the next request is then rejected for the
-    orphan this would have created (see `orphan_tool_results`). So the excess
-    comes back as a synthetic failure result the client can pair, carrying the
-    reason it did not run.
-
-    Order is the round's own call order -- the first N are the ones the model
-    thought of first, and reordering would make which calls survive depend on
-    something the model cannot see.
-
-    Which refusal each call gets is the load-bearing part: past the TURN budget
-    it is ``budget_spent`` (the work really is over), past only the ROUND cap it
-    is ``too_many_calls_this_round`` (come back next round). See the block
-    comment on `_REFUSAL_MESSAGE`.
-    """
-    turn_allowance = (
-        None if remaining_turn_budget is None else max(0, int(remaining_turn_budget))
-    )
-    allowance = tool_round_allowance(
-        remaining_turn_budget=remaining_turn_budget, per_round_cap=per_round_cap
-    )
-    kept: list[Any] = []
-    refusals: list[dict[str, str]] = []
-    for index, call in enumerate(tool_calls):
-        if index < allowance:
-            kept.append(call)
-            continue
-        past_turn_budget = turn_allowance is not None and index >= turn_allowance
-        reason = REASON_BUDGET_SPENT if past_turn_budget else REASON_TOO_MANY_THIS_ROUND
-        refusals.append(
-            {
-                "tool_call_id": _tool_call_id(call),
-                "name": _tool_call_label(call),
-                "reason": reason,
-                "message": _REFUSAL_MESSAGE[reason],
-            }
-        )
-    return kept, refusals
-
-
-def over_cap_reasons(refusals: Sequence[Mapping[str, str]]) -> list[str]:
-    """User-facing reason strings for `refuse_over_cap`'s refusals.
-
-    Separate from the refusals themselves because the two audiences differ: the
-    dicts go back to the MODEL as tool results, these go in the call log and the
-    delivered note for a HUMAN. Naming which cap bound matters here too -- a turn
-    that exhausted its budget over many rounds is a different animal from one
-    shotgun response, and a log that only says "refused N" cannot tell them
-    apart.
-    """
-    round_bound = sum(
-        1 for item in refusals if item.get("reason") == REASON_TOO_MANY_THIS_ROUND
-    )
-    turn_bound = len(refusals) - round_bound
-    reasons: list[str] = []
-    if round_bound:
-        reasons.append(f"本轮工具调用数超过单轮上限，有 {round_bound} 个没有执行")
-    if turn_bound:
-        reasons.append(f"本次对话的工具调用预算已用尽，有 {turn_bound} 个没有执行")
     return reasons

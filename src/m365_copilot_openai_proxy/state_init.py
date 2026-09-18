@@ -12,6 +12,7 @@ from .account_store import AccountStore
 from .atomic_write import write_text_atomic
 from .call_log_store import load_call_log
 from .config import Settings
+from .conversation_quota import ConversationQuotaStore
 from .history_index import HistoryDigestIndex
 from .media_proxy_events import init_media_proxy_events
 from .key_store import KeyStore
@@ -177,6 +178,7 @@ def init_app_state(
     app.state.cloud_cleanup_idle_hours = runtime_settings["cloud_cleanup_idle_hours"]
     app.state.account_concurrency = runtime_settings["account_concurrency"]
     app.state.account_concurrency_gate = AccountConcurrency()
+    app.state.conversation_quota_store = ConversationQuotaStore()
     app.state.username = read_username()
     app.state.current_tone = read_tone() or "Magic"
     app.state.tool_prompt = read_tool_prompt()

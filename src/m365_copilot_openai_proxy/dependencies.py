@@ -74,6 +74,31 @@ def _attach_response_debug_sink(app: FastAPI, client: SubstrateCopilotClient) ->
         return
 
 
+def _attach_quota_sink(app: FastAPI, client: SubstrateCopilotClient, account) -> None:
+    """Route this client's conversation-quota reports into the app-wide store.
+
+    Attached here for the same reason as the concurrency gate: the eleven
+    ``chat``/``chat_stream`` call sites would each need the plumbing otherwise,
+    and the quota is only known after a turn has run, so the /v1 response
+    builders (which read `call_record` before the turn ends) cannot see it.
+
+    An account-less request has nowhere to file the number, so it is dropped
+    rather than filed under a placeholder id.
+    """
+    store = getattr(app.state, "conversation_quota_store", None)
+    account_id = str(getattr(account, "id", "") or "")
+    if store is None or not account_id:
+        return
+
+    def sink(quota: dict) -> None:
+        store.record(account_id, quota)
+
+    try:
+        client._quota_sink = sink
+    except Exception:
+        return
+
+
 def _consumer_gate_for(app: FastAPI, account_id: str):
     """Build the mid-request credential re-mint for one consumer account.
 
@@ -222,6 +247,7 @@ def create_api_dependencies(
                 client._variants = ",".join(profile["variants"])
                 client._options_sets = list(profile["options_sets"])
             _attach_response_debug_sink(app, client)
+            _attach_quota_sink(app, client, account)
             return _throttled(app, account, client)
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc

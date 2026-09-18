@@ -1,13 +1,17 @@
 """Guards on tool_calls out and tool results in.
 
-These pin three separate failure modes we can actually cause:
+These pin two separate failure modes we can actually cause:
 
 * a duplicated `tool_call` id, which makes the client's result mapping ambiguous
   and which Anthropic rejects outright on the next request;
 * a tool result naming a call that was never made, which upstream answers with a
-  400 for the whole request rather than for the stray message;
-* a single response fanning out more calls than anyone budgeted for, which the
-  client executes in parallel before any later round can intervene.
+  400 for the whole request rather than for the stray message.
+
+A third guard (a per-round fan-out cap) was removed on 2026-09-14: it had no
+caller in `src/`, and these tests were green anyway because they called it
+directly. Measured on the deployed build, the largest real round carried ONE
+call against a cap of 8, so it never bound. See tool_hygiene's module docstring
+before reintroducing it.
 
 Both message dialects are exercised everywhere a message is read: routes hand
 these functions pydantic models, the history index hands them plain dicts, and a
@@ -19,15 +23,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from m365_copilot_openai_proxy.tool_hygiene import (
-    MAX_TOOL_CALLS_PER_ROUND,
-    REASON_BUDGET_SPENT,
-    REASON_TOO_MANY_THIS_ROUND,
     dedupe_tool_call_ids,
     dedupe_tool_call_payloads,
     orphan_tool_results,
-    over_cap_reasons,
-    refuse_over_cap,
-    tool_round_allowance,
 )
 
 
@@ -216,104 +214,3 @@ def test_a_tool_result_with_no_id_at_all_is_reported():
     reasons = orphan_tool_results(messages)
 
     assert len(reasons) == 1
-
-
-# --------------------------------------------------------------- allowance
-
-def test_allowance_is_the_smaller_of_the_two_caps():
-    """Neither cap may be widened by the other."""
-    assert tool_round_allowance(remaining_turn_budget=3, per_round_cap=8) == 3
-    assert tool_round_allowance(remaining_turn_budget=20, per_round_cap=8) == 8
-
-
-def test_an_unknown_turn_budget_falls_back_to_the_round_cap():
-    assert tool_round_allowance(remaining_turn_budget=None, per_round_cap=5) == 5
-
-
-def test_a_spent_turn_budget_allows_nothing():
-    assert tool_round_allowance(remaining_turn_budget=0, per_round_cap=8) == 0
-    assert tool_round_allowance(remaining_turn_budget=-4, per_round_cap=8) == 0
-
-
-# --------------------------------------------------------------- refusals
-
-def test_over_cap_calls_are_refused_with_a_result_never_dropped():
-    """A tool_calls entry with no matching result leaves the client's transcript
-    unpaired, and the NEXT request is then rejected for that orphan. So every
-    input id has to come back either kept or refused."""
-    calls = [_call(f"id{i}") for i in range(5)]
-
-    kept, refusals = refuse_over_cap(calls, per_round_cap=2)
-
-    assert [c["id"] for c in kept] == ["id0", "id1"]
-    assert {r["tool_call_id"] for r in refusals} == {"id2", "id3", "id4"}
-    assert {c["id"] for c in kept} | {r["tool_call_id"] for r in refusals} == {
-        c["id"] for c in calls
-    }
-
-
-def test_the_round_cap_and_the_turn_budget_give_different_refusals():
-    """The distinction is the whole point: 'budget spent' tells the model to stop
-    working, which is a lie when only this round's fan-out was exceeded."""
-    calls = [_call(f"id{i}") for i in range(6)]
-
-    _kept, refusals = refuse_over_cap(calls, remaining_turn_budget=4, per_round_cap=2)
-
-    by_id = {r["tool_call_id"]: r["reason"] for r in refusals}
-    # Indexes 2 and 3 are inside the turn budget (4) but past the round cap (2).
-    assert by_id["id2"] == REASON_TOO_MANY_THIS_ROUND
-    assert by_id["id3"] == REASON_TOO_MANY_THIS_ROUND
-    # Indexes 4 and 5 are past the turn budget itself.
-    assert by_id["id4"] == REASON_BUDGET_SPENT
-    assert by_id["id5"] == REASON_BUDGET_SPENT
-
-
-def test_each_refusal_message_tells_the_model_the_right_thing_to_do():
-    """The codes are for us; the messages are what the MODEL reads, so they have
-    to carry the same distinction. "Budget spent" must tell it to answer with what
-    it has; the round cap must tell it to come back -- the inverse of either one
-    makes the model give up early or retry forever."""
-    calls = [_call(f"id{i}") for i in range(4)]
-
-    _kept, refusals = refuse_over_cap(calls, remaining_turn_budget=3, per_round_cap=1)
-
-    by_code = {r["reason"]: r["message"] for r in refusals}
-    assert "next round" in by_code[REASON_TOO_MANY_THIS_ROUND]
-    assert "next round" not in by_code[REASON_BUDGET_SPENT]
-    assert "already" in by_code[REASON_BUDGET_SPENT]
-
-
-def test_a_round_within_both_caps_refuses_nothing():
-    calls = [_call("a"), _call("b")]
-
-    kept, refusals = refuse_over_cap(calls, remaining_turn_budget=10, per_round_cap=8)
-
-    assert kept == calls
-    assert refusals == []
-
-
-def test_the_default_round_cap_is_what_binds_when_no_budget_is_given():
-    calls = [_call(f"id{i}") for i in range(MAX_TOOL_CALLS_PER_ROUND + 2)]
-
-    kept, refusals = refuse_over_cap(calls)
-
-    assert len(kept) == MAX_TOOL_CALLS_PER_ROUND
-    assert len(refusals) == 2
-    assert all(r["reason"] == REASON_TOO_MANY_THIS_ROUND for r in refusals)
-
-
-def test_the_human_facing_note_names_which_cap_bound():
-    """A log that only says 'refused N' cannot tell a turn that ran out of budget
-    over many rounds apart from one shotgun response."""
-    calls = [_call(f"id{i}") for i in range(6)]
-    _kept, refusals = refuse_over_cap(calls, remaining_turn_budget=4, per_round_cap=2)
-
-    notes = over_cap_reasons(refusals)
-
-    assert len(notes) == 2
-    assert any("单轮上限" in n for n in notes)
-    assert any("预算" in n for n in notes)
-
-
-def test_no_refusals_means_no_note():
-    assert over_cap_reasons([]) == []

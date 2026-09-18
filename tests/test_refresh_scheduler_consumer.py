@@ -106,6 +106,52 @@ def test_refresh_consumer_stores_the_reminted_credential(tmp_path):
     assert acc.cookie_valid is True
 
 
+
+def test_refresh_consumer_persists_only_a_verified_gate_refresh_token(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+
+    async def gate():
+        return {
+            "cookies": [{"name": "WLSSC", "value": "new", "domain": ".live.com", "path": "/"}],
+            "access_token": "new-token",
+            "identity_type": "",
+            "account_id": "home:account-a",
+            "refresh_token": "captured-refresh-token-" + "x" * 40,
+            "refresh_token_client_id": "14638111-3389-403d-b206-a6a71d9f8f16",
+            "refresh_token_scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+            "refresh_token_account_id": "home:account-a",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is True
+    account = store.get(acct_id)
+    assert account.consumer_refresh_token == "captured-refresh-token-" + "x" * 40
+    assert account.consumer_refresh_token_client_id == "14638111-3389-403d-b206-a6a71d9f8f16"
+    assert account.consumer_refresh_token_scope == "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite"
+
+
+def test_refresh_consumer_does_not_store_an_unidentified_gate_refresh_token(tmp_path):
+    """An RT without a subject is not evidence that it belongs to this account,
+    even when its client and scope look valid."""
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+
+    async def gate():
+        return {
+            "cookies": [{"name": "WLSSC", "value": "new", "domain": ".live.com", "path": "/"}],
+            "access_token": "new-token",
+            "identity_type": "",
+            "account_id": "home:account-a",
+            "refresh_token": "unidentified-refresh-token-" + "x" * 40,
+            "refresh_token_client_id": "14638111-3389-403d-b206-a6a71d9f8f16",
+            "refresh_token_scope": "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite",
+        }
+
+    sched = _sched(store, tmp_path, gate)
+    assert asyncio.run(sched.refresh_consumer(acct_id)) is True
+    assert store.get(acct_id).consumer_refresh_token == ""
+
 def test_refresh_consumer_logs_before_waiting_for_the_browser_gate(
     tmp_path, monkeypatch
 ):

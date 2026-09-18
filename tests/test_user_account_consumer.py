@@ -81,6 +81,32 @@ def test_consumer_push_creates_account_flips_provider_and_binds_key(tmp_path):
     assert account.name == "Personal User"
 
 
+
+def test_consumer_snapshot_can_store_validated_rt_with_auth_atomically(tmp_path):
+    app = make_test_app(tmp_path)
+    account = app.state.account_store.add(name="Personal")
+    refresh_token = "consumer-refresh-token-" + "r" * 40
+    client_id = "14638111-3389-403d-b206-a6a71d9f8f16"
+    scope = "140e65af-45d1-4427-bf08-3e7295db6836/ChatAI.ReadWrite"
+
+    stored = app.state.account_store.set_consumer_auth(
+        account.id,
+        COOKIES,
+        TOKEN,
+        "MSA",
+        consumer_account_id="home:personal",
+        consumer_refresh_token=refresh_token,
+        consumer_refresh_token_client_id=client_id,
+        consumer_refresh_token_scope=scope,
+    )
+
+    assert stored is not None
+    current = app.state.account_store.get(account.id)
+    assert current.consumer_token == TOKEN
+    assert current.consumer_refresh_token == refresh_token
+    assert current.consumer_refresh_token_client_id == client_id
+    assert current.consumer_refresh_token_scope == scope
+
 def test_consumer_push_normalizes_and_stores_email_without_changing_response(tmp_path):
     app = make_test_app(tmp_path)
     key = app.state.key_store.add(name="Proxy User", username="proxyuser", password="password1")

@@ -260,15 +260,34 @@ class RefreshScheduler:
         )
 
     async def refresh_consumer(self, account_id: str) -> bool:
-        """Re-mint one consumer account's credentials with an unattended browser.
+        """Renew one consumer account's credentials, cheapest path first.
 
-        Returns False (rather than raising) when the refresh cannot run or does
-        not succeed: the stored credential may well still work, so a failure here
-        is a missed opportunity, not a reason to fail the caller's request.
+        Two mechanisms, in cost order: the stored MSA refresh token over plain
+        HTTP (~1.4s, no browser, works on the image built without the optional
+        Camoufox extra), then the unattended browser gate. The RT attempt is a
+        silent shortcut -- when it misses, the gate below runs exactly as before.
+
+        Returns False (rather than raising) when neither path succeeds: the
+        stored credential may well still work, so a failure here is a missed
+        opportunity, not a reason to fail the caller's request.
         """
         account = self._accounts.get(account_id)
         if account is None or getattr(account, "provider", "m365") != "consumer":
             return False
+        # Tried before the browser slot is even mentioned in the log: on success
+        # nothing is launched, so no Chromium/Camoufox contention is involved and
+        # this can run while another account holds the global browser lock.
+        from .consumer_refresh_via_rt import (
+            normalize_consumer_client_id,
+            normalize_consumer_refresh_token,
+            normalize_consumer_scope,
+            refresh_consumer_via_rt,
+        )
+
+        async with self._account_lock(account_id):
+            if await refresh_consumer_via_rt(self._accounts, account_id):
+                return True
+
         from .consumer_camoufox import CamoufoxUnavailable, reset_consumer_profile
 
         ulog(f"Consumer refresh requested for {account_id}; waiting for browser slot")
@@ -334,6 +353,33 @@ class RefreshScheduler:
                     f"Consumer refresh for {account_id} returned no reusable cookies"
                 )
                 return False
+            # A browser refresh can also expose the MSA RT from its MSAL cache.
+            # It is part of this same snapshot only when the reader proved the
+            # grant's subject equals the access token's subject; otherwise keep
+            # any existing RT and never establish a new unverified fast path.
+            gate_refresh_token = ""
+            gate_refresh_client_id = ""
+            gate_refresh_scope = ""
+            gate_rt = str(auth.get("refresh_token") or "").strip()
+            gate_rt_subject = _normalize_consumer_account_id(
+                auth.get("refresh_token_account_id")
+            )
+            if gate_rt and gate_rt_subject == expected_account_id:
+                gate_refresh_token = normalize_consumer_refresh_token(gate_rt)
+                gate_refresh_client_id = normalize_consumer_client_id(
+                    auth.get("refresh_token_client_id")
+                )
+                gate_refresh_scope = normalize_consumer_scope(
+                    auth.get("refresh_token_scope")
+                )
+                if not (
+                    gate_refresh_token
+                    and gate_refresh_client_id
+                    and gate_refresh_scope
+                ):
+                    gate_refresh_token = ""
+                    gate_refresh_client_id = ""
+                    gate_refresh_scope = ""
             stored = self._accounts.set_consumer_auth(
                 account_id,
                 cookie_list,
@@ -341,12 +387,20 @@ class RefreshScheduler:
                 str(auth.get("identity_type") or "") or previous_identity_type,
                 consumer_account_id=expected_account_id,
                 expected_snapshot=snapshot,
+                consumer_refresh_token=gate_refresh_token or None,
+                consumer_refresh_token_client_id=gate_refresh_client_id or None,
+                consumer_refresh_token_scope=gate_refresh_scope or None,
             )
             if stored is None:
                 elog(
                     f"Consumer refresh discarded for {account_id}: credentials changed while the browser was running"
                 )
                 return False
+            if gate_refresh_token:
+                ulog(
+                    f"Consumer refresh for {account_id}: captured a refresh "
+                    "token, so the next renewal can skip the browser"
+                )
             ulog(
                 f"Consumer refresh for {account_id}: re-minted {len(cookie_list)} cookies"
             )

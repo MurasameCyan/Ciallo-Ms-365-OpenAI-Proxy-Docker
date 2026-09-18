@@ -218,6 +218,13 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
         if not await app.state.refresh_scheduler.remove_account(acc_id):
             return _json_err(404, "Account not found")
         app.state.key_store.detach_account(acc_id)  # unbind keys that pointed here
+        # The quota gauge is keyed by account id and nothing else would ever
+        # correct it: the account is gone, so no later turn can overwrite the
+        # reading, and a stale row in /admin/stats looks authoritative while
+        # describing an account that no longer exists.
+        quota_store = getattr(app.state, "conversation_quota_store", None)
+        if quota_store is not None:
+            quota_store.forget(acc_id)
         return {"status": "ok"}
 
     @app.get("/admin/keys")

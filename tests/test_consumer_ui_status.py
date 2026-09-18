@@ -13,6 +13,7 @@ from m365_copilot_openai_proxy.template_admin_accounts import _ADMIN_ACCOUNTS_JS
 from m365_copilot_openai_proxy.template_admin_dashboard import _ADMIN_DASHBOARD_JS
 from m365_copilot_openai_proxy.template_admin_keys import _ADMIN_KEYS_JS
 from m365_copilot_openai_proxy.template_user_account_js import _USER_ACCOUNT_JS
+from m365_copilot_openai_proxy.template_user_i18n import _USER_I18N_JS
 
 
 _NODE = shutil.which("node")
@@ -355,6 +356,99 @@ def test_user_refresh_capability_follows_the_stored_refresh_token(tmp_path: Path
             "account.has_refresh_token=true;"
             "renderAccountStatus({account});"
             "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark ok\"></span></b>'),elements['account-status-panel'].innerHTML);"
+        ),
+    )
+
+
+def _user_status_script_with_i18n(assertions: str, lang: str = "en") -> str:
+    """Same page as _user_status_script but with the REAL translation table.
+
+    The stub `t()` above returns the key for anything missing, which would let a
+    reason code with no translation still "render". These tests are about the
+    text the user actually reads, so they need the shipped strings.
+    """
+    return "\n".join(
+        [
+            "const assert=require('assert');",
+            "let userTimeZone='';",
+            "const elements={'account-status-panel':{innerHTML:''},'account-info':{innerHTML:''},'account-console-actions':{innerHTML:''}};",
+            "const document={getElementById(id){return elements[id]||null},querySelectorAll(){return []}};",
+            _USER_I18N_JS,
+            f"const lang='{lang}';",
+            "function t(key){const v=i18n[lang][key];return v===undefined?key:v}",
+            "function esc(value){return String(value??'')}",
+            "function renderUserPkce(){}",
+            _USER_ACCOUNT_JS,
+            "const account={id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',binding_state:'cookie',cookie_valid:true,has_token:false,token_status:{valid:true,expires_at:null,seconds_remaining:0}};",
+            assertions,
+        ]
+    )
+
+
+# The reason codes consumer_refresh_via_rt and the consumer ingress actually
+# persist. Listed explicitly rather than derived, so a code added upstream fails
+# here instead of silently rendering as an empty note.
+_CONSUMER_RT_DEAD_REASONS = [
+    "consumer_rt_lifetime",
+    "consumer_reauth_required",
+    "consumer_rt_revoked",
+    "consumer_rt_unbound",
+    "consumer_rt_subject_mismatch",
+]
+
+
+@pytest.mark.parametrize("reason", _CONSUMER_RT_DEAD_REASONS)
+@pytest.mark.parametrize("lang", ["zh", "en"])
+def test_user_panel_explains_a_dead_consumer_refresh_token(
+    tmp_path: Path, reason: str, lang: str
+):
+    """A consumer account still renews through Camoufox once its RT dies, so
+    every mark above stays green. Without this note the user cannot see that the
+    ~1.4s browserless path is gone and only the ~7s browser path is left."""
+    _run_node(
+        tmp_path,
+        _user_status_script_with_i18n(
+            "renderAccountStatus({account:{...account,"
+            "has_consumer_refresh_token:false,"
+            f"consumer_refresh_token_disabled_reason:'{reason}'}}}});"
+            f"const text=i18n[lang]['rt_dead_{reason}'];"
+            f"assert.ok(text&&text.length>10,'missing translation: rt_dead_{reason}');"
+            "const html=elements['account-status-panel'].innerHTML;"
+            "assert.ok(html.includes(t('rt_dead_label')),html);"
+            "assert.ok(html.includes(text),html);",
+            lang=lang,
+        ),
+    )
+
+
+def test_user_panel_stays_quiet_while_the_consumer_refresh_token_still_works(
+    tmp_path: Path,
+):
+    """A stale post-mortem must not nag: the reason field survives on the record
+    until the next successful exchange clears it."""
+    _run_node(
+        tmp_path,
+        _user_status_script_with_i18n(
+            "renderAccountStatus({account:{...account,"
+            "has_consumer_refresh_token:true,"
+            "consumer_refresh_token_disabled_reason:'consumer_rt_revoked'}});"
+            "const html=elements['account-status-panel'].innerHTML;"
+            "assert.ok(!html.includes(i18n[lang]['rt_dead_consumer_rt_revoked']),html);"
+        ),
+    )
+
+
+def test_user_panel_still_explains_a_dead_m365_refresh_token(tmp_path: Path):
+    """The consumer branch must not displace the M365 one: both providers share
+    this note and each reads its own pair of fields."""
+    _run_node(
+        tmp_path,
+        _user_status_script_with_i18n(
+            "renderAccountStatus({account:{...account,"
+            "provider:'m365',token_source:'cdp',"
+            "has_refresh_token:false,refresh_token_disabled_reason:'spa_lifetime'}});"
+            "const html=elements['account-status-panel'].innerHTML;"
+            "assert.ok(html.includes(i18n[lang]['rt_dead_spa_lifetime']),html);"
         ),
     )
 
