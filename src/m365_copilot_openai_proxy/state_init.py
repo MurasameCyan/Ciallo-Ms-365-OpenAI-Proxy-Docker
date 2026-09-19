@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -165,6 +166,10 @@ def init_app_state(
     app.state.admin_cdp_enabled = bool(settings.enable_admin_cdp)
     logging.getLogger().setLevel(app.state.log_level)
     app.state.last_request_time = 0
+    # The /v1/models `created` stamp: fixed for the process's life so two
+    # identical catalogue requests produce identical bytes and therefore share
+    # one ETag (a per-request time.time() would move the validator every call).
+    app.state.models_created = int(time.time())
     app.state.idle_timeout_minutes = runtime_settings["idle_timeout_minutes"]
     app.state.ws_idle_timeout_minutes = runtime_settings["ws_idle_timeout_minutes"]
     app.state.keepalive_check_minutes = runtime_settings["keepalive_check_minutes"]

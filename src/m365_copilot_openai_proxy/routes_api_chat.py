@@ -7,10 +7,11 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .call_log_store import append_call_log, record_response_text
 from .config import Settings
+from .http_cache import MODELS_CACHE_CONTROL, cached_json_response
 from .models import OpenAIChatRequest
 from .response_helpers import _openai_stream
 from .stop_sequences import apply_stop, normalize_stop
@@ -74,8 +75,11 @@ def register_chat_routes(
     get_copilot_client: Callable[..., SubstrateCopilotClient],
 ) -> None:
     @app.get("/v1/models")
-    async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> dict:
-        created = int(time.time())
+    async def list_models(raw_request: Request, settings: Settings = Depends(get_settings)) -> Response:
+        # A process-lifetime stamp rather than time.time(): two identical
+        # requests must produce identical bytes, or the validator below moves on
+        # every call and the revalidation it exists to serve can never hit.
+        created = int(getattr(app.state, "models_created", 0) or 0)
         account = getattr(raw_request.state, "account", None)
         # Per-key override first: the list advertises what THIS key's tools-bearing
         # turns will actually do, so a user who picked router mode is not told the
@@ -90,10 +94,11 @@ def register_chat_routes(
         else:
             tone_options = getattr(app.state, "tone_options", None) or []
             models = build_models_list(tone_options, created, planning_mode)
-        return {
-            "object": "list",
-            "data": models,
-        }
+        return cached_json_response(
+            raw_request,
+            {"object": "list", "data": models},
+            MODELS_CACHE_CONTROL,
+        )
 
     @app.post("/v1/chat/completions")
     async def chat_completions(

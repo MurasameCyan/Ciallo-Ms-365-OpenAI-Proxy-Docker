@@ -728,7 +728,7 @@ def test_ready_m365_stream_uses_studio_and_reports_actual_header(tmp_path):
 
     assert response.status_code == 200
     assert response.headers["X-M365-Tool-Calling"] == "studio"
-    assert response.headers["Cache-Control"] == "no-cache"
+    assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["X-Accel-Buffering"] == "no"
     assert '"name": "Read"' in response.text
     assert [item.studio_agent_id for item in made] == ["", AGENT_ID]
@@ -1488,7 +1488,7 @@ def test_ready_studio_endpoint_reports_studio_header(
     assert response.status_code == 200
     assert response.headers["X-M365-Tool-Calling"] == "studio"
     if stream:
-        assert response.headers["Cache-Control"] == "no-cache"
+        assert response.headers["Cache-Control"] == "no-store"
         assert response.headers["X-Accel-Buffering"] == "no"
 
 

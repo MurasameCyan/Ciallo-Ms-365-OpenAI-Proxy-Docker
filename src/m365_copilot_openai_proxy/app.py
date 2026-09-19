@@ -9,6 +9,7 @@ from .admin_auth import create_admin_auth
 from .auth_middleware import register_auth_middleware
 from .dependencies import create_api_dependencies
 from .error_handlers import register_error_handlers
+from .http_cache import DefaultNoStoreMiddleware
 from .route_registry import register_app_routes
 from .session_autoclean import start_auto_cleanup, stop_auto_cleanup
 from .state_init import init_app_state
@@ -29,6 +30,9 @@ def create_app(
     admin_auth = create_admin_auth(resolved_settings)
 
     register_auth_middleware(app, resolved_settings)
+    # Outermost of the user middleware, so even a refusal produced by the auth
+    # layer (a 401/429/503 body) carries the rule.
+    app.add_middleware(DefaultNoStoreMiddleware)
 
     get_settings, get_copilot_client = create_api_dependencies(app)
     register_error_handlers(app)

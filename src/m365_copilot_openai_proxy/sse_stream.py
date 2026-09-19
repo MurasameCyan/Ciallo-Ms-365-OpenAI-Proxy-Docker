@@ -10,7 +10,9 @@ DEFAULT_KEEPALIVE_SECONDS = 10.0
 SSE_KEEPALIVE_COMMENT = ": keepalive\n\n"
 ANTHROPIC_PING = f"event: ping\ndata: {json.dumps({'type': 'ping'})}\n\n"
 SSE_HEADERS = {
-    "Cache-Control": "no-cache",
+    # no-cache permits storage and only forces revalidation; a turn's answer
+    # exists once and cannot be revalidated, so storage is refused outright.
+    "Cache-Control": "no-store",
     "X-Accel-Buffering": "no",
 }
 

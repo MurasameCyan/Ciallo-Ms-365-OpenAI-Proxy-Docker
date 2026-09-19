@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 
+from .http_cache import content_etag, if_none_match_matches
 from .media_proxy import (
     asyncgw_object_fetch_url,
     content_disposition_for_media,
@@ -116,7 +117,7 @@ async def _fetch_global_media(app: FastAPI, source_url: str, emit) -> tuple[byte
 
 def register_media_proxy_routes(app: FastAPI) -> None:
     @app.get("/v1/m365-media")
-    async def m365_media(account_id: str, u: str, exp: str, sig: str):
+    async def m365_media(request: Request, account_id: str, u: str, exp: str, sig: str):
         trace_id = f"med_{uuid.uuid4().hex[:12]}"
         started = time.perf_counter()
 
@@ -177,13 +178,23 @@ def register_media_proxy_routes(app: FastAPI) -> None:
         except Exception as exc:
             emit("error", error_type=type(exc).__name__, error=str(exc), duration_ms=round((time.perf_counter() - started) * 1000))
             raise HTTPException(status_code=502, detail=f"Media fetch failed: {exc}") from exc
-        emit("ok", content_type=content_type or "application/octet-stream", bytes=len(content), duration_ms=round((time.perf_counter() - started) * 1000))
+        # A validator over the bytes about to go out. It cannot save the fetch
+        # itself -- the tag is not known until the image has been fetched -- but
+        # a client whose copy expired revalidates instead of downloading again.
+        etag = content_etag(content)
+        headers = {
+            "Cache-Control": "private, max-age=600",
+            "X-Media-Proxy-Trace": trace_id,
+            "Content-Disposition": content_disposition_for_media(source_url, content_type),
+            "ETag": etag,
+        }
+        duration_ms = round((time.perf_counter() - started) * 1000)
+        if if_none_match_matches(request.headers.get("if-none-match", ""), etag):
+            emit("not_modified", bytes=len(content), duration_ms=duration_ms)
+            return Response(status_code=304, headers=headers)
+        emit("ok", content_type=content_type or "application/octet-stream", bytes=len(content), duration_ms=duration_ms)
         return Response(
             content=content,
             media_type=content_type or "application/octet-stream",
-            headers={
-                "Cache-Control": "private, max-age=600",
-                "X-Media-Proxy-Trace": trace_id,
-                "Content-Disposition": content_disposition_for_media(source_url, content_type),
-            },
+            headers=headers,
         )

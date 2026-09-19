@@ -29,10 +29,12 @@ def register_error_handlers(app: FastAPI) -> None:
         # Log the real exception server-side but never leak internal details
         # (file paths, hostnames, library internals) to the client.
         _logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+        # This handler is installed on ServerErrorMiddleware, which sits OUTSIDE
+        # the middleware stack, so the default refusal never reaches this body.
         return JSONResponse(
             status_code=500,
             content={"error": {"message": "Internal server error", "type": "internal_error"}},
-            headers={"Access-Control-Allow-Origin": "*"},
+            headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
         )
 
     @app.exception_handler(HTTPException)
