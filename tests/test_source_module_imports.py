@@ -178,7 +178,6 @@ _KNOWN_UNUSED_IMPORTS: set[tuple[str, str]] = {
     ("cli.py", "_summarize_cdp_tabs"),
     ("cli.py", "_token_identity_email"),
     ("cli.py", "_wait_for_substrate_websocket_token"),
-    ("refresh_scheduler.py", "json"),
     ("refresh_scheduler.py", "designer_file_token"),
     ("refresh_scheduler.py", "_is_login_url"),
     ("refresh_scheduler.py", "_is_logged_out_shell"),

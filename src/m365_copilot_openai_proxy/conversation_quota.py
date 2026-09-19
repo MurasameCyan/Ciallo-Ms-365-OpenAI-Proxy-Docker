@@ -31,7 +31,7 @@ from typing import Any
 
 
 class ConversationQuotaStore:
-    """Newest quota seen per account id. Bounded, unpersisted, thread-safe."""
+    """Newest quota per account. Bounded readings, unpersisted, thread-safe."""
 
     # An account id per entry and a handful of ints; the cap only exists so a
     # long-lived process with many rotated accounts cannot grow without bound.
@@ -40,6 +40,11 @@ class ConversationQuotaStore:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._by_account: dict[str, dict[str, Any]] = {}
+        # Account ids are never reused. Keep deletions for this process's
+        # lifetime: evicting one would let an old in-flight callback revive it.
+        # Unlike readings, these contain only ids; restart drops all callbacks
+        # as well as these tombstones, so neither needs persistence.
+        self._forgotten: set[str] = set()
 
     def record(self, account_id: str, quota: dict[str, int] | None) -> None:
         """Store one reading. A falsy quota is ignored, never stored as zeros."""
@@ -67,6 +72,8 @@ class ConversationQuotaStore:
                 100, round(entry["messages"] / entry["max_messages"] * 100, 2)
             )
         with self._lock:
+            if account_id in self._forgotten:
+                return
             self._by_account[account_id] = entry
             if len(self._by_account) > self._MAX_ACCOUNTS:
                 # Drop the least recently reported, not an arbitrary one.
@@ -90,13 +97,14 @@ class ConversationQuotaStore:
         Deliberately this rather than a generic ``clear()``: a quota row that
         outlives its account is exactly the stale-authority problem this
         module's header rejects. `/admin/stats` would keep showing a spent
-        count for an identity that no longer exists, and no future turn can
-        correct it -- nothing will ever report under that id again. Wired to
-        the account-deletion route beside `key_store.detach_account`, which
-        cleans up the same event's other dangling reference.
+        count for an identity that no longer exists. A turn already in flight
+        can still report after deletion, so remember the deletion under the
+        same lock as record(). Wired to the account-deletion route beside
+        `key_store.detach_account`, which cleans up the other dangling reference.
         """
         account_id = str(account_id or "").strip()
         if not account_id:
             return
         with self._lock:
+            self._forgotten.add(account_id)
             self._by_account.pop(account_id, None)

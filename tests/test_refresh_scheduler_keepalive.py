@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from m365_copilot_openai_proxy import refresh_scheduler as rs
 from m365_copilot_openai_proxy.account_store import Account
 from m365_copilot_openai_proxy.refresh_scheduler import RefreshScheduler
@@ -104,6 +106,38 @@ def test_consumer_keepalive_due_once_the_credential_is_stale(tmp_path):
     sched = _make_scheduler(tmp_path)
     acct = _consumer(age=rs._CONSUMER_KEEPALIVE_AGE_SECONDS + 60)
     assert sched._consumer_keepalive_due(acct) is True
+
+
+def test_consumer_keepalive_uses_known_token_expiry_before_age(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(
+        age=60,
+        consumer_token_expires_at=time.time() + rs._CONSUMER_REFRESH_BEFORE_SECONDS - 1,
+    )
+    assert sched._consumer_keepalive_due(acct) is True
+
+
+@pytest.mark.parametrize("expiry", [
+    pytest.param(float("inf"), id="infinity"),
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(10**400, id="overflow"),
+    pytest.param(True, id="boolean"),
+    pytest.param("invalid", id="malformed"),
+])
+def test_consumer_keepalive_ignores_invalid_expiry(tmp_path, expiry):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(age=60, consumer_token_expires_at=expiry)
+
+    assert sched._consumer_keepalive_due(acct) is False
+
+
+def test_consumer_expiry_safety_window_includes_its_boundary(tmp_path):
+    sched = _make_scheduler(tmp_path)
+    acct = _consumer(consumer_token_expires_at=2000.0)
+    boundary = 2000.0 - rs._CONSUMER_REFRESH_BEFORE_SECONDS
+
+    assert sched._consumer_expiry_due(acct, now=boundary - 1) is False
+    assert sched._consumer_expiry_due(acct, now=boundary) is True
 
 
 def test_consumer_keepalive_not_due_while_the_credential_is_fresh(tmp_path):

@@ -9,8 +9,11 @@ gate failure degrades to False instead of propagating.
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import time
 
+import httpx
 import pytest
 
 from m365_copilot_openai_proxy.account_store import AccountStore
@@ -312,6 +315,167 @@ def test_passive_ensure_fresh_does_not_launch_a_browser(tmp_path):
     sched = _sched(store, tmp_path, gate)
     assert asyncio.run(sched.ensure_fresh(acct_id)) is True
     assert calls == []
+
+
+def test_passive_ensure_fresh_refreshes_a_known_expiring_consumer_token(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    current = store.get(acct_id)
+    store.set_consumer_auth(
+        acct_id,
+        current.cookies,
+        current.consumer_token,
+        current.consumer_identity_type,
+        consumer_account_id=current.consumer_account_id,
+        expires_at=time.time() + refresh_scheduler_module._CONSUMER_REFRESH_BEFORE_SECONDS - 1,
+    )
+    calls = []
+
+    async def refresh(account_id):
+        calls.append(account_id)
+        return True
+
+    sched = RefreshScheduler(account_store=store, profile_root=tmp_path / "profiles")
+    sched.refresh_consumer = refresh
+
+    assert asyncio.run(sched.ensure_fresh(acct_id)) is True
+    assert calls == [acct_id]
+
+
+def test_passive_expiry_refresh_backs_off_after_a_failed_attempt(tmp_path):
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    store.get(acct_id).consumer_token_expires_at = time.time() + 60
+    calls = []
+
+    async def gate():
+        calls.append(acct_id)
+        raise RuntimeError("temporary gate failure")
+
+    sched = _sched(store, tmp_path, gate)
+
+    async def run():
+        assert await sched.ensure_fresh(acct_id) is True
+        assert await sched.ensure_fresh(acct_id) is True
+        assert calls == [acct_id]
+        # An explicit admin refresh still overrides the passive retry delay.
+        assert await sched.ensure_fresh(acct_id, force=True) is True
+        assert calls == [acct_id, acct_id]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("status", [200, 503])
+def test_concurrent_expiry_requests_share_one_refresh_attempt(tmp_path, monkeypatch, status):
+    from m365_copilot_openai_proxy import consumer_refresh_via_rt as rt
+
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    account = store.get(acct_id)
+    store.set_consumer_auth(
+        acct_id,
+        account.cookies,
+        account.consumer_token,
+        consumer_account_id="home:account-a.tenant-a",
+        expires_at=time.time() + 60,
+        consumer_refresh_token="stored-refresh-token-" + "x" * 40,
+        consumer_refresh_token_client_id=rt.CONSUMER_CLIENT_ID,
+        consumer_refresh_token_scope=rt.CONSUMER_CHATAI_SCOPE,
+    )
+    http_calls = []
+    gate_calls = []
+
+    async def run():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def post_token(**kwargs):
+            http_calls.append(kwargs)
+            started.set()
+            await release.wait()
+            return httpx.Response(status, json={
+                "access_token": "fresh-token",
+                "refresh_token": "rotated-refresh-token-" + "x" * 40,
+                "expires_in": 3600,
+                "client_info": base64.urlsafe_b64encode(json.dumps({
+                    "uid": "account-a", "utid": "tenant-a",
+                }).encode()).decode(),
+                "error": "temporarily_unavailable",
+            })
+
+        async def gate():
+            gate_calls.append(acct_id)
+            raise RuntimeError("temporary gate failure")
+
+        monkeypatch.setattr(rt, "_post_token", post_token)
+        sched = _sched(store, tmp_path, gate)
+        first = asyncio.create_task(sched.ensure_fresh(acct_id))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        queued = [asyncio.create_task(sched.ensure_fresh(acct_id)) for _ in range(4)]
+        # Let every waiter reach the lock while the first HTTP call is held.
+        await asyncio.sleep(0)
+        release.set()
+        results = await asyncio.wait_for(asyncio.gather(first, *queued), timeout=5)
+        assert results == [True] * 5
+
+    asyncio.run(run())
+
+    assert len(http_calls) == 1
+    assert len(gate_calls) == (0 if status == 200 else 1)
+    reopened = AccountStore(tmp_path / "accounts.json").get(acct_id)
+    assert reopened.consumer_token == ("fresh-token" if status == 200 else "old-token")
+
+
+def test_a_new_push_is_not_coalesced_with_an_older_failed_refresh(tmp_path):
+    from m365_copilot_openai_proxy.routes_user import (
+        _BACKGROUND_TASKS,
+        _spawn_post_push_refresh,
+    )
+
+    store = _store(tmp_path)
+    acct_id = _consumer_account(store)
+    seeds = []
+
+    async def run():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        sched = RefreshScheduler(account_store=store, profile_root=tmp_path / "profiles")
+
+        def factory(account_id):
+            seed = store.get(account_id).consumer_token
+
+            async def gate():
+                seeds.append(seed)
+                if seed == "old-token":
+                    started.set()
+                    await release.wait()
+                return {
+                    "access_token": "reminted-" + seed,
+                    "account_id": "home:account-a",
+                    "cookies": [{"name": "WLSSC", "value": "fresh", "domain": ".live.com", "path": "/"}],
+                }
+
+            return gate
+
+        sched._consumer_gate_factory = factory
+        first = asyncio.create_task(sched.refresh_consumer(acct_id))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        store.set_consumer_auth(
+            acct_id, store.get(acct_id).cookies, "pushed-token", consumer_account_id="home:account-a"
+        )
+        previous_tasks = set(_BACKGROUND_TASKS)
+        _spawn_post_push_refresh(sched, acct_id, force=True)
+        pushed_tasks = set(_BACKGROUND_TASKS) - previous_tasks
+        assert len(pushed_tasks) == 1
+        await asyncio.sleep(0)
+        release.set()
+        results = await asyncio.wait_for(asyncio.gather(first, *pushed_tasks), timeout=5)
+        assert results[0] is False  # The old result lost the existing CAS race.
+
+    asyncio.run(run())
+
+    assert seeds == ["old-token", "pushed-token"]
+    assert store.get(acct_id).consumer_token == "reminted-pushed-token"
 
 
 def test_forced_ensure_fresh_still_reports_true_on_a_failed_remint(tmp_path):

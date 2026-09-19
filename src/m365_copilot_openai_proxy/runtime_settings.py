@@ -118,6 +118,8 @@ _BUILTIN_CONSUMER_MODE_OPTIONS = [
     {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
     {"model": "copilot-study", "mode": "study", "status": "experimental"},
 ]
+_TONE_OPTIONS_SCHEMA_VERSION = 2
+
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
     "model_alias": "m365-copilot",
@@ -191,6 +193,7 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # string, so future upstream modes work without a code change) and the labels
     # are the editable display names. Defaults to the built-in list.
     "tone_options": [dict(o) for o in _BUILTIN_TONE_OPTIONS],
+    "tone_options_schema_version": _TONE_OPTIONS_SCHEMA_VERSION,
     # Consumer exposes facade model ids which map to the raw WebSocket `mode`.
     # It is deliberately separate from M365 tones and has no persistent suffix.
     "consumer_mode_options": [dict(o) for o in _BUILTIN_CONSUMER_MODE_OPTIONS],
@@ -468,10 +471,23 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     persisted_tone_options = raw.get("tone_options") if isinstance(raw, dict) else None
+    persisted_tone_version = (
+        raw.get("tone_options_schema_version", 0) if isinstance(raw, dict) else 0
+    )
+    if not isinstance(persisted_tone_version, int) or isinstance(persisted_tone_version, bool):
+        persisted_tone_version = 0
     tone_options = data.get("tone_options")
-    if persisted_tone_options in _HISTORICAL_BUILTIN_TONE_OPTIONS:
+    if (
+        persisted_tone_version < _TONE_OPTIONS_SCHEMA_VERSION
+        and persisted_tone_options in _HISTORICAL_BUILTIN_TONE_OPTIONS
+    ):
         tone_options = _BUILTIN_TONE_OPTIONS
     data["tone_options"] = normalize_tone_options(tone_options)
+    # Once saved by this version, a historical-looking list may be intentional
+    # (for example, an operator removed Grok). Do not re-expand it on restart.
+    data["tone_options_schema_version"] = max(
+        persisted_tone_version, _TONE_OPTIONS_SCHEMA_VERSION
+    )
     persisted_consumer_options = (
         raw.get("consumer_mode_options") if isinstance(raw, dict) else None
     )

@@ -8,7 +8,11 @@ from fastapi import FastAPI, Request
 
 from .account_serializers import account_binding_state, user_account_public
 from .auth_helpers import _validate_password
-from .account_store import _normalize_consumer_account_id, extract_identity
+from .account_store import (
+    _normalize_consumer_account_id,
+    _normalize_consumer_token_expiry,
+    extract_identity,
+)
 from .config import Settings
 from .key_store import ApiKey
 from .response_helpers import _json_err
@@ -526,21 +530,28 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                     "The refresh token belongs to a different Microsoft account than the pushed session",
                 )
         # The issuer's own expiry, which is what lets renewal run BEFORE a turn
-        # fails. Both forms are accepted: a token response carries `expires_in`,
-        # while the MSAL cache entry carries an absolute `expiresOn`.
+        # fails. Token responses carry `expires_in`; the userscript maps the
+        # MSAL cache's absolute `expiresOn` to `expires_at`.
         consumer_expires_at: float | None = None
         raw_expires_at = body.get("expires_at")
         raw_expires_in = body.get("expires_in")
         if isinstance(raw_expires_at, (int, float)) and not isinstance(
             raw_expires_at, bool
         ):
-            consumer_expires_at = float(raw_expires_at)
+            candidate = _normalize_consumer_token_expiry(raw_expires_at)
+            if candidate <= 0:
+                return _json_err(400, "Consumer token expires_at is invalid")
+            consumer_expires_at = candidate
         elif (
             isinstance(raw_expires_in, (int, float))
             and not isinstance(raw_expires_in, bool)
-            and raw_expires_in > 0
         ):
-            consumer_expires_at = time.time() + float(raw_expires_in)
+            lifetime = _normalize_consumer_token_expiry(raw_expires_in)
+            if lifetime <= 0:
+                return _json_err(400, "Consumer token expires_in is invalid")
+            consumer_expires_at = _normalize_consumer_token_expiry(time.time() + lifetime)
+            if consumer_expires_at <= 0:
+                return _json_err(400, "Consumer token expires_in is invalid")
         username = body.get("username")
         account_name = username.strip() if isinstance(username, str) else ""
         if not k.account_id or app.state.account_store.get(k.account_id) is None:

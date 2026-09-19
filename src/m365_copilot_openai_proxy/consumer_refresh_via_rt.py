@@ -206,6 +206,9 @@ async def _post_token(*, client_id: str, refresh_token: str, scope: str, proxy: 
                 "client_id": client_id,
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
+                # MSA omits the subject metadata unless explicitly requested.
+                # The pinned-account check below requires MSAL's uid/utid pair.
+                "client_info": "1",
                 # offline_access keeps the chain alive: without it AAD returns no
                 # rotated RT and this renewal would consume the grant silently.
                 "scope": f"{scope} openid profile offline_access",

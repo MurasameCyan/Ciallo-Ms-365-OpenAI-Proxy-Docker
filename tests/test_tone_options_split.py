@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy.app import create_app
@@ -198,6 +199,45 @@ DEFAULT_VALUES_BEFORE_GROK_4_5 = [
 def _default_tone_options_limited_to(values):
     by_value = {option["value"]: option for option in TONE_OPTIONS}
     return [dict(by_value[value]) for value in values]
+
+
+@pytest.mark.parametrize("version", [
+    runtime_settings._TONE_OPTIONS_SCHEMA_VERSION,
+    runtime_settings._TONE_OPTIONS_SCHEMA_VERSION + 1,
+])
+def test_read_runtime_settings_preserves_removed_grok_after_catalogue_is_versioned(tmp_path, version):
+    options = _default_tone_options_limited_to(DEFAULT_VALUES_BEFORE_GROK_4_5)
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({
+            "tone_options": options,
+            "tone_options_schema_version": version,
+        }),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == options
+
+
+def test_admin_removed_tone_stays_removed_after_saving_and_restarting(tmp_path):
+    options = _default_tone_options_limited_to(DEFAULT_VALUES_BEFORE_GROK_4_5)
+    config = Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="")
+    client = TestClient(create_app(config))
+
+    response = client.post("/admin/runtime-settings", json={
+        "tone_options": options,
+        # This is a server-owned migration marker, not an editable setting.
+        "tone_options_schema_version": 0,
+    })
+
+    assert response.status_code == 200
+    persisted = json.loads((tmp_path / "runtime_settings.json").read_text(encoding="utf-8"))
+    assert persisted["tone_options_schema_version"] == runtime_settings._TONE_OPTIONS_SCHEMA_VERSION
+    restarted = create_app(config)
+    assert restarted.state.tone_options == options
+    models = TestClient(restarted).get("/v1/models").json()["data"]
+    assert not any("grok" in model["id"].lower() for model in models)
 
 
 def test_read_runtime_settings_migrates_defaults_that_predate_each_added_tone(tmp_path):

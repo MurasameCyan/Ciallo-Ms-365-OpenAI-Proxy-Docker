@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import time
@@ -31,6 +32,17 @@ _STUDIO_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{3,512}$")
 def _normalize_consumer_account_id(value: object) -> str:
     account_id = str(value or "").strip().lower()
     return account_id if _CONSUMER_ACCOUNT_ID_RE.fullmatch(account_id) else ""
+
+
+def _normalize_consumer_token_expiry(value: object) -> float:
+    """Issuer-reported timestamp, or unknown without discarding credentials."""
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        expires_at = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return expires_at if math.isfinite(expires_at) and expires_at > 0 else 0.0
 
 
 def normalize_studio_agent_id(value: object) -> str:
@@ -385,8 +397,8 @@ class AccountStore:
                         raw.get("consumer_account_id", "")
                     ),
                     consumer_updated_at=float(raw.get("consumer_updated_at", 0.0) or 0.0),
-                    consumer_token_expires_at=float(
-                        raw.get("consumer_token_expires_at", 0.0) or 0.0
+                    consumer_token_expires_at=_normalize_consumer_token_expiry(
+                        raw.get("consumer_token_expires_at")
                     ),
                     consumer_refresh_token=str(
                         raw.get("consumer_refresh_token", "") or ""
@@ -703,9 +715,7 @@ class AccountStore:
             # brand-new token inherit the old token's deadline -- a stale expiry
             # would either expire a live credential early or, worse, vouch for a
             # dead one.
-            acc.consumer_token_expires_at = (
-                max(0.0, float(expires_at)) if expires_at is not None else 0.0
-            )
+            acc.consumer_token_expires_at = _normalize_consumer_token_expiry(expires_at)
             # Consumer login cookies are session cookies with no useful expiry of
             # their own, so cookie_expires_at stays 0 and the UI's binding state
             # rests on presence alone.
@@ -1003,7 +1013,7 @@ class AccountStore:
                 acc.consumer_refresh_token_updated_at = time.time()
             acc.consumer_refresh_token_retry_after = 0.0
             acc.consumer_token = fresh
-            acc.consumer_token_expires_at = max(0.0, float(expires_at or 0.0))
+            acc.consumer_token_expires_at = _normalize_consumer_token_expiry(expires_at)
             now = time.time()
             acc.consumer_updated_at = now
             acc.updated_at = now

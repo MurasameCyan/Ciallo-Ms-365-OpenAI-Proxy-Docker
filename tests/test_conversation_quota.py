@@ -310,6 +310,14 @@ def test_a_deleted_account_stops_being_reported():
     assert "gone" not in store.stats()
     assert store.stats()["stays"]["messages"] == 3
 
+def test_a_late_inflight_report_after_forget_is_ignored():
+    store = ConversationQuotaStore()
+
+    store.forget("gone")
+    store.record("gone", {"messages": 12, "max_messages": 600})
+
+    assert "gone" not in store.stats()
+
 
 @pytest.mark.parametrize("unknown", ["never_seen", "", "   "])
 def test_forgetting_an_account_that_never_reported_is_harmless(unknown):
@@ -372,11 +380,17 @@ def test_deleting_an_account_clears_its_quota_from_the_admin_snapshot(tmp_path):
     app, client = _admin_client(tmp_path)
     doomed = app.state.account_store.add(name="doomed", token="")
     kept = app.state.account_store.add(name="kept", token="")
+    from types import SimpleNamespace
+    from m365_copilot_openai_proxy.dependencies import _attach_quota_sink
+
+    inflight_client = SimpleNamespace()
+    _attach_quota_sink(app, inflight_client, doomed)
     app.state.conversation_quota_store.record(doomed.id, {"messages": 12, "max_messages": 600})
     app.state.conversation_quota_store.record(kept.id, {"messages": 3, "max_messages": 600})
     assert doomed.id in _quota_in_stats(client)
 
     assert client.delete(f"/admin/accounts/{doomed.id}").status_code == 200
+    inflight_client._quota_sink({"messages": 13, "max_messages": 600})
 
     surfaced = _quota_in_stats(client)
     assert doomed.id not in surfaced

@@ -1,7 +1,7 @@
 services:
   ciallo-proxy-multi:
-    # 默认镜像不含 Camoufox：个人版（consumer）账户凭据过期后只能靠油猴脚本重推。
-    # 想让服务端自己续凭据，换成带 -camoufox 后缀的镜像（约 +936 MB）：
+    # 默认镜像可用已验证的个人版 MSA RT 续期，但不含 Camoufox 浏览器回退。
+    # 若需在 RT 缺失或失效时重铸凭据，换成带 -camoufox 后缀的镜像（约 +936 MB）：
     # image: ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:multi-camoufox
     image: ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:multi
     container_name: ciallo-ms365-proxy-multi

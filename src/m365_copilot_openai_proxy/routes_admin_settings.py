@@ -13,6 +13,7 @@ from .runtime_settings import (
     _LOG_LEVELS,
     _RUNTIME_SETTINGS_DEFAULTS,
     _RUN_PERMISSIONS,
+    _TONE_OPTIONS_SCHEMA_VERSION,
     _write_runtime_settings,
     apply_proxy_env,
     normalize_consumer_mode_options,
@@ -129,6 +130,10 @@ def register_admin_settings_routes(
             "media_proxy_suffixes": normalize_media_proxy_suffixes(body.get("media_proxy_suffixes", current.get("media_proxy_suffixes"))) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES),
             "media_proxy_ttl_seconds": int_setting("media_proxy_ttl_seconds", 60),
             "tone_options": normalize_tone_options(body.get("tone_options", current.get("tone_options"))),
+            "tone_options_schema_version": max(
+                _TONE_OPTIONS_SCHEMA_VERSION,
+                current.get("tone_options_schema_version", 0),
+            ),
             "consumer_mode_options": consumer_mode_options,
         }
         if data["log_level"] not in _LOG_LEVELS:

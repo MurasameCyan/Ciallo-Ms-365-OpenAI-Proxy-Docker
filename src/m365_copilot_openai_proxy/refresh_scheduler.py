@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from .account_store import (
     AccountStore,
     _normalize_consumer_account_id,
+    _normalize_consumer_token_expiry,
     extract_identity,
 )
 from .consumer_gate import _pick_cookies
@@ -61,6 +62,10 @@ from .runtime_flags import elog, ulog
 # How many seconds before token expiry we proactively refresh. Matches the
 # single-tenant --refresh-before-seconds default so behaviour stays familiar.
 _REFRESH_BEFORE_SECONDS = 300
+# Consumer ChatAI tokens are opaque, but issuer-reported expiry can still drive
+# the same proactive safety window. Unknown expiry falls back to age-based
+# keepalive below.
+_CONSUMER_REFRESH_BEFORE_SECONDS = _REFRESH_BEFORE_SECONDS
 # Fallback TTL for the designer auth token (a raw JWE we cannot decode for its
 # real exp): treat it as stale once it ages past this since last capture. media
 # tokens are Bearer JWTs and use their own exp instead. Kept conservative so a
@@ -78,10 +83,9 @@ _COOKIE_KEEPALIVE_BEFORE_SECONDS = 2 * 60 * 60
 # Min gap between self-heal cookie re-injections for one stuck account, so a
 # genuinely dead session does not relaunch Chromium every keepalive tick.
 _RECOVERY_RETRY_SECONDS = 30 * 60
-# How old a consumer credential may get before keepalive re-mints it. The ChatAI
-# token is an opaque JWE with no readable exp, so age since capture is the only
-# signal available; an hour keeps it well inside any plausible lifetime while
-# costing one ~7s browser launch per account per hour.
+# How old a consumer credential may get before keepalive renews it, even when
+# the opaque ChatAI token has no issuer-reported expiry. Keep the MSA browser
+# session warm without launching a browser for every request.
 _CONSUMER_KEEPALIVE_AGE_SECONDS = 60 * 60
 # Backoff after a failed consumer refresh. Failure normally means the MSA session
 # in the profile lapsed, which only an interactive sign-in fixes, so retrying
@@ -112,6 +116,9 @@ class RefreshScheduler:
         self._account_locks: dict[str, asyncio.Lock] = {}
         self._cdp_refresh_generation: dict[str, int] = {}
         self._cdp_refresh_result: dict[str, bool] = {}
+        self._consumer_refresh_generation: dict[str, int] = {}
+        self._consumer_refresh_result: dict[str, bool] = {}
+        self._consumer_refresh_snapshot: dict[str, str] = {}
         # Background keepalive task handle + stop flag (set on app shutdown).
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_stop: asyncio.Event | None = None
@@ -224,6 +231,31 @@ class RefreshScheduler:
             removed = self._accounts.remove(account_id)
             return removed
 
+    def _consumer_credential_state(self, account) -> str:
+        """Identify a refresh input without retaining old bearer credentials."""
+        fields = (
+            "consumer_token",
+            "consumer_updated_at",
+            "consumer_identity_type",
+            "consumer_account_id",
+            "consumer_refresh_token",
+            "consumer_refresh_token_client_id",
+            "consumer_refresh_token_scope",
+            "proxy_url",
+        )
+        snapshot = json.dumps([getattr(account, name, "") for name in fields])
+        return hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
+
+    def _consumer_expiry_due(self, account, now: float | None = None) -> bool:
+        """Whether a known consumer token expiry is inside the safety window."""
+        expires_at = _normalize_consumer_token_expiry(
+            getattr(account, "consumer_token_expires_at", 0.0)
+        )
+        if expires_at <= 0:
+            return False
+        current = time.time() if now is None else now
+        return current >= expires_at - _CONSUMER_REFRESH_BEFORE_SECONDS
+
     def _consumer_keepalive_due(self, account) -> bool:
         """True if a consumer account's credential is stale enough to re-mint."""
         if getattr(account, "provider", "m365") != "consumer":
@@ -236,11 +268,14 @@ class RefreshScheduler:
             getattr(account, "consumer_account_id", "")
         ):
             return False
+        now = time.time()
         last_attempt = self._consumer_attempted_at.get(account.id, 0.0)
-        if time.time() - last_attempt < _CONSUMER_RETRY_SECONDS:
+        if now - last_attempt < _CONSUMER_RETRY_SECONDS:
             return False
+        if self._consumer_expiry_due(account, now):
+            return True
         captured = getattr(account, "consumer_updated_at", 0.0) or 0.0
-        return time.time() - captured >= _CONSUMER_KEEPALIVE_AGE_SECONDS
+        return now - captured >= _CONSUMER_KEEPALIVE_AGE_SECONDS
 
     def _build_consumer_gate(self, account_id: str, account=None):
         if self._consumer_gate_factory is not None:
@@ -271,6 +306,38 @@ class RefreshScheduler:
         stored credential may well still work, so a failure here is a missed
         opportunity, not a reason to fail the caller's request.
         """
+        queued_generation = self._consumer_refresh_generation.get(account_id, 0)
+        async with self._account_lock(account_id):
+            account = self._accounts.get(account_id)
+            if account is None or account.provider != "consumer":
+                return False
+            generation = self._consumer_refresh_generation.get(account_id, 0)
+            snapshot = self._consumer_credential_state(account)
+            # Another waiter completed an attempt while this caller queued.
+            # Share failures too, rather than launch one browser per request.
+            # A newer push is a different input and must get its own attempt.
+            if (
+                generation != queued_generation
+                and self._consumer_refresh_snapshot.get(account_id) == snapshot
+            ):
+                return bool(account.consumer_token) and self._consumer_refresh_result.get(
+                    account_id, False
+                )
+            self._consumer_refresh_snapshot[account_id] = snapshot
+            result = False
+            try:
+                result = await self._refresh_consumer_once(account_id)
+                return result
+            finally:
+                if result:
+                    self._consumer_refresh_snapshot[account_id] = self._consumer_credential_state(
+                        self._accounts.get(account_id)
+                    )
+                self._consumer_refresh_generation[account_id] = generation + 1
+                self._consumer_refresh_result[account_id] = result
+
+    async def _refresh_consumer_once(self, account_id: str) -> bool:
+        """Perform one RT/browser attempt with the account lock held."""
         account = self._accounts.get(account_id)
         if account is None or getattr(account, "provider", "m365") != "consumer":
             return False
@@ -284,9 +351,8 @@ class RefreshScheduler:
             refresh_consumer_via_rt,
         )
 
-        async with self._account_lock(account_id):
-            if await refresh_consumer_via_rt(self._accounts, account_id):
-                return True
+        if await refresh_consumer_via_rt(self._accounts, account_id):
+            return True
 
         from .consumer_camoufox import CamoufoxUnavailable, reset_consumer_profile
 
@@ -295,116 +361,118 @@ class RefreshScheduler:
         # The global lock keeps this from running alongside a Chromium refresh --
         # two browsers at once is what the single-browser invariant exists to
         # avoid, and the box may not have RAM for both.
-        async with self._account_lock(account_id):
-            account = self._accounts.get(account_id)
-            if account is None or getattr(account, "provider", "m365") != "consumer":
-                return False
-            expected_account_id = _normalize_consumer_account_id(
-                getattr(account, "consumer_account_id", "")
+        account = self._accounts.get(account_id)
+        if account is None or getattr(account, "provider", "m365") != "consumer":
+            return False
+        # The RT path may itself discard an unusable grant. Bind a fallback
+        # failure to the input actually used by the gate, not that old grant.
+        self._consumer_refresh_snapshot[account_id] = self._consumer_credential_state(account)
+        expected_account_id = _normalize_consumer_account_id(
+            getattr(account, "consumer_account_id", "")
+        )
+        if not expected_account_id:
+            elog(
+                f"Consumer refresh skipped for {account_id}: no pinned Microsoft account id; re-push from the userscript"
             )
-            if not expected_account_id:
-                elog(
-                    f"Consumer refresh skipped for {account_id}: no pinned Microsoft account id; re-push from the userscript"
-                )
+            return False
+        snapshot = (
+            account.consumer_updated_at,
+            account.consumer_token,
+            expected_account_id,
+        )
+        previous_identity_type = getattr(
+            account, "consumer_identity_type", ""
+        )
+        gate = self._build_consumer_gate(account_id, account)
+        async with self._lock:
+            ulog(f"Consumer refresh starting Camoufox for {account_id}")
+            try:
+                auth = await gate()
+            except CamoufoxUnavailable as exc:
+                elog(f"Consumer refresh unavailable for {account_id}: {exc}")
                 return False
-            snapshot = (
-                account.consumer_updated_at,
-                account.consumer_token,
-                expected_account_id,
+            except Exception as exc:  # noqa: BLE001 - browser failures vary
+                elog(f"Consumer refresh failed for {account_id}: {exc}")
+                return False
+        token = str(auth.get("access_token") or "").strip()
+        if not token:
+            elog(f"Consumer refresh for {account_id} returned no token")
+            return False
+        if token == snapshot[1]:
+            elog(f"Consumer refresh for {account_id} returned the previous token")
+            return False
+        actual_account_id = _normalize_consumer_account_id(
+            auth.get("account_id")
+        )
+        if actual_account_id != expected_account_id:
+            reset_consumer_profile(
+                self._consumer_profile_dir(account_id, expected_account_id)
             )
-            previous_identity_type = getattr(
-                account, "consumer_identity_type", ""
+            elog(
+                f"Consumer refresh rejected for {account_id}: Microsoft account mismatch or missing identity"
             )
-            gate = self._build_consumer_gate(account_id, account)
-            async with self._lock:
-                ulog(f"Consumer refresh starting Camoufox for {account_id}")
-                try:
-                    auth = await gate()
-                except CamoufoxUnavailable as exc:
-                    elog(f"Consumer refresh unavailable for {account_id}: {exc}")
-                    return False
-                except Exception as exc:  # noqa: BLE001 - browser failures vary
-                    elog(f"Consumer refresh failed for {account_id}: {exc}")
-                    return False
-            token = str(auth.get("access_token") or "").strip()
-            if not token:
-                elog(f"Consumer refresh for {account_id} returned no token")
-                return False
-            if token == snapshot[1]:
-                elog(f"Consumer refresh for {account_id} returned the previous token")
-                return False
-            actual_account_id = _normalize_consumer_account_id(
-                auth.get("account_id")
+            return False
+        cookies = auth.get("cookies") or []
+        cookie_list = [
+            dict(cookie) for cookie in cookies if isinstance(cookie, dict)
+        ]
+        if not _pick_cookies(cookie_list):
+            elog(
+                f"Consumer refresh for {account_id} returned no reusable cookies"
             )
-            if actual_account_id != expected_account_id:
-                reset_consumer_profile(
-                    self._consumer_profile_dir(account_id, expected_account_id)
-                )
-                elog(
-                    f"Consumer refresh rejected for {account_id}: Microsoft account mismatch or missing identity"
-                )
-                return False
-            cookies = auth.get("cookies") or []
-            cookie_list = [
-                dict(cookie) for cookie in cookies if isinstance(cookie, dict)
-            ]
-            if not _pick_cookies(cookie_list):
-                elog(
-                    f"Consumer refresh for {account_id} returned no reusable cookies"
-                )
-                return False
-            # A browser refresh can also expose the MSA RT from its MSAL cache.
-            # It is part of this same snapshot only when the reader proved the
-            # grant's subject equals the access token's subject; otherwise keep
-            # any existing RT and never establish a new unverified fast path.
-            gate_refresh_token = ""
-            gate_refresh_client_id = ""
-            gate_refresh_scope = ""
-            gate_rt = str(auth.get("refresh_token") or "").strip()
-            gate_rt_subject = _normalize_consumer_account_id(
-                auth.get("refresh_token_account_id")
+            return False
+        # A browser refresh can also expose the MSA RT from its MSAL cache.
+        # It is part of this same snapshot only when the reader proved the
+        # grant's subject equals the access token's subject; otherwise keep
+        # any existing RT and never establish a new unverified fast path.
+        gate_refresh_token = ""
+        gate_refresh_client_id = ""
+        gate_refresh_scope = ""
+        gate_rt = str(auth.get("refresh_token") or "").strip()
+        gate_rt_subject = _normalize_consumer_account_id(
+            auth.get("refresh_token_account_id")
+        )
+        if gate_rt and gate_rt_subject == expected_account_id:
+            gate_refresh_token = normalize_consumer_refresh_token(gate_rt)
+            gate_refresh_client_id = normalize_consumer_client_id(
+                auth.get("refresh_token_client_id")
             )
-            if gate_rt and gate_rt_subject == expected_account_id:
-                gate_refresh_token = normalize_consumer_refresh_token(gate_rt)
-                gate_refresh_client_id = normalize_consumer_client_id(
-                    auth.get("refresh_token_client_id")
-                )
-                gate_refresh_scope = normalize_consumer_scope(
-                    auth.get("refresh_token_scope")
-                )
-                if not (
-                    gate_refresh_token
-                    and gate_refresh_client_id
-                    and gate_refresh_scope
-                ):
-                    gate_refresh_token = ""
-                    gate_refresh_client_id = ""
-                    gate_refresh_scope = ""
-            stored = self._accounts.set_consumer_auth(
-                account_id,
-                cookie_list,
-                token,
-                str(auth.get("identity_type") or "") or previous_identity_type,
-                consumer_account_id=expected_account_id,
-                expected_snapshot=snapshot,
-                consumer_refresh_token=gate_refresh_token or None,
-                consumer_refresh_token_client_id=gate_refresh_client_id or None,
-                consumer_refresh_token_scope=gate_refresh_scope or None,
+            gate_refresh_scope = normalize_consumer_scope(
+                auth.get("refresh_token_scope")
             )
-            if stored is None:
-                elog(
-                    f"Consumer refresh discarded for {account_id}: credentials changed while the browser was running"
-                )
-                return False
-            if gate_refresh_token:
-                ulog(
-                    f"Consumer refresh for {account_id}: captured a refresh "
-                    "token, so the next renewal can skip the browser"
-                )
+            if not (
+                gate_refresh_token
+                and gate_refresh_client_id
+                and gate_refresh_scope
+            ):
+                gate_refresh_token = ""
+                gate_refresh_client_id = ""
+                gate_refresh_scope = ""
+        stored = self._accounts.set_consumer_auth(
+            account_id,
+            cookie_list,
+            token,
+            str(auth.get("identity_type") or "") or previous_identity_type,
+            consumer_account_id=expected_account_id,
+            expected_snapshot=snapshot,
+            consumer_refresh_token=gate_refresh_token or None,
+            consumer_refresh_token_client_id=gate_refresh_client_id or None,
+            consumer_refresh_token_scope=gate_refresh_scope or None,
+        )
+        if stored is None:
+            elog(
+                f"Consumer refresh discarded for {account_id}: credentials changed while the browser was running"
+            )
+            return False
+        if gate_refresh_token:
             ulog(
-                f"Consumer refresh for {account_id}: re-minted {len(cookie_list)} cookies"
+                f"Consumer refresh for {account_id}: captured a refresh "
+                "token, so the next renewal can skip the browser"
             )
-            return True
+        ulog(
+            f"Consumer refresh for {account_id}: re-minted {len(cookie_list)} cookies"
+        )
+        return True
 
     def _recovery_due(self, account) -> bool:
         """True for a cdp account stuck at cookie_valid=False that still holds
@@ -435,9 +503,8 @@ class RefreshScheduler:
                     if stop.is_set():
                         break
                     if self._consumer_keepalive_due(account):
-                        # Consumer accounts hold an opaque token we cannot check
-                        # for expiry, so keepalive re-mints on age instead. This
-                        # is what keeps the MSA session in the profile warm.
+                        # Refresh for issuer-reported expiry or credential age;
+                        # opaque tokens without a deadline still get keepalive.
                         ulog(f"Keepalive: re-minting consumer {account.id}")
                         try:
                             await self.refresh_consumer(account.id)
@@ -695,20 +762,26 @@ class RefreshScheduler:
         if account is None:
             elog(f"Refresh skipped: account {account_id} not found")
             return False
-        # Consumer (personal-account) Copilot has no substrate token and no
-        # refresh_token grant, so every path below -- RT exchange, cookie replay,
-        # CDP capture -- is meaningless for it. Guarding here rather than in the
+        # Consumer (personal-account) Copilot has its own token and MSA grant,
+        # so every M365 path below -- AAD RT, cookie replay, CDP capture -- is
+        # meaningless for it. Guarding here rather than in the
         # keepalive predicates covers the admin "Refresh" button too, since this
         # is the single entry point all of them share.
         if getattr(account, "provider", "m365") != "m365":
-            # A forced refresh (admin button / keepalive) re-mints through the
-            # unattended browser gate. The passive /v1 path deliberately does not:
-            # the stored token is opaque, so we have no reason to believe it is
-            # dead, and a ~7s browser launch in front of a live request would be
-            # a guaranteed cost against a speculative benefit. Expiry surfaces
-            # upstream as ClearanceRequired, which is where recovery belongs.
-            if force and await self.refresh_consumer(account_id):
+            # Consumer tokens are opaque, so unknown expiry remains a passive
+            # no-op. When the issuer reported an expiry, refresh before the
+            # safety window just like the M365 JWT path; force still means the
+            # admin/keepalive caller explicitly requested a re-mint.
+            # Reuse the background retry guard so an unavailable refresh path
+            # does not launch a browser in front of every incoming request.
+            expiry_due = (
+                self._consumer_expiry_due(account)
+                and self._consumer_keepalive_due(account)
+            )
+            if (force or expiry_due) and await self.refresh_consumer(account_id):
                 return True
+            # A failed proactive attempt leaves the existing token available for
+            # the consumer client's own ClearanceRequired recovery path.
             return bool(getattr(account, "consumer_token", ""))
         cdp_refresh_state = self._cdp_refresh_state(account)
         # Fast path: if the account carries an OAuth2 refresh_token, try the

@@ -34,10 +34,10 @@
 - **多账户池** — M365 与 Consumer 共用同一账户池；每个账户独立保存对应 provider 的凭据和刷新状态。M365 使用账户专属 Chromium profile，Consumer 在 `-camoufox` 镜像中使用账户专属 Camoufox profile，并可配置账户级出站代理
 - **多 API Key** — 每个 Key 绑定一个账户，可单独设置对话模式 / 提示词，随时启用停用
 - **模型即模式** — `GET /v1/models` 按 API Key 绑定的账户类型返回目录：M365 为对话模式（含「-持续」变体），个人版为可配置的 `model → mode` 别名
-- **非驻留串行刷新** — 按 provider 分流：M365 优先 RT 纯 HTTP 换 Token，失败再拉起账户专属 Chromium；Consumer 按年龄由账户专属 Camoufox 重铸 ChatAI Token 与 Cookie。两条路径共享全局浏览器锁，峰值内存接近单租户
+- **非驻留串行刷新** — 按 provider 分流：M365 优先 RT 纯 HTTP 换 Token，失败再拉起账户专属 Chromium；Consumer 使用独立的 MSA RT 续期，缺失或失败时回退到账户专属 Camoufox。浏览器路径共享全局锁，峰值内存接近单租户
 - **分层界面** — `/admin` 运营总控台（账户池 + Key 管理），`/` 用户自助页（用自己的 Key 管理对话模式、提示词和对应 provider 的账户凭据）
 - **运行概览面板** — `/admin` 首页四个环形图：账户有效 / 过期、用户启用 / 停用、用户绑定 / 未绑定、累计用量。累计用量按**调用次数**分份额（环心是 Token 总量），份额小到画不成弧形（短于环的厚度）或排不进图例六行的模型合并成灰色 `other`；图例一行一个模型、只显示百分比并统一右对齐到上方 KPI 卡片的右边框，原始次数仍在 `GET /admin/stats` 的 `usage.model_counts` 里
-- **请求前凭据检查** — 每个 `/v1/` 请求先检查绑定账户；M365 到期时自动续期，Consumer 遇到明确认证失败时可重铸一次并重试
+- **请求前凭据检查** — 每个 `/v1/` 请求先检查绑定账户；M365 临近到期时自动续期，Consumer 在已知有效期进入 5 分钟安全窗口时主动续期，并保留明确认证失败后的单次恢复重试
 - **油猴脚本** — Tampermonkey 一键推送 Token + Cookie（及 media / designer 凭据），M365 与个人版共用同一个脚本
 - **M365 授权登录** — `/` 与 `/admin` 均可走 OAuth2 授权码 + PKCE 登录（native client，滑动 `refresh_token`），不装扩展、不抓包，登录后续期纯 HTTP
 - **M365 增量上下文** — 复用会话时只发送新增内容，不重发完整历史
@@ -97,6 +97,8 @@
 共 **40** 个默认可选模型 ID（20 模式 × 2 变体）。目录表示可选择的 tone，**不表示当前账户能在所有路径下调用成功**。`Gpt_5_6_Chat`、`Gpt_5_3_Reasoning` 与 `Grok_4_5` 分别在此前的 08-28 / 08-25 / 09-18 复测中确认返回有效结果。
 
 **与历史默认列表完全相同的旧配置会在升级时自动迁移**，包括加入 Grok 之前的 19 模式列表、加入 Astra 之前的 17 模式列表和仅加入 Astra 的 18 模式列表。与这些历史默认列表不相同的自定义配置会被保留；需要新增模式时，请在 `/admin` → 运行设置中添加 `Grok_4_5 | grok-4.5`。
+
+运行设置保存时会写入服务端维护的 `tone_options_schema_version`。经当前版本保存的目录，即使因手动移除 Grok 而恰好与旧默认列表相同，也会在重启后保持定制，不再被旧目录迁移重新扩展。
 
 Docker 部署升级时，需要在部署目录执行 `docker compose pull`，再执行 `docker compose up -d --force-recreate`，拉取新镜像并重建容器；之后在客户端刷新模型列表。代码推送和镜像构建不会自动更新已经运行的容器。
 
@@ -271,7 +273,7 @@ docker compose up -d
 
 #### 查看状态
 
-`/` 与 `/admin` 都会显示账户的 Token 剩余有效期、Cookie 状态、`refresh_token` 是否入库。个人版的 ChatAI token 不是可解码的 JWT，只能显示「有没有存」—— 过期表现为 `/v1/` 返回 502，处理方式见[凭据过期后手动重推](#3-凭据过期后手动重推)。
+`/` 与 `/admin` 都会显示账户的 Token 剩余有效期、Cookie 状态、`refresh_token` 是否入库。个人版 ChatAI token 不是可解码的 JWT，但油猴脚本或 RT 响应提供的有效期可用于显示剩余时间；缺少有效期时只按凭据是否存在显示。已知过期会标为失效；恢复方式见[凭据过期后手动重推](#3-凭据过期后手动重推)。
 
 > **Check Login / Auto Capture / Cookie 注入依赖共享 admin Chromium（9222），仅在 `ENABLE_ADMIN_CDP=true` 时可用**。默认多租户部署下这些按钮对应的端点未注册；请改用 `/` 用户自助页推送账户 Token / Cookie，刷新由每账户独立 Chromium 或 RT 承担。
 
@@ -422,11 +424,11 @@ Codex 本次使用 `web_search="disabled"`。原生 Windows 的隔离配置中�
 
 应用启动时会一直运行账户池保活调度器，逐账户检查并按 `provider` 分流；它不因 API 空闲而暂停。Docker 入口只有在 `ENABLE_ADMIN_CDP=true` 且 `AUTO_REFRESH=true` 时才启动旧的共享 admin Chromium（9222），否则会关闭这条共享浏览器路径。独立运行 CLI 时，`--no-auto-refresh` 只停旧自动刷新线程，浏览器启动另由 `--no-launch-edge` 控制。**这些共享路径开关都不会关闭每账户 M365 保活，也不会关闭 Consumer Camoufox 保活**。
 
-1. **请求前检查** — 每个 `/v1/` 请求先由 API Key 找到绑定账户，再调用 `ensure_fresh(account.id)`。M365 Token 有效时是廉价 no-op；到期时先尝试 RT，失败再回退到账户专属 Chromium。Consumer Token 不透明，普通请求先使用现有凭据；若上游明确返回需要重新认证，Consumer gate 才对该账户重铸一次并重试当轮。
-2. **后台逐账户保活** — 调度器按配置间隔扫描整个账户池。M365 的 CDP 账户在 Cookie 临近过期时刷新，Cookie 已失效但仍有快照时尝试自愈；Consumer 凭据达到年龄阈值后，用该账户专属 Camoufox profile 重铸 Token 与 Cookie。
+1. **请求前检查** — 每个 `/v1/` 请求先由 API Key 找到绑定账户，再调用 `ensure_fresh(account.id)`。M365 Token 有效时是廉价 no-op；临期时先尝试 RT，失败再回退到账户专属 Chromium。Consumer 已知有效期进入 5 分钟安全窗口时也主动续期，遵守既有失败退避；未知有效期仍直接使用现有凭据。明确认证失败后的单次恢复重试保持不变。
+2. **后台逐账户保活** — 调度器按配置间隔扫描整个账户池。M365 的 CDP 账户在 Cookie 临近过期时刷新，Cookie 已失效但仍有快照时尝试自愈；Consumer 在已知有效期进入安全窗口或凭据达到年龄阈值时，先尝试 MSA RT，再回退到账户专属 Camoufox。轮换后的凭据和有效期一起持久化；同一账户已排队的并发刷新共享一次尝试结果。
 3. **账户级隔离** — M365 与 Consumer 都有独立账户锁、凭据快照和失败退避。Consumer profile 还包含 Microsoft 主体哈希，重铸结果只有在账户主体及快照仍匹配时才会写回。
 4. **全局串行浏览器锁** — M365 Chromium 与 Consumer Camoufox 共用一把浏览器锁，避免多个账户同时拉起浏览器；串行的是资源占用，不是凭据或 profile。
-5. **手动刷新** — `/admin` 的账户刷新按钮同样按 provider 分派：M365 强制走账户刷新，Consumer 强制走 Camoufox 重铸。
+5. **手动刷新** — `/admin` 的账户刷新按钮同样按 provider 分派：Consumer 也按 RT → Camoufox 顺序尝试，显式刷新不受被动请求的浏览器退避限制。
 
 ### M365 两级刷新链路：RT 优先 → CDP 回退
 
@@ -443,12 +445,12 @@ Codex 本次使用 `web_search="disabled"`。原生 Windows 的隔离配置中�
 /v1/ 请求 → API Key → 绑定账户 → provider 分流
                                 ├─ M365 → Token 有效：直接请求
                                 │          Token 到期：RT → 失败则账户专属 Chromium/CDP
-                                └─ Consumer → 先用账户 Token/Cookie
+                                └─ Consumer → 已知临期先续期，否则先用账户 Token/Cookie
                                              明确认证失败时：该账户 Camoufox 重铸一次并重试
 
 后台保活 → 扫描账户池
            ├─ M365：Cookie 临期刷新 / 无效快照自愈
-           └─ Consumer：凭据满龄后重铸 Token + Cookie
+           └─ Consumer：临期或满龄后续期，RT → Camoufox
                         两种浏览器刷新由全局锁串行
 ```
 
@@ -569,7 +571,7 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 采用**浏览器非驻留 + 串行**策略，刷新状态按账户保存：
 
 - **M365**：Token 临近过期且有请求时刷新，优先走 RT 纯 HTTP 交换；RT 缺失或失效时回退到账户专属 Chromium profile（独立 CDP 端口）抓取新 Token。
-- **Consumer**：同一保活调度器按凭据年龄逐账户扫描，使用账户专属 Camoufox profile 静默重铸 ChatAI Token 与 Cookie；详见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)。
+- **Consumer**：同一保活调度器按已知有效期及凭据年龄逐账户扫描，优先使用独立 MSA RT，缺失或失败时回退 Camoufox；详见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)。
 
 两条路径共用同一全局浏览器锁，始终最多一个刷新浏览器存活；因此多个账户可以并存，峰值内存仍接近单租户，而不会把每个账户的浏览器同时常驻。
 
@@ -692,9 +694,9 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 ## 个人版（消费者版 Copilot）账户
 
-除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。ChatAI Token 与 Cookie 可以自动保活（需 `-camoufox` 镜像，见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)），也可以手动重推。
+除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。ChatAI Token 可通过独立 MSA RT 自动续期，浏览器回退及 Cookie 重铸需 `-camoufox` 镜像（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)），也可以手动重推。
 
-一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定。个人版账户仍属于同一套多租户账户池：每个 API Key 绑定一个账户，多个用户可以分别绑定多个 Consumer 账户；各账户的 Consumer Token、Cookie、出站代理、Camoufox profile 和保活状态彼此隔离。推送个人版凭据会把该账户**切到 `consumer`**，并将它移出 M365 的刷新链路（RT 换取、Cookie 回放、Chromium CDP 抓取对它都没有意义），改由独立的 Camoufox 路径处理。旧共享 admin Chromium 及其 `--no-auto-refresh` 开关不控制账户池保活，因此个人版保活仍会运行。`/admin` 账户表会给这类账户打上标记。
+一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定。个人版账户仍属于同一套多租户账户池：每个 API Key 绑定一个账户，多个用户可以分别绑定多个 Consumer 账户；各账户的 Consumer Token、Cookie、出站代理、Camoufox profile 和保活状态彼此隔离。推送个人版凭据会把该账户**切到 `consumer`**，并将它移出 M365 的 AAD RT、Cookie 回放和 Chromium CDP 链路，改由独立的 MSA RT → Camoufox 路径处理。旧共享 admin Chromium 及其 `--no-auto-refresh` 开关不控制账户池保活，因此个人版保活仍会运行。`/admin` 账户表会给这类账户打上标记。
 
 同一个已绑定账户切换到另一个 Microsoft 个人主体前，需要先在用户页「登出 Microsoft」或解绑；不同账户不会共用 Consumer profile。隔离单位是账户，不是 Key：如果管理员故意把多个 Key 绑定到同一个账户，这些 Key 会共享该账户的凭据、代理、profile 和保活状态；要做到一人一号，应给每人创建并绑定独立账户。这里的“移出 M365 刷新链路”只表示 provider 刷新实现不同，不表示个人版失去多租户隔离或账户级保活。
 
@@ -718,26 +720,27 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 ### 3. 凭据过期后手动重推
 
-个人版的 ChatAI token 对本服务是**不透明**的（不是可解码的 JWT），因此管理页只能显示「有没有存」，无法显示剩余有效期。过期的表现是 `/v1/` 请求返回 **502**，消息体里带上游的失败原因。
+个人版的 ChatAI token 对本服务是**不透明**的（不是可解码的 JWT）。若捕获或续期响应提供了有效期，管理页会显示剩余时间并在过期时标为失效；没有有效期元数据时只按凭据是否存在显示。自动续期和请求内恢复均失败时，`/v1/` 会返回上游失败原因。
 
 **手动恢复方式就是重复上面第 2 步**：回到 copilot.microsoft.com 发一条消息，再点一次推送按钮。若用了下面的 `-camoufox` 镜像，多数情况不需要走到这一步。
 
 ### 4. 凭据与 Cookie 自动保活（Camoufox，可选）
 
-用 `ghcr.io/<repo>:fox-camoufox` 这类带 `-camoufox` 后缀的镜像，服务端就能定期重铸个人版 ChatAI Token 与 Cookie 快照，不需要人反复点推送按钮。默认精简镜像不含 Camoufox，因此只能手动重推。
+已保存且绑定验证通过的 Consumer MSA RT 可先通过纯 HTTP 续期，无需 Camoufox；新 ChatAI Token、轮换 RT、有效期和重试状态一起持久化。RT 缺失或交换失败时，使用 `ghcr.io/<repo>:fox-camoufox` 这类带 `-camoufox` 后缀的镜像，可进一步重铸 Token 与 Cookie。默认精简镜像不含浏览器回退，RT 失效后需手动重推。
 
 原理是让 **MSAL 的静默 SSO 重新铸一整套凭据**：容器里起一个使用持久 profile 的 Firefox（Camoufox），加载 copilot.microsoft.com，等页内 MSAL 用 profile 里的微软账号会话换出新的 ChatAI Token，导出新的 Cookie 快照，然后关掉浏览器。它不是延长或反复回放最初推送的 Cookie。服务端只接受与旧值不同的新 Token、同一个 Microsoft 账号主体及可复用 Cookie，随后原子写回账户存储。全程不点任何东西、不发聊天消息，所以**没有任何 Turnstile 环节**。实测冷启动到拿到 Token 约 **6.7 秒**，之后进程即退出，不是常驻浏览器。
 
 这是真「铸新的」而不是「读缓存」：把 localStorage 里的 MSAL Token 清空再刷新，拿到的是一个**不同**的新 Token 且没有跳转登录页，因此旧 Token 过期后仍可恢复。
 
-四个触发点：
+触发点：
 
-- **推送后初始化** —— 用户成功推送个人版凭据后，后台立即强制重铸一次，尽早把用户浏览器抓到的凭据换成与服务端 Camoufox 指纹一致的快照
-- **定时保活** —— 调度器默认每 5 分钟扫描；凭据距上次成功捕获满 1 小时后重铸。个人版 Token 不透明、读不到 `exp`，只能按年龄调度
-- **请求内自救** —— `/v1` 请求在输出任何内容前收到明确的 `ClearanceRequired` 时，自动重铸一次并重试当轮。普通请求不会额外承担这约 7 秒的浏览器启动
-- **管理页刷新按钮** —— 手动触发时立即重铸
+- **推送后初始化** —— 用户成功推送个人版凭据后，后台立即按 RT → Camoufox 顺序尝试一次续期
+- **定时保活** —— 调度器默认每 5 分钟扫描；已知有效期进入 5 分钟安全窗口，或距上次成功捕获满 1 小时后续期
+- **请求前续期** —— 已知有效期进入安全窗口时主动续期；未知有效期不因普通请求而启动浏览器。同一账户已排队的并发请求共享一次续期结果
+- **请求内自救** —— `/v1` 请求在输出任何内容前收到明确的 `ClearanceRequired` 时，自动恢复一次并重试当轮
+- **管理页刷新按钮** —— 手动触发一次续期，不受被动请求的浏览器退避限制
 
-前提是 profile 里那个**微软账号会话本身还活着**。每次重铸都会顺带保持会话活跃，但它真失效了（换密码、被撤销、长期没动），仍需要人工重新登录并推送。重铸失败时旧凭据不会被覆盖；同一账户进入 30 分钟退避，避免失效会话每 5 分钟反复拉起浏览器。
+浏览器回退的前提是 profile 里那个**微软账号会话本身还活着**。每次重铸都会顺带保持会话活跃，但它真失效了（换密码、被撤销、长期没动），仍需要人工重新登录并推送。重铸失败时旧 ChatAI 凭据不会被覆盖；后台及被动请求复用同一账户的 30 分钟浏览器退避，避免失效会话反复拉起浏览器。
 
 profile 落在 `TOKEN_DIR/profiles/` 下，目录名包含代理账户 ID 与 24 位 Microsoft subject 哈希，例如 `<proxy-account-id>-consumer-<subject-hash>`；默认位于 `token-data` 卷内的 `/home/app/token/profiles/`。**这个挂载必须是持久卷，不能是 tmpfs**，否则容器重建后会丢失 Microsoft 登录会话，需要重新人工登录并推送。
 
@@ -745,7 +748,7 @@ profile 落在 `TOKEN_DIR/profiles/` 下，目录名包含代理账户 ID 与 24
 
 > 续期时会拉起浏览器，峰值内存约 417 MB。调度用同一把全局锁把它和 M365 的 Chromium 刷新**串行化**，不会两个浏览器同时在跑；`docker-compose.yml` 默认的 2G 内存上限够用。
 
-可用下面的日志判断保活是否真正成功；只有第二行出现才代表新 Token 与 Cookie 已写回：
+Camoufox 路径中，第二行出现代表新 Token 与 Cookie 已写回；纯 HTTP 快速路径则记录 `Consumer RT refresh ... without a browser`：
 
 ```text
 Keepalive: re-minting consumer <account-id>

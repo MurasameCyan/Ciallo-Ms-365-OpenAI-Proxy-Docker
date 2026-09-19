@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from m365_copilot_openai_proxy import routes_user
@@ -58,3 +60,46 @@ def test_known_expired_consumer_token_is_not_advertised_as_valid(tmp_path, monke
     status = client.get("/user/me", headers=headers).json()["account"]["token_status"]
     assert status["valid"] is False
     assert status["seconds_remaining"] == 0
+
+
+@pytest.mark.parametrize("field", ["expires_at", "expires_in"])
+@pytest.mark.parametrize("expiry", [
+    pytest.param(float("inf"), id="infinity"),
+    pytest.param(float("-inf"), id="negative-infinity"),
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(10**400, id="overflow"),
+    pytest.param(0, id="zero"),
+    pytest.param(-1, id="negative"),
+])
+def test_consumer_push_rejects_nonfinite_expiry(tmp_path, monkeypatch, field, expiry):
+    app, account, headers = _app(tmp_path, monkeypatch)
+    body = {
+        "cookies": COOKIES,
+        "access_token": "replacement-consumer-access-token",
+        "consumer_account_id": SUBJECT,
+        field: expiry,
+    }
+    response = TestClient(app).post(
+        "/user/account/consumer",
+        headers={**headers, "Content-Type": "application/json"},
+        content=json.dumps(body),
+    )
+
+    assert response.status_code == 400
+    assert app.state.account_store.get(account.id).consumer_token == "original-consumer-access-token"
+
+
+def test_consumer_push_persists_relative_expiry(tmp_path, monkeypatch):
+    app, account, headers = _app(tmp_path, monkeypatch)
+    before = time.time()
+
+    response = TestClient(app).post("/user/account/consumer", headers=headers, json={
+        "cookies": COOKIES,
+        "access_token": "replacement-consumer-access-token",
+        "consumer_account_id": SUBJECT,
+        "expires_in": 3600,
+    })
+
+    assert response.status_code == 200
+    expiry = app.state.account_store.get(account.id).consumer_token_expires_at
+    assert before + 3600 <= expiry <= time.time() + 3600
