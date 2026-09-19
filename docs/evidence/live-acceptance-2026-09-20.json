@@ -1,0 +1,119 @@
+{
+  "date": "2026-09-20",
+  "scope": "Live end-to-end acceptance for the 2026-09-20 cycle: cache-storage discipline (default no-store, /v1/models validator + 304, SSE no-store) plus the 2026-09-18 reviewer fixes for consumer credential expiry. The tree under acceptance was shipped over the production image's editable install inside a throwaway container, with a COPY of the production credentials and Chromium profile; every cell is a real HTTP request against a real upstream.",
+  "raw_credentials_included": false,
+  "full_response_bodies_included": false,
+  "session_identifiers_included": false,
+  "isolation": {
+    "production_state_copied_never_written": true,
+    "production_container_touched": false,
+    "production_container_id_before_and_after": "c219a177392961a2f2083390f0a9eb887930ced4034195fbfad7396e19a24d4e",
+    "production_restart_count_before_and_after": 0,
+    "credential_snapshot_staging_removed": true,
+    "temp_container_removed": true,
+    "scratch_removed": true
+  },
+  "source_commit": "3d4e1fe381d6aa9948e3eddade1051cdbbe82724",
+  "source_commit_note": "The run shipped the working tree that was committed as this hash; the two preceding commits on the branch are ad7beb3..3d4e1fe, with a0f4604d41aadcf118631d34809c3e33603d7f8a carrying the consumer-expiry half.",
+  "source_module_count": 112,
+  "source_sha256": "0bc86a274da39bad91bcfd3bbb70c6855820081056b968dcedd0afbef1f65f23",
+  "source_digest_method": "sha256 over sorted <relpath>\\u0000<committed blob bytes>\\u0000 for src/m365_copilot_openai_proxy/**/*.py at the commit above, so the digest is reproducible from git alone.",
+  "deployment": {
+    "image": "ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:fox-camoufox",
+    "container": "m365acc-probe (docker create + docker cp src + credential snapshot + /chrome-profile copy, then docker start; removed after the run)",
+    "env": "production container's own Config.Env, extracted on the host without printing values",
+    "matrix_runner": "docs/evidence/live_acceptance_20260920.py inside the container, keys resolved from the container's own stores"
+  },
+  "matrix_20260920": {
+    "cells_total": 23,
+    "passed": 22,
+    "failed": 1,
+    "items": [
+      {
+        "item": 1,
+        "name": "M365 direct/native",
+        "result": "pass",
+        "checks": [
+          {"id": "1a", "name": "chat text (sync)", "result": "pass", "detail": "http=200 text='OK'"},
+          {"id": "1b", "name": "chat text (stream)", "result": "pass", "detail": "http=200 text='1, 2, 3. \u2705'"},
+          {"id": "1c", "name": "stream refuses storage", "result": "pass", "detail": "cache-control: no-store"},
+          {"id": "1d", "name": "chat tool round", "result": "pass", "detail": "http=200 name=get_weather"},
+          {"id": "1e", "name": "chat tool continuation", "result": "pass", "detail": "http=200 text='The current weather in Paris is **18\u00b0C and clear**.'"}
+        ]
+      },
+      {
+        "item": 2,
+        "name": "router planning/tool path",
+        "result": "pass",
+        "checks": [
+          {"id": "2a", "name": "mode applied", "result": "pass", "detail": "http=200"},
+          {"id": "2b", "name": "tool round", "result": "pass", "detail": "http=200 hdr=router calls=1"}
+        ]
+      },
+      {
+        "item": 3,
+        "name": "studio planning/tool path",
+        "result": "pass",
+        "checks": [
+          {"id": "3a", "name": "mode applied", "result": "pass", "detail": "http=200"},
+          {"id": "3b", "name": "tool round", "result": "pass", "detail": "http=200 hdr=studio calls=1"}
+        ]
+      },
+      {
+        "item": 4,
+        "name": "Anthropic Messages API (Claude Code protocol)",
+        "result": "pass",
+        "checks": [
+          {"id": "4a", "name": "text", "result": "pass", "detail": "http=200 stop=end_turn"},
+          {"id": "4b", "name": "tool_use", "result": "pass", "detail": "http=200 input={'city': 'Paris'}"},
+          {"id": "4c", "name": "tool_result continuation", "result": "pass", "detail": "http=200 text='... 18C and clear.'"}
+        ]
+      },
+      {
+        "item": 5,
+        "name": "OpenAI Responses API (Codex protocol)",
+        "result": "pass",
+        "checks": [
+          {"id": "5a", "name": "text", "result": "pass", "detail": "http=200 status=completed"},
+          {"id": "5b", "name": "function tool", "result": "pass", "detail": "http=200 name=get_weather args={\"city\": \"Paris\"}"},
+          {"id": "5c", "name": "function_call_output continuation", "result": "pass", "detail": "http=200 text='... 18C and clear skies.'"}
+        ]
+      },
+      {
+        "item": 6,
+        "name": "Microsoft 365 Personal/Consumer provider",
+        "result": "partial",
+        "checks": [
+          {"id": "6a", "name": "on-demand renewal (admin cookie-refresh)", "result": "pass", "detail": "http=200 cookie_valid=True"},
+          {"id": "6b", "name": "issuer expiry surfaced in token_status", "result": "pass", "detail": "valid=True expires_at=2026-09-20T06:22:11+00:00; the renewal itself skipped the browser: 'Consumer RT refresh ... minted a ChatAI token (1716 chars, expires_in=28799s) without a browser'"},
+          {"id": "6c", "name": "consumer chat text (stream)", "result": "fail", "detail": "http=200 with the proxy's upstream-error notice: 'Copilot chat socket refused or interrupted the connection: curl: (28) Connection timed out after 90002 milliseconds'"}
+        ]
+      }
+    ]
+  },
+  "failure_analysis_item_6c": {
+    "verdict": "environment blocker, not a regression from this cycle",
+    "cause": "the consumer account's configured outbound proxy http://187.188.171.231:10101 was unreachable for the socket dial",
+    "evidence": [
+      "TCP connect to 187.188.171.231:10101 timed out both from the deployment host and from inside the temp container (TimeoutError).",
+      "The same account's browser fallback refused to start for the same reason: 'the configured outbound proxy 187.188.171.231:10101 is unreachable (TimeoutError), so Camoufox would fail its own geoip lookup before the browser starts'.",
+      "The first RT exchange of the run failed with a transport-level 'HTTP error: ' (empty status), and Camoufox's geoip probe raised ProxyError(ConnectTimeoutError) against the same host.",
+      "The proxy is intermittent rather than dead: a Camoufox renewal succeeded once mid-run (token + 39 cookies in 20.6s), and the same cell retried three times afterwards answered 3/3 with real content and finish_reason=stop (94.8s / 90.0s / 11.0s, upstream_error=false)."
+    ],
+    "production_baseline": "Production's own logs show the same proxy failing the same preflight at 21:42 and 22:13 (proxy unreachable), so the blocker predates and is independent of the tree under acceptance."
+  },
+  "cache_discipline_checks": {
+    "result": "pass",
+    "checks": [
+      {"name": "/healthz refuses storage", "detail": "http=200 cache-control='no-store'"},
+      {"name": "/v1/models declares its own rule + validator", "detail": "http=200 etag present, cache-control='private, max-age=300'"},
+      {"name": "repeat /v1/models with If-None-Match", "detail": "http=304, 0 body bytes"},
+      {"name": "grok still catalogued", "detail": "grok_ids=['grok-4.5', 'grok-4.5-\u6301\u7eed']"},
+      {"name": "grok smoke turn", "detail": "http=200 model='grok-4.5' text='OK'"}
+    ]
+  },
+  "environment_findings": [
+    "Tone Claude_Sonnet (model id claude-sonnet-4-6) was refused upstream with result InternalError on 2/2 attempts at run time (400, 'M365 Copilot refused this turn instead of answering'), while m365-copilot, Magic and grok-4.5 answered 200. The tool cells therefore ran on Magic; the router/studio planning cells prove the tool path on a tone upstream accepts today.",
+    "The production keys.json holds three enabled keys bound to accounts that no longer exist in accounts.json (acct_c629208b8b44, acct_e1c02959bef5, acct_0762a35afa63). They cannot serve a turn; the probe now skips account-less keys."
+  ]
+}
