@@ -4,7 +4,7 @@
 
 将 Microsoft 365 Copilot 与个人版 Copilot 暴露为 **OpenAI / Anthropic 兼容 API** 的 Docker 代理服务。**多租户版**：可同时管理多个 M365 / Consumer 账户与多个 API Key，给多人共用；每个 Key 绑定一个账户，并拥有独立的对话模式与提示词。
 
-> 这是主项目的 `multi` 分支，镜像标签为 `:multi`。单租户（单账户单 Key）请用 `main` 分支 / `:latest` 镜像。
+> 这是多租户版。`multi` 分支发布 `:multi` / `:multi-camoufox`；`fox` 分支发布 `:fox` / `:fox-camoufox`。下面的 Compose 示例默认使用 `multi`；部署 `fox` 时将镜像标签替换为对应的 `fox` 标签。
 
 ## 目录
 
@@ -705,6 +705,7 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 `copilot.microsoft.com` 在部分网络下会被 SNI 阻断。Consumer 账户默认继承 `/admin` → 运行设置中的全局出口；也可在 `/` 用户自助页为当前绑定账户设置独立代理，因此多个 Consumer 账户不必共用同一出口。
 
 > **写 `socks5h://` 而不是 `socks5://`。** 两者的差别是 DNS 在哪解析：`socks5` 在本地解析域名，解析结果又会撞回被阻断的路径；`socks5h` 把域名交给代理远端解析。实测同一个代理端口，`socks5://` 失败、`socks5h://` 成功。`http://` 同样可用。
+> **订阅节点不能直接当作账户代理填写。** 账户级代理只接受 `http://`、`https://`、`socks5://`、`socks5h://`、`socks4://`、`socks4a://` 的 `scheme://host:port` 形式；`vless://`、`ss://`、`hysteria2://`、`anytls://` 等链接必须先由本地代理客户端转换。订阅行中的 `?security=...`、`&sni=...`、`#节点名` 等参数和备注也必须移除，例如 `https://host:443?security=tls#label` 应填写为 `https://host:443`。绑定前应从容器内验证真实 HTTPS 请求；TCP 端口可连接但返回 `429 Not Enough Bandwidth` 的节点仍不可用。
 
 ### 2. 推送凭据
 
