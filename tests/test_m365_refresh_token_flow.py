@@ -15,7 +15,7 @@ from m365_copilot_openai_proxy.account_store import AccountStore
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy import refresh_scheduler as refresh_scheduler_module
 from m365_copilot_openai_proxy.refresh_scheduler import RefreshScheduler
-from m365_copilot_openai_proxy.refresh_via_rt import refresh_via_rt
+from m365_copilot_openai_proxy.refresh_via_rt import M365_NATIVE_CLIENT_ID, refresh_via_rt
 
 
 CLIENT_ID = "4765445b-32c6-49b0-83e6-1d93765276ca"
@@ -120,6 +120,34 @@ def test_refresh_token_push_persists_the_verified_authority_and_subject(tmp_path
     assert persisted.refresh_token_authority == HOME_TENANT
     assert persisted.refresh_token_tenant_id == RESOURCE_TENANT
     assert persisted.refresh_token_object_id == OBJECT_ID
+
+
+def test_spa_refresh_token_push_does_not_replace_native_pkce_token(tmp_path):
+    app, account, key = _bound_app(tmp_path)
+    store = app.state.account_store
+    native_rt = "native-refresh-token-" + "n" * 80
+    store.set_refresh_token(
+        account.id,
+        native_rt,
+        client_id=M365_NATIVE_CLIENT_ID,
+        authority=HOME_TENANT,
+        tenant_id=RESOURCE_TENANT,
+        object_id=OBJECT_ID,
+    )
+
+    response = TestClient(app).post(
+        "/user/account/refresh-token",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json=_binding(),
+    )
+
+    assert response.status_code == 200
+    stored = store.get(account.id)
+    assert stored.refresh_token == native_rt
+    assert stored.refresh_token_client_id == M365_NATIVE_CLIENT_ID
+    assert stored.refresh_token_authority == HOME_TENANT
+    assert stored.refresh_token_tenant_id == RESOURCE_TENANT
+    assert stored.refresh_token_object_id == OBJECT_ID
 
 
 class _Response:

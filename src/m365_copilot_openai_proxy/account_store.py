@@ -799,6 +799,7 @@ class AccountStore:
         object_id: str | None = None,
         expected_refresh_token: str | None = None,
         disabled_reason: str = "",
+        preserve_existing_client_id: str | None = None,
     ) -> Account | None:
         """Store, rotate, or clear this account's RT.
 
@@ -808,6 +809,12 @@ class AccountStore:
         ceiling needs an interactive PKCE sign-in (which mints a native-client RT
         instead), while a revoked one needs the credential re-pushed. Both look
         identical once the field is blank.
+
+        ``preserve_existing_client_id`` makes an explicit client-bound push
+        monotonic: while the account has a live RT issued to that client, a push
+        from a different client is ignored. The check and the no-op happen under
+        the store lock, so a userscript push cannot race a native PKCE credential
+        into a weaker persisted state.
         """
         with self._lock:
             acc = self._accounts.get(acc_id)
@@ -818,6 +825,18 @@ class AccountStore:
                 and acc.refresh_token != expected_refresh_token
             ):
                 return None
+            incoming_client_id = str(client_id or "").strip().lower()
+            protected_client_id = str(preserve_existing_client_id or "").strip().lower()
+            if (
+                token.strip()
+                and incoming_client_id
+                and protected_client_id
+                and incoming_client_id != protected_client_id
+                and acc.refresh_token
+                and str(acc.refresh_token_client_id or "").strip().lower()
+                == protected_client_id
+            ):
+                return acc
             acc.refresh_token = token.strip()
             acc.refresh_token_updated_at = time.time() if acc.refresh_token else 0.0
             acc.refresh_token_retry_after = 0.0
