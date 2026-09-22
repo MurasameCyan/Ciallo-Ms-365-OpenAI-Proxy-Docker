@@ -23,6 +23,7 @@ from .consumer_refresh_via_rt import (
     normalize_consumer_scope,
 )
 from .refresh_via_rt import (
+    M365_NATIVE_CLIENT_ID,
     M365_REFRESH_CLIENT_IDS,
     account_matches_refresh_subject,
     normalize_m365_authority,
@@ -372,6 +373,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             authority=authority,
             tenant_id=tenant_id,
             object_id=object_id,
+            # A userscript capture is always the SPA client. Never let it
+            # downgrade a native-client RT obtained through PKCE.
+            preserve_existing_client_id=M365_NATIVE_CLIENT_ID,
         )
         return {"status": "ok", "has_refresh_token": True}
 
