@@ -270,7 +270,7 @@ docker compose up -d
 #### 方式二：油猴脚本一键推送（M365 与个人版都可用）
 
 1. 安装 [Tampermonkey BETA](https://www.tampermonkey.net/) 浏览器扩展
-2. 点击 [一键脚本](https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/main/get_token.user.js) 安装油猴脚本
+2. 点击 [一键脚本](https://gh-proxy.com/https://raw.githubusercontent.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/multi/get_token.user.js) 安装油猴脚本
 3. 面板（右上角，`Ctrl+Shift+M` 开合）里填两项：**代理地址** = 本服务地址（如 `http://localhost:8000`），**用户 API Key** = 你在 `/` 页面拿到的 Key
 4. **M365**：打开 [M365 Copilot](https://m365.cloud.microsoft/chat) 登录后，在对话框**输入任意字符**触发 WebSocket；面板显示 `✓ Token 可用` 后点 **一键推送**（Token + Cookie 一起推）
 5. **个人版**：打开 [copilot.microsoft.com](https://copilot.microsoft.com) 登录后**发送一条消息** —— ChatAI token 只出现在聊天 WebSocket 的 URL 里，不发消息抓不到；面板「个人版 Copilot」显示 `✓ ChatAI Token 可用` 后点 **一键推送个人版**（Cookie + ChatAI Token 一起推，并把该账户切到 `consumer` provider）
