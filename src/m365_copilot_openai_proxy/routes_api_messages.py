@@ -40,7 +40,14 @@ from .session_helpers import (
 from .session_store import PersistentSession
 from .stream_guard import GuardedStreamingResponse
 from .sse_stream import ANTHROPIC_PING, closing_stream, keepalive_stream, merge_sse_headers
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateNetworkError, SubstrateThrottled
+from .substrate_client import (
+    SubstrateCopilotClient,
+    SubstrateCopilotError,
+    SubstrateNetworkError,
+    SubstrateThrottled,
+    filter_client_method_kwargs,
+)
+from .substrate_parse import anthropic_web_citations_from_sources
 from .studio_planner import (
     PlannerTurn,
     ordered_or_answered,
@@ -473,6 +480,7 @@ def register_messages_routes(
                 headers=merge_sse_headers(),
             )
 
+        collected_sources: list[dict] = []
         reasoning = collect_reasoning(client, studio_client)
         try:
             async def inline_answer() -> str:
@@ -481,6 +489,9 @@ def register_messages_routes(
                     translated.additional_context,
                     session,
                     translated.images,
+                    **filter_client_method_kwargs(
+                        client, "chat", {"sources_out": collected_sources}
+                    ),
                 )
 
             async def router_answer(fallback_turn) -> str:
@@ -502,6 +513,7 @@ def register_messages_routes(
                     should_fallback=planner_predicate,
                     fallback_turn=fallback_turn,
                     on_router_fallback=note_router_fallback,
+                    sources_out=collected_sources,
                 )
 
             async def studio_answer(fallback_turn) -> str:
@@ -524,6 +536,7 @@ def register_messages_routes(
                     ),
                     fallback_turn=fallback_turn,
                     should_fallback=planner_predicate,
+                    sources_out=collected_sources,
                 )
 
             raw_text = await ordered_or_answered(
@@ -545,6 +558,7 @@ def register_messages_routes(
                 on_stage=note_planning_stage if planner_chain else None,
                 on_studio_fallback=note_studio_fallback,
                 skip_router_fallback=is_tool_result_continuation,
+                sources_out=collected_sources,
             )
             if tool_names and planning_mode in {"studio", "router"}:
                 extra_headers = {
@@ -579,6 +593,7 @@ def register_messages_routes(
                     studio_client is not None and actual_planning == "studio"
                 )
                 retry_client = studio_client if retry_uses_studio else client
+                collected_sources.clear()
                 retry_text = await retry_client.chat(
                     _RETRY_INSTRUCTION,
                     (
@@ -587,6 +602,9 @@ def register_messages_routes(
                         else translated.additional_context
                     ),
                     studio_session if retry_uses_studio else session,
+                    **filter_client_method_kwargs(
+                        retry_client, "chat", {"sources_out": collected_sources}
+                    ),
                 )
                 retry_calls = _resolve_tool_calls(retry_text, tool_names, read_only_guard)
                 if retry_calls:
@@ -632,7 +650,11 @@ def register_messages_routes(
             remaining = media_rewriter(_strip_tool_call_blocks(raw_text))
             content: list[dict] = []
             if remaining:
-                content.append({"type": "text", "text": remaining})
+                content.append({
+                    "type": "text",
+                    "text": remaining,
+                    "citations": anthropic_web_citations_from_sources(remaining, collected_sources),
+                })
             content.extend(_tool_use_blocks(tool_calls))
             record_response_message({"role": "assistant", "content": content})
             content = reasoning.anthropic_blocks() + content
@@ -652,7 +674,11 @@ def register_messages_routes(
         # broken proxy.
         # The stop sequence cuts the model's prose; the reason block below is ours.
         prose, matched_stop = apply_stop(media_rewriter(raw_text), stops)
-        blocks = [{"type": "text", "text": prose}]
+        blocks = [{
+            "type": "text",
+            "text": prose,
+            "citations": anthropic_web_citations_from_sources(prose, collected_sources),
+        }]
         reason = prose_with_reason(
             "",
             shortfall_note="" if allow_final_answer and raw_text.strip() else shortfall_note,

@@ -63,9 +63,48 @@ _ORPHAN_CITE_TAIL_RE = re.compile(
 _LITERAL_CITE_TAG_RE = re.compile(r"<cite>[A-Za-z0-9_,\-]*</cite>", re.IGNORECASE)
 _BRACKET_CITE_RE = re.compile(r"【\d+-[0-9a-z]{3,}】", re.IGNORECASE)
 
+# --- fork: citation tracker + source attributions ---
+_SRC_PUA = "-"
+_SRC_MARKDOWN_CITE_RE = re.compile(
+    rf"\[([^\]]*)\]\(\s*([{_SRC_PUA}]*cite[{_SRC_PUA}][^)]*)\)",
+    re.IGNORECASE,
+)
+# Require a non-empty ascii id so "cite" alone is NOT consumed (held instead).
+_SRC_BARE_PUA_CITE_RE = re.compile(
+    rf"[{_SRC_PUA}]cite[{_SRC_PUA}]([A-Za-z0-9_]+)[{_SRC_PUA}]?",
+    re.IGNORECASE,
+)
+# Leftover after a split ate the cite opener: "turn1search6" or plain "turn1search6".
+_SRC_LOOSE_TURN_CITE_RE = re.compile(
+    rf"(?:[{_SRC_PUA}])?(turn\d+(?:search|file|news|image|video|base|knowledge|gpt|cid|doc)\d+)(?:[{_SRC_PUA}])?",
+    re.IGNORECASE,
+)
+# Chinese-bracket web cites used by some M365 answers: 【1-1fd57a】 or 【3】.
+_SRC_BRACKET_CITE_RE = re.compile(
+    r"【\s*(\d{1,3})\s*(?:[-–—]\s*([0-9a-fA-F]{3,16}))?\s*】"
+)
+_SRC_SYDNEY_FOOTNOTE_RE = re.compile(r"\[\^(\d+)\^\]")
+_SRC_CITE_KEY_NOISE_RE = re.compile(rf"[{_SRC_PUA}]+")
 
-def clean_m365_citations(text: str) -> str:
+# Incomplete tails we must HOLD across stream deltas (not emit raw).
+_SRC_INCOMPLETE_CITE_TAIL_RE = re.compile(
+    rf"(?:"
+    rf"\[[^\]]*\]\(\s*[{_SRC_PUA}]*cite[{_SRC_PUA}][^)]*$"  # open markdown cite
+    rf"|[{_SRC_PUA}]cite[{_SRC_PUA}][A-Za-z0-9_]*$"          # open bare PUA cite
+    rf"|[{_SRC_PUA}]cite$"
+    rf"|[{_SRC_PUA}]$"                                    # lone PUA starter
+    rf"|\[$"                                          # lone "["
+    rf"|\[[^\]]*$"                                    # open "[" label
+    rf")",
+    re.IGNORECASE,
+)
+
+
+
+def clean_m365_citations(text: str, tracker: "CitationTracker | None" = None) -> str:
     """Strip M365 citation markers from model text.
+
+    When ``tracker`` is provided, markers become stable ``[n]`` citations.
 
     Safe on partial stream deltas, but by handling each half rather than by
     waiting for both: the streaming path cleans every delta on its own, so a
@@ -74,6 +113,8 @@ def clean_m365_citations(text: str) -> str:
     either for a closing delimiter that arrives in a different call is what put
     bare ids in front of readers.
     """
+    if tracker is not None:
+        return tracker.clean(text)
     if not text:
         return ""
     # Fast path: most chunks carry none of the marker shapes. "【" has to be part
@@ -90,6 +131,179 @@ def clean_m365_citations(text: str) -> str:
     # Collapse whitespace left by removed markers (keep newlines).
     cleaned = re.sub(r"[^\S\n]{2,}", " ", cleaned)
     return cleaned
+
+
+
+def _normalize_cite_key(raw: str) -> str:
+    """Collapse a PUA cite target to a stable ascii key (e.g. ``turn1search0``)."""
+    key = _SRC_CITE_KEY_NOISE_RE.sub("", raw or "")
+    key = re.sub(r"^cite", "", key, flags=re.IGNORECASE)
+    key = re.sub(r"[^A-Za-z0-9_]+", "", key).lower()
+    return key
+
+
+
+def _has_cite_noise(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower()
+    if "cite" in lower or "turn" in lower and "search" in lower:
+        return True
+    if "[^" in text or "【" in text:
+        return True
+    return any("" <= c <= "" for c in text)
+
+
+
+class CitationTracker:
+    """Track streamed cite markers and renumber them as ``[n]``.
+
+    Holds incomplete openers across ``clean()`` calls so split deltas cannot
+    leak raw ``turn1search6`` / lone PUA bytes / bare ``cite`` to the client.
+    """
+
+    def __init__(self) -> None:
+        self._key_to_num: dict[str, int] = {}
+        self._order: list[str] = []
+        self._hold = ""
+
+    def _num_for(self, key: str, preferred: int | None = None) -> int:
+        normalized = key or f"anon{len(self._order)}"
+        if normalized in self._key_to_num:
+            return self._key_to_num[normalized]
+        if preferred is not None and preferred > 0 and preferred not in self._key_to_num.values():
+            while len(self._order) < preferred - 1:
+                placeholder = f"pad{len(self._order)}"
+                self._order.append(placeholder)
+                self._key_to_num[placeholder] = len(self._order)
+            if len(self._order) == preferred - 1:
+                self._order.append(normalized)
+                self._key_to_num[normalized] = preferred
+                return preferred
+        self._key_to_num[normalized] = len(self._order) + 1
+        self._order.append(normalized)
+        return self._key_to_num[normalized]
+
+    @property
+    def count(self) -> int:
+        return len([k for k in self._order if not k.startswith("pad")])
+
+    @property
+    def keys_in_order(self) -> list[str]:
+        return [k for k in self._order if not k.startswith("pad")]
+
+    def _split_incomplete(self, text: str) -> tuple[str, str]:
+        """Return (safe_prefix, hold_suffix) for cite openers still in progress."""
+        if not text:
+            return "", ""
+        # Longest incomplete tails first. MUST hold partial turn/search tokens
+        # like "turn1s" / "turn1search" mid-id, otherwise chunked streams leak them.
+        patterns = [
+            r"\[[^\]]*\]\(\s*[-]*cite[-][^)]*$",
+            r"\[[^\]]*\]\(\s*$",
+            r"[-]cite[-][A-Za-z0-9_]*$",
+            r"[-]+cite$",
+            r"(?:^|[^A-Za-z])cite$",
+            # full or partial sydney turn ids, optionally after a footnote
+            r"(?:\[\^?\d+\^?\])?turn\d*(?:search|file|news|image|video|base|knowledge|gpt|cid|doc)?[A-Za-z0-9_]*$",
+            r"turn\d*[A-Za-z0-9_]*$",
+            r"【[^】]*$",
+            r"\[\^[^\]]*$",
+            r"\[[^\]]*$",
+            r"[-]+$",
+        ]
+        for pat in patterns:
+            match = re.search(pat, text, re.IGNORECASE)
+            if match and match.end() == len(text):
+                start = match.start()
+                if pat.startswith("(?:^|[^A-Za-z])"):
+                    if start < len(text) and text[start].lower() != "c":
+                        start += 1
+                # Keep a completed footnote in the safe prefix when the hold is
+                # only the trailing turn residual: "[1]turn1s" → ("[1]", "turn1s").
+                held = text[start:]
+                if held.startswith("[") and "turn" in held.lower():
+                    foot = re.match(r"\[\^?\d+\^?\]", held)
+                    if foot:
+                        start += foot.end()
+                return text[:start], text[start:]
+        return text, ""
+
+    def clean(self, text: str) -> str:
+        """Replace complete cite patterns with label + ``[n]`` markers."""
+        if text is None:
+            text = ""
+        text = f"{self._hold}{text}"
+        self._hold = ""
+        if not text:
+            return ""
+
+        text, self._hold = self._split_incomplete(text)
+        if not text:
+            return ""
+        if not _has_cite_noise(text):
+            return text
+
+        def md_repl(match: re.Match[str]) -> str:
+            label = (match.group(1) or "").strip()
+            key = _normalize_cite_key(match.group(2) or "")
+            num = self._num_for(key)
+            return f"{label}[{num}]" if label else f"[{num}]"
+
+        def bare_repl(match: re.Match[str]) -> str:
+            key = _normalize_cite_key(match.group(1) or match.group(0) or "")
+            num = self._num_for(key)
+            return f"[{num}]"
+
+        def loose_repl(match: re.Match[str]) -> str:
+            key = _normalize_cite_key(match.group(1) or match.group(0) or "")
+            num = self._num_for(key)
+            return f"[{num}]"
+
+        def bracket_repl(match: re.Match[str]) -> str:
+            idx = int(match.group(1))
+            suffix = (match.group(2) or "").lower()
+            key = f"bracket{idx}-{suffix}" if suffix else f"bracket{idx}"
+            num = self._num_for(key, preferred=idx)
+            return f"[{num}]"
+
+        cleaned = _SRC_MARKDOWN_CITE_RE.sub(md_repl, text)
+        cleaned = _SRC_BARE_PUA_CITE_RE.sub(bare_repl, cleaned)
+        # If a footnote is immediately followed by the same turn token residual
+        # (common when a prior delta already emitted [n] and a later delta
+        # carries turnNsearchM), drop the residual instead of doubling.
+        cleaned = re.sub(
+            rf"(\[\^?\d+\^?\])\s*[{_SRC_PUA}]?turn\d+(?:search|file|news|image|video|base|knowledge|gpt|cid|doc)\d+[{_SRC_PUA}]?",
+            r"\1",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = _SRC_LOOSE_TURN_CITE_RE.sub(loose_repl, cleaned)
+        cleaned = _SRC_BRACKET_CITE_RE.sub(bracket_repl, cleaned)
+        cleaned = _SRC_SYDNEY_FOOTNOTE_RE.sub(r"[\1]", cleaned)
+        cleaned = re.sub(r"[-]+", "", cleaned)
+        cleaned = re.sub(r"[^\S\n]{2,}", " ", cleaned)
+        # Re-hold if replacements left a new incomplete tail.
+        cleaned, more_hold = self._split_incomplete(cleaned)
+        self._hold = more_hold + self._hold
+        return cleaned
+
+    def flush(self) -> str:
+        """Force-emit any held incomplete tail (best-effort, never leaks tokens)."""
+        if not self._hold:
+            return ""
+        held, self._hold = self._hold, ""
+        held = _SRC_MARKDOWN_CITE_RE.sub(lambda m: (m.group(1) or "").strip(), held)
+        held = _SRC_BARE_PUA_CITE_RE.sub("", held)
+        held = _SRC_LOOSE_TURN_CITE_RE.sub("", held)
+        held = _SRC_BRACKET_CITE_RE.sub("", held)
+        held = re.sub(r"[-]+", "", held)
+        held = re.sub(r"turn\d+\w*", "", held, flags=re.I)
+        held = re.sub(r"\bcite\b", "", held, flags=re.I)
+        held = re.sub(r"\[[^\]]*$", "", held)
+        held = re.sub(r"【[^】]*$", "", held)
+        return held
+
 
 
 def _capture_suspicious_response_event(sink, msg: dict) -> None:
@@ -583,3 +797,388 @@ def _combine_text(prompt: str, context: list[str], tone: str | None = None) -> s
         # acceptable false negative, since it drops a mitigation, never breaks a turn.
         result += "\n\n" + _NO_INTERPRETER_NOTE
     return result
+
+
+
+def _parse_reference_metadata(raw: object) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _normalize_source_attribution(item: object, *, ref_key: str = "") -> dict | None:
+    """Normalize one M365 citation entry into a plain dict.
+
+    Supports both legacy list entries::
+
+        {"providerDisplayName": "...", "seeMoreUrl": "https://...", "referenceMetadata": "{...}"}
+
+    and the current ``messages[].references`` map values (observed 2026-08)::
+
+        {
+          "targetLink": "https://news.weather.com.cn/...",
+          "displayData": {
+            "type": "text/json",
+            "renderType": "CITATION",
+            "content": "{\"metadata\":{\"referenceId\":\"turn1search10\",\"type\":\"Web\"},
+                         \"label\":\"1\",\"providerDisplayName\":\"...\",\"Title\":\"...\",\"snippet\":\"...\"}"
+          },
+          "isCitedInResponse": true
+        }
+
+    ``ref_key`` is the map key (e.g. ``1-1e0595``) used by body markers ``【1-1e0595】``.
+    """
+    if not isinstance(item, dict):
+        return None
+
+    # Newer references-map shape: lift displayData.content JSON up.
+    display = item.get("displayData")
+    content: dict = {}
+    if isinstance(display, dict):
+        raw_content = display.get("content")
+        if isinstance(raw_content, dict):
+            content = raw_content
+        elif isinstance(raw_content, str) and raw_content.strip():
+            try:
+                parsed = json.loads(raw_content)
+                if isinstance(parsed, dict):
+                    content = parsed
+            except (TypeError, ValueError, json.JSONDecodeError):
+                content = {}
+
+    meta = _parse_reference_metadata(
+        item.get("referenceMetadata")
+        or content.get("metadata")
+        or item.get("metadata")
+        or {}
+    )
+    # Merge content-level fields as a shallow overlay for title/url lookup.
+    merged = {**content, **item}
+
+    title = str(
+        merged.get("providerDisplayName")
+        or merged.get("Title")
+        or merged.get("title")
+        or merged.get("sourceName")
+        or merged.get("name")
+        or meta.get("title")
+        or ""
+    ).strip()
+    url = str(
+        merged.get("targetLink")
+        or merged.get("seeMoreUrl")
+        or merged.get("url")
+        or merged.get("sourceUrl")
+        or merged.get("displayUrl")
+        or merged.get("path")
+        or meta.get("url")
+        or ""
+    ).strip()
+    if url.lower() in {"null", "none"}:
+        url = ""
+    ref_type = str(
+        meta.get("type")
+        or meta.get("refType")
+        or meta.get("typeDescription")
+        or meta.get("sourceType")
+        or merged.get("refType")
+        or ""
+    ).strip()
+    snippet = str(
+        merged.get("snippet")
+        or meta.get("snippet")
+        or item.get("snippet")
+        or ""
+    ).strip()
+    search_query = str(
+        merged.get("searchQuery")
+        or meta.get("searchQuery")
+        or ""
+    ).strip()
+    # Ids that body markers may use.
+    ref_id = str(
+        meta.get("referenceId")
+        or meta.get("citationRefId")
+        or merged.get("referenceId")
+        or ""
+    ).strip()
+    label = str(merged.get("label") or meta.get("label") or "").strip()
+    key = (ref_key or "").strip()
+    if not title and not url and not key and not ref_id:
+        return None
+    if not title:
+        title = url or key or ref_id or "来源"
+    return {
+        "title": title,
+        "url": url,
+        "type": ref_type,
+        "snippet": snippet,
+        "search_query": search_query,
+        "ref_key": key,          # e.g. 1-1e0595  (matches 【1-1e0595】)
+        "ref_id": ref_id,        # e.g. turn1search10 (matches citeturn1search10)
+        "label": label,          # e.g. "1"
+    }
+
+
+def extract_source_attributions(value: object) -> list[dict]:
+    """Collect normalized citations from a SignalR message / entry tree.
+
+    Walks:
+      * legacy ``sourceAttributions`` / ``citations`` lists
+      * current ``references`` dicts keyed by ``1-1e0595``-style ids
+      * already-resolved ``[label](https://...)`` links in final bot text
+
+    De-duplicates by URL, then by ref_key / ref_id / title.
+    """
+    found: list[dict] = []
+    seen: set[str] = set()
+    list_keys = {
+        "sourceAttributions",
+        "source_attributions",
+        "SourceAttributions",
+        "citations",
+        "Citations",
+        "grounding",
+    }
+    # `references` is a dict in modern payloads; also accept list just in case.
+    map_keys = {"references", "References"}
+
+    def add(item: object, *, ref_key: str = "") -> None:
+        normalized = _normalize_source_attribution(item, ref_key=ref_key)
+        if normalized is None:
+            return
+        # Prefer stable identity: url > ref_key > ref_id > title
+        key = (
+            (normalized.get("url") or "").lower()
+            or (normalized.get("ref_key") or "").lower()
+            or (normalized.get("ref_id") or "").lower()
+            or (normalized.get("title") or "")
+        )
+        if not key or key in seen:
+            # If we already have this key but the new entry has a URL and the
+            # old one doesn't, upgrade in place.
+            if key and key in seen and normalized.get("url"):
+                for existing in found:
+                    ek = (
+                        (existing.get("url") or "").lower()
+                        or (existing.get("ref_key") or "").lower()
+                        or (existing.get("ref_id") or "").lower()
+                        or (existing.get("title") or "")
+                    )
+                    if ek == key and not existing.get("url"):
+                        existing.update({k: v for k, v in normalized.items() if v})
+                        break
+            return
+        seen.add(key)
+        found.append(normalized)
+
+    def add_inline_markdown_links(text: str) -> None:
+        if not text or "http" not in text:
+            return
+        for match in re.finditer(r"\[([^\]]{0,200})\]\((https?://[^)\s]+)\)", text):
+            label = (match.group(1) or "").strip() or match.group(2)
+            if label.startswith("!") or "m365-media?" in match.group(2):
+                continue
+            add({"providerDisplayName": label, "seeMoreUrl": match.group(2), "refType": "Web"})
+
+    def walk(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        for key in list_keys:
+            attrs = node.get(key)
+            if isinstance(attrs, list):
+                for item in attrs:
+                    add(item)
+            elif isinstance(attrs, dict):
+                # Sometimes a single attribution object.
+                if any(k in attrs for k in ("seeMoreUrl", "providerDisplayName", "url", "targetLink")):
+                    add(attrs)
+                else:
+                    for rk, rv in attrs.items():
+                        add(rv, ref_key=str(rk))
+        for key in map_keys:
+            refs = node.get(key)
+            if isinstance(refs, dict):
+                for rk, rv in refs.items():
+                    add(rv, ref_key=str(rk))
+            elif isinstance(refs, list):
+                for item in refs:
+                    add(item)
+        if node.get("author") not in (None, "user") and isinstance(node.get("text"), str):
+            add_inline_markdown_links(node["text"])
+        if isinstance(node.get("hiddenText"), str):
+            add_inline_markdown_links(node["hiddenText"])
+        for child in node.values():
+            if isinstance(child, (dict, list)):
+                walk(child)
+
+    walk(value)
+    return found
+
+
+def match_sources_for_tracker(
+    sources: list[dict],
+    tracker: "CitationTracker | None",
+) -> list[dict]:
+    """Order/filter sources to match in-body ``[n]`` numbering.
+
+    Body markers are rewritten to ``[n]`` from, in priority order:
+      * ``【1-1e0595】`` -> tracker key ``bracket1-1e0595`` / raw ``1-1e0595``
+      * ``citeturn1search10`` -> tracker key ``turn1search10``
+    Upstream ``references`` carry both ``ref_key`` (1-1e0595) and ``ref_id``
+    (turn1search10). Match them so footnote 1 points at the right URL.
+    """
+    usable = [s for s in sources if isinstance(s, dict) and (s.get("title") or s.get("url") or s.get("ref_key"))]
+    if not usable:
+        return []
+    if tracker is None or not tracker.keys_in_order:
+        # No body footnotes recorded — keep upstream order, drop URL-less noise.
+        return [s for s in usable if s.get("url") or s.get("title")]
+
+    by_ref_key: dict[str, dict] = {}
+    by_ref_id: dict[str, dict] = {}
+    by_label: dict[str, dict] = {}
+    for s in usable:
+        rk = str(s.get("ref_key") or "").lower()
+        rid = str(s.get("ref_id") or "").lower()
+        lab = str(s.get("label") or "").strip()
+        if rk:
+            by_ref_key[rk] = s
+            # Also index without the "bracket" prefix the tracker uses.
+            if rk.startswith("bracket"):
+                by_ref_key[rk[len("bracket"):]] = s
+            else:
+                by_ref_key[f"bracket{rk}"] = s
+        if rid:
+            by_ref_id[rid] = s
+        if lab:
+            by_label[lab] = s
+
+    ordered: list[dict] = []
+    used: set[int] = set()
+    for key in tracker.keys_in_order:
+        k = (key or "").lower()
+        hit = by_ref_key.get(k) or by_ref_id.get(k)
+        if hit is None and k.startswith("bracket"):
+            # bracket1-1e0595 or bracket1
+            rest = k[len("bracket"):]
+            hit = by_ref_key.get(rest) or by_ref_key.get(k)
+            if hit is None and re.fullmatch(r"\d+", rest or ""):
+                hit = by_label.get(rest)
+        if hit is None and re.fullmatch(r"bracket\d+-[0-9a-f]+", k):
+            # direct ref_key form
+            hit = by_ref_key.get(k) or by_ref_key.get(k.split("bracket", 1)[-1])
+        if hit is not None and id(hit) not in used:
+            ordered.append(hit)
+            used.add(id(hit))
+
+    # Append any remaining sources with real URLs that were not cited inline.
+    for s in usable:
+        if id(s) not in used and s.get("url"):
+            ordered.append(s)
+            used.add(id(s))
+    return ordered
+
+
+def aligned_url_sources_for_stream(
+    sources: list[dict],
+    tracker: CitationTracker | None = None,
+) -> list[dict]:
+    """Return URL-bearing sources ordered to match in-body ``[n]`` markers.
+
+    URL-less placeholders are dropped: protocol-native citation fields and the
+    Markdown bibliography both need a real link to be useful.
+    """
+    aligned = match_sources_for_tracker(sources, tracker)
+    return [s for s in aligned if isinstance(s, dict) and str(s.get("url") or "").strip()]
+
+
+def _footnote_span(text: str, index: int) -> tuple[int, int] | None:
+    """Return ``[start, end)`` for the first ``[index]`` (or legacy ``[^index]``) marker."""
+    if index <= 0 or not text:
+        return None
+    for marker in (f"[{index}]", f"[^{index}]"):
+        start = text.find(marker)
+        if start >= 0:
+            return start, start + len(marker)
+    return None
+
+
+def openai_url_citations_from_sources(text: str, sources: list[dict]) -> list[dict]:
+    """Map normalized sources to OpenAI Responses ``url_citation`` annotations.
+
+    ``start_index`` / ``end_index`` prefer the in-body ``[n]`` marker span so
+    clients can highlight the cite marker. When a marker is missing the span is
+    placed at EOF (zero-width) so the annotation still carries url/title.
+    """
+    body = text or ""
+    annotations: list[dict] = []
+    for index, source in enumerate(sources, 1):
+        if not isinstance(source, dict):
+            continue
+        url = str(source.get("url") or "").strip()
+        if not url:
+            continue
+        title = str(source.get("title") or url).strip() or url
+        span = _footnote_span(body, index)
+        if span is None:
+            start = end = len(body)
+        else:
+            start, end = span
+        annotations.append(
+            {
+                "type": "url_citation",
+                "start_index": start,
+                "end_index": end,
+                "url": url,
+                "title": title,
+            }
+        )
+    return annotations
+
+
+def anthropic_web_citations_from_sources(text: str, sources: list[dict]) -> list[dict]:
+    """Map normalized sources to Anthropic ``web_search_result_location`` citations.
+
+    These hang on a text content block's ``citations`` array (and as streaming
+    ``citations_delta`` events). ``encrypted_index`` is an opaque required field
+    in the official SDK; we emit a stable synthetic token per source.
+    """
+    body = text or ""
+    citations: list[dict] = []
+    for index, source in enumerate(sources, 1):
+        if not isinstance(source, dict):
+            continue
+        url = str(source.get("url") or "").strip()
+        if not url:
+            continue
+        title = str(source.get("title") or url).strip() or url
+        snippet = str(source.get("snippet") or "").strip()
+        span = _footnote_span(body, index)
+        if span is not None:
+            cited_text = body[span[0]:span[1]]
+        elif snippet:
+            cited_text = snippet[:200]
+        else:
+            cited_text = title
+        citations.append(
+            {
+                "type": "web_search_result_location",
+                "url": url,
+                "title": title,
+                "cited_text": cited_text,
+                # Opaque per Anthropic SDK; not a real encrypted payload.
+                "encrypted_index": f"m365_{index}",
+            }
+        )
+    return citations

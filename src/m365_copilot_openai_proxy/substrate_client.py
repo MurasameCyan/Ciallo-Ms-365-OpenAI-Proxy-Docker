@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -33,7 +34,10 @@ from .substrate_parse import (
     _message_content,
     _final_fallback_remainder,
     _split_snapshot_lead,
+    aligned_url_sources_for_stream,
+    CitationTracker,
     clean_m365_citations,
+    extract_source_attributions,
 )
 from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 
@@ -534,13 +538,14 @@ class SubstrateCopilotClient:
             if annotation:
                 annotations.append(annotation)
         return annotations
-
     async def chat_stream(
         self,
         prompt: str,
         additional_context: list[str],
         session: PersistentSession | None = None,
         images: list | None = None,
+        *,
+        sources_out: list[dict] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         text = _combine_text(prompt, additional_context, self._tone)
         annotations = await self._upload_images(images)
@@ -551,6 +556,7 @@ class SubstrateCopilotClient:
                 session_id=str(uuid.uuid4()),
                 is_start_of_session=True,
                 annotations=annotations,
+                sources_out=sources_out,
             )) as owned_stream:
                 async for chunk in owned_stream:
                     yield chunk
@@ -576,6 +582,7 @@ class SubstrateCopilotClient:
                     session_id=turn.client_session_id,
                     is_start_of_session=turn.is_start_of_session,
                     annotations=annotations,
+                    sources_out=sources_out,
                 )) as owned_stream:
                     async for chunk in owned_stream:
                         if isinstance(chunk, str) and chunk:
@@ -616,6 +623,7 @@ class SubstrateCopilotClient:
                     session_id=healed.client_session_id,
                     is_start_of_session=healed.is_start_of_session,
                     annotations=annotations,
+                    sources_out=sources_out,
                 )) as owned_stream:
                     async for chunk in owned_stream:
                         yield chunk
@@ -629,6 +637,7 @@ class SubstrateCopilotClient:
         session_id: str,
         is_start_of_session: bool,
         annotations: list[dict] | None = None,
+        sources_out: list[dict] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream one turn; if the upstream returns a clean-but-empty response
         (connected, invoked, ended with no text/image), retry ONCE, then fail.
@@ -654,6 +663,7 @@ class SubstrateCopilotClient:
             session_id=session_id,
             is_start_of_session=is_start_of_session,
             annotations=annotations,
+            sources_out=sources_out,
         )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, str) and chunk:
@@ -669,6 +679,7 @@ class SubstrateCopilotClient:
             session_id=str(uuid.uuid4()),
             is_start_of_session=True,
             annotations=annotations,
+            sources_out=sources_out,
         )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, str) and chunk:
@@ -720,6 +731,7 @@ class SubstrateCopilotClient:
         session_id: str,
         is_start_of_session: bool,
         annotations: list[dict] | None = None,
+        sources_out: list[dict] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         req_id = str(uuid.uuid4())
         probe = probe_conversations.get() if is_start_of_session else None
@@ -738,7 +750,24 @@ class SubstrateCopilotClient:
                 snapshot_lead = ""
                 yielded_images: set[str] = set()
                 yielded_any = False
+                collected_sources: list[dict] = []
+                seen_source_keys: set[str] = set()
+                cite_tracker = CitationTracker()
                 reasoning = ReasoningSnapshots()
+
+                def _note_sources(payload: object) -> None:
+                    for source in extract_source_attributions(payload):
+                        key = (
+                            (source.get("url") or "").lower()
+                            or (source.get("ref_key") or "").lower()
+                            or (source.get("ref_id") or "").lower()
+                            or source.get("title")
+                            or ""
+                        )
+                        if not key or key in seen_source_keys:
+                            continue
+                        seen_source_keys.add(key)
+                        collected_sources.append(source)
                 # Non-empty once the completion frame says the turn failed; holds the
                 # upstream's own verdict string so the error names it.
                 turn_failure = ""
@@ -772,6 +801,7 @@ class SubstrateCopilotClient:
                         if t == 6:
                             continue
                         _capture_suspicious_response_event(getattr(self, "_response_debug_sink", None), msg)
+                        _note_sources(msg)
                         if t == 1 and msg.get("target") == "update":
                             for argument in msg.get("arguments") or []:
                                 if isinstance(argument, dict):
@@ -791,7 +821,7 @@ class SubstrateCopilotClient:
                             self._note_quota(args)
                             delta = args.get("writeAtCursor")
                             if delta and not _is_image_loading_placeholder(delta):
-                                delta = clean_m365_citations(delta)
+                                delta = clean_m365_citations(delta, cite_tracker)
                                 if not delta:
                                     continue
                                 # A snapshot that landed before any delta holds the
@@ -890,7 +920,20 @@ class SubstrateCopilotClient:
                                     raise SubstrateThrottled(message)
                                 raise SubstrateCopilotError(message)
                             if remaining:
-                                yield remaining
+                                remaining = clean_m365_citations(remaining, cite_tracker)
+                                if remaining:
+                                    yield remaining
+                                    streamed_text += remaining
+                            held = cite_tracker.flush()
+                            if held:
+                                yield held
+                                streamed_text += held
+                            aligned = aligned_url_sources_for_stream(
+                                collected_sources, cite_tracker
+                            )
+                            if sources_out is not None:
+                                sources_out.clear()
+                                sources_out.extend(aligned)
                             return
         except SubstrateCopilotError:
             raise
@@ -905,10 +948,33 @@ class SubstrateCopilotClient:
         additional_context: list[str],
         session: PersistentSession | None = None,
         images: list | None = None,
+        *,
+        sources_out: list[dict] | None = None,
     ) -> str:
         chunks: list[str] = []
-        async with closing_stream(self.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+        async with closing_stream(self.chat_stream(
+            prompt, additional_context, session, images,
+            sources_out=sources_out,
+        )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, str):
                     chunks.append(chunk)
         return "".join(chunks)
+
+
+
+def filter_client_method_kwargs(client: object, method_name: str, extra: dict) -> dict:
+    """Keep only kwargs the client's method accepts (unwrap throttle wrappers)."""
+    target = client
+    for attr in ("_throttle_target", "_client"):
+        inner = getattr(target, attr, None)
+        if inner is not None and hasattr(inner, method_name):
+            target = inner
+    func = getattr(target, method_name, None)
+    try:
+        sig = inspect.signature(func)
+    except (TypeError, ValueError):
+        return {}
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return extra
+    return {key: value for key, value in extra.items() if key in sig.parameters}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import time
@@ -25,6 +26,10 @@ from .substrate_client import (
     SubstrateThrottled,
     _dedupe_repeated_delta,
 )
+from .substrate_parse import (
+    anthropic_web_citations_from_sources,
+    openai_url_citations_from_sources,
+)
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
     _extract_prose_write,
@@ -46,6 +51,42 @@ from .usage_store import (
 
 def _transform_complete_text(full_text: str, text_transform: Callable[[str], str] | None) -> str:
     return text_transform(full_text) if text_transform is not None else full_text
+
+
+
+def _chat_stream_extra_kwargs(client: object, extra: dict) -> dict:
+    """Keep sources/reasoning kwargs only when the inner client accepts them."""
+    target = client
+    for attr in ("_throttle_target", "_client"):
+        inner = getattr(target, attr, None)
+        if inner is not None and hasattr(inner, "chat_stream"):
+            target = inner
+    func = getattr(target, "chat_stream", None)
+    try:
+        sig = inspect.signature(func)
+    except (TypeError, ValueError):
+        return {}
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return extra
+    return {key: value for key, value in extra.items() if key in sig.parameters}
+
+
+
+async def _compat_chat_stream(
+    client: SubstrateCopilotClient,
+    prompt: str,
+    additional_context: list[str],
+    session: PersistentSession | None,
+    images: list | None,
+    **extra,
+) -> AsyncIterator[str]:
+    """Call chat_stream, ignoring extra kwargs older/test clients reject."""
+    filtered = _chat_stream_extra_kwargs(client, extra)
+    stream = client.chat_stream(
+        prompt, additional_context, session, images, **filtered
+    )
+    async for delta in stream:
+        yield delta
 
 
 def _json_err(status: int, message: str, error_type: str = "error") -> JSONResponse:
@@ -199,6 +240,7 @@ def _responses_message_item(
     text: str,
     item_id: str | None = None,
     status: str = "completed",
+    annotations: list[dict] | None = None,
 ) -> dict:
     return {
         "id": item_id or f"msg_{uuid.uuid4().hex}",
@@ -208,7 +250,7 @@ def _responses_message_item(
         "content": [{
             "type": "output_text",
             "text": text,
-            "annotations": [],
+            "annotations": annotations or [],
             "logprobs": [],
         }],
     }
@@ -444,8 +486,12 @@ async def _responses_stream(
 
     raw_text = ""
     full_text = ""
+    collected_sources: list[dict] = []
     try:
-        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+        async with closing_stream(_compat_chat_stream(
+            client, prompt, additional_context, session, images,
+            sources_out=collected_sources,
+        )) as owned_stream:
             async for delta in owned_stream:
                 if isinstance(delta, ReasoningDelta):
                     for payload in reasoning.add(delta):
@@ -511,9 +557,20 @@ async def _responses_stream(
     for payload in reasoning.finish():
         yield _responses_event(payload, sequence)
         sequence += 1
+    annotations = openai_url_citations_from_sources(full_text, collected_sources)
+    for annotation_index, annotation in enumerate(annotations):
+        yield _responses_event({
+            "type": "response.output_text.annotation.added",
+            "item_id": item_id,
+            "output_index": message_index,
+            "content_index": 0,
+            "annotation_index": annotation_index,
+            "annotation": annotation,
+        }, sequence)
+        sequence += 1
     if on_text_done is not None:
         on_text_done(full_text)
-    message_item = _responses_message_item(full_text, item_id)
+    message_item = _responses_message_item(full_text, item_id, annotations=annotations)
     yield _responses_event({
         "type": "response.output_text.done",
         "item_id": item_id,
@@ -971,11 +1028,15 @@ async def _anthropic_stream(
 
     raw_text = ""
     full_text = ""
+    collected_sources: list[dict] = []
     # See stop_sequences.py: the turn is drained past a hit so usage and the
     # stored session message stay whole; only delivery stops.
     trimmer = StopSequenceTrimmer(stops or [])
     try:
-        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+        async with closing_stream(_compat_chat_stream(
+            client, prompt, additional_context, session, images,
+            sources_out=collected_sources,
+        )) as owned_stream:
             async for delta in owned_stream:
                 if isinstance(delta, ReasoningDelta):
                     for event in content_stream.reasoning(delta):
@@ -1051,6 +1112,15 @@ async def _anthropic_stream(
         on_response_done({"role": "assistant", "content": full_text})
     for event in content_stream.text(""):
         yield event
+    for citation in anthropic_web_citations_from_sources(full_text, collected_sources):
+        yield sse(
+            "content_block_delta",
+            {
+                "type": "content_block_delta",
+                "index": content_stream._index,
+                "delta": {"type": "citations_delta", "citation": citation},
+            }
+        )
     for event in content_stream.close():
         yield event
     stop_reason = "stop_sequence" if matched else "end_turn"

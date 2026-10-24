@@ -364,7 +364,7 @@ def _wire_text(tone: str, context: list[str], prompt: str = "What is the SHA-256
     client._tone = tone  # exactly what apply_request_model assigns
     sent: list[str] = []
 
-    async def capture(*, text, conv_id, session_id, is_start_of_session, annotations=None):
+    async def capture(*, text, conv_id, session_id, is_start_of_session, annotations=None, sources_out=None):
         sent.append(text)
         yield "ok"
 

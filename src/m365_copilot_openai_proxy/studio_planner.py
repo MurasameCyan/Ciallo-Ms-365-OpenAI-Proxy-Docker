@@ -8,7 +8,7 @@ from typing import Protocol
 from .reasoning import ReasoningDelta, StreamChunk
 from .session_store import PersistentSession
 from .sse_stream import closing_stream
-from .substrate_client import SubstrateCopilotError, SubstrateThrottled
+from .substrate_client import SubstrateCopilotError, SubstrateThrottled, filter_client_method_kwargs
 
 
 class ChatStreamClient(Protocol):
@@ -52,6 +52,7 @@ async def planned_or_answered(
     fallback_turn: AnswerFallback,
     should_fallback: NeedsFallback | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    sources_out: list[dict] | None = None,
 ) -> str:
     chunks: list[str] = []
     yielded_any = False
@@ -61,6 +62,9 @@ async def planned_or_answered(
             studio_turn.additional_context,
             studio_turn.session,
             studio_turn.images,
+            **filter_client_method_kwargs(
+                studio_turn.client, "chat_stream", {"sources_out": sources_out}
+            ),
         )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, ReasoningDelta):
@@ -93,6 +97,7 @@ async def planned_or_streamed(
     fallback_turn: StreamFallback,
     should_fallback: NeedsFallback | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    sources_out: list[dict] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     # Tool-bearing callers buffer the whole upstream turn before emitting a
     # protocol response. When a predicate is supplied, buffer here too so a
@@ -105,6 +110,9 @@ async def planned_or_streamed(
             studio_turn.additional_context,
             studio_turn.session,
             studio_turn.images,
+            **filter_client_method_kwargs(
+                studio_turn.client, "chat_stream", {"sources_out": sources_out}
+            ),
         )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, ReasoningDelta):
@@ -153,6 +161,7 @@ async def ordered_or_answered(
     on_stage: Callable[[str], None] | None = None,
     on_studio_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
+    sources_out: list[dict] | None = None,
 ) -> str:
     """Run the requested planner order, ending at one ordinary inline turn.
 
@@ -182,6 +191,7 @@ async def ordered_or_answered(
             fallback_turn=fallback,
             should_fallback=should_fallback,
             on_fallback=on_studio_fallback,
+            sources_out=sources_out,
         )
 
     if prefer_router:
@@ -220,6 +230,7 @@ async def ordered_or_streamed(
     on_stage: Callable[[str], None] | None = None,
     on_studio_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
+    sources_out: list[dict] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Streaming counterpart to :func:`ordered_or_answered`."""
     async def inline_layer() -> AsyncIterator[StreamChunk]:
@@ -242,6 +253,7 @@ async def ordered_or_streamed(
             fallback_turn=fallback,
             should_fallback=should_fallback,
             on_fallback=on_studio_fallback,
+            sources_out=sources_out,
         )) as owned_stream:
             async for chunk in owned_stream:
                 yield chunk
