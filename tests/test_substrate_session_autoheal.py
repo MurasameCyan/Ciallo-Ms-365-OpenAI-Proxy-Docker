@@ -57,7 +57,7 @@ def test_continuation_refusal_resets_and_retries_on_fresh_conversation():
     client = _client()
     events: list[dict] = []
 
-    async def stub(*, text, conv_id, session_id, is_start_of_session, annotations=None):
+    async def stub(*, text, conv_id, session_id, is_start_of_session, annotations=None, sources_out=None):
         events.append({"conv_id": conv_id, "start": is_start_of_session})
         if not is_start_of_session:
             raise SubstrateCopilotError(_REFUSAL)
@@ -84,7 +84,7 @@ def test_start_of_session_refusal_propagates_without_retry():
     client = _client()
     events: list[bool] = []
 
-    async def always_refuse(*, text, conv_id, session_id, is_start_of_session, annotations=None):
+    async def always_refuse(*, text, conv_id, session_id, is_start_of_session, annotations=None, sources_out=None):
         events.append(is_start_of_session)
         raise SubstrateCopilotError(_REFUSAL)
         yield ""  # pragma: no cover - marks this as an async generator
@@ -104,7 +104,7 @@ def test_continuation_non_refusal_error_propagates_without_retry():
     client = _client()
     events: list[bool] = []
 
-    async def idle_timeout(*, text, conv_id, session_id, is_start_of_session, annotations=None):
+    async def idle_timeout(*, text, conv_id, session_id, is_start_of_session, annotations=None, sources_out=None):
         events.append(is_start_of_session)
         raise SubstrateCopilotError("Upstream stopped sending data (idle timeout).")
         yield ""  # pragma: no cover - marks this as an async generator
@@ -125,7 +125,7 @@ def test_refusal_after_partial_stream_is_not_retried():
     client = _client()
     events: list[bool] = []
 
-    async def partial_then_refuse(*, text, conv_id, session_id, is_start_of_session, annotations=None):
+    async def partial_then_refuse(*, text, conv_id, session_id, is_start_of_session, annotations=None, sources_out=None):
         events.append(is_start_of_session)
         yield "partial"
         raise SubstrateCopilotError(_REFUSAL)

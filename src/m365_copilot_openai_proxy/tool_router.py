@@ -30,7 +30,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 from .reasoning import ReasoningDelta, StreamChunk, suppress_reasoning
 from .sse_stream import closing_stream
-from .substrate_client import SubstrateCopilotError
+from .substrate_client import SubstrateCopilotError, filter_client_method_kwargs
 from .tone_options import TOOL_PLANNING_MODES, router_applies, tool_planning_mode
 from .tool_call_parser import _NO_TOOL_MARKER, _coerce_tool_call
 
@@ -177,6 +177,7 @@ async def routed_or_answered(
     should_fallback: NeedsFallback | None = None,
     fallback_turn: AnswerFallback | None = None,
     on_router_fallback: Callable[[str], None] | None = None,
+    sources_out: list[dict] | None = None,
 ) -> str:
     """One turn's text: the router's decision if it produced a call, else an answer.
 
@@ -189,18 +190,26 @@ async def routed_or_answered(
     if router_prompt:
         decided, declined = await _router_decision(client, router_prompt)
         if decided:
+            if sources_out is not None:
+                sources_out.clear()
             _notify_router_call(on_router_call)
             return decided
         if fallback_turn is not None and not declined:
             if on_router_fallback is not None:
                 on_router_fallback("classification_error")
             return await fallback_turn()
-    text = await client.chat(prompt, additional_context, session, images)
+    answer_sources: list[dict] = []
+    text = await client.chat(
+        prompt, additional_context, session, images,
+        **filter_client_method_kwargs(client, "chat", {"sources_out": answer_sources}),
+    )
     text = text + _marker_suffix(text, declined)
     if fallback_turn is not None and should_fallback is not None and should_fallback(text):
         if on_router_fallback is not None:
             on_router_fallback("no_tool_call")
         return await fallback_turn()
+    if sources_out is not None:
+        sources_out[:] = answer_sources
     return text
 
 
@@ -215,6 +224,7 @@ async def routed_or_streamed(
     should_fallback: NeedsFallback | None = None,
     fallback_turn: StreamFallback | None = None,
     on_router_fallback: Callable[[str], None] | None = None,
+    sources_out: list[dict] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """chat_stream, with the same router pre-step, yielding the decision as one chunk.
 
@@ -225,6 +235,8 @@ async def routed_or_streamed(
     if router_prompt:
         decided, declined = await _router_decision(client, router_prompt)
         if decided:
+            if sources_out is not None:
+                sources_out.clear()
             _notify_router_call(on_router_call)
             yield decided
             return
@@ -237,7 +249,13 @@ async def routed_or_streamed(
             return
     text = ""
     buffered: list[str] | None = [] if fallback_turn is not None else None
-    async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+    answer_sources: list[dict] = []
+    async with closing_stream(client.chat_stream(
+        prompt, additional_context, session, images,
+        **filter_client_method_kwargs(
+            client, "chat_stream", {"sources_out": answer_sources}
+        ),
+    )) as owned_stream:
         async for delta in owned_stream:
             if isinstance(delta, ReasoningDelta):
                 yield delta
@@ -256,6 +274,8 @@ async def routed_or_streamed(
             async for chunk in owned_stream:
                 yield chunk
         return
+    if sources_out is not None:
+        sources_out[:] = answer_sources
     if buffered is not None:
         for chunk in buffered:
             yield chunk

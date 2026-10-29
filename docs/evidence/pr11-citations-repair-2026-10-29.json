@@ -1,0 +1,1751 @@
+{
+  "date": "2026-10-29",
+  "recorded_at_utc": "2026-10-29T02:01:45.055792+00:00",
+  "scope": "PR #11 citation repair; local source and deployed target container",
+  "worktree": ".claude/worktrees/pr11-citations-r2",
+  "branch": "fix/pr11-citations-container",
+  "pr_base": "c4f8b6246f166a32bb48664fa6a6cce482cfd738",
+  "target_container": "ciallo-ms365-proxy-multi",
+  "full_acceptance": false,
+  "repairs": [
+    "Prevent duplicate pending tails when snapshots and deltas overlap.",
+    "Keep supplemental URLs from claiming unresolved body citation numbers.",
+    "Resolve plain and Sydney footnotes by explicit identity/number, including reordered and sparse metadata.",
+    "Keep distinct full citation identities separate despite reused display labels.",
+    "Preserve and enrich source identity when URL or metadata arrives later.",
+    "Discard rejected Studio/Router draft sources rather than attaching them to the adopted answer."
+  ],
+  "additional_review_repairs": [
+    "Preserve identity as a source acquires its URL.",
+    "Keep the number already delivered by an adopted snapshot.",
+    "Keep ordinary bracket/index handling invariant across chunk boundaries.",
+    "Replace growing label-bucket scans with direct membership indexing."
+  ],
+  "regression": {
+    "passed": 4439,
+    "skipped": 3,
+    "failures": 0,
+    "errors": 0,
+    "warnings": 11,
+    "duration_seconds": 113.73,
+    "exit": 0,
+    "command": "python -m pytest -q --tb=short -p no:cacheprovider",
+    "isolation": "Fresh temporary --basetemp, TEMP/TMP and --junitxml paths; candidate src on PYTHONPATH. Temporary paths omitted."
+  },
+  "controlled_container_replay": {
+    "classification": "Controlled SignalR frames and isolated API app in the target container; not live Microsoft behavior.",
+    "before": {
+      "total": 16,
+      "passed": 0,
+      "failed": 16,
+      "cases": [
+        {
+          "case": "tail_snapshot_delta",
+          "passed": false,
+          "expected": "value = data[0]",
+          "text": "value = data[0][0]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "tail_delta_snapshot",
+          "passed": false,
+          "expected": "value = data[0]",
+          "text": "value = data[0][0]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "tail_snapshot_delta",
+          "passed": false,
+          "expected": "Alpha [1]",
+          "text": "Alpha [1][1]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "tail_delta_snapshot",
+          "passed": false,
+          "expected": "Alpha [1]",
+          "text": "Alpha [1][1]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "supplemental_missing_identity",
+          "passed": false,
+          "text": "Claim [1].",
+          "sources": [
+            {
+              "title": "Unrelated",
+              "url": "https://uncited.example/other",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 6,
+              "end_index": 9,
+              "url": "https://uncited.example/other",
+              "title": "Unrelated"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "plain_reversed",
+          "passed": false,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 9,
+              "end_index": 12,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "plain_sparse",
+          "passed": false,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 9,
+              "end_index": 12,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "sydney_reversed",
+          "passed": false,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 9,
+              "end_index": 12,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "sydney_sparse",
+          "passed": false,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 9,
+              "end_index": 12,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "distinct_identity_reused_label",
+          "passed": false,
+          "text": "A[1] B[1] end",
+          "sources": [
+            {
+              "title": "B",
+              "url": "https://b.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "1",
+              "footnote": 1
+            },
+            {
+              "title": "A",
+              "url": "https://a.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 1,
+              "end_index": 4,
+              "url": "https://b.example",
+              "title": "B"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 13,
+              "end_index": 13,
+              "url": "https://a.example",
+              "title": "A"
+            }
+          ],
+          "spans": [
+            "[1]",
+            ""
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "late_reference_metadata",
+          "passed": false,
+          "text": "B[1] A[2] end",
+          "sources": [
+            {
+              "title": "A",
+              "url": "https://a.example",
+              "type": "",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "",
+              "ref_id": "",
+              "label": "",
+              "footnote": 1
+            },
+            {
+              "title": "B",
+              "url": "https://b.example",
+              "type": "",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "",
+              "ref_id": "",
+              "label": "",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 1,
+              "end_index": 4,
+              "url": "https://a.example",
+              "title": "A"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 6,
+              "end_index": 9,
+              "url": "https://b.example",
+              "title": "B"
+            }
+          ],
+          "spans": [
+            "[1]",
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "studio_router_discarded_sources",
+          "passed": false,
+          "citation_urls": [
+            "https://discarded.example/evidence"
+          ],
+          "tool_names": [
+            "Read"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": false,
+          "endpoint": "/v1/messages",
+          "streaming": false,
+          "http": 200,
+          "text": "value = data[0][0]",
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": false,
+          "endpoint": "/v1/messages",
+          "streaming": true,
+          "http": 200,
+          "text": "value = data[0][0]",
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": false,
+          "endpoint": "/v1/responses",
+          "streaming": false,
+          "http": 200,
+          "text": "value = data[0][0]",
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": false,
+          "endpoint": "/v1/responses",
+          "streaming": true,
+          "http": 200,
+          "text": "value = data[0][0]",
+          "socket_closed": true
+        }
+      ]
+    },
+    "final_installed": {
+      "total": 19,
+      "passed": 19,
+      "failed": 0,
+      "cases": [
+        {
+          "case": "tail_snapshot_delta",
+          "passed": true,
+          "expected": "value = data[0]",
+          "text": "value = data[0]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "tail_delta_snapshot",
+          "passed": true,
+          "expected": "value = data[0]",
+          "text": "value = data[0]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "tail_snapshot_delta",
+          "passed": true,
+          "expected": "Alpha [1]",
+          "text": "Alpha [1]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "tail_delta_snapshot",
+          "passed": true,
+          "expected": "Alpha [1]",
+          "text": "Alpha [1]",
+          "sources": [],
+          "annotations": [],
+          "spans": [],
+          "socket_closed": true
+        },
+        {
+          "case": "supplemental_missing_identity",
+          "passed": true,
+          "text": "Claim [1].",
+          "sources": [
+            {
+              "title": "Unrelated",
+              "url": "https://uncited.example/other",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 10,
+              "end_index": 10,
+              "url": "https://uncited.example/other",
+              "title": "Unrelated"
+            }
+          ],
+          "spans": [
+            ""
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "plain_reversed",
+          "passed": true,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 21,
+              "end_index": 24,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "plain_sparse",
+          "passed": true,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 21,
+              "end_index": 24,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "sydney_reversed",
+          "passed": true,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 21,
+              "end_index": 24,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "sydney_sparse",
+          "passed": true,
+          "text": "Internal [1], public [2].",
+          "sources": [
+            {
+              "title": "Public",
+              "url": "https://public.example/report",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 21,
+              "end_index": 24,
+              "url": "https://public.example/report",
+              "title": "Public"
+            }
+          ],
+          "spans": [
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "distinct_identity_reused_label",
+          "passed": true,
+          "text": "A[1] B[2] end",
+          "sources": [
+            {
+              "title": "A",
+              "url": "https://a.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 1
+            },
+            {
+              "title": "B",
+              "url": "https://b.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "1",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 1,
+              "end_index": 4,
+              "url": "https://a.example",
+              "title": "A"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 6,
+              "end_index": 9,
+              "url": "https://b.example",
+              "title": "B"
+            }
+          ],
+          "spans": [
+            "[1]",
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "late_reference_metadata",
+          "passed": true,
+          "text": "B[1] A[2] end",
+          "sources": [
+            {
+              "title": "B",
+              "url": "https://b.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "2-bbbbbb",
+              "ref_id": "turn1search1",
+              "label": "2",
+              "footnote": 1
+            },
+            {
+              "title": "A",
+              "url": "https://a.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 2
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 1,
+              "end_index": 4,
+              "url": "https://b.example",
+              "title": "B"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 6,
+              "end_index": 9,
+              "url": "https://a.example",
+              "title": "A"
+            }
+          ],
+          "spans": [
+            "[1]",
+            "[2]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "studio_router_discarded_sources",
+          "passed": true,
+          "citation_urls": [],
+          "tool_names": [
+            "Read"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": true,
+          "endpoint": "/v1/messages",
+          "streaming": false,
+          "http": 200,
+          "text": "value = data[0]",
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": true,
+          "endpoint": "/v1/messages",
+          "streaming": true,
+          "http": 200,
+          "text": "value = data[0]",
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": true,
+          "endpoint": "/v1/responses",
+          "streaming": false,
+          "http": 200,
+          "text": "value = data[0]",
+          "socket_closed": true
+        },
+        {
+          "case": "api_indexing_tail",
+          "passed": true,
+          "endpoint": "/v1/responses",
+          "streaming": true,
+          "http": 200,
+          "text": "value = data[0]",
+          "socket_closed": true
+        },
+        {
+          "case": "source_acquires_url",
+          "passed": true,
+          "text": "Claim [1].",
+          "sources": [
+            {
+              "title": "A",
+              "url": "https://a.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 6,
+              "end_index": 9,
+              "url": "https://a.example",
+              "title": "A"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "adopted_snapshot_number",
+          "passed": true,
+          "text": "Claim [1].",
+          "sources": [
+            {
+              "title": "A",
+              "url": "https://a.example",
+              "type": "Web",
+              "snippet": "",
+              "search_query": "",
+              "ref_key": "1-aaaaaa",
+              "ref_id": "turn1search0",
+              "label": "1",
+              "footnote": 1
+            }
+          ],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 6,
+              "end_index": 9,
+              "url": "https://a.example",
+              "title": "A"
+            }
+          ],
+          "spans": [
+            "[1]"
+          ],
+          "socket_closed": true
+        },
+        {
+          "case": "literal_number_chunk_invariance",
+          "passed": true,
+          "whole": "Claim [1]. data[1];",
+          "split": "Claim [1]. data[1];"
+        }
+      ]
+    }
+  },
+  "mandatory_matrix": [
+    {
+      "item": 1,
+      "path": "M365 direct/native",
+      "status": "partial",
+      "evidence": [
+        "matrix_1_m365_native_stream",
+        "matrix_1_m365_native_tool_loop",
+        "matrix_1_m365_native_tool_loop_second_verified_tone"
+      ],
+      "detail": "Direct streaming text passed. Native tool results remain as observed; a Router pass is not substituted."
+    },
+    {
+      "item": 2,
+      "path": "Router planning/tool",
+      "status": "pass",
+      "evidence": [
+        "matrix_2_router_tool_loop"
+      ]
+    },
+    {
+      "item": 3,
+      "path": "Studio planning/tool",
+      "status": "blocked",
+      "evidence": [
+        "matrix_3_studio_tool_loop"
+      ],
+      "detail": "No ready accessible Studio Agent. The successful Router fallback is not Studio acceptance."
+    },
+    {
+      "item": 4,
+      "path": "Anthropic Messages API",
+      "status": "pass",
+      "evidence": [
+        "matrix_4_messages_stream_tool_loop",
+        "messages_citations_after_read_tool_result",
+        "citations_messages_toolsFalse_streamFalse",
+        "citations_messages_toolsFalse_streamTrue",
+        "citations_messages_toolsTrue_streamTrue"
+      ]
+    },
+    {
+      "item": 5,
+      "path": "OpenAI Responses API",
+      "status": "pass",
+      "evidence": [
+        "matrix_5_responses_stream_previous_response_tool_loop",
+        "responses_citations_after_read_tool_result",
+        "citations_responses_toolsFalse_streamFalse",
+        "citations_responses_toolsFalse_streamTrue",
+        "citations_responses_toolsTrue_streamTrue"
+      ]
+    },
+    {
+      "item": 6,
+      "path": "Personal/Consumer including personal Substrate JWE",
+      "status": "partial",
+      "evidence": [
+        "matrix_6_personal_substrate_stream",
+        "matrix_6_personal_messages_tool_loop",
+        "matrix_6_personal_responses_tool_loop",
+        "matrix_6_consumer_streaming_history",
+        "matrix_6_consumer_fresh_signed_in_cookies",
+        "matrix_6_consumer_pinned_identity_session"
+      ],
+      "detail": "Personal Substrate streaming, Messages/Responses tool loops and authenticated copilot.com userscript push passed. Legacy Consumer/ChatAI results are retained separately."
+    },
+    {
+      "item": 7,
+      "path": "Personal Substrate unattended browser renewal",
+      "status": "pass",
+      "evidence": [
+        "personal-capture-renewal",
+        "personal-after-restart",
+        "matrix_7_messages_real_upgrade_401_continuation",
+        "matrix_7_responses_real_upgrade_401_previous_response_continuation"
+      ],
+      "detail": "Two different issuer-minted JWEs without chat during issuance, successful post-restart renewal, identity/epoch preservation, encrypted persistence and teardown. Both streaming tool continuations observed real Microsoft upgrade 401 then 101."
+    }
+  ],
+  "live_case_counts": {
+    "pass": 17,
+    "fail": 5,
+    "blocked": 1
+  },
+  "live_cases": [
+    {
+      "case": "matrix_1_m365_native_stream",
+      "status": "pass",
+      "random_marker": true,
+      "model": "Magic",
+      "elapsed_seconds": 5.4,
+      "requests": [
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 5.39,
+          "model": "Magic",
+          "tool_header": null,
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/stop"
+        }
+      ]
+    },
+    {
+      "case": "matrix_1_m365_native_tool_loop",
+      "status": "fail",
+      "error_type": "AssertionError",
+      "error": "⚠️ 上游错误：M365 Copilot refused this turn instead of answering (conversation mode 'Claude_Sonnet') (upstream result: InternalError). If every request in this mode does this, the mode is not available for this account -- switch to another mode.",
+      "elapsed_seconds": 2.56,
+      "requests": [
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 2.54,
+          "model": "Claude_Sonnet",
+          "tool_header": "verified",
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/stop"
+        }
+      ]
+    },
+    {
+      "case": "matrix_2_router_tool_loop",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Gpt_5_5_Reasoning",
+      "elapsed_seconds": 14.41,
+      "requests": [
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 7.98,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/tool_calls"
+        },
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.43,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/stop"
+        }
+      ]
+    },
+    {
+      "case": "matrix_3_studio_tool_loop",
+      "status": "blocked",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "studio",
+      "model": "Gpt_5_5_Reasoning",
+      "reason": "No ready accessible Studio Agent. A successful Router fallback does not pass Studio acceptance.",
+      "elapsed_seconds": 17.94,
+      "requests": [
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 10.38,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/tool_calls"
+        },
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 7.54,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/stop"
+        }
+      ]
+    },
+    {
+      "case": "matrix_4_messages_stream_tool_loop",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Gpt_5_5_Reasoning",
+      "elapsed_seconds": 15.9,
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 9.11,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "message_stop/tool_use"
+        },
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.78,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 7,
+          "citation_events": 0,
+          "terminal": "message_stop/end_turn"
+        }
+      ]
+    },
+    {
+      "case": "matrix_5_responses_stream_previous_response_tool_loop",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Gpt_5_5_Reasoning",
+      "elapsed_seconds": 14.15,
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 8.2,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 7,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        },
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 5.94,
+          "model": "Gpt_5_5_Reasoning",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        }
+      ]
+    },
+    {
+      "case": "citations_messages_toolsFalse_streamFalse",
+      "status": "pass",
+      "citations": 4,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "text_excerpt": "One short fact about `<Entity>asyncio.TaskGroup</Entity>` exception behavior:\n\n> If any task in a `TaskGroup` fails with an exception other than `asyncio.CancelledError`, the remaining tasks in the group are automatically cancelled. After all tasks finish, the non-cancellation exceptions are combined and raised as an `ExceptionGroup` (or `BaseExcep",
+      "tools_declared": false,
+      "streaming": false,
+      "elapsed_seconds": 11.2,
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": false,
+          "elapsed_seconds": 11.19,
+          "model": "Magic",
+          "tool_header": null,
+          "terminal": "end_turn"
+        }
+      ]
+    },
+    {
+      "case": "citations_messages_toolsFalse_streamTrue",
+      "status": "pass",
+      "citations": 4,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "text_excerpt": "According to the official Python 3.15.2 documentation, the first time a task in an `asyncio.TaskGroup` fails with an exception other than `asyncio.CancelledError`, the remaining tasks in the group are automatically cancelled; after all tasks finish, the exceptions are combined and raised as an `ExceptionGroup` (or `BaseExceptionGroup`). \n\nSource: C",
+      "tools_declared": false,
+      "streaming": true,
+      "elapsed_seconds": 9.76,
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 9.75,
+          "model": "Magic",
+          "tool_header": null,
+          "event_count": 11,
+          "citation_events": 4,
+          "terminal": "message_stop/end_turn"
+        }
+      ]
+    },
+    {
+      "case": "citations_messages_toolsTrue_streamTrue",
+      "status": "pass",
+      "citations": 4,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "text_excerpt": "One short fact: In `asyncio.TaskGroup`, when any task in the group fails with an exception other than `asyncio.CancelledError`, the remaining tasks in the group are automatically cancelled; after all tasks finish, the exceptions are combined and raised as an `ExceptionGroup` (or `BaseExceptionGroup`). [1]\n\nSource: Python documentation, *Coroutines ",
+      "tools_declared": true,
+      "streaming": true,
+      "elapsed_seconds": 10.62,
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 10.61,
+          "model": "Magic",
+          "tool_header": "unsupported",
+          "event_count": 12,
+          "citation_events": 4,
+          "terminal": "message_stop/end_turn"
+        }
+      ]
+    },
+    {
+      "case": "citations_responses_toolsFalse_streamFalse",
+      "status": "pass",
+      "citations": 4,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "text_excerpt": "According to the official Python documentation for asyncio.TaskGroup, **the first time a task in the group fails with an exception other than `asyncio.CancelledError`, the remaining tasks in the group are cancelled**. \n\nSource: Coroutines and tasks — Python documentation (`asyncio.TaskGroup` section). [1]",
+      "tools_declared": false,
+      "streaming": false,
+      "elapsed_seconds": 10.11,
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": false,
+          "elapsed_seconds": 10.1,
+          "model": "Magic",
+          "tool_header": null,
+          "terminal": "completed"
+        }
+      ]
+    },
+    {
+      "case": "citations_responses_toolsFalse_streamTrue",
+      "status": "pass",
+      "citations": 6,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.office.com/search?q=asyncio.TaskGroup&EntityRepresentationId=4415ec49-5887-8f94-843e-662adfb7e89b",
+        "https://www.office.com/search?q=Python&EntityRepresentationId=30697f37-3378-8ff0-a369-1b005f607ad9",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "text_excerpt": "One short fact about [asyncio.TaskGroup](https://www.office.com/search?q=asyncio.TaskGroup&EntityRepresentationId=4415ec49-5887-8f94-843e-662adfb7e89b)'s exception behavior:\n\n> If any task in a `TaskGroup` fails with an exception other than `asyncio.CancelledError`, the remaining tasks in the group are automatically cancelled. \n\nSource: [Python](ht",
+      "tools_declared": false,
+      "streaming": true,
+      "elapsed_seconds": 9.67,
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 9.66,
+          "model": "Magic",
+          "tool_header": null,
+          "event_count": 15,
+          "citation_events": 6,
+          "terminal": "response.completed"
+        }
+      ]
+    },
+    {
+      "case": "citations_responses_toolsTrue_streamTrue",
+      "status": "pass",
+      "citations": 3,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "text_excerpt": "One short fact from the official Python documentation:\n\n> In an `asyncio.TaskGroup`, if any task fails with an exception other than `asyncio.CancelledError`, the remaining tasks in the group are cancelled. The exceptions are then combined and raised as an `ExceptionGroup` (or `BaseExceptionGroup`) when the task group exits. [1]\n\nSource: Python docu",
+      "tools_declared": true,
+      "streaming": true,
+      "elapsed_seconds": 9.04,
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 9.03,
+          "model": "Magic",
+          "tool_header": null,
+          "event_count": 12,
+          "citation_events": 3,
+          "terminal": "response.completed"
+        }
+      ]
+    },
+    {
+      "case": "matrix_6_personal_substrate_stream",
+      "status": "pass",
+      "random_marker": true,
+      "model": "Magic",
+      "elapsed_seconds": 6.1,
+      "requests": [
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.1,
+          "model": "Magic",
+          "tool_header": null,
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/stop"
+        }
+      ]
+    },
+    {
+      "case": "matrix_6_personal_messages_tool_loop",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Magic",
+      "elapsed_seconds": 14.59,
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.96,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "message_stop/tool_use"
+        },
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 7.62,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 7,
+          "citation_events": 0,
+          "terminal": "message_stop/end_turn"
+        }
+      ]
+    },
+    {
+      "case": "matrix_6_personal_responses_tool_loop",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Magic",
+      "elapsed_seconds": 13.75,
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.52,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 7,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        },
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 7.22,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        }
+      ]
+    },
+    {
+      "case": "matrix_1_m365_native_tool_loop_second_verified_tone",
+      "status": "fail",
+      "error_type": "AssertionError",
+      "error": "I can’t read that local file because no caller-side `Read` tool is actually available to me in this conversation, and I can’t access arbitrary paths on your machine. If you want the contents analyzed or echoed back, please upload the file or paste its contents here.",
+      "requests": [
+        {
+          "protocol": "chat",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.45,
+          "model": "Claude_Sonnet_Reasoning",
+          "tool_header": "verified",
+          "event_count": 3,
+          "citation_events": 0,
+          "terminal": "[DONE]/stop"
+        }
+      ],
+      "elapsed_seconds": 6.46
+    },
+    {
+      "case": "messages_citations_after_read_tool_result",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Magic",
+      "citations": 3,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "final_citation_events": 3,
+      "text_excerpt": "The exact contents of the file were:\n\n> CITATION_bce01c48fcf7876f6ff103f0\n\nOne short fact about `asyncio.TaskGroup`: if a task in a `TaskGroup` raises an exception, the remaining tasks in the group are cancelled, and exceptions are combined and reported when the task group exits. [1]",
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.33,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "message_stop/tool_use"
+        },
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 9.9,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 10,
+          "citation_events": 3,
+          "terminal": "message_stop/end_turn"
+        }
+      ],
+      "elapsed_seconds": 16.24
+    },
+    {
+      "case": "responses_citations_after_read_tool_result",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Magic",
+      "citations": 3,
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://www.geeksforgeeks.org/python/python-taskgroups-with-asyncio/",
+        "https://runebook.dev/en/docs/python/library/asyncio-task/ta[REDACTED]"
+      ],
+      "final_citation_events": 3,
+      "text_excerpt": "Exact file contents:\n\n> CITATION_bce01c48fcf7876f6ff103f0\n\nOne short fact about `asyncio.TaskGroup` exception behavior from the official Python documentation:\n\n- If a task in a `TaskGroup` raises an exception, the remaining tasks in the group are cancelled and, after all tasks finish, the exceptions are combined and raised as an `ExceptionGroup`. [1]",
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.4,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 7,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        },
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 9.32,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 12,
+          "citation_events": 3,
+          "terminal": "response.completed"
+        }
+      ],
+      "elapsed_seconds": 15.72
+    },
+    {
+      "case": "matrix_7_messages_real_upgrade_401_continuation",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Magic",
+      "recovery": {
+        "fixture": "one authentication-tag bit flipped in private JWE; real Microsoft handshake responses observed unchanged",
+        "upgrade_http": [
+          401,
+          101
+        ],
+        "new_issuer_jwe": true,
+        "subject_preserved": true,
+        "epoch_preserved": true,
+        "provider_preserved": true,
+        "expiry_source": "issuer",
+        "token_sha256": "2242693a095655b4",
+        "session_encrypted": true,
+        "temporary_profiles_removed": true
+      },
+      "elapsed_seconds": 43.35,
+      "requests": [
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 6.63,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "message_stop/tool_use"
+        },
+        {
+          "protocol": "messages",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 36.68,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 10,
+          "citation_events": 0,
+          "terminal": "message_stop/end_turn"
+        }
+      ]
+    },
+    {
+      "case": "matrix_7_responses_real_upgrade_401_previous_response_continuation",
+      "status": "pass",
+      "executed_Read": 1,
+      "final_marker": true,
+      "configured_planner": "router",
+      "model": "Magic",
+      "recovery": {
+        "fixture": "one authentication-tag bit flipped in private JWE; real Microsoft handshake responses observed unchanged",
+        "upgrade_http": [
+          401,
+          101
+        ],
+        "new_issuer_jwe": true,
+        "subject_preserved": true,
+        "epoch_preserved": true,
+        "provider_preserved": true,
+        "expiry_source": "issuer",
+        "token_sha256": "f688a0d560c2de5b",
+        "session_encrypted": true,
+        "temporary_profiles_removed": true
+      },
+      "elapsed_seconds": 46.38,
+      "requests": [
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 7.5,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 7,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        },
+        {
+          "protocol": "responses",
+          "http": 200,
+          "streaming": true,
+          "elapsed_seconds": 38.84,
+          "model": "Magic",
+          "tool_header": "router",
+          "event_count": 9,
+          "citation_events": 0,
+          "terminal": "response.completed"
+        }
+      ]
+    },
+    {
+      "case": "matrix_6_consumer_streaming_history",
+      "status": "fail",
+      "error_type": "HTTPStatusError",
+      "error": "Server error '502 Bad Gateway' for url 'http://127.0.0.1:18829/admin/accounts/[ACCOUNT]/refresh'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502",
+      "elapsed_seconds": 55.98,
+      "requests": [],
+      "audit_qualification": "No Consumer chat request was sent: refresh failed. Upgrade audit from the preceding Responses recovery case is not Consumer evidence."
+    },
+    {
+      "case": "matrix_6_consumer_fresh_signed_in_cookies",
+      "production_refresh_grant_redeemed": false,
+      "production_protocol_switched": false,
+      "browser_hostname": "copilot.com",
+      "observed_msal_access_targets": [],
+      "status": "fail",
+      "error_type": "ConsumerCopilotError",
+      "error": "Camoufox loaded Copilot but MSAL minted no ChatAI token within 60s. The signed-in session in fresh-consumer-cookies-c8q1pfy1 has most likely lapsed and needs one interactive sign-in.",
+      "temporary_profile_removed": true,
+      "elapsed_seconds": 74.42
+    },
+    {
+      "case": "matrix_6_consumer_pinned_identity_session",
+      "production_refresh_grant_redeemed": false,
+      "production_protocol_switched": false,
+      "bootstrap": "current authenticated browser cookies and identity-only MSAL storage",
+      "browser_hostname": "copilot.com",
+      "observed_msal_access_targets": [],
+      "status": "fail",
+      "error_type": "ConsumerCopilotError",
+      "error": "Camoufox loaded Copilot but MSAL minted no ChatAI token within 60s. The signed-in session in fresh-consumer-cookies-wle8x3pa has most likely lapsed and needs one interactive sign-in.",
+      "temporary_profile_removed": true,
+      "elapsed_seconds": 73.45
+    }
+  ],
+  "live_surfaces": {
+    "main": "Deployed application listener 127.0.0.1:8000 -> real Microsoft upstream.",
+    "isolated": "Same installed modules and image in target container, private listener 127.0.0.1:18829, isolated encrypted account store. Used for real invalid-JWE/Consumer exercises without corrupting the production account.",
+    "401_fixture": "Flip one JWE authentication-tag bit only in the private store. Observe real Microsoft HTTP 401; do not synthesize upstream errors.",
+    "userscript": "Unmodified worktree script in a real authenticated Camoufox page using browser-cookie and HTTP-backed GM bindings; not a Tampermonkey-extension installation."
+  },
+  "userscript_capture_and_two_renewals": {
+    "surface": "deployed target container",
+    "browser_origin": "https://copilot.com",
+    "userscript": "unmodified worktree userscript with real browser-cookie and HTTP-backed GM bridge; not a Tampermonkey installation",
+    "userscript_sha256": "1543a1016cccf1f64a7dc1e7b10140b5be5db7d27e44aa588be4757e2ba4aec8",
+    "business_invocations_sent": 0,
+    "renewals": [
+      {
+        "round": 1,
+        "http": 200,
+        "refreshed": true,
+        "elapsed_seconds": 27.018,
+        "new_jwe": true,
+        "token_sha256": "7b3c1b77ab800487",
+        "subject_preserved": true,
+        "protocol_epoch_preserved": true,
+        "provider": "m365",
+        "expiry_source": "issuer",
+        "seconds_remaining": 28798,
+        "refresh_error": "",
+        "handshake": {
+          "http": 101,
+          "signalr_handshake": true,
+          "business_invocations_sent": 0
+        }
+      },
+      {
+        "round": 2,
+        "http": 200,
+        "refreshed": true,
+        "elapsed_seconds": 33.583,
+        "new_jwe": true,
+        "token_sha256": "4ad09c3866d98f52",
+        "subject_preserved": true,
+        "protocol_epoch_preserved": true,
+        "provider": "m365",
+        "expiry_source": "issuer",
+        "seconds_remaining": 28798,
+        "refresh_error": "",
+        "handshake": {
+          "http": 101,
+          "signalr_handshake": true,
+          "business_invocations_sent": 0
+        }
+      }
+    ],
+    "captured_subject_matches": true,
+    "captured_token_handshake": {
+      "http": 101,
+      "signalr_handshake": true,
+      "business_invocations_sent": 0
+    },
+    "browser_substrate_handshake": {
+      "opened": true,
+      "signalr_handshake": true,
+      "business_invocations_sent": 0
+    },
+    "gm_requests": [
+      {
+        "path": "/user/account/token",
+        "http": 200,
+        "personal_session_present": true,
+        "subject_matches": true,
+        "token_parts": 5
+      }
+    ],
+    "push_result": {
+      "provider": "m365",
+      "has_personal_session": true,
+      "refresh_mode": "browser"
+    },
+    "capture_browser_closed": true,
+    "capture_profile_removed": true,
+    "session_encrypted_at_rest": true,
+    "temporary_profiles_removed": true,
+    "public_session_blob_absent": true,
+    "status": "pass",
+    "temporary_key_removed": true
+  },
+  "post_restart_renewal": {
+    "scope": "deployed target after container restart",
+    "business_invocations_sent": 0,
+    "session_reloaded": true,
+    "subject_preserved_after_restart": true,
+    "epoch_preserved_after_restart": true,
+    "persisted_jwe_reloaded": true,
+    "http": 200,
+    "refreshed": true,
+    "new_jwe": true,
+    "token_sha256": "dba08f945ad788ed",
+    "subject_preserved": true,
+    "protocol_epoch_preserved": true,
+    "expiry_source": "issuer",
+    "refresh_error": "",
+    "encrypted_session": true,
+    "temporary_profiles_removed": true,
+    "handshake": {
+      "http": 101,
+      "signalr_handshake": true,
+      "business_invocations_sent": 0
+    },
+    "status": "pass"
+  },
+  "consumer_prerequisites": [
+    {
+      "scope": "production",
+      "provider": "m365",
+      "consumer_token_stored": true,
+      "consumer_issuer_expiry": 1792282825.630568,
+      "consumer_issuer_expired": true,
+      "consumer_cookie_count": 43,
+      "consumer_refresh_grant_stored": true,
+      "consumer_refresh_grant_disabled_reason": "",
+      "consumer_refresh_binding_present": true,
+      "same_pinned_identity": true,
+      "fresh_personal_session_cookie_count": 47,
+      "fresh_personal_cookie_domains": [
+        ".copilot.com",
+        ".live.com",
+        ".login.live.com",
+        ".login.microsoftonline.com",
+        "copilot.com",
+        "login.live.com",
+        "login.microsoftonline.com"
+      ]
+    },
+    {
+      "scope": "private",
+      "provider": "m365",
+      "consumer_token_stored": true,
+      "consumer_issuer_expiry": 1792282825.630568,
+      "consumer_issuer_expired": true,
+      "consumer_cookie_count": 43,
+      "consumer_refresh_grant_stored": false,
+      "consumer_refresh_grant_disabled_reason": "",
+      "consumer_refresh_binding_present": true,
+      "same_pinned_identity": true,
+      "fresh_personal_session_cookie_count": 49,
+      "fresh_personal_cookie_domains": [
+        ".copilot.com",
+        ".live.com",
+        ".login.live.com",
+        ".login.microsoftonline.com",
+        "copilot.com",
+        "login.live.com",
+        "login.microsoftonline.com"
+      ]
+    }
+  ],
+  "deployment": {
+    "backup": "/tmp/pr11-citations-20261029-005336-f06253/installed-before.tar.gz",
+    "before": {
+      "src/m365_copilot_openai_proxy/response_helpers.py": "a95df826a8af04781acb3e1d390907849bd22ded27cf0799f9496e87800a7c3d",
+      "src/m365_copilot_openai_proxy/routes_api_messages.py": "064714123f1b6788306a869522df86dee5f294905b317390fda4cf98eb7e693e",
+      "src/m365_copilot_openai_proxy/routes_api_responses.py": "340f3db35354cc86a3490e0a7cc5e5bb9aa658e68cd3de8a420fb2a37871e79b",
+      "src/m365_copilot_openai_proxy/studio_planner.py": "4ec9ab6f575c87a7f8e41d8955ff0a91d1f1fe34253c87f583ca470070d94a19",
+      "src/m365_copilot_openai_proxy/substrate_client.py": "5ebbca78047d4a5dea4591d93e3f5bc2297dcde0dd11d8371c2814c8593820a2",
+      "src/m365_copilot_openai_proxy/substrate_parse.py": "a92f118f0826fe59ac776a153cead130ec22456b2a77cc43bda0e6af22c4f65f",
+      "src/m365_copilot_openai_proxy/tool_router.py": "c96e5df01dde173777e8b704ec86c86906f455e5d19b869dba5e21777ea7ca93"
+    },
+    "after": {
+      "src/m365_copilot_openai_proxy/response_helpers.py": "2148cc5afa60f1628e0e427c1de3d6a9b5a345be5db4540d0126f641b6e178d5",
+      "src/m365_copilot_openai_proxy/routes_api_messages.py": "5120856ffd5099dda7364cb17445dff9a4769768146f953b2a955835d441752a",
+      "src/m365_copilot_openai_proxy/routes_api_responses.py": "2a94f2eae77ed89a77975147a7019c7037224b75475cd4d63f5c805ae45798fd",
+      "src/m365_copilot_openai_proxy/studio_planner.py": "78f0c66e71b7de059e63b05092062085f37256a4b0f311052f241edcadc1bc07",
+      "src/m365_copilot_openai_proxy/substrate_client.py": "525f079b9bfa8e8be203408e300e05b67db9f7b7c96928728ddb073cc4f73188",
+      "src/m365_copilot_openai_proxy/substrate_parse.py": "087409b486a0318d2d3e0dc05438aa34f74eb22ee77248eff7342622ef780a55",
+      "src/m365_copilot_openai_proxy/tool_router.py": "c66670601439c30603f79a17b7528d276a1abcd0cb3e517a482095a3b3f2b42a"
+    },
+    "files": 7,
+    "host_files_modified": false
+  },
+  "installed_source_sha256": {
+    "src/m365_copilot_openai_proxy/response_helpers.py": "2148cc5afa60f1628e0e427c1de3d6a9b5a345be5db4540d0126f641b6e178d5",
+    "src/m365_copilot_openai_proxy/routes_api_messages.py": "5120856ffd5099dda7364cb17445dff9a4769768146f953b2a955835d441752a",
+    "src/m365_copilot_openai_proxy/routes_api_responses.py": "2a94f2eae77ed89a77975147a7019c7037224b75475cd4d63f5c805ae45798fd",
+    "src/m365_copilot_openai_proxy/studio_planner.py": "78f0c66e71b7de059e63b05092062085f37256a4b0f311052f241edcadc1bc07",
+    "src/m365_copilot_openai_proxy/substrate_client.py": "525f079b9bfa8e8be203408e300e05b67db9f7b7c96928728ddb073cc4f73188",
+    "src/m365_copilot_openai_proxy/substrate_parse.py": "087409b486a0318d2d3e0dc05438aa34f74eb22ee77248eff7342622ef780a55",
+    "src/m365_copilot_openai_proxy/tool_router.py": "c66670601439c30603f79a17b7528d276a1abcd0cb3e517a482095a3b3f2b42a"
+  },
+  "installed_matches_deployed_candidate": true,
+  "cleanup": {
+    "owned_listener_stopped": true,
+    "owned_public_api_keys_absent": true,
+    "service_admin_http": 200,
+    "production_personal_unchanged_by_isolated_probes": true,
+    "owned_browser_processes_remaining": 0,
+    "private_credentials_profiles_and_encryption_key_removed": true,
+    "temporary_source_copies_and_scripts_removed": true,
+    "rollback_backup_retained": true,
+    "rollback_backup": "/tmp/pr11-citations-20261029-005336-f06253/installed-before.tar.gz"
+  },
+  "delivery": {
+    "merged": false,
+    "pushed": false,
+    "root_user_modified_readme_touched": false,
+    "deployment_method": "Guarded seven-source-file container update with original-file backup; target container restarted and exercised."
+  },
+  "redaction": "No API key, JWE/token bytes, cookie values, session storage, account ID or email included. Generated probe nonces and public citation URLs retained."
+}

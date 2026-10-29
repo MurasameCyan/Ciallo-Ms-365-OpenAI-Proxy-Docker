@@ -406,6 +406,27 @@ docker compose up -d
 
 > **A/D/E 验收状态**：以下变更已部署，但尚未通过完整六路径真实验收。本地回归、网络故障注入或单个 provider 通过，不等于所有 provider/planner 已就绪；各项实测结果、范围及阻塞见[脱敏验收记录](docs/evidence/upstream-07-ade-2026-10-01.json)。
 
+### 引用来源与脚注
+
+M365 Substrate 的可识别引用标记统一显示为 `[n]`。Responses 的非流式正文附带 `url_citation` annotations，流式发送 `response.output_text.annotation.added`；Messages 的文本块附带 `citations`，流式在对应文本块关闭前发送 `citations_delta`。声明工具、规划回退及工具结果续轮同样保留最终采用答案的来源。Chat Completions 不增加非标准来源字段，也不拼接参考文献列表。
+
+脚注编号不随无 URL 来源过滤而改变；来源列表乱序、编号稀疏或元数据后到时，仍按引用身份与正文编号关联。显示编号相同不代表来源相同；缺失或歧义元数据不会借用其他引用的编号。正文未明确引用的补充 URL 在 Responses 中使用文末零宽区间，不伪造正文定位。快照、delta 和完成帧共享引用映射，普通代码下标和未确认的引用前缀原样保留。
+
+来源存在与否取决于上游实际返回；代理不补造 URL，也不把被丢弃的 Studio/Router 草稿或纠正重试来源附到最终答案。
+
+2026-10-29 修复验证：目标容器的 16 项受控失败场景已全部转绿，另有 3 项复核边界通过；最终本地回归为 **4439 passed、3 skipped**。真实 Messages / Responses 均完成调用方 `Read` 工具闭环，并在工具结果续轮返回结构化引用。个人 Substrate 油猴推送、两次无聊天新 JWE 签发、重启后续期，以及两种流式 API 跨真实 WebSocket `401 → 101` 的工具续轮均通过。
+
+**尚未通过完整七项验收矩阵。** 同账户、同配置、相同初始请求的 `multi` / 修前 / 修后三组对照中，直连文本均通过；`Claude_Sonnet` 原生工具请求的 `InternalError` 和 `Claude_Sonnet_Reasoning` 未调用工具也在三组中一致。确认是既有失败，不等于原生工具验收通过。
+
+2026-10-29 追加补验沿用 `caca8d4` 产品源码，只做现场验证，未重跑上述本地回归：
+
+- **Studio 发布和真实工具闭环通过。** 使用独立新授权，经新节点 `node-0001` 创建 `201`、发布 `200`，精确 ID 回读确认已发布。实际部署程序的流式 Messages / Responses 各执行一次调用方 `Read` 并返回正确随机标记；WebSocket 的 Agent / MOS3 身份与已发布 Agent 一致，没有用 Router 回退代替 Studio。
+- **出口按阶段区分。** Studio 登录和 Substrate 聊天走原有直连，创建及发布走新节点；该节点在目标 TLS 建立前拒绝 OAuth / Substrate 域名。这不是全链路新节点验收，也没有更改生产代理或绑定生产 Studio Agent。
+- **Studio 正向引用转发仍未证明。** 最初成功工具闭环没有保留上游接收帧，不能倒推其零引用原因。后续完整收帧的 Responses 工具续轮没有上游引用条目；Messages 补探针的工具续轮同样没有引用条目，但继续请求 `Read`，不是带来源的最终答案。普通 URL 文本不算结构化引用，不把这些零引用直接归因于代理丢失，也不补造引用。
+- **Consumer 仍受阻。** 已拿到新签发、身份匹配的 ChatAI 授权；两个新节点都完成真实建会话 `200` 和 WebSocket `101`，随后遇到未公开方法的 challenge。正文和两种流式 API 均未完成 `Read`，历史及工具结果续轮没有可用的首轮结果，不能记作通过；本轮没有收到配额拒绝信息。
+
+验收没有切换生产账户协议或兑换复制的生产 RT。`proxies.txt` 仅作为本地私密输入并加入忽略规则；节点凭据、原始浏览器帧和会话材料不进入提交。云端清理只针对本轮记录的精确 ID，`404` 查询不冒充删除成功，也不按时间范围批量删除。七项矩阵、后续收帧边界和清理结果见[追加验收记录](docs/evidence/pr11-acceptance-followup-2026-10-29.json)；此前修复验证及回滚位置见[引用修复验收记录](docs/evidence/pr11-citations-repair-2026-10-29.json)。
+
 ### 推理摘要与流式边界
 
 代理只输出 M365 上游主动提供、带有 `addToChainOfThought` 或 `contentOrigin=ChainOfThoughtSummary` 标记的摘要。它不是完整内部思维链；没有上游摘要时不会伪造。普通进度消息、正文和工具语法仍分别处理。

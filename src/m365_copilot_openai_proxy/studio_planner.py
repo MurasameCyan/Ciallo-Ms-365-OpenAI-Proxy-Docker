@@ -8,7 +8,7 @@ from typing import Protocol
 from .reasoning import ReasoningDelta, StreamChunk
 from .session_store import PersistentSession
 from .sse_stream import closing_stream
-from .substrate_client import SubstrateCopilotError, SubstrateThrottled
+from .substrate_client import SubstrateCopilotError, SubstrateThrottled, filter_client_method_kwargs
 
 
 class ChatStreamClient(Protocol):
@@ -52,8 +52,11 @@ async def planned_or_answered(
     fallback_turn: AnswerFallback,
     should_fallback: NeedsFallback | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    sources_out: list[dict] | None = None,
 ) -> str:
     chunks: list[str] = []
+    # A rejected or failed draft must not publish sources into its fallback.
+    studio_sources: list[dict] = []
     yielded_any = False
     try:
         async with closing_stream(studio_turn.client.chat_stream(
@@ -61,6 +64,9 @@ async def planned_or_answered(
             studio_turn.additional_context,
             studio_turn.session,
             studio_turn.images,
+            **filter_client_method_kwargs(
+                studio_turn.client, "chat_stream", {"sources_out": studio_sources}
+            ),
         )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, ReasoningDelta):
@@ -84,6 +90,8 @@ async def planned_or_answered(
         if on_fallback is not None:
             on_fallback("no_tool_call")
         return await fallback_turn()
+    if sources_out is not None:
+        sources_out[:] = studio_sources
     return text
 
 
@@ -93,11 +101,13 @@ async def planned_or_streamed(
     fallback_turn: StreamFallback,
     should_fallback: NeedsFallback | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    sources_out: list[dict] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     # Tool-bearing callers buffer the whole upstream turn before emitting a
     # protocol response. When a predicate is supplied, buffer here too so a
     # no-call Studio answer can be replaced without duplicating visible text.
     buffered: list[str] | None = [] if should_fallback is not None else None
+    studio_sources: list[dict] = []
     yielded_any = False
     try:
         async with closing_stream(studio_turn.client.chat_stream(
@@ -105,6 +115,9 @@ async def planned_or_streamed(
             studio_turn.additional_context,
             studio_turn.session,
             studio_turn.images,
+            **filter_client_method_kwargs(
+                studio_turn.client, "chat_stream", {"sources_out": studio_sources}
+            ),
         )) as owned_stream:
             async for chunk in owned_stream:
                 if isinstance(chunk, ReasoningDelta):
@@ -139,6 +152,9 @@ async def planned_or_streamed(
                 async for chunk in owned_stream:
                     yield chunk
             return
+    if sources_out is not None:
+        sources_out[:] = studio_sources
+    if buffered is not None:
         for chunk in buffered:
             yield chunk
 
@@ -153,6 +169,7 @@ async def ordered_or_answered(
     on_stage: Callable[[str], None] | None = None,
     on_studio_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
+    sources_out: list[dict] | None = None,
 ) -> str:
     """Run the requested planner order, ending at one ordinary inline turn.
 
@@ -182,6 +199,7 @@ async def ordered_or_answered(
             fallback_turn=fallback,
             should_fallback=should_fallback,
             on_fallback=on_studio_fallback,
+            sources_out=sources_out,
         )
 
     if prefer_router:
@@ -220,6 +238,7 @@ async def ordered_or_streamed(
     on_stage: Callable[[str], None] | None = None,
     on_studio_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
+    sources_out: list[dict] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Streaming counterpart to :func:`ordered_or_answered`."""
     async def inline_layer() -> AsyncIterator[StreamChunk]:
@@ -242,6 +261,7 @@ async def ordered_or_streamed(
             fallback_turn=fallback,
             should_fallback=should_fallback,
             on_fallback=on_studio_fallback,
+            sources_out=sources_out,
         )) as owned_stream:
             async for chunk in owned_stream:
                 yield chunk

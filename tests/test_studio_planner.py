@@ -28,6 +28,8 @@ from m365_copilot_openai_proxy.studio_planner import (
     planned_or_answered,
     planned_or_streamed,
 )
+from m365_copilot_openai_proxy.tool_call_parser import planner_fallback_needed
+from m365_copilot_openai_proxy.tool_router import routed_or_answered, routed_or_streamed
 
 
 class ScriptedClient:
@@ -686,3 +688,200 @@ def test_studio_failure_diagnostics_preserve_the_exception_and_fallback(streamin
     assert type(error).__name__ in reasons[0]
     assert any(record.levelname == "WARNING" and record.exc_info
                and record.exc_info[1] is error for record in caplog.records)
+
+
+class SourceClient(ScriptedClient):
+    def __init__(self, events, url):
+        super().__init__(events)
+        self.sources = [{"url": url, "title": url}]
+
+    async def chat_stream(self, *args, sources_out=None):
+        if sources_out is not None:
+            sources_out[:] = self.sources
+        async for event in super().chat_stream(*args):
+            yield event
+
+    async def chat(self, *args, sources_out=None):
+        return "".join([event async for event in self.chat_stream(
+            *args, sources_out=sources_out,
+        )])
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("planner", ["studio", "router"])
+@pytest.mark.parametrize("buffered", [False, True])
+def test_adopted_planner_answer_publishes_its_sources(streaming, planner, buffered):
+    sources = [{"url": "https://previous.example"}]
+    client = SourceClient(["accepted answer"], "https://accepted.example")
+
+    async def forbidden_answer():
+        pytest.fail("an accepted candidate must not fall back")
+
+    async def forbidden_stream():
+        pytest.fail("an accepted candidate must not fall back")
+        yield
+
+    async def run():
+        options = {
+            "should_fallback": (lambda _text: False) if buffered else None,
+            "sources_out": sources,
+        }
+        if planner == "studio":
+            options["studio_turn"] = PlannerTurn(client, "plan", [])
+            options["fallback_turn"] = forbidden_stream if streaming else forbidden_answer
+            if streaming:
+                return "".join([chunk async for chunk in planned_or_streamed(**options)])
+            return await planned_or_answered(**options)
+        if buffered:
+            options["fallback_turn"] = forbidden_stream if streaming else forbidden_answer
+        if streaming:
+            return "".join([chunk async for chunk in routed_or_streamed(
+                client, "", "answer", [], **options,
+            )])
+        return await routed_or_answered(client, "", "answer", [], **options)
+
+    assert asyncio.run(run()) == "accepted answer"
+    assert sources == client.sources
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("prefer_router", [False, True])
+@pytest.mark.parametrize("inline_has_sources", [False, True])
+def test_ordered_planner_discards_sources_before_entering_fallback(
+    streaming, prefer_router, inline_has_sources,
+):
+    sources = []
+    studio = SourceClient(["rejected studio draft"], "https://rejected-studio.example")
+    router = SourceClient(["rejected router draft"], "https://rejected-router.example")
+    accepted_sources = [{"url": "https://inline.example"}] if inline_has_sources else []
+    stages = []
+
+    def entering(stage):
+        assert sources == [], "a rejected candidate published sources before adoption"
+        stages.append(stage)
+
+    async def inline_answer():
+        sources.extend(accepted_sources)
+        return "accepted inline answer"
+
+    async def inline_stream():
+        yield await inline_answer()
+
+    async def router_answer(fallback):
+        return await routed_or_answered(
+            router, "", "answer", [], fallback_turn=fallback,
+            should_fallback=lambda text: planner_fallback_needed(text, {"Read"}),
+            sources_out=sources,
+        )
+
+    async def router_stream(fallback):
+        async for chunk in routed_or_streamed(
+            router, "", "answer", [], fallback_turn=fallback,
+            should_fallback=lambda text: planner_fallback_needed(text, {"Read"}),
+            sources_out=sources,
+        ):
+            yield chunk
+
+    async def run():
+        options = dict(
+            studio_turn=PlannerTurn(studio, "plan", []),
+            router_turn=router_stream if streaming else router_answer,
+            inline_turn=inline_stream if streaming else inline_answer,
+            prefer_router=prefer_router,
+            should_fallback=lambda text: planner_fallback_needed(text, {"Read"}),
+            on_stage=entering,
+            sources_out=sources,
+        )
+        if streaming:
+            return "".join([chunk async for chunk in ordered_or_streamed(**options)])
+        return await ordered_or_answered(**options)
+
+    assert asyncio.run(run()) == "accepted inline answer"
+    assert sources == accepted_sources
+    assert stages == (["router", "studio", "inline"] if prefer_router
+                      else ["studio", "router", "inline"])
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_studio_error_discards_sources_before_source_free_router_decision(streaming):
+    sources = []
+    studio = SourceClient([SubstrateCopilotError("failed")], "https://failed.example")
+    router = SourceClient(['CALL_TOOL: Read({"file_path":"/tmp/a.txt"})'],
+                          "https://classification.example")
+
+    async def fallback_answer():
+        assert sources == []
+        return await routed_or_answered(router, "route", "answer", [], sources_out=sources)
+
+    async def fallback_stream():
+        assert sources == []
+        async for chunk in routed_or_streamed(router, "route", "answer", [], sources_out=sources):
+            yield chunk
+
+    async def run():
+        options = dict(studio_turn=PlannerTurn(studio, "plan", []), sources_out=sources)
+        if streaming:
+            return "".join([chunk async for chunk in planned_or_streamed(
+                fallback_turn=fallback_stream, **options,
+            )])
+        return await planned_or_answered(fallback_turn=fallback_answer, **options)
+
+    assert not planner_fallback_needed(asyncio.run(run()), {"Read"})
+    assert sources == []
+
+
+@pytest.mark.parametrize(("streaming", "buffered"), [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("planner", ["studio", "router"])
+@pytest.mark.parametrize("events", [
+    ["partial", SubstrateCopilotError("late failure")],
+    [SubstrateThrottled("throttled")],
+    [RuntimeError("programming error")],
+])
+def test_failed_planner_does_not_publish_sources(streaming, planner, buffered, events):
+    sources = []
+    client = SourceClient(events, "https://failed.example")
+
+    async def forbidden_answer():
+        pytest.fail("this failure must propagate without changing fallback policy")
+
+    async def forbidden_stream():
+        pytest.fail("this failure must propagate without changing fallback policy")
+        yield
+
+    async def run():
+        options = dict(
+            sources_out=sources,
+            should_fallback=(lambda _text: True) if buffered else None,
+        )
+        if planner == "studio":
+            options["studio_turn"] = PlannerTurn(client, "plan", [])
+            options["fallback_turn"] = forbidden_stream if streaming else forbidden_answer
+            if streaming:
+                return [chunk async for chunk in planned_or_streamed(**options)]
+            return await planned_or_answered(**options)
+        if buffered:
+            options["fallback_turn"] = forbidden_stream if streaming else forbidden_answer
+        if streaming:
+            return [chunk async for chunk in routed_or_streamed(client, "", "answer", [], **options)]
+        return await routed_or_answered(client, "", "answer", [], **options)
+
+    with pytest.raises(type(events[-1]), match=str(events[-1])):
+        asyncio.run(run())
+    assert sources == []
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_adopting_pure_router_call_replaces_previous_sources(streaming):
+    sources = [{"url": "https://previous.example"}]
+    client = SourceClient(['CALL_TOOL: Read({"file_path":"/tmp/a.txt"})'],
+                          "https://classification.example")
+
+    async def run():
+        if streaming:
+            return "".join([chunk async for chunk in routed_or_streamed(
+                client, "route", "answer", [], sources_out=sources,
+            )])
+        return await routed_or_answered(client, "route", "answer", [], sources_out=sources)
+
+    assert not planner_fallback_needed(asyncio.run(run()), {"Read"})
+    assert sources == []

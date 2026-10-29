@@ -40,7 +40,14 @@ from .session_helpers import (
 from .session_store import PersistentSession
 from .stream_guard import GuardedStreamingResponse
 from .sse_stream import ANTHROPIC_PING, closing_stream, keepalive_stream, merge_sse_headers
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateNetworkError, SubstrateThrottled
+from .substrate_client import (
+    SubstrateCopilotClient,
+    SubstrateCopilotError,
+    SubstrateNetworkError,
+    SubstrateThrottled,
+    filter_client_method_kwargs,
+)
+from .substrate_parse import anthropic_web_citations_from_sources
 from .studio_planner import (
     PlannerTurn,
     ordered_or_answered,
@@ -473,6 +480,7 @@ def register_messages_routes(
                 headers=merge_sse_headers(),
             )
 
+        collected_sources: list[dict] = []
         reasoning = collect_reasoning(client, studio_client)
         try:
             async def inline_answer() -> str:
@@ -481,6 +489,9 @@ def register_messages_routes(
                     translated.additional_context,
                     session,
                     translated.images,
+                    **filter_client_method_kwargs(
+                        client, "chat", {"sources_out": collected_sources}
+                    ),
                 )
 
             async def router_answer(fallback_turn) -> str:
@@ -502,6 +513,7 @@ def register_messages_routes(
                     should_fallback=planner_predicate,
                     fallback_turn=fallback_turn,
                     on_router_fallback=note_router_fallback,
+                    sources_out=collected_sources,
                 )
 
             async def studio_answer(fallback_turn) -> str:
@@ -524,6 +536,7 @@ def register_messages_routes(
                     ),
                     fallback_turn=fallback_turn,
                     should_fallback=planner_predicate,
+                    sources_out=collected_sources,
                 )
 
             raw_text = await ordered_or_answered(
@@ -545,6 +558,7 @@ def register_messages_routes(
                 on_stage=note_planning_stage if planner_chain else None,
                 on_studio_fallback=note_studio_fallback,
                 skip_router_fallback=is_tool_result_continuation,
+                sources_out=collected_sources,
             )
             if tool_names and planning_mode in {"studio", "router"}:
                 extra_headers = {
@@ -579,6 +593,11 @@ def register_messages_routes(
                     studio_client is not None and actual_planning == "studio"
                 )
                 retry_client = studio_client if retry_uses_studio else client
+                # The retry is a SEPARATE turn: its sources belong to its own
+                # text. Sharing one list meant a retry that was thrown away still
+                # re-pointed the kept reply's [n] at the retry's URLs, and a retry
+                # that raised left the kept reply with no sources at all.
+                retry_sources: list[dict] = []
                 retry_text = await retry_client.chat(
                     _RETRY_INSTRUCTION,
                     (
@@ -587,10 +606,16 @@ def register_messages_routes(
                         else translated.additional_context
                     ),
                     studio_session if retry_uses_studio else session,
+                    **filter_client_method_kwargs(
+                        retry_client, "chat", {"sources_out": retry_sources}
+                    ),
                 )
                 retry_calls = _resolve_tool_calls(retry_text, tool_names, read_only_guard)
                 if retry_calls:
                     raw_text, tool_calls = retry_text, retry_calls
+                    # Only now, together with the text, do the sources change
+                    # hands: the reply and its citations stay from one turn.
+                    collected_sources[:] = retry_sources
                     call_record["retried"] = True
             except SubstrateCopilotError:
                 pass  # Keep original response if retry fails
@@ -632,7 +657,11 @@ def register_messages_routes(
             remaining = media_rewriter(_strip_tool_call_blocks(raw_text))
             content: list[dict] = []
             if remaining:
-                content.append({"type": "text", "text": remaining})
+                content.append({
+                    "type": "text",
+                    "text": remaining,
+                    "citations": anthropic_web_citations_from_sources(remaining, collected_sources),
+                })
             content.extend(_tool_use_blocks(tool_calls))
             record_response_message({"role": "assistant", "content": content})
             content = reasoning.anthropic_blocks() + content
@@ -652,7 +681,11 @@ def register_messages_routes(
         # broken proxy.
         # The stop sequence cuts the model's prose; the reason block below is ours.
         prose, matched_stop = apply_stop(media_rewriter(raw_text), stops)
-        blocks = [{"type": "text", "text": prose}]
+        blocks = [{
+            "type": "text",
+            "text": prose,
+            "citations": anthropic_web_citations_from_sources(prose, collected_sources),
+        }]
         reason = prose_with_reason(
             "",
             shortfall_note="" if allow_final_answer and raw_text.strip() else shortfall_note,
@@ -742,12 +775,18 @@ async def _anthropic_stream_with_tools(
     content_stream = AnthropicContentStream()
     yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
     yield sse("ping", {"type": "ping"})
+    # Declaring a tool must not cost the answer its sources: every request with a
+    # non-empty `tools` list lands here, called or not.
+    collected_sources: list[dict] = []
     try:
         chunks: list[str] = []
 
         async def inline_stream() -> AsyncIterator[StreamChunk]:
             async with closing_stream(client.chat_stream(
-                prompt, additional_context, session, images
+                prompt, additional_context, session, images,
+                **filter_client_method_kwargs(
+                    client, "chat_stream", {"sources_out": collected_sources}
+                ),
             )) as owned_stream:
                 async for item in owned_stream:
                     yield item
@@ -763,6 +802,7 @@ async def _anthropic_stream_with_tools(
                 should_fallback=should_fallback,
                 fallback_turn=fallback_turn,
                 on_router_fallback=on_router_fallback,
+                sources_out=collected_sources,
             )) as owned_stream:
                 async for item in owned_stream:
                     yield item
@@ -776,6 +816,7 @@ async def _anthropic_stream_with_tools(
             on_stage=on_stage,
             on_studio_fallback=on_studio_fallback,
             skip_router_fallback=skip_router_fallback,
+            sources_out=collected_sources,
         )
 
         async with closing_stream(stream) as owned_stream:
@@ -796,6 +837,9 @@ async def _anthropic_stream_with_tools(
         if not tool_calls and tool_names and not read_only_guard and not declined and not allow_final_answer and _looks_like_fake_file_claim(full_text):
             _log.info("  fake file claim detected, forcing corrective retry")
             retry_chunks: list[str] = []
+            # A corrective retry owns its own sources; adopting them only when
+            # its text is adopted keeps the reply and its citations one turn.
+            retry_sources: list[dict] = []
             retry_uses_studio = (
                 studio_turn is not None
                 and (
@@ -811,7 +855,10 @@ async def _anthropic_stream_with_tools(
             )
             retry_session = studio_turn.session if retry_uses_studio else session
             async with closing_stream(retry_client.chat_stream(
-                _RETRY_INSTRUCTION, retry_context, retry_session
+                _RETRY_INSTRUCTION, retry_context, retry_session,
+                **filter_client_method_kwargs(
+                    retry_client, "chat_stream", {"sources_out": retry_sources}
+                ),
             )) as owned_stream:
                 async for delta in owned_stream:
                     if isinstance(delta, ReasoningDelta):
@@ -823,6 +870,7 @@ async def _anthropic_stream_with_tools(
             retry_calls = _resolve_tool_calls(retry_text, tool_names or set(), read_only_guard)
             if retry_calls:
                 full_text, tool_calls = retry_text, retry_calls
+                collected_sources[:] = retry_sources
                 if call_record is not None:
                     call_record["retried"] = True
         rejected: list[str] = []
@@ -886,6 +934,16 @@ async def _anthropic_stream_with_tools(
 
     for event in content_stream.text(text_out):
         yield event
+    # Same contract as the no-tools stream in response_helpers: declaring a tool
+    # must not cost the answer its sources. The text block is still open (the
+    # close below emits its content_block_stop), so the citations_delta events
+    # have to be emitted now, against that same block index.
+    for citation in anthropic_web_citations_from_sources(text_out, collected_sources):
+        yield sse("content_block_delta", {
+            "type": "content_block_delta",
+            "index": content_stream._index,
+            "delta": {"type": "citations_delta", "citation": citation},
+        })
     for event in content_stream.close():
         yield event
 

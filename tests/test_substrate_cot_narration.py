@@ -370,7 +370,8 @@ def test_all_update_arguments_are_scanned_even_with_citation_only_delta(monkeypa
     }
     events = _events([frame, _complete(_answer_entry(ANSWER))], monkeypatch)
     assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [COT]
-    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+    # The citation-only delta becomes a [1] footnote now, not a deletion.
+    assert "".join(event for event in events if isinstance(event, str)) == "[1]" + ANSWER
 
 
 @pytest.mark.parametrize("markers", [

@@ -19,6 +19,7 @@ poc_refresh_token_exchange.py
 get_rt.console.js
 # Temporary authenticated proxy pool exports (contain live credentials)
 proxies_*.txt
+/proxies.txt
 # Scratch notes holding live API keys / endpoints for manual probing
 /api.txt
 

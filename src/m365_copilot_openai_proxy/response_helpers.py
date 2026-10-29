@@ -24,6 +24,11 @@ from .substrate_client import (
     SubstrateNetworkError,
     SubstrateThrottled,
     _dedupe_repeated_delta,
+    filter_client_method_kwargs,
+)
+from .substrate_parse import (
+    anthropic_web_citations_from_sources,
+    openai_url_citations_from_sources,
 )
 from .tool_call_parser import (
     _RETRY_INSTRUCTION,
@@ -47,6 +52,29 @@ from .usage_store import (
 def _transform_complete_text(full_text: str, text_transform: Callable[[str], str] | None) -> str:
     return text_transform(full_text) if text_transform is not None else full_text
 
+
+
+async def _compat_chat_stream(
+    client: SubstrateCopilotClient,
+    prompt: str,
+    additional_context: list[str],
+    session: PersistentSession | None,
+    images: list | None,
+    **extra,
+) -> AsyncIterator[str]:
+    """Call chat_stream, ignoring extra kwargs older/test clients reject.
+
+    The inner iterator is OWNED here and closed before this wrapper returns.
+    A plain ``async for ...: yield`` would make the caller's ``aclosing``
+    close only this wrapper, leaving the upstream socket open and the
+    session lock and account slot held past the client's disconnect.
+    """
+    filtered = filter_client_method_kwargs(client, "chat_stream", extra)
+    async with closing_stream(client.chat_stream(
+        prompt, additional_context, session, images, **filtered
+    )) as owned_stream:
+        async for delta in owned_stream:
+            yield delta
 
 def _json_err(status: int, message: str, error_type: str = "error") -> JSONResponse:
     return JSONResponse(
@@ -199,6 +227,7 @@ def _responses_message_item(
     text: str,
     item_id: str | None = None,
     status: str = "completed",
+    annotations: list[dict] | None = None,
 ) -> dict:
     return {
         "id": item_id or f"msg_{uuid.uuid4().hex}",
@@ -208,7 +237,7 @@ def _responses_message_item(
         "content": [{
             "type": "output_text",
             "text": text,
-            "annotations": [],
+            "annotations": annotations or [],
             "logprobs": [],
         }],
     }
@@ -444,8 +473,12 @@ async def _responses_stream(
 
     raw_text = ""
     full_text = ""
+    collected_sources: list[dict] = []
     try:
-        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+        async with closing_stream(_compat_chat_stream(
+            client, prompt, additional_context, session, images,
+            sources_out=collected_sources,
+        )) as owned_stream:
             async for delta in owned_stream:
                 if isinstance(delta, ReasoningDelta):
                     for payload in reasoning.add(delta):
@@ -511,9 +544,20 @@ async def _responses_stream(
     for payload in reasoning.finish():
         yield _responses_event(payload, sequence)
         sequence += 1
+    annotations = openai_url_citations_from_sources(full_text, collected_sources)
+    for annotation_index, annotation in enumerate(annotations):
+        yield _responses_event({
+            "type": "response.output_text.annotation.added",
+            "item_id": item_id,
+            "output_index": message_index,
+            "content_index": 0,
+            "annotation_index": annotation_index,
+            "annotation": annotation,
+        }, sequence)
+        sequence += 1
     if on_text_done is not None:
         on_text_done(full_text)
-    message_item = _responses_message_item(full_text, item_id)
+    message_item = _responses_message_item(full_text, item_id, annotations=annotations)
     yield _responses_event({
         "type": "response.output_text.done",
         "item_id": item_id,
@@ -607,6 +651,10 @@ async def _responses_stream_with_tools(
     yield _responses_event({"type": "response.in_progress", "response": in_progress}, sequence)
     sequence += 1
 
+    # Declaring a tool must not cost the answer its sources: this path is what
+    # every request with a non-empty `tools` list takes, whether or not the
+    # model ends up calling anything.
+    collected_sources: list[dict] = []
     try:
         router_decided = False
 
@@ -615,8 +663,9 @@ async def _responses_stream_with_tools(
             router_decided = True
 
         async def inline_stream() -> AsyncIterator[StreamChunk]:
-            async with closing_stream(client.chat_stream(
-                prompt, additional_context, session, images
+            async with closing_stream(_compat_chat_stream(
+                client, prompt, additional_context, session, images,
+                sources_out=collected_sources,
             )) as owned_stream:
                 async for delta in owned_stream:
                     yield delta
@@ -633,6 +682,7 @@ async def _responses_stream_with_tools(
                 should_fallback=should_fallback,
                 fallback_turn=fallback_turn,
                 on_router_fallback=on_router_fallback,
+                sources_out=collected_sources,
             )) as owned_stream:
                 async for delta in owned_stream:
                     yield delta
@@ -646,6 +696,7 @@ async def _responses_stream_with_tools(
             on_stage=on_stage,
             on_studio_fallback=on_studio_fallback,
             skip_router_fallback=skip_router_fallback,
+            sources_out=collected_sources,
         )
         async with closing_stream(stream) as owned_stream:
             async for delta in owned_stream:
@@ -688,8 +739,11 @@ async def _responses_stream_with_tools(
                 studio_turn.session if retry_client is not client else session
             )
             full_text = ""
-            async with closing_stream(retry_client.chat_stream(
-                required_tool_retry_prompt, retry_context, retry_session, images
+            retry_sources: list[dict] = []
+            async with closing_stream(_compat_chat_stream(
+                retry_client, required_tool_retry_prompt, retry_context,
+                retry_session, images,
+                sources_out=retry_sources,
             )) as owned_stream:
                 async for delta in owned_stream:
                     if isinstance(delta, ReasoningDelta):
@@ -699,6 +753,9 @@ async def _responses_stream_with_tools(
                     else:
                         full_text += _dedupe_repeated_delta(full_text, delta)
             full_text, declined = split_no_tool_marker(full_text)
+            # The retry REPLACED the text, so its sources replace the old ones
+            # in the same step; the two must never come from different turns.
+            collected_sources[:] = retry_sources
             tool_calls = _resolve_responses_tool_calls(
                 full_text,
                 names,
@@ -737,8 +794,12 @@ async def _responses_stream_with_tools(
                 studio_turn.session if retry_client is not client else session
             )
             retry_text = ""
-            async with closing_stream(retry_client.chat_stream(
-                retry_prompt, retry_context, retry_session, images
+            # A corrective retry owns its own sources; they are adopted only if
+            # its text is adopted, so the kept reply never cites another turn.
+            retry_sources: list[dict] = []
+            async with closing_stream(_compat_chat_stream(
+                retry_client, retry_prompt, retry_context, retry_session, images,
+                sources_out=retry_sources,
             )) as owned_stream:
                 async for delta in owned_stream:
                     if isinstance(delta, ReasoningDelta):
@@ -757,6 +818,7 @@ async def _responses_stream_with_tools(
             )
             if retry_calls:
                 full_text, tool_calls = retry_text, retry_calls
+                collected_sources[:] = retry_sources
                 if call_record is not None:
                     call_record["retried"] = True
     except SubstrateCopilotError as exc:
@@ -840,10 +902,14 @@ async def _responses_stream_with_tools(
     for payload in reasoning.finish():
         yield _responses_event(payload, sequence)
         sequence += 1
+    # Without tools a request takes `_responses_stream`, which annotates its
+    # text; this path must do the same or merely DECLARING a tool silently
+    # drops every source URL.
+    annotations = openai_url_citations_from_sources(text_out, collected_sources)
     output = reasoning.output()
     answer_output: list[dict] = []
     if text_out or not tool_calls:
-        answer_output.append(_responses_message_item(text_out))
+        answer_output.append(_responses_message_item(text_out, annotations=annotations))
     answer_output.extend(_responses_function_call_items(tool_calls))
     output.extend(answer_output)
     issued_call_ids = [
@@ -883,6 +949,17 @@ async def _responses_stream_with_tools(
                     "content_index": 0,
                     "delta": text_out,
                     "logprobs": [],
+                }, sequence)
+                sequence += 1
+            # Annotations belong to the assistant message block only.
+            for annotation_index, annotation in enumerate(annotations):
+                yield _responses_event({
+                    "type": "response.output_text.annotation.added",
+                    "item_id": item["id"],
+                    "output_index": output_index,
+                    "content_index": 0,
+                    "annotation_index": annotation_index,
+                    "annotation": annotation,
                 }, sequence)
                 sequence += 1
             yield _responses_event({
@@ -971,11 +1048,15 @@ async def _anthropic_stream(
 
     raw_text = ""
     full_text = ""
+    collected_sources: list[dict] = []
     # See stop_sequences.py: the turn is drained past a hit so usage and the
     # stored session message stay whole; only delivery stops.
     trimmer = StopSequenceTrimmer(stops or [])
     try:
-        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+        async with closing_stream(_compat_chat_stream(
+            client, prompt, additional_context, session, images,
+            sources_out=collected_sources,
+        )) as owned_stream:
             async for delta in owned_stream:
                 if isinstance(delta, ReasoningDelta):
                     for event in content_stream.reasoning(delta):
@@ -1051,6 +1132,15 @@ async def _anthropic_stream(
         on_response_done({"role": "assistant", "content": full_text})
     for event in content_stream.text(""):
         yield event
+    for citation in anthropic_web_citations_from_sources(full_text, collected_sources):
+        yield sse(
+            "content_block_delta",
+            {
+                "type": "content_block_delta",
+                "index": content_stream._index,
+                "delta": {"type": "citations_delta", "citation": citation},
+            }
+        )
     for event in content_stream.close():
         yield event
     stop_reason = "stop_sequence" if matched else "end_turn"
