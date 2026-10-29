@@ -462,9 +462,9 @@ Studio 在尚未收到正文时因上游异常回退，服务端会记 WARNING �
 
 `POST /v1/responses` 实现的是当前项目所需的 **Responses API 兼容子集**，不是与 OpenAI 官方接口完全等价：
 
-- **Function tools**：支持扁平定义（例如 `{"type":"function","name":"Read",...}`），也支持 `{"type":"namespace","name":"filesystem","description":"...","tools":[...]}` 分组。`namespace` 只承载元数据，内部目前仅接受 `function`；代理会把子函数展平给微软上游，并在返回的 `function_call` 上恢复 `namespace`。由于上游只生成裸函数名，namespace 子函数名不得与其他 namespace 子函数或同名扁平函数重复。模型返回 `function_call` 后，由调用方执行函数，再把同一 `call_id` 的 `function_call_output`（以及需要保留的 `function_call` / 消息历史）放入下一次 `input`；重复此循环，直到返回最终 `message`。`strict:true` 会在代理侧按声明的 JSON Schema 校验模型参数；不合规调用不会返回给客户端。Microsoft 上游仍没有原生 schema 强制。
+- **Function tools**：支持扁平定义（例如 `{"type":"function","name":"Read",...}`），也支持 `{"type":"namespace","name":"filesystem","description":"...","tools":[...]}` 分组。`namespace` 只承载元数据，内部接受 `function` 与 `custom`；代理会把子工具展平给微软上游，并在返回的 `function_call` / `custom_tool_call` 上恢复 `namespace`。由于上游只生成裸函数名，namespace 子工具名不得与其他 namespace 子工具或同名扁平工具重复。模型返回 `function_call` 后，由调用方执行函数，再把同一 `call_id` 的 `function_call_output`（以及需要保留的 `function_call` / 消息历史）放入下一次 `input`；重复此循环，直到返回最终 `message`。`strict:true` 会在代理侧按声明的 JSON Schema 校验模型参数；不合规调用不会返回给客户端。Microsoft 上游仍没有原生 schema 强制。
 - **Tool choice**：支持 `auto`、`none`、`required` 和 named function（例如 `{"type":"function","name":"Read"}`）。`required` 与 named function 会严格执行：上游首次未返回合法调用时代理重试一次，连续两次失败后，非流式请求返回 HTTP 502，流式请求以 `error` + `response.failed` 结束。`allowed_tools` 当前不支持，并在请求上游前返回 HTTP 400。
-- **Codex CLI**：已核对 0.145.0 的请求形态，并用 **0.153.4** 完成真实工具流程。自定义 Responses provider 支持本次客户端声明的 `function` 和 `namespace` 工具；`web_search` 没有等价微软上游能力，仍会在请求上游前返回 HTTP 400。使用本代理时需关闭 Codex Web Search：
+- **Codex CLI**：已核对 0.145.0 的请求形态，并用 **0.153.4** 完成真实工具流程。自定义 Responses provider 支持客户端声明的 `function`、`namespace` 和自由格式 `custom` 工具（如 `apply_patch`）；`web_search` 没有等价微软上游能力，仍会在请求上游前返回 HTTP 400。Codex 0.164.0 起，模型名前缀匹配到其内置 Responses Lite 模型（例如 `gpt-6-sol`，以及未指定模型时的多数内置默认）时，工具只放在 `input` 的 `additional_tools` 项里，并附带 `configuration_update`。代理会把前者作为本次请求的工具声明，忽略后者；`custom` 工具以单个 `input` 字符串参数交给上游，调用以 `custom_tool_call` 返回，续轮接受 `custom_tool_call_output`。使用本代理时需关闭 Codex Web Search：
 
   ```toml
   web_search = "disabled"
@@ -472,7 +472,7 @@ Studio 在尚未收到正文时因上游异常回退，服务端会记 WARNING �
 
   单次运行可传 `-c 'web_search="disabled"'`；不要使用 `--search`。Codex 0.145.0 的 `tools.web_search=false` 是旧式工具配置，不保证移除默认的 cached Web Search，不能替代顶层开关。
 - **只读保护边界**：Responses 复用现有的大小写不敏感名称启发式，只把 `Read`、`Grep`、`Glob`、`ls`、`SearchCodebase` 视为只读工具。它无法判断任意自定义函数的真实副作用，因此不是安全边界；实际工具执行器仍须独立实施权限、审批和沙箱限制。
-- **流式生命周期**：成功流从 `response.created`、`response.in_progress` 开始。文本项依次发送 `response.output_item.added` → `response.content_part.added` → `response.output_text.delta` / `done` → `response.content_part.done` → `response.output_item.done`；函数调用项发送 `response.output_item.added` → `response.function_call_arguments.delta` / `done` → `response.output_item.done`，最后以 `response.completed` 结束。上游失败以顶层 `error` 后接 `response.failed` 结束；不发送 `[DONE]`。
+- **流式生命周期**：成功流从 `response.created`、`response.in_progress` 开始。文本项依次发送 `response.output_item.added` → `response.content_part.added` → `response.output_text.delta` / `done` → `response.content_part.done` → `response.output_item.done`；函数调用项发送 `response.output_item.added` → `response.function_call_arguments.delta` / `done` → `response.output_item.done`；`custom_tool_call` 项发送 `response.output_item.added`（其中 `input` 为空）→ `response.custom_tool_call_input.delta` / `done` → `response.output_item.done`，最后以 `response.completed` 结束。上游失败以顶层 `error` 后接 `response.failed` 结束；不发送 `[DONE]`。
 - **推理摘要项**：`response.output_item.added` 后发送 `response.reasoning_summary_part.added`、`response.reasoning_summary_text.delta` / `done`、`response.reasoning_summary_part.done`、`response.output_item.done`。摘要项与正文、函数项共用不重复的 `output_index`，最终 `response.completed.output` 保留相同项 ID 和索引顺序。
 - **M365 续接**：把上一轮返回的 `response.id` 作为下一轮 `previous_response_id`，代理会恢复同一条服务端 M365 会话；下一次 `input` 只需携带本轮新增内容。该续接是线性且单次的，只接受最新 `response.id`，不支持从旧 ID 分叉、成功后重放，或在终止帧丢失后的幂等重试。若上一轮并行返回多个函数调用，必须在一次续接中提交全部对应的 `function_call_output`；工具输出目前只支持文本。
 - **Consumer 续接**：Consumer 是无状态桥接，每轮都会新建上游对话，`previous_response_id` 不会恢复服务端历史。调用方必须在下一次 `input` 中重发完整的 `input` 历史，包括相关消息、`function_call` 和 `function_call_output`。Consumer 返回的 `resp_...` 只是当前响应标识，不是服务端续接句柄。
@@ -669,6 +669,12 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 - `/admin`、`/user`、`/healthz` 与 `/v1/m365-media` 不限流——前者会把运营者自己锁在门外，后者由签名 URL 鉴权、没有可计量的身份，且客户端加载历史图片时天然是批量请求。
 
 > 桶状态存在进程内存里，容器重启即清零；改动上限会立刻重建对应的桶，无需等旧桶排空。
+
+## 会话路由固定（默认关闭）
+
+`/admin` → 端口与日志 → 「会话路由固定」。开启后，企业版 M365 账户的每轮 ChatHub 连接会附带 `X-RoutingParameter-SessionKey`（值为上游 ConversationId），让同一会话的各轮连接落到同一后端；个人版 Substrate 不发送。保存后从下一轮起生效，无需重启。
+
+2026-10-29 在目标容器做过只握手、不发消息的测试：同一 ConversationId 连续 6 次握手，不带该头时落到 2–4 个后端，带上后固定为 1 个；个人版带上后仍分散在 2–3 个后端。同日 6 轮真实对话中，开与不开都没有出现上下文丢失，因此默认关闭，仅在怀疑持续会话丢上下文时作为诊断开关打开。
 
 ## 出站代理
 

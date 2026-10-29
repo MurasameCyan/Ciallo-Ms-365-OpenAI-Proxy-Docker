@@ -243,21 +243,65 @@ def _responses_message_item(
     }
 
 
-def _responses_function_call_items(tool_calls: list[dict]) -> list[dict]:
+def responses_freeform_tool_names(tools: list | None) -> frozenset[str]:
+    """Names of the request's freeform ``custom`` tools, namespaced members included."""
+    names: set[str] = set()
+    for tool in tools or []:
+        if not isinstance(tool, dict):
+            continue
+        members = tool.get("tools") if tool.get("type") == "namespace" else [tool]
+        for member in members if isinstance(members, list) else []:
+            if isinstance(member, dict) and member.get("type") == "custom":
+                name = member.get("name")
+                if isinstance(name, str) and name.strip():
+                    names.add(name.strip())
+    return frozenset(names)
+
+
+def _freeform_input(arguments: str) -> str:
+    """The raw string a freeform tool was called with.
+
+    Freeform tools are declared upstream as one ``input`` string property, so the
+    model's JSON arguments are unwrapped. Anything else is passed through intact
+    rather than guessed at.
+    """
+    try:
+        parsed = json.loads(arguments)
+    except ValueError:
+        return arguments
+    value = parsed.get("input") if isinstance(parsed, dict) else None
+    return value if isinstance(value, str) else arguments
+
+
+def _responses_function_call_items(
+    tool_calls: list[dict], freeform_names: frozenset[str] = frozenset()
+) -> list[dict]:
     items: list[dict] = []
     for call in tool_calls:
         function = call.get("function") or {}
         arguments = function.get("arguments", "{}")
         if not isinstance(arguments, str):
             arguments = json.dumps(arguments, ensure_ascii=False)
-        item = {
-            "id": f"fc_{uuid.uuid4().hex}",
-            "type": "function_call",
-            "call_id": call.get("id") or f"call_{uuid.uuid4().hex[:24]}",
-            "name": function.get("name") or "tool",
-            "arguments": arguments,
-            "status": "completed",
-        }
+        name = function.get("name") or "tool"
+        call_id = call.get("id") or f"call_{uuid.uuid4().hex[:24]}"
+        if name in freeform_names:
+            item = {
+                "id": f"ctc_{uuid.uuid4().hex}",
+                "type": "custom_tool_call",
+                "call_id": call_id,
+                "name": name,
+                "input": _freeform_input(arguments),
+                "status": "completed",
+            }
+        else:
+            item = {
+                "id": f"fc_{uuid.uuid4().hex}",
+                "type": "function_call",
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+                "status": "completed",
+            }
         namespace = call.get("namespace")
         if isinstance(namespace, str) and namespace.strip():
             item["namespace"] = namespace.strip()
@@ -910,10 +954,12 @@ async def _responses_stream_with_tools(
     answer_output: list[dict] = []
     if text_out or not tool_calls:
         answer_output.append(_responses_message_item(text_out, annotations=annotations))
-    answer_output.extend(_responses_function_call_items(tool_calls))
+    answer_output.extend(
+        _responses_function_call_items(tool_calls, responses_freeform_tool_names(response_tools))
+    )
     output.extend(answer_output)
     issued_call_ids = [
-        item["call_id"] for item in output if item["type"] == "function_call"
+        item["call_id"] for item in output if item["type"] in ("function_call", "custom_tool_call")
     ]
     if on_response_issued is not None:
         on_response_issued(resp_id, issued_call_ids)
@@ -977,6 +1023,30 @@ async def _responses_stream_with_tools(
                 "output_index": output_index,
                 "content_index": 0,
                 "part": item["content"][0],
+            }, sequence)
+            sequence += 1
+        elif item["type"] == "custom_tool_call":
+            # The input arrives through custom_tool_call_input.delta; repeating it
+            # in the added item makes conforming clients append it twice.
+            added = {**item, "input": "", "status": "in_progress"}
+            yield _responses_event({
+                "type": "response.output_item.added",
+                "output_index": output_index,
+                "item": added,
+            }, sequence)
+            sequence += 1
+            yield _responses_event({
+                "type": "response.custom_tool_call_input.delta",
+                "item_id": item["id"],
+                "output_index": output_index,
+                "delta": item["input"],
+            }, sequence)
+            sequence += 1
+            yield _responses_event({
+                "type": "response.custom_tool_call_input.done",
+                "item_id": item["id"],
+                "output_index": output_index,
+                "input": item["input"],
             }, sequence)
             sequence += 1
         else:

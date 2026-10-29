@@ -1032,22 +1032,84 @@ def _adapt_responses_function_tool(
     ))
 
 
+FREEFORM_INPUT_FIELD = "input"
+
+
+def _adapt_responses_custom_tool(
+    tool: dict,
+    *,
+    namespace: str | None = None,
+    namespace_description: str | None = None,
+) -> ToolDefinition:
+    """Expose a freeform ``custom`` tool as a function taking one string.
+
+    The upstream only produces JSON tool arguments, so the raw freeform text is
+    carried in a single ``input`` property and unwrapped again when the call is
+    returned to the client as a ``custom_tool_call``. Its grammar, when present,
+    is shown to the model in the description because it is the only contract
+    for what that string must contain.
+    """
+    unknown_fields = sorted(set(tool) - {"type", "name", "description", "format"})
+    if unknown_fields:
+        raise ValueError(
+            "Responses custom tool fields are not supported by this proxy: "
+            + ", ".join(unknown_fields)
+            + "."
+        )
+    name = tool.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Responses custom tools require a non-empty name.")
+    description = tool.get("description")
+    if description is not None and not isinstance(description, str):
+        raise ValueError("Responses custom tool description must be a string.")
+    fmt = tool.get("format")
+    if fmt is not None and not isinstance(fmt, dict):
+        raise ValueError("Responses custom tool format must be an object.")
+    lines = [description.strip()] if description and description.strip() else []
+    if isinstance(fmt, dict) and fmt.get("type") == "grammar":
+        definition = fmt.get("definition")
+        if isinstance(definition, str) and definition.strip():
+            syntax = str(fmt.get("syntax") or "grammar")
+            lines.append(
+                f"The `{FREEFORM_INPUT_FIELD}` string must match this {syntax} grammar:\n"
+                + definition.strip()
+            )
+    lines.append(
+        f"Put the complete raw tool input in the `{FREEFORM_INPUT_FIELD}` string, not JSON."
+    )
+    return ToolDefinition(function=ToolFunction(
+        name=name.strip(),
+        description="\n\n".join(lines),
+        parameters={
+            "type": "object",
+            "properties": {FREEFORM_INPUT_FIELD: {"type": "string"}},
+            "required": [FREEFORM_INPUT_FIELD],
+        },
+        strict=False,
+        namespace=namespace,
+        namespace_description=namespace_description,
+        freeform=True,
+    ))
+
+
 def responses_tools_as_openai(tools: list[dict] | None) -> list[ToolDefinition]:
     """Flatten supported Responses function tools into the shared OpenAI shape."""
     adapted: list[ToolDefinition] = []
     seen_namespaces: dict[str, str | None] = {}
 
     def add_function(tool: dict, namespace: str | None = None, description=None):
-        if tool.get("type") != "function":
+        tool_type = tool.get("type")
+        if tool_type not in ("function", "custom"):
             if namespace is not None:
                 raise ValueError(
-                    "Responses namespace tools must contain only function tools."
+                    "Responses namespace tools must contain only function or custom tools."
                 )
             raise ValueError(
-                "Responses only function tools are supported by this proxy; "
+                "Responses only function and custom tools are supported by this proxy; "
                 "OpenAI hosted tools are unavailable."
             )
-        definition = _adapt_responses_function_tool(
+        adapt = _adapt_responses_custom_tool if tool_type == "custom" else _adapt_responses_function_tool
+        definition = adapt(
             tool,
             namespace=namespace,
             namespace_description=description,
@@ -1089,6 +1151,56 @@ def responses_tools_as_openai(tools: list[dict] | None) -> list[ToolDefinition]:
                 raise ValueError("Responses namespace tools must be JSON objects.")
             add_function(nested_tool, namespace, description)
     return adapted
+
+
+def normalize_codex_responses_body(body: object) -> object:
+    """Fold Codex-only Responses items into the shapes the translator handles.
+
+    For models flagged ``use_responses_lite``, Codex leaves ``tools`` empty and
+    declares every tool in an ``additional_tools`` input item, which is lifted
+    to the top-level ``tools``. ``configuration_update`` only changes reasoning
+    effort, which the upstream has no equivalent for, so it is dropped. A
+    freeform tool's history arrives as ``custom_tool_call`` /
+    ``custom_tool_call_output``; those become the function-call pair whose single
+    ``input`` argument the custom tool was declared with.
+    """
+    if not isinstance(body, dict) or not isinstance(body.get("input"), list):
+        return body
+    lifted: list = []
+    kept: list = []
+    changed = False
+    for item in body["input"]:
+        item_type = item.get("type") if isinstance(item, dict) else None
+        if item_type == "additional_tools":
+            tools = item.get("tools")
+            if not isinstance(tools, list):
+                raise ValueError("Responses additional_tools items require a tools array.")
+            lifted.extend(tools)
+            changed = True
+        elif item_type == "configuration_update":
+            changed = True
+        elif item_type == "custom_tool_call":
+            raw_input = item.get("input")
+            if not isinstance(raw_input, str):
+                raise ValueError("Responses custom_tool_call input must be a string.")
+            call = {key: value for key, value in item.items() if key != "input"}
+            call.update(
+                type="function_call",
+                arguments=json.dumps({FREEFORM_INPUT_FIELD: raw_input}, ensure_ascii=False),
+            )
+            kept.append(call)
+            changed = True
+        elif item_type == "custom_tool_call_output":
+            kept.append({**item, "type": "function_call_output"})
+            changed = True
+        else:
+            kept.append(item)
+    if not changed:
+        return body
+    existing = body.get("tools") or []
+    if not isinstance(existing, list):
+        raise ValueError("Responses tools must be an array.")
+    return {**body, "input": kept, "tools": [*lifted, *existing]}
 
 
 def responses_tool_config(

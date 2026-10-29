@@ -16,6 +16,7 @@ from .response_helpers import (
     _REQUIRED_TOOL_CHOICE_ERROR,
     _resolve_responses_tool_calls,
     _responses_function_call_items,
+    responses_freeform_tool_names,
     _responses_message_item,
     _responses_object,
     _responses_required_tool_retry_prompt,
@@ -62,6 +63,7 @@ from .tool_call_parser import (
 )
 from .translator import (
     _responses_last_action_index,
+    normalize_codex_responses_body,
     responses_tool_config,
     tool_description_lines,
     translate_responses_request,
@@ -174,7 +176,7 @@ def register_responses_routes(
         model_alias = request_model_alias(app, raw, settings)
         try:
             body = await raw.json()
-            request = OpenAIResponsesRequest.model_validate(body)
+            request = OpenAIResponsesRequest.model_validate(normalize_codex_responses_body(body))
             choice, tools = responses_tool_config(
                 request.tools,
                 request.tool_choice,
@@ -1021,14 +1023,16 @@ async def _complete_nonstream_response(
             text,
             annotations=openai_url_citations_from_sources(text, collected_sources),
         ))
-    output.extend(_responses_function_call_items(tool_calls))
+    output.extend(
+        _responses_function_call_items(tool_calls, responses_freeform_tool_names(response_tools))
+    )
     if session is not None:
         record_issued_response(
             resp_id,
             [
                 item["call_id"]
                 for item in output
-                if item["type"] == "function_call"
+                if item["type"] in ("function_call", "custom_tool_call")
             ],
         )
     finish_continuation(True)

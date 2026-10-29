@@ -75,6 +75,7 @@ function renderRuntimeSettings(s){
     const uv=document.getElementById('runtime-user-log-verbose');if(uv){uv.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';uv.value=s.user_log_verbose?'true':'false';initGlassSelect(uv.parentElement);refreshGlassSelect(uv)};
     const ue=document.getElementById('runtime-user-log-errors');if(ue){ue.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';ue.value=s.user_log_errors?'true':'false';initGlassSelect(ue.parentElement);refreshGlassSelect(ue)};
     const sa=document.getElementById('runtime-suppress-access-log');if(sa){sa.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';sa.value=s.suppress_access_log?'true':'false';initGlassSelect(sa.parentElement);refreshGlassSelect(sa)};
+    const sr=document.getElementById('runtime-session-routing-pin');if(sr){sr.innerHTML='<option value="true">'+t('status_yes')+'</option><option value="false">'+t('status_no')+'</option>';sr.value=s.session_routing_pin?'true':'false';initGlassSelect(sr.parentElement);refreshGlassSelect(sr)};
   }catch(e){}
 }
 async function saveRuntimeSettings(btnId){
@@ -90,6 +91,7 @@ async function saveRuntimeSettings(btnId){
   const uv=document.getElementById('runtime-user-log-verbose');if(uv)body.user_log_verbose=uv.value==='true';
   const ue=document.getElementById('runtime-user-log-errors');if(ue)body.user_log_errors=ue.value==='true';
   const sa=document.getElementById('runtime-suppress-access-log');if(sa)body.suppress_access_log=sa.value==='true';
+  const sr=document.getElementById('runtime-session-routing-pin');if(sr)body.session_routing_pin=sr.value==='true';
   body.media_proxy_suffixes=_mediaSuffixListFromInput();
   const mt=document.getElementById('media-proxy-ttl-input');if(mt&&mt.value!=='')body.media_proxy_ttl_seconds=Math.max(1,Number(mt.value||1)||1)*86400;
   try{

@@ -183,6 +183,11 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # extra router turn only on tones measured not to honour the inline contract,
     # "native"/"router" pin one shape for diagnosing a report.
     "tool_planning_mode": "auto",
+    # Send X-RoutingParameter-SessionKey on enterprise ChatHub connections so all
+    # turns of one conversation reach one backend. Handshake probes moved a
+    # conversation from 2-4 backends to 1, but no forked history was observed in
+    # real multi-turn tests, so it stays opt-in.
+    "session_routing_pin": False,
     # User/account runtime log toggles (see runtime_flags.py). verbose gates normal
     # progress logs, errors gates failure logs. Seeded from .env on first boot; the
     # persisted file wins once written, and the admin UI can flip them at runtime.
@@ -479,6 +484,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["user_log_verbose"] = bool(data.get("user_log_verbose"))
     data["user_log_errors"] = bool(data.get("user_log_errors"))
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
+    data["session_routing_pin"] = bool(data.get("session_routing_pin"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     persisted_tone_options = raw.get("tone_options") if isinstance(raw, dict) else None
     persisted_tone_version = (

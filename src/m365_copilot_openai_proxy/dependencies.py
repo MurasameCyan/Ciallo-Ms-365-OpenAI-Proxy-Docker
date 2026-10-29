@@ -291,6 +291,8 @@ def create_api_dependencies(
                 )
                 client._variants = ",".join(profile["variants"])
                 client._options_sets = list(profile["options_sets"])
+            if getattr(app.state, "session_routing_pin", False):
+                client._session_routing_pin = True
             if account is not None and token == account.token and is_valid_substrate_jwe(token):
                 client._personal_substrate_gate = _personal_substrate_gate_for(app, account)
             _attach_response_debug_sink(app, client)

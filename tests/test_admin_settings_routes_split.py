@@ -266,3 +266,16 @@ def test_run_permission_web_override_applies_without_restart(tmp_path):
 
     assert rejected.status_code == 400
     assert effective_run_permission(app, None) == "read_only"
+
+
+def test_session_routing_pin_defaults_off_and_persists(tmp_path):
+    settings = Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="")
+    client = TestClient(create_app(settings))
+    assert client.get("/admin/runtime-settings").json()["settings"]["session_routing_pin"] is False
+
+    response = client.post("/admin/runtime-settings", json={"session_routing_pin": True})
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["session_routing_pin"] is True
+    reloaded = TestClient(create_app(settings))
+    assert reloaded.get("/admin/runtime-settings").json()["settings"]["session_routing_pin"] is True

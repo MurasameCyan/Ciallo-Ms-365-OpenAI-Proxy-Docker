@@ -2231,7 +2231,6 @@ def test_responses_allows_incremental_m365_function_output_with_server_history()
     "file_search",
     "mcp",
     "code_interpreter",
-    "custom",
     "shell",
     "local_shell",
     "computer_use_preview",
@@ -2247,7 +2246,6 @@ def test_responses_rejects_hosted_tools_before_upstream_call(tmp_path, tool_type
     })
 
     assert response.status_code == 400
-    assert "only function tools are supported" in response.text
     assert not made or made[-1].calls == []
 
 
@@ -2993,7 +2991,7 @@ def test_responses_rejects_non_function_inside_namespace(tmp_path):
     _app, client, made = _app_client(tmp_path, "unused")
     namespace = {
         **FILES_NAMESPACE_TOOL,
-        "tools": [{"type": "custom", "name": "shell"}],
+        "tools": [{"type": "web_search"}],
     }
 
     response = _post(client, {
@@ -3002,7 +3000,6 @@ def test_responses_rejects_non_function_inside_namespace(tmp_path):
     })
 
     assert response.status_code == 400
-    assert "namespace tools must contain only function tools" in response.text.lower()
     assert not made or made[-1].calls == []
 
 
@@ -3015,7 +3012,6 @@ def test_codex_shaped_tools_still_reject_web_search_before_upstream(tmp_path):
     })
 
     assert response.status_code == 400
-    assert "only function tools are supported" in response.text
     assert not made or made[-1].calls == []
 
 
@@ -3205,3 +3201,104 @@ def test_responses_ignores_additive_params(payload):
     })
 
     assert translate_responses_request(request).prompt == "hi"
+
+
+EXEC_TOOL = {
+    "type": "function",
+    "name": "exec_command",
+    "description": "Run a shell command",
+    "parameters": {
+        "type": "object",
+        "properties": {"cmd": {"type": "string"}},
+        "required": ["cmd"],
+    },
+}
+
+PATCH_TOOL = {
+    "type": "custom",
+    "name": "apply_patch",
+    "description": "Edit files with a patch",
+    "format": {"type": "grammar", "syntax": "lark", "definition": "start: /(?s).+/"},
+}
+
+PATCH_TEXT = "*** Begin Patch\n*** End Patch"
+
+
+def _tool_reply(name: str, arguments: dict) -> str:
+    return "```tool_call\n" + json.dumps({"name": name, "arguments": arguments}) + "\n```"
+
+
+def _lite_input(text: str) -> list[dict]:
+    """Codex Responses Lite: every tool is declared in additional_tools only."""
+    return [
+        {
+            "type": "additional_tools",
+            "id": "at_1",
+            "role": "developer",
+            "tools": [{
+                "type": "namespace",
+                "name": "functions",
+                "description": "Codex tools",
+                "tools": [EXEC_TOOL, PATCH_TOOL],
+            }],
+        },
+        {"type": "configuration_update", "reasoning": {"effort": "high"}},
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]},
+    ]
+
+
+def test_codex_lite_additional_tools_are_declared_and_called(tmp_path):
+    _app, client, made = _app_client(tmp_path, _tool_reply("exec_command", {"cmd": "dir"}))
+
+    response = _post(client, {"input": _lite_input("run dir")})
+
+    assert response.status_code == 200
+    calls = [item for item in response.json()["output"] if item["type"] == "function_call"]
+    assert [(c["name"], c.get("namespace"), json.loads(c["arguments"])) for c in calls] == [
+        ("exec_command", "functions", {"cmd": "dir"}),
+    ]
+    prompt, context = made[-1].calls[-1]
+    assert "exec_command" in prompt + "\n".join(context)
+
+
+def test_codex_custom_tool_call_round_trip(tmp_path):
+    _app, client, _made = _app_client(tmp_path, _tool_reply("apply_patch", {"input": PATCH_TEXT}))
+
+    first = _post(client, {"input": _lite_input("apply the patch")})
+
+    assert first.status_code == 200
+    [call] = [item for item in first.json()["output"] if item["type"] == "custom_tool_call"]
+    assert (call["name"], call["namespace"], call["input"]) == ("apply_patch", "functions", PATCH_TEXT)
+    assert "arguments" not in call
+
+    second_dir = tmp_path / "continuation"
+    second_dir.mkdir()
+    _app2, client2, made2 = _app_client(second_dir, "Patched.")
+    history = _lite_input("apply the patch") + [
+        {"type": "custom_tool_call", "call_id": call["call_id"], "name": "apply_patch",
+         "namespace": "functions", "input": PATCH_TEXT},
+        {"type": "custom_tool_call_output", "call_id": call["call_id"], "output": "Done!"},
+    ]
+
+    second = _post(client2, {"input": history})
+
+    assert second.status_code == 200
+    prompt, context = made2[-1].calls[-1]
+    assert "Done!" in prompt + "\n".join(context)
+
+
+def test_streaming_custom_tool_call_delivers_input_once(tmp_path):
+    _app, client, _made = _app_client(tmp_path, _tool_reply("apply_patch", {"input": PATCH_TEXT}))
+
+    response = _post(client, {"stream": True, "input": _lite_input("apply the patch")})
+
+    assert response.status_code == 200
+    events = _events(response)
+    added = [e["item"] for e in events
+             if e["type"] == "response.output_item.added" and e["item"]["type"] == "custom_tool_call"]
+    deltas = [e["delta"] for e in events if e["type"] == "response.custom_tool_call_input.delta"]
+    done = [e["item"] for e in events
+            if e["type"] == "response.output_item.done" and e["item"]["type"] == "custom_tool_call"]
+    assert [item["input"] for item in added] == [""]
+    assert "".join(deltas) == PATCH_TEXT
+    assert [item["input"] for item in done] == [PATCH_TEXT]

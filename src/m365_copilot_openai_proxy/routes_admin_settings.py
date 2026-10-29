@@ -124,6 +124,7 @@ def register_admin_settings_routes(
             "call_log_limit": int_setting("call_log_limit", 1),
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
             "tool_planning_mode": str(body.get("tool_planning_mode", current.get("tool_planning_mode", ""))).strip().lower() or _RUNTIME_SETTINGS_DEFAULTS["tool_planning_mode"],
+            "session_routing_pin": bool(body.get("session_routing_pin", current.get("session_routing_pin", False))),
             "user_log_verbose": bool(body.get("user_log_verbose", current.get("user_log_verbose", True))),
             "user_log_errors": bool(body.get("user_log_errors", current.get("user_log_errors", True))),
             "suppress_access_log": bool(body.get("suppress_access_log", current.get("suppress_access_log", True))),
@@ -182,6 +183,8 @@ def register_admin_settings_routes(
         # that silently does not apply is worse than one that visibly failed.
         app.state.run_permission = data["run_permission"]
         app.state.tool_planning_mode = data["tool_planning_mode"]
+        # Read when each client is built, so it applies from the next turn on.
+        app.state.session_routing_pin = data["session_routing_pin"]
         app.state.tone_options = data["tone_options"]
         app.state.consumer_mode_options = data["consumer_mode_options"]
         app.state.user_log_verbose = data["user_log_verbose"]

@@ -705,13 +705,21 @@ class SubstrateCopilotClient:
     async def _connect_for_turn(self, conv_id: str, session_id: str, req_id: str) -> AsyncIterator[Any]:
         """Retry only a rejected HTTP upgrade, before any chat can be invoked."""
         gate = getattr(self, "_personal_substrate_gate", None)
-        origin = "https://copilot.com" if getattr(self, "_is_consumer", False) else "https://m365.cloud.microsoft"
+        is_consumer = getattr(self, "_is_consumer", False)
+        origin = "https://copilot.com" if is_consumer else "https://m365.cloud.microsoft"
+        headers = {"Origin": origin}
+        if not is_consumer and getattr(self, "_session_routing_pin", False):
+            # Without this header each connection of one ConversationId can land
+            # on a different backend: 2-4 backends in 6 handshakes, 1 with it.
+            # Personal Substrate still spread over 2-3 with it, so it is not sent
+            # there. Opt-in (session_routing_pin): no forked history was observed.
+            headers["X-RoutingParameter-SessionKey"] = conv_id
         async with AsyncExitStack() as stack:
             for attempt in range(2):
                 try:
                     ws = await stack.enter_async_context(websockets.connect(
                         self._ws_url(conv_id, session_id, req_id),
-                        additional_headers={"Origin": origin},
+                        additional_headers=headers,
                         open_timeout=_WS_OPEN_TIMEOUT,
                         close_timeout=_WS_OPEN_TIMEOUT,
                     ))
