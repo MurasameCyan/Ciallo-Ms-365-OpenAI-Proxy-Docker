@@ -33,8 +33,10 @@
     "files_replaced": 11,
     "hashes_match_worktree": true,
     "rollback_backup_in_container": "/tmp/codex-lite-backup-20261029-113131",
-    "restarts": "two docker restarts, both healthy, restart count 0",
-    "pre_existing_drift_left_unchanged": "account_serializers.py and template_admin_accounts.py in the container are older than d16eadf; not part of this change"
+    "restarts": "every docker restart returned healthy with restart count 0",
+    "pre_existing_drift_left_unchanged": "account_serializers.py and template_admin_accounts.py in the container are older than d16eadf; not part of this change",
+    "container_image": "ghcr.io/murasamecyan/ciallo-ms-365-openai-proxy-docker:fox-camoufox",
+    "durability": "/app/src is not a mounted volume. The patched files survive docker restart but are lost when the container is recreated from the image, until an image containing this change is published."
   },
   "post_deploy_live": {
     "session_routing_pin_after_restart": false,
@@ -48,11 +50,11 @@
   "mandatory_matrix": [
     {"item": 1, "path": "M365 direct/native", "status": "pass", "detail": "Sync and streaming text, no-store on streams, tool round and tool continuation pass. The continuation reply did not quote the tool result; the driver only checks for non-empty text."},
     {"item": 2, "path": "Router planning/tool", "status": "pass", "detail": "Mode applied; tool round answered with x-m365-tool-calling=router."},
-    {"item": 3, "path": "Studio planning/tool", "status": "partial", "detail": "Mode applied and the tool round succeeded, but through the Router fallback (header router). No ready Studio agent is bound, so the Studio path itself was not exercised."},
+    {"item": 3, "path": "Studio planning/tool", "status": "partial", "detail": "Mode applied and the tool round succeeded, but through the Router fallback (header router). None of the three accounts has a Studio agent bound (studio_agent_id empty on all), so the Studio path itself was not exercised."},
     {"item": 4, "path": "Anthropic Messages API", "status": "pass", "detail": "Text, tool_use and tool_result continuation; streaming tool continuation also passed under item 7."},
     {"item": 5, "path": "OpenAI Responses API", "status": "pass", "detail": "Text, function tool and continuation, plus the Codex Lite streaming tool loop above."},
-    {"item": 6, "path": "Personal/Consumer including personal Substrate JWE", "status": "partial", "detail": "No enabled Consumer key, so Consumer renewal and chat were not run. Personal Substrate text returned 200. With its own default planning and gpt-5.5_Chat the personal key made no tool call, identically for additional_tools and top-level tools, so this is not caused by the change; personal tool loops do work with Router planning (item 7)."},
-    {"item": 7, "path": "Personal Substrate unattended renewal", "status": "pass", "detail": "See item7."}
+    {"item": 6, "path": "Personal/Consumer including personal Substrate JWE", "status": "partial", "detail": "The deployed store has no Consumer-provider account (three accounts, all provider m365), so Consumer renewal and chat could not run. The userscript capture and push were not repeated in this run; the personal Substrate session in the store came from an earlier capture. Personal Substrate text returned 200. With its own default planning and gpt-5.5_Chat the personal key made no tool call, identically for additional_tools and top-level tools, so this is not caused by the change; personal tool loops do work with Router planning (item 7)."},
+    {"item": 7, "path": "Personal Substrate unattended renewal", "status": "pass", "detail": "See item7. Renewal ran from the encrypted personal session already in the store; the userscript capture itself was not repeated (see item 6)."}
   ],
   "item7": {
     "renewals_without_chat": [
@@ -70,6 +72,12 @@
       "session_encrypted_at_rest": true,
       "epoch": 3,
       "renewal": {"token_sha256": "e049d8d2d12059e2", "new_jwe": true, "subject_preserved": true, "epoch_preserved": true, "handshake": 101}
+    },
+    "browser_teardown": {
+      "checked_after": "post-restart renewal",
+      "personal_substrate_profiles_left": 0,
+      "tmp_profiles_left": 0,
+      "camoufox_or_firefox_processes": 0
     }
   },
   "cleanup": {
