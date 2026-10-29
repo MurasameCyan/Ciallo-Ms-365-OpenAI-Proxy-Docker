@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-29",
+  "scope": "Codex Responses Lite compatibility (additional_tools, configuration_update, custom freeform tools) and an opt-in enterprise ChatHub session routing pin, verified on the deployed target container.",
+  "branch": "feat/codex-responses-lite",
+  "base": "origin/multi d16eadf",
+  "target_container": "ciallo-ms365-proxy-multi",
+  "full_acceptance": false,
+  "regression": {
+    "passed": 4446,
+    "skipped": 3,
+    "failed": 0,
+    "note": "Run against the worktree source. A first full run caught the routing attribute being set on client objects without __dict__; it is now set only when the toggle is on."
+  },
+  "pre_change_isolated_comparison": {
+    "method": "Two isolated loopback listeners in the container on private copies of the account store: installed code versus patched copy. Production files only read.",
+    "installed_code": {
+      "codex_lite_request": "HTTP 400 Unsupported Responses input item type: additional_tools"
+    },
+    "patched_code": {
+      "codex_lite_gpt_5_5_chat": "streaming exec_command call in namespace functions; continuation response.completed containing the caller nonce",
+      "gpt_6_sol_and_gpt_6_chat": "upstream InternalError / empty reply twice, also for a plain request without tools: mode availability on this account, not the translation"
+    },
+    "word_chain_6_turns_missing_words": {"installed": 0, "patched_with_routing_header": 0},
+    "isolated_test_conversations_deleted_by_exact_id": 15
+  },
+  "routing_handshake_probe": {
+    "method": "SignalR handshake only, no chat invocation; six connections per ConversationId; backend read from x-calculatedbetarget",
+    "enterprise_distinct_backends": {"without_header": [3, 2, 3, 4, 3], "with_header": [1, 1, 1, 1, 1]},
+    "personal_substrate_distinct_backends": {"without_header": [5, 6], "with_header": [2, 3]},
+    "decision": "Header sent for enterprise accounts only, and only when session_routing_pin is enabled. Default off because no lost context was observed in real multi-turn tests."
+  },
+  "deployment": {
+    "files_replaced": 11,
+    "hashes_match_worktree": true,
+    "rollback_backup_in_container": "/tmp/codex-lite-backup-20261029-113131",
+    "restarts": "two docker restarts, both healthy, restart count 0",
+    "pre_existing_drift_left_unchanged": "account_serializers.py and template_admin_accounts.py in the container are older than d16eadf; not part of this change"
+  },
+  "post_deploy_live": {
+    "session_routing_pin_after_restart": false,
+    "codex_lite_enterprise_gpt_5_5_chat": {
+      "first": "response.completed",
+      "calls": [["function_call", "exec_command", "functions"]],
+      "continuation": "response.completed",
+      "final_contains_caller_nonce": true
+    }
+  },
+  "mandatory_matrix": [
+    {"item": 1, "path": "M365 direct/native", "status": "pass", "detail": "Sync and streaming text, no-store on streams, tool round and tool continuation pass. The continuation reply did not quote the tool result; the driver only checks for non-empty text."},
+    {"item": 2, "path": "Router planning/tool", "status": "pass", "detail": "Mode applied; tool round answered with x-m365-tool-calling=router."},
+    {"item": 3, "path": "Studio planning/tool", "status": "partial", "detail": "Mode applied and the tool round succeeded, but through the Router fallback (header router). No ready Studio agent is bound, so the Studio path itself was not exercised."},
+    {"item": 4, "path": "Anthropic Messages API", "status": "pass", "detail": "Text, tool_use and tool_result continuation; streaming tool continuation also passed under item 7."},
+    {"item": 5, "path": "OpenAI Responses API", "status": "pass", "detail": "Text, function tool and continuation, plus the Codex Lite streaming tool loop above."},
+    {"item": 6, "path": "Personal/Consumer including personal Substrate JWE", "status": "partial", "detail": "No enabled Consumer key, so Consumer renewal and chat were not run. Personal Substrate text returned 200. With its own default planning and gpt-5.5_Chat the personal key made no tool call, identically for additional_tools and top-level tools, so this is not caused by the change; personal tool loops do work with Router planning (item 7)."},
+    {"item": 7, "path": "Personal Substrate unattended renewal", "status": "pass", "detail": "See item7."}
+  ],
+  "item7": {
+    "renewals_without_chat": [
+      {"token_sha256": "1d1af8ba0982b258", "new_jwe": true, "subject_preserved": true, "epoch_preserved": true, "handshake": 101, "seconds_remaining": 28798},
+      {"token_sha256": "984594e68462c192", "new_jwe": true, "subject_preserved": true, "epoch_preserved": true, "handshake": 101, "seconds_remaining": 28798}
+    ],
+    "real_upgrade_401_continuations": {
+      "fixture": "One authentication-tag bit flipped in a private copy of the stored JWE; verified 401 at the real upgrade before each request. Run on an isolated listener with Router planning.",
+      "messages_streaming": {"tool_use": true, "final_contains_caller_nonce": true, "terminal": "end_turn", "new_issuer_jwe_stored": "5bfd91ae00b4c654", "renewed_handshake": 101, "session_kept": true},
+      "responses_streaming_previous_response_id": {"function_call": true, "final_contains_caller_nonce": true, "terminal": "response.completed", "new_issuer_jwe_stored": "e4494eeba90cbf41", "renewed_handshake": 101, "session_kept": true}
+    },
+    "after_container_restart": {
+      "persisted_jwe_reloaded": "984594e68462c192",
+      "session_reloaded": true,
+      "session_encrypted_at_rest": true,
+      "epoch": 3,
+      "renewal": {"token_sha256": "e049d8d2d12059e2", "new_jwe": true, "subject_preserved": true, "epoch_preserved": true, "handshake": 101}
+    }
+  },
+  "cleanup": {
+    "temporary_stages_and_private_keys_removed": true,
+    "rollback_backup_kept": true,
+    "not_cleaned": "Conversations created by the matrix driver and the live checks through the production listener were not journaled; they remain in the accounts' Copilot history."
+  },
+  "redaction": "No API keys, tokens, cookies or account IDs. Tokens appear only as truncated SHA-256."
+}
