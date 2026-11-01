@@ -2,6 +2,8 @@
 
 The page owns its pairwise broker flow. Observe its actual token response rather
 than guessing a refresh-token exchange or sending a chat to open a WebSocket.
+That response also carries the page's own refresh token: renewal redeems it
+again over plain HTTP first, and opens the browser only when that grant fails.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import math
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .consumer_camoufox import (
     _UNPARTITIONED_PREFS,
@@ -22,7 +24,12 @@ from .consumer_camoufox import (
 )
 from .consumer_refresh_via_rt import account_id_from_client_info
 from .personal_substrate_session import (
+    BROKER_FORM_KEYS,
+    BROKER_QUERY_KEYS,
+    MSA_TENANT,
     PERSONAL_SUBSTRATE_ORIGIN,
+    PERSONAL_TOKEN_HOST,
+    PERSONAL_TOKEN_PATHS,
     normalize_personal_substrate_error,
     normalize_personal_substrate_session,
 )
@@ -30,7 +37,9 @@ from .refresh_via_rt import M365_REFRESH_CLIENT_IDS
 from .token_store import is_valid_substrate_jwe
 
 
-_MSA_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
+_HTTP_TIMEOUT_SECONDS = 30.0
+# A grant this close to its absolute deadline is not worth a round trip.
+_BROKER_MIN_REMAINING_SECONDS = 60
 _PERSONAL_SCOPES = frozenset({
     "https://substrate.office.com/sydney/v2/.default",
     "https://substrate.office.com/sydney/v2/sydney.readwrite",
@@ -48,11 +57,9 @@ def _token_receipt(url: str, post_data: str, payload: object, expected_subject: 
     """Accept only the observed personal resource and its issuing MSA subject."""
     parsed = urlsplit(url)
     if (
-        parsed.scheme != "https" or parsed.hostname != "login.microsoftonline.com"
+        parsed.scheme != "https" or parsed.hostname != PERSONAL_TOKEN_HOST
         or parsed.username or parsed.password or parsed.port not in (None, 443)
-        or parsed.path.lower() not in (
-            f"/{_MSA_TENANT}/oauth2/v2.0/token", "/consumers/oauth2/v2.0/token",
-        )
+        or parsed.path.lower() not in PERSONAL_TOKEN_PATHS
     ):
         return None
     try:
@@ -78,7 +85,7 @@ def _token_receipt(url: str, post_data: str, payload: object, expected_subject: 
     if not isinstance(token, str) or not is_valid_substrate_jwe(token):
         return None
     subject = account_id_from_client_info(payload.get("client_info"))
-    if not subject.endswith("." + _MSA_TENANT):
+    if not subject.endswith("." + MSA_TENANT):
         raise PersonalSubstrateRefreshError("identity_mismatch")
     if expected_subject.startswith("local:"):
         subject = "local:" + subject.removeprefix("home:").rsplit(".", 1)[0]
@@ -94,7 +101,71 @@ def _token_receipt(url: str, post_data: str, payload: object, expected_subject: 
         raise PersonalSubstrateRefreshError("issuance_unavailable")
     else:
         expires_at = time.time() + lifetime
-    return {"access_token": token, "account_id": subject, "expires_at": expires_at}
+    receipt = {"access_token": token, "account_id": subject, "expires_at": expires_at}
+    broker = _broker_grant(url, form, payload)
+    if broker is not None:
+        receipt["broker"] = broker
+    return receipt
+
+
+def _broker_grant(url: str, form: dict, payload: dict) -> dict | None:
+    """Keep the page's refresh token plus the request fields needed to redeem it."""
+    refresh_token = payload.get("refresh_token")
+    lifetime = payload.get("refresh_token_expires_in")
+    if (
+        not isinstance(refresh_token, str) or not refresh_token
+        or isinstance(lifetime, bool) or not isinstance(lifetime, (int, float))
+        or not math.isfinite(lifetime) or not 0 < lifetime < 253402300799 - time.time()
+    ):
+        return None
+    parsed = urlsplit(url)
+    query = {k: v[0] for k, v in parse_qs(parsed.query).items() if k in BROKER_QUERY_KEYS and len(v) == 1}
+    endpoint = f"https://{PERSONAL_TOKEN_HOST}{parsed.path}"
+    if query:
+        endpoint += "?" + urlencode(query)
+    return {
+        "refresh_token": refresh_token,
+        "expires_at": time.time() + lifetime,
+        "url": endpoint,
+        "form": {k: v[0] for k, v in form.items() if k in BROKER_FORM_KEYS and len(v) == 1},
+    }
+
+
+async def refresh_personal_substrate_via_rt(*, session: dict, previous_token: str, proxy_url: str = "") -> dict:
+    """Redeem the stored broker grant once; the result has the browser gate's shape."""
+    import httpx
+
+    broker = session.get("broker")
+    if not broker or broker["expires_at"] - time.time() < _BROKER_MIN_REMAINING_SECONDS:
+        raise PersonalSubstrateRefreshError("session_expired")
+    data = {**broker["form"], "grant_type": "refresh_token", "refresh_token": broker["refresh_token"]}
+    kwargs = {"timeout": _HTTP_TIMEOUT_SECONDS}
+    if proxy_url:
+        # The grant is scored against the egress that earned it, like the chat turns.
+        kwargs["proxy"] = proxy_url
+    try:
+        async with httpx.AsyncClient(**kwargs) as client:
+            response = await client.post(broker["url"], data=data, headers={"Origin": PERSONAL_SUBSTRATE_ORIGIN})
+    except httpx.HTTPError as exc:
+        raise PersonalSubstrateRefreshError("issuance_unavailable") from exc
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if response.status_code != 200:
+        error = payload.get("error") if isinstance(payload, dict) else ""
+        raise PersonalSubstrateRefreshError("session_expired" if error in ("invalid_grant", "interaction_required") else "issuance_unavailable")
+    receipt = _token_receipt(broker["url"], urlencode(data), payload, session["account_id"])
+    if receipt is None or receipt["access_token"] == previous_token:
+        raise PersonalSubstrateRefreshError("issuance_unavailable")
+    rotated = receipt.pop("broker", None)
+    if rotated is None and isinstance(payload.get("refresh_token"), str) and payload["refresh_token"]:
+        # A redemption may rotate the token without restating its lifetime; the
+        # SPA grant keeps its original absolute deadline, so carry that over.
+        rotated = {**broker, "refresh_token": payload["refresh_token"]}
+    renewed = {**session, "broker": rotated or broker}
+    receipt["session"] = normalize_personal_substrate_session(renewed, session["account_id"])
+    return receipt
 
 
 def _browser_cookies(cookies: list[dict]) -> list[dict]:
@@ -258,5 +329,8 @@ class PersonalSubstrateBrowserGate:
                     "cookies": _drop_cloudflare_cookies(await browser.cookies()),
                     **storage,
                 }
+                broker = captured.pop("broker", None)
+                if broker is not None:
+                    refreshed["broker"] = broker
                 captured["session"] = normalize_personal_substrate_session(refreshed, subject)
         return captured

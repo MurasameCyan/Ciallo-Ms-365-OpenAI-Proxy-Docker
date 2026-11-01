@@ -45,6 +45,9 @@ TONE_OPTIONS = [
     {"value": "Gpt_6_Astra", "label": "gpt-6_Chat", "label_zh": "gpt-6_Chat", "label_en": "gpt-6_Chat"},
     {"value": "Gpt_6_Reasoning", "label": "gpt-6", "label_zh": "gpt-6", "label_en": "gpt-6"},
     {"value": "Gpt_6_Sol_Reasoning", "label": "gpt-6-sol", "label_zh": "gpt-6-sol", "label_en": "gpt-6-sol"},
+    # 2026-11-01: answered a fresh enterprise turn with its nonce; the personal
+    # account refused it, and Gpt_61_Sol_Chat / Gpt_61_Reasoning returned empty on both.
+    {"value": "Gpt_61_Sol_Reasoning", "label": "gpt-6.1-sol", "label_zh": "gpt-6.1-sol", "label_en": "gpt-6.1-sol"},
     {"value": "Gpt_5_6_Chat", "label": "gpt-5.6_Chat", "label_zh": "gpt-5.6_Chat", "label_en": "gpt-5.6_Chat"},
     {"value": "Gpt_5_6_Reasoning", "label": "gpt-5.6", "label_zh": "gpt-5.6", "label_en": "gpt-5.6"},
     {"value": "Gpt_5_5_Chat", "label": "gpt-5.5_Chat", "label_zh": "gpt-5.5_Chat", "label_en": "gpt-5.5_Chat"},

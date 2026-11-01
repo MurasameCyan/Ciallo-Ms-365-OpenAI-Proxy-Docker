@@ -46,7 +46,7 @@ from .session_helpers import (
     _studio_session_for_context,
 )
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError
-from .sse_stream import keepalive_stream, merge_sse_headers
+from .sse_stream import merge_sse_headers, responses_keepalive_stream
 from .studio_planner import (
     PlannerTurn,
     ordered_or_answered,
@@ -715,7 +715,7 @@ def register_responses_routes(
                         on_response_issued=record_issued_response,
                         on_request_done=note_stream_done,
                     )
-                stream = keepalive_stream(stream)
+                stream = responses_keepalive_stream(stream)
                 response = _ResponsesStreamingResponse(
                     stream,
                     on_request_done=lambda delivered: finish_continuation(

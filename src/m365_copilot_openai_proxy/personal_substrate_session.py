@@ -4,10 +4,19 @@ from __future__ import annotations
 import math
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 PERSONAL_SUBSTRATE_ORIGIN = "https://copilot.com"
+MSA_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
+PERSONAL_TOKEN_HOST = "login.microsoftonline.com"
+PERSONAL_TOKEN_PATHS = (f"/{MSA_TENANT}/oauth2/v2.0/token", "/consumers/oauth2/v2.0/token")
+# The page's own broker refresh: these request fields are enough to redeem its
+# refresh token again over plain HTTP; telemetry and one-shot values are dropped.
+BROKER_FORM_KEYS = frozenset({
+    "client_id", "redirect_uri", "scope", "brk_client_id", "brk_redirect_uri", "client_info", "X-AnchorMailbox",
+})
+BROKER_QUERY_KEYS = frozenset({"client_id", "brk_client_id", "brk_redirect_uri"})
 _SUBJECT_RE = re.compile(r"^(?:home|local):[a-z0-9._-]{1,512}$")
 _DOMAIN_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
@@ -62,7 +71,7 @@ def normalize_personal_substrate_session(value: object, account_id: str) -> dict
         raise PersonalSubstrateSessionError("Personal Substrate session identity is malformed")
     if not account_id or subject != account_id:
         raise PersonalSubstrateSubjectMismatch("Personal Substrate session must match the captured Microsoft account identity")
-    if set(value) - {"origin", "account_id", "cookies", "local_storage", "session_storage"}:
+    if set(value) - {"origin", "account_id", "cookies", "local_storage", "session_storage", "broker"}:
         raise PersonalSubstrateSessionError("Personal Substrate session has unsupported fields")
     total = 0
 
@@ -170,7 +179,40 @@ def normalize_personal_substrate_session(value: object, account_id: str) -> dict
         if not isinstance(storage, dict) or len(storage) > 256:
             raise PersonalSubstrateSessionError("Personal Substrate storage must be a bounded string map")
         result[key] = {bounded_string(k, 2048): bounded_string(v) for k, v in storage.items()}
+    if "broker" in value:
+        result["broker"] = _normalize_broker_grant(value["broker"], bounded_string)
     return result
+
+
+def _normalize_broker_grant(broker: object, bounded_string) -> dict:
+    """A refresh grant the page itself redeemed, pinned to the personal token endpoint."""
+    if not isinstance(broker, dict) or set(broker) != {"refresh_token", "expires_at", "url", "form"}:
+        raise PersonalSubstrateSessionError("Personal Substrate broker grant is malformed")
+    refresh_token = bounded_string(broker["refresh_token"], 16 * 1024)
+    if not refresh_token or any(ord(char) <= 32 or ord(char) == 127 for char in refresh_token):
+        raise PersonalSubstrateSessionError("Personal Substrate broker grant is malformed")
+    url = bounded_string(broker["url"], 4096)
+    try:
+        parsed = urlsplit(url)
+        pinned = (
+            parsed.scheme == "https" and parsed.hostname == PERSONAL_TOKEN_HOST
+            and not parsed.username and not parsed.password and parsed.port in (None, 443)
+            and parsed.path in PERSONAL_TOKEN_PATHS and not parsed.fragment
+        )
+        query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=bool(parsed.query))
+    except ValueError:
+        pinned = False
+    if not pinned or set(query) - BROKER_QUERY_KEYS or any(len(values) != 1 for values in query.values()):
+        raise PersonalSubstrateSessionError("Personal Substrate broker endpoint is not allowed")
+    form = broker["form"]
+    if not isinstance(form, dict) or not form.get("client_id") or set(form) - BROKER_FORM_KEYS:
+        raise PersonalSubstrateSessionError("Personal Substrate broker form is malformed")
+    return {
+        "refresh_token": refresh_token,
+        "expires_at": normalize_personal_substrate_expiry(broker["expires_at"]),
+        "url": url,
+        "form": {key: bounded_string(item, 4096) for key, item in form.items()},
+    }
 
 
 def has_usable_personal_substrate_session(token: str, account_id: str, session: object) -> bool:

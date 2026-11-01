@@ -125,6 +125,7 @@ def register_admin_settings_routes(
             "run_permission": str(body.get("run_permission", current["run_permission"])).strip() or _RUNTIME_SETTINGS_DEFAULTS["run_permission"],
             "tool_planning_mode": str(body.get("tool_planning_mode", current.get("tool_planning_mode", ""))).strip().lower() or _RUNTIME_SETTINGS_DEFAULTS["tool_planning_mode"],
             "session_routing_pin": bool(body.get("session_routing_pin", current.get("session_routing_pin", False))),
+            "temporary_chat": bool(body.get("temporary_chat", current.get("temporary_chat", False))),
             "user_log_verbose": bool(body.get("user_log_verbose", current.get("user_log_verbose", True))),
             "user_log_errors": bool(body.get("user_log_errors", current.get("user_log_errors", True))),
             "suppress_access_log": bool(body.get("suppress_access_log", current.get("suppress_access_log", True))),
@@ -185,6 +186,7 @@ def register_admin_settings_routes(
         app.state.tool_planning_mode = data["tool_planning_mode"]
         # Read when each client is built, so it applies from the next turn on.
         app.state.session_routing_pin = data["session_routing_pin"]
+        app.state.temporary_chat = data["temporary_chat"]
         app.state.tone_options = data["tone_options"]
         app.state.consumer_mode_options = data["consumer_mode_options"]
         app.state.user_log_verbose = data["user_log_verbose"]

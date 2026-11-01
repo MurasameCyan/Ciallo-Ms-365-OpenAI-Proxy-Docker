@@ -386,7 +386,7 @@ class SubstrateCopilotClient:
         is_consumer = getattr(self, "_is_consumer", False)
         scenario = "OfficeWebPremiumConsumerCopilot" if is_consumer else "OfficeWebIncludedCopilot"
         license_type = "Premium" if is_consumer else "Starter"
-        return (
+        url = (
             f"{_WS_BASE}/{self._oid}@{self._tid}"
             f"?ClientRequestId={req_id}"
             f"&X-SessionId={session_id}"
@@ -396,6 +396,8 @@ class SubstrateCopilotClient:
             f"&source=officeweb&product=Office&agentHost=Bizchat.FullScreen"
             f"&licenseType={license_type}{agent_surface}&scenario={scenario}"
         )
+        # Temporary chat: the turn keeps its live context, the thread stays out of history.
+        return url + "&disableMemory=1" if getattr(self, "_temporary_chat", False) else url
 
     def _chat_invoke(
         self,

@@ -279,3 +279,15 @@ def test_session_routing_pin_defaults_off_and_persists(tmp_path):
     assert response.json()["settings"]["session_routing_pin"] is True
     reloaded = TestClient(create_app(settings))
     assert reloaded.get("/admin/runtime-settings").json()["settings"]["session_routing_pin"] is True
+
+
+def test_temporary_chat_defaults_off_and_persists(tmp_path):
+    settings = Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="")
+    client = TestClient(create_app(settings))
+    assert client.get("/admin/runtime-settings").json()["settings"]["temporary_chat"] is False
+
+    response = client.post("/admin/runtime-settings", json={"temporary_chat": True})
+
+    assert response.status_code == 200
+    reloaded = TestClient(create_app(settings))
+    assert reloaded.get("/admin/runtime-settings").json()["settings"]["temporary_chat"] is True

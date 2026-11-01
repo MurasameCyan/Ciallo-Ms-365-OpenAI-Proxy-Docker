@@ -44,7 +44,7 @@ from .tone_resolver import build_models_list, normalized_session_model
 from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
 from .stream_guard import GuardedStreamingResponse
-from .sse_stream import closing_stream, keepalive_stream, merge_sse_headers
+from .sse_stream import chat_keepalive_stream, closing_stream, merge_sse_headers
 from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateNetworkError, SubstrateThrottled
 from .studio_planner import (
     PlannerTurn,
@@ -480,12 +480,12 @@ def register_chat_routes(
                     extra_headers = {TOOL_CALLING_HEADER: header_status}
                     # When tools are present, buffer the full stream then parse tool_calls
                     return GuardedStreamingResponse(
-                        keepalive_stream(stream),
+                        chat_keepalive_stream(stream),
                         media_type="text/event-stream",
                         headers=merge_sse_headers(extra_headers),
                     )
                 return GuardedStreamingResponse(
-                    keepalive_stream(
+                    chat_keepalive_stream(
                         _openai_stream(
                             model_alias,
                             client,

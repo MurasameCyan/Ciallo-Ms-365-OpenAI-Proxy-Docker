@@ -57,6 +57,7 @@ _PREVIOUS_BUILTIN_TONE_OPTIONS = [
 # only catalogues actually shipped: five tones introduced together must not create
 # four fictional historical defaults that could overwrite an operator's edits.
 _TONE_ADDITIONS_SINCE_RENAME = (
+    ("Gpt_61_Sol_Reasoning",),
     ("Muse_Spark", "Grok_Auto", "Grok_Reasoning", "Gpt_6_Sol_Reasoning", "Critique"),
     ("Grok_4_5",),
     ("Gpt_6_Reasoning",),
@@ -76,7 +77,9 @@ def _tone_default_without(*values: str) -> list[dict]:
     return [dict(o) for o in _BUILTIN_TONE_OPTIONS if o.get("value") not in skip]
 
 
-_DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9 = _tone_default_without(*_TONE_ADDITIONS_SINCE_RENAME[0])
+# The full defaults shipped by schema 3 (before GPT-6.1 Sol) and schema 2 (before issue #9).
+_DEFAULT_TONE_OPTIONS_SCHEMA3 = _tone_default_without(*_TONE_ADDITIONS_SINCE_RENAME[0])
+_DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9 = _tone_default_without(*_TONE_ADDITIONS_SINCE_RENAME[0], *_TONE_ADDITIONS_SINCE_RENAME[1])
 
 
 # Every default catalogue we have ever shipped, so an operator who never edited
@@ -128,7 +131,7 @@ _BUILTIN_CONSUMER_MODE_OPTIONS = [
     {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
     {"model": "copilot-study", "mode": "study", "status": "experimental"},
 ]
-_TONE_OPTIONS_SCHEMA_VERSION = 3
+_TONE_OPTIONS_SCHEMA_VERSION = 4
 
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
@@ -188,6 +191,9 @@ _RUNTIME_SETTINGS_DEFAULTS = {
     # conversation from 2-4 backends to 1, but no forked history was observed in
     # real multi-turn tests, so it stays opt-in.
     "session_routing_pin": False,
+    # disableMemory=1 on the ChatHub URL: proxy chats stay out of the Copilot
+    # history list. Opt-in because cloud-session listing and cleanup see nothing.
+    "temporary_chat": False,
     # User/account runtime log toggles (see runtime_flags.py). verbose gates normal
     # progress logs, errors gates failure logs. Seeded from .env on first boot; the
     # persisted file wins once written, and the admin UI can flip them at runtime.
@@ -485,6 +491,7 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
     data["user_log_errors"] = bool(data.get("user_log_errors"))
     data["suppress_access_log"] = bool(data.get("suppress_access_log"))
     data["session_routing_pin"] = bool(data.get("session_routing_pin"))
+    data["temporary_chat"] = bool(data.get("temporary_chat"))
     data["media_proxy_suffixes"] = normalize_media_proxy_suffixes(data.get("media_proxy_suffixes")) or list(_DEFAULT_MEDIA_PROXY_SUFFIXES)
     persisted_tone_options = raw.get("tone_options") if isinstance(raw, dict) else None
     persisted_tone_version = (
@@ -497,8 +504,11 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
         persisted_tone_version < 2
         and persisted_tone_options in _HISTORICAL_BUILTIN_TONE_OPTIONS
     ) or (
-        persisted_tone_version < _TONE_OPTIONS_SCHEMA_VERSION
+        persisted_tone_version < 3
         and persisted_tone_options == _DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9
+    ) or (
+        persisted_tone_version < 4
+        and persisted_tone_options == _DEFAULT_TONE_OPTIONS_SCHEMA3
     ):
         tone_options = _BUILTIN_TONE_OPTIONS
     data["tone_options"] = normalize_tone_options(tone_options)

@@ -151,6 +151,7 @@ def init_app_state(
     app.state.run_permission = runtime_settings["run_permission"]
     app.state.tool_planning_mode = runtime_settings["tool_planning_mode"]
     app.state.session_routing_pin = runtime_settings["session_routing_pin"]
+    app.state.temporary_chat = runtime_settings["temporary_chat"]
     app.state.tone_options = runtime_settings["tone_options"]
     app.state.consumer_mode_options = runtime_settings["consumer_mode_options"]
     # User/account log toggles: sync process-wide flags from the resolved settings.

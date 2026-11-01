@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-01",
+  "branch": "fox",
+  "base": "origin/fox 1364fe0 (identical to origin/multi)",
+  "target_container": "ciallo-ms365-proxy-multi",
+  "full_acceptance": false,
+  "regression": {"passed": 4464, "skipped": 3, "failed": 0},
+  "deployment": {
+    "files_replaced": 17,
+    "note": "15 changed files plus account_serializers.py and template_admin_accounts.py, which were older in the container than the reviewed base",
+    "hashes_match_worktree": true,
+    "rollback_backup_in_container": "/tmp/fox-improvements-backup-20261101-191024"
+  },
+  "changes": {
+    "1_personal_http_renewal": {
+      "probe": {"browser_seconds": 30.6, "http_status": 200, "http_seconds": 0.33, "refresh_token_expires_in": 86400, "new_jwe": true, "rotated_refresh_token": true, "handshake": 101},
+      "fix_found_live": "the first deploy kept the old refresh token because the HTTP response restates no lifetime; a rotated token now keeps the original absolute deadline (regression test added)"
+    },
+    "2_routing_pin_20_turns": {
+      "account": "enterprise, Gpt_5_5_Chat",
+      "header_off": {"distinct_backends": 19, "server_message_counts": "1..20", "codeword_recalled_turn_20": true},
+      "header_on": {"distinct_backends": 3, "server_message_counts": "1..20", "codeword_recalled_turn_20": true},
+      "decision": "default stays off: no fork or lost context observed"
+    },
+    "3_heartbeats": {
+      "chat_buffered_tool_turn": {"empty_delta_heartbeats": 2, "on_live_completion_id": true, "comment_heartbeats": 0, "ended_with_done": true},
+      "responses_buffered_tool_turn": {"keepalive_events": 2, "sequence_numbers_strictly_increasing": true, "terminal": "response.completed"}
+    },
+    "4_temporary_chat": {
+      "probe": {"turns": 3, "gap_seconds_before_turn_3": 120, "server_message_counts": "1..3", "codeword_recalled": true, "listed_in_history": false, "normal_conversations_listed": 3},
+      "through_api_with_toggle_on": {"turns_http": [200, 200], "codeword_recalled": true, "history_entries_before": 18, "history_entries_after": 18},
+      "toggle_restored_off": true
+    },
+    "5_gpt61_sol": {
+      "enterprise": {"Gpt_61_Sol_Reasoning": "answered nonce", "Gpt_61_Sol_Chat": "empty twice", "Gpt_61_Reasoning": "empty twice"},
+      "personal": {"Gpt_61_Sol_Reasoning": "refused", "Gpt_61_Sol_Chat": "empty twice", "Gpt_61_Reasoning": "empty twice"},
+      "deployed_catalogue": "administrator-customised (18 tones), so the schema 4 migration correctly left it unchanged and gpt-6.1-sol is not listed there"
+    }
+  },
+  "mandatory_matrix": [
+    {"item": 1, "status": "pass", "detail": "sync and streaming text, no-store stream, tool round and continuation on the enterprise key"},
+    {"item": 2, "status": "pass", "detail": "router mode applied, tool round with x-m365-tool-calling=router"},
+    {"item": 3, "status": "partial", "detail": "studio mode applied and the tool round succeeded through the Router fallback; no account has a ready Studio agent"},
+    {"item": 4, "status": "pass", "detail": "text, tool_use and tool_result continuation"},
+    {"item": 5, "status": "pass", "detail": "text, function tool and continuation"},
+    {"item": 6, "status": "partial", "detail": "no Consumer account or key in the deployed store; personal Substrate path exercised under item 7; userscript capture not repeated"},
+    {"item": 7, "status": "pass", "detail": "see item7"}
+  ],
+  "item7": {
+    "http_renewals_without_chat": [{"seconds": 1.6, "new_jwe": true, "grant_rotated": true, "handshake": 101}, {"seconds": 1.4, "new_jwe": true, "grant_rotated": true, "handshake": 101}],
+    "browser_fallback_after_refused_grant": {"seconds": 30.3, "new_jwe": true, "new_grant_stored": true, "next_renewal_over_http_seconds": 1.3},
+    "real_upgrade_401_continuations": {"messages_streaming": "tool_use then end_turn with nonce, new issuer JWE, handshake 101", "responses_streaming": "function_call then response.completed with nonce, new issuer JWE, handshake 101"},
+    "after_container_restart": {"seconds": 1.4, "new_jwe": true, "grant_rotated": true, "subject_preserved": true, "epoch_preserved": true},
+    "teardown": {"personal_substrate_profiles_left": 0, "browser_processes": 0},
+    "subject_and_epoch_preserved_on_every_renewal": true
+  },
+  "not_cleaned": "three single-turn personal-account probe conversations remain in that account's Copilot history (no delete authorization for personal accounts)",
+  "redaction": "no keys, tokens or account ids; tokens appear only as truncated hashes elsewhere"
+}

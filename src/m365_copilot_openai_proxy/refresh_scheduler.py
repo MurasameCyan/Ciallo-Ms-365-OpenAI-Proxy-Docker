@@ -558,18 +558,22 @@ class RefreshScheduler:
         from .personal_substrate_refresh import PersonalSubstrateBrowserGate, PersonalSubstrateRefreshError
 
         try:
-            if self._personal_substrate_gate_factory is not None:
-                gate = self._personal_substrate_gate_factory(account.id)
-            else:
-                gate = PersonalSubstrateBrowserGate(
-                    self._profile_root, session=account.personal_substrate_session,
-                    previous_token=account.token, proxy_url=account.proxy_url,
-                )
-            async with self._lock:
-                current = self._accounts.get(account.id)
-                if current is None or self._personal_substrate_state(current) != snapshot or current.provider != "m365":
-                    return False
-                auth = await gate()
+            auth = await self._personal_substrate_http_renewal(account)
+            via = "the stored refresh token"
+            if auth is None:
+                if self._personal_substrate_gate_factory is not None:
+                    gate = self._personal_substrate_gate_factory(account.id)
+                else:
+                    gate = PersonalSubstrateBrowserGate(
+                        self._profile_root, session=account.personal_substrate_session,
+                        previous_token=account.token, proxy_url=account.proxy_url,
+                    )
+                async with self._lock:
+                    current = self._accounts.get(account.id)
+                    if current is None or self._personal_substrate_state(current) != snapshot or current.provider != "m365":
+                        return False
+                    auth = await gate()
+                via = "the browser"
             current = self._accounts.get(account.id)
             if current is None or current.proxy_url != account.proxy_url:
                 return False
@@ -581,7 +585,7 @@ class RefreshScheduler:
             )
             if stored is None:
                 return False
-            ulog(f"Personal Substrate refresh for {account.id}: new pinned JWE captured without a chat")
+            ulog(f"Personal Substrate refresh for {account.id}: new pinned JWE from {via}, without a chat")
             return True
         except Exception as exc:
             code = exc.code if isinstance(exc, PersonalSubstrateRefreshError) else "refresh_failed"
@@ -591,6 +595,22 @@ class RefreshScheduler:
             )
             elog(f"Personal Substrate refresh for {account.id}: {code}")
             return False
+
+    async def _personal_substrate_http_renewal(self, account) -> dict | None:
+        """Redeem the page's stored refresh grant; None sends renewal to the browser."""
+        from . import personal_substrate_refresh as psr
+
+        session = account.personal_substrate_session or {}
+        if "broker" not in session:
+            return None
+        try:
+            return await psr.refresh_personal_substrate_via_rt(
+                session=session, previous_token=account.token, proxy_url=account.proxy_url,
+            )
+        except Exception as exc:
+            code = exc.code if isinstance(exc, psr.PersonalSubstrateRefreshError) else "refresh_failed"
+            ulog(f"Personal Substrate HTTP renewal for {account.id}: {code}; using the browser")
+            return None
 
     async def _ensure_personal_substrate_fresh(self, account, *, force: bool) -> bool:
         if account is None:

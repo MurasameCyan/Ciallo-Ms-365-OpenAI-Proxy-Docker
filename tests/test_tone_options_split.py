@@ -278,3 +278,32 @@ def test_partial_issue9_additions_are_not_a_historical_default(tmp_path):
     settings = runtime_settings._read_runtime_settings(str(tmp_path))
 
     assert settings["tone_options"] == options
+
+
+DEFAULT_VALUES_SCHEMA3 = [option["value"] for option in TONE_OPTIONS if option["value"] != "Gpt_61_Sol_Reasoning"]
+
+
+@pytest.mark.parametrize("version", [0, 2, 3])
+def test_read_runtime_settings_adds_gpt61_sol_to_an_untouched_schema3_default(tmp_path, version):
+    options = _default_tone_options_limited_to(DEFAULT_VALUES_SCHEMA3)
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"tone_options": options, "tone_options_schema_version": version}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == normalize_tone_options(TONE_OPTIONS)
+    assert settings["tone_options_schema_version"] == 4
+
+
+def test_read_runtime_settings_keeps_gpt61_sol_removed_once_saved_at_schema4(tmp_path):
+    options = _default_tone_options_limited_to(DEFAULT_VALUES_SCHEMA3)
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"tone_options": options, "tone_options_schema_version": 4}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == options

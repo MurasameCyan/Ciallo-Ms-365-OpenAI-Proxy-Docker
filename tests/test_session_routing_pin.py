@@ -60,3 +60,11 @@ def test_routing_key_is_sent_only_when_enabled_for_enterprise(monkeypatch, token
     headers = _handshake_headers(monkeypatch, token, pin)
 
     assert headers.get(ROUTING_HEADER) == expected
+
+
+@pytest.mark.parametrize("token", [_enterprise_jwt(), make_jwe()])
+def test_temporary_chat_adds_disable_memory_only_when_enabled(token):
+    client = SubstrateCopilotClient(token)
+    assert "disableMemory" not in client._ws_url("conv-1", "session-1", "request-1")
+    client._temporary_chat = True
+    assert client._ws_url("conv-1", "session-1", "request-1").endswith("&disableMemory=1")
