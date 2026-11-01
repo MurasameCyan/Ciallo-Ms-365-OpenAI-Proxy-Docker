@@ -106,6 +106,8 @@
 
 服务端维护 `tone_options_schema_version=4`。保存后主动删除新增模式，不会在重启时被自动加回。
 
+`Gpt_61_Sol_Reasoning` 已属于项目默认目录，对应 `gpt-6.1-sol` / `gpt-6.1-sol-持续`。如果升级后当前实例仍没有这两个 ID，先检查是否保存了定制的 `tone_options`：定制目录不会被默认目录迁移覆盖或自动追加。需要在当前定制目录中显示时，只补入这一项，不必重置整份目录；账户能否调用该 tone 仍取决于微软上游权限。
+
 Docker 部署升级时，需要在部署目录执行 `docker compose pull`，再执行 `docker compose up -d --force-recreate`，拉取新镜像并重建容器；之后在客户端刷新模型列表。代码推送和镜像构建不会自动更新已经运行的容器。
 
 2026-10-02 部署验收：新增 5 个模型均经 `/v1/chat/completions` 流式返回正确标记及结束帧；Router、Messages、Responses 工具闭环通过。现有部署的 12 项定制目录保持原顺序，另追加这 5 项，而非重置成完整默认目录。完整回归 2650 passed、3 skipped；Studio 缺少就绪 agent，实际回退 Router，仍不算完整矩阵通过。见 [部署证据](docs/evidence/issue9-release-acceptance-2026-10-02.json)。
