@@ -54,6 +54,553 @@
     "teardown": {"personal_substrate_profiles_left": 0, "browser_processes": 0},
     "subject_and_epoch_preserved_on_every_renewal": true
   },
+  "secondary_findings": {
+    "scope": "secondary findings after runtime commit 04ff9dee032301f8aec58cb043649690973d81bc",
+    "runtime_changes": false,
+    "full_acceptance": false,
+    "refresh_nav_pane": {
+      "observation": "Completed in the preceding archived turn; not repeated in this follow-up",
+      "picker": [
+        "Chat",
+        "Gpt_5_6_Chat",
+        "Gpt_5_6_Reasoning",
+        "Magic",
+        "Reasoning"
+      ],
+      "history_only": [
+        "Claude_Sonnet",
+        "Claude_Sonnet_Reasoning",
+        "Gpt_5_5_Chat",
+        "Grok_4_5"
+      ],
+      "decision": "No automatic catalogue filtering or overwrite; picker metadata underreports tones that actually answer."
+    },
+    "paid_scenario": {
+      "source": "https://github.com/cramt/m365-copilot-proxy/pull/20",
+      "live": {
+        "exchange_http": 200,
+        "exchange_error": null,
+        "error_codes": null,
+        "account_store_writes": 0,
+        "identity_preserved": true,
+        "rows": [
+          {
+            "tone": "Gpt_5_5_Chat",
+            "scenario": "OfficeWebIncludedCopilot",
+            "license_type": "Starter",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Completed",
+                "result": "Success",
+                "bot_origins": [
+                  "DeepLeo"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": true,
+            "reply_characters": 16,
+            "refusal_preview": "",
+            "seconds": 6.63
+          },
+          {
+            "tone": "Gpt_6_Reasoning",
+            "scenario": "OfficeWebIncludedCopilot",
+            "license_type": "Starter",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Completed",
+                "result": "Success",
+                "bot_origins": [
+                  "DeepLeo"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": true,
+            "reply_characters": 16,
+            "refusal_preview": "",
+            "seconds": 4.63
+          },
+          {
+            "tone": "Gpt_6_Reasoning",
+            "scenario": "OfficeWebPaidCopilot",
+            "license_type": "Premium",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Failed",
+                "result": "ForbiddenRequest",
+                "bot_origins": [
+                  "BotConnection"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": false,
+            "error_class": "SubstrateCopilotError",
+            "seconds": 2.29
+          },
+          {
+            "tone": "Claude_Opus",
+            "scenario": "OfficeWebIncludedCopilot",
+            "license_type": "Starter",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Failed",
+                "result": "InternalError",
+                "bot_origins": [
+                  "BotConnection"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": false,
+            "error_class": "SubstrateCopilotError",
+            "seconds": 2.45
+          },
+          {
+            "tone": "Claude_Opus",
+            "scenario": "OfficeWebPaidCopilot",
+            "license_type": "Premium",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Failed",
+                "result": "ForbiddenRequest",
+                "bot_origins": [
+                  "BotConnection"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": false,
+            "error_class": "SubstrateCopilotError",
+            "seconds": 2.66
+          },
+          {
+            "tone": "Gpt_61_Sol_Reasoning",
+            "scenario": "OfficeWebIncludedCopilot",
+            "license_type": "Starter",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Completed",
+                "result": "Success",
+                "bot_origins": [
+                  "DeepLeo"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": true,
+            "reply_characters": 16,
+            "refusal_preview": "",
+            "seconds": 4.24
+          },
+          {
+            "tone": "Gpt_61_Sol_Reasoning",
+            "scenario": "OfficeWebPaidCopilot",
+            "license_type": "Premium",
+            "upgrades": [
+              101
+            ],
+            "completions": [
+              {
+                "turn_state": "Failed",
+                "result": "ForbiddenRequest",
+                "bot_origins": [
+                  "BotConnection"
+                ]
+              }
+            ],
+            "business_invocations": 1,
+            "nonce_matched": false,
+            "error_class": "SubstrateCopilotError",
+            "seconds": 2.74
+          }
+        ],
+        "cleanup": [
+          {
+            "listed": true,
+            "deleted": true
+          },
+          {
+            "listed": true,
+            "deleted": true
+          },
+          {
+            "listed": true,
+            "deleted": true
+          },
+          {
+            "listed": true,
+            "deleted": true
+          },
+          {
+            "listed": true,
+            "deleted": true
+          },
+          {
+            "listed": true,
+            "deleted": true
+          },
+          {
+            "listed": true,
+            "deleted": true
+          }
+        ],
+        "owned_conversations_left_in_history": 0
+      },
+      "decision": "Keep Included/Starter for this enterprise account. All tested Paid/Premium turns failed ForbiddenRequest; included Gpt_6_Reasoning and Gpt_61_Sol_Reasoning returned the random marker. Not a universal license/model conclusion."
+    },
+    "graph_chat_beta": {
+      "sources": [
+        "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/api/ai-services/chat/copilotroot-post-conversations",
+        "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/api/ai-services/chat/copilotconversation-chatoverstream",
+        "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/api/ai-services/chat/overview"
+      ],
+      "default_scopes_probe": {
+        "exchange_http": 200,
+        "oauth_error": null,
+        "oauth_error_codes": null,
+        "account_store_writes": 0,
+        "subject_preserved": true,
+        "audience": "https://graph.microsoft.com",
+        "required_permissions_present": [],
+        "required_permissions_missing": [
+          "ChannelMessage.Read.All",
+          "Chat.Read",
+          "ExternalItem.Read.All",
+          "Mail.Read",
+          "OnlineMeetingTranscript.Read.All",
+          "People.Read.All",
+          "Sites.Read.All"
+        ],
+        "graph_me": {
+          "http": 200,
+          "subject_matches": true,
+          "error_code": null
+        },
+        "create": {
+          "http": 403,
+          "error_code": "unauthorized",
+          "error_message": " Required scopes = [Sites.Read.All, Mail.Read, People.Read.All, OnlineMeetingTranscript.Read.All, Chat.Read, ChannelMessage.Read.All, ExternalItem.Read.All].",
+          "created": false
+        }
+      },
+      "explicit_scopes_probe": {
+        "exchange_http": 400,
+        "oauth_error": "invalid_request",
+        "oauth_error_codes": [
+          65002
+        ],
+        "account_store_writes": 0
+      },
+      "streaming_exercised": false,
+      "blocker": "Create returned 403 unauthorized with all seven delegated scopes missing. Explicit scope redemption returned AADSTS65002; first-party preauthorization is required. Add-on license and streaming remain unverified, not inferred.",
+      "decision": "Do not introduce a Graph provider without an authorized token and real chat/SSE evidence."
+    },
+    "device_code_login": {
+      "source": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code",
+      "issuance": [
+        {
+          "client": "m365_native",
+          "issue_http": 200,
+          "device_code_issued": true,
+          "expires_in": 900,
+          "poll_http": 400,
+          "poll_error": "authorization_pending",
+          "poll_error_codes": [
+            70016
+          ]
+        },
+        {
+          "client": "m365_spa",
+          "issue_http": 200,
+          "device_code_issued": true,
+          "expires_in": 900,
+          "poll_http": 400,
+          "poll_error": "authorization_pending",
+          "poll_error_codes": [
+            70016
+          ]
+        }
+      ],
+      "native_browser_approval": "The pinned account completed Microsoft device approval, and the page reported signed in.",
+      "native_token_exchange": {
+        "http": 401,
+        "error": "invalid_client",
+        "error_codes": [
+          7000218
+        ],
+        "required_parameter": "client_assertion or client_secret",
+        "access_token_issued": false,
+        "refresh_token_issued": false
+      },
+      "spa_approval_and_redemption_exercised": false,
+      "browser_cleanup": "Both owned browser tabs/apps released with kill=true; imported SSO cookies cleared in the persistent Chrome probe.",
+      "decision": "No new device login entry. Native client cannot complete this device grant without a client secret/assertion; retain the proven authorization-code + PKCE flow."
+    },
+    "consumer_legacy": {
+      "external_migration_report": "https://github.com/sums001/Windows-Copilot-API/commit/5b933d416e7e",
+      "external_report_limit": "That project reports old /c/api/chat 403 and moved to Substrate. This is not universal: the account-bound grant in this probe still issued ChatAI authorization and completed a real legacy text turn.",
+      "credential_metadata": {
+        "legacy_token": true,
+        "reported_expiry_known": true,
+        "reported_seconds_remaining": -1262231,
+        "legacy_rt": true,
+        "legacy_rt_client": true,
+        "legacy_rt_scope": true,
+        "legacy_rt_subject": true,
+        "identity_type": "MSA",
+        "consumer_cookie_domains": [
+          ".copilot.com",
+          ".live.com",
+          ".login.live.com",
+          ".login.microsoftonline.com",
+          "copilot.com",
+          "login.live.com",
+          "login.microsoftonline.com"
+        ],
+        "proxy_configured": true
+      },
+      "fresh_authorization_read_and_upgrade": {
+        "persisted_provider": "m365",
+        "probe_provider": "consumer",
+        "dormant_credentials_probe_only": true,
+        "impersonate": "firefox147",
+        "proxy": "account_configured",
+        "account_store_writes": 0,
+        "business_invocations_sent": 0,
+        "stored_chatai_token_expired": true,
+        "refresh": {
+          "http": 200,
+          "error": null,
+          "error_codes": null,
+          "new_chatai_token": true,
+          "subject_preserved": true,
+          "expires_in": 28799
+        },
+        "credential_used": "fresh_issuer_chatai",
+        "cases": [
+          {
+            "case": "anonymous",
+            "rows": [
+              {
+                "endpoint": "landing",
+                "http": 301,
+                "content_type": "",
+                "redirect_host": "copilot.com",
+                "redirect_path": "/",
+                "bearer_challenge": false,
+                "cf_challenge_hint": false
+              },
+              {
+                "endpoint": "config_v2",
+                "http": 460,
+                "content_type": "",
+                "redirect_host": null,
+                "redirect_path": null,
+                "bearer_challenge": false,
+                "cf_challenge_hint": false,
+                "json_config": false
+              }
+            ]
+          },
+          {
+            "case": "fresh_issuer_chatai",
+            "rows": [
+              {
+                "endpoint": "landing",
+                "http": 301,
+                "content_type": "",
+                "redirect_host": "copilot.com",
+                "redirect_path": "/",
+                "bearer_challenge": false,
+                "cf_challenge_hint": false
+              },
+              {
+                "endpoint": "config_v2",
+                "http": 200,
+                "content_type": "application/json",
+                "redirect_host": null,
+                "redirect_path": null,
+                "bearer_challenge": false,
+                "cf_challenge_hint": false,
+                "json_config": true
+              },
+              {
+                "endpoint": "legacy_ws",
+                "http_statuses": [
+                  200,
+                  101
+                ],
+                "business_frames_sent": 0,
+                "upgrade_http": 101,
+                "first_event": "connected"
+              }
+            ]
+          }
+        ]
+      },
+      "native_chat": {
+        "refresh_http": 200,
+        "subject_preserved": true,
+        "persisted_provider": "m365",
+        "account_store_writes": 0,
+        "mode": "smart",
+        "nonce_matched": true,
+        "response_characters": 19,
+        "seconds": 11.02,
+        "creation_attempts": 1,
+        "created_conversations": 1,
+        "cleanup": "No verified single-conversation Consumer delete authorization; did not delete any existing history"
+      },
+      "api_environment": "Real loopback HTTP listener inside the target container using deployed source and real upstream; private encrypted account/key files. Only the private account was activated as Consumer.",
+      "probe_parameter_errors": {
+        "m365_magic_model": {
+          "messages_first_http": 400,
+          "responses_first_http": 400,
+          "reason": "Consumer model names are provider-specific; Magic is not in the Consumer catalogue."
+        },
+        "previous_response_id_without_history": {
+          "first_http": 200,
+          "function_call_count": 1,
+          "requested_file_matches": true,
+          "second_http": 400,
+          "api_error": {
+            "message": "Stateless Responses requests must resend the matching function_call before each function_call_output.",
+            "type": "http_error"
+          },
+          "final_marker": false,
+          "terminal": null
+        }
+      },
+      "earlier_api_run": {
+        "model": "copilot-reasoning",
+        "listener": "deployed source, real loopback HTTP, private encrypted account/key stores",
+        "refresh_http": 200,
+        "subject_preserved": true,
+        "private_credentials_encrypted": true,
+        "messages_streaming_tool_loop": {
+          "first_http": 200,
+          "tool_use_count": 1,
+          "requested_file_matches": true,
+          "second_http": 200,
+          "final_marker": true,
+          "terminal": "end_turn"
+        },
+        "responses_streaming_tool_loop": {
+          "first_http": 200,
+          "function_call_count": 1,
+          "requested_file_matches": true,
+          "second_http": 400,
+          "final_marker": false,
+          "terminal": null
+        },
+        "listener_stopped": true,
+        "created_consumer_probe_conversations": 0,
+        "cleanup_note": "Only private files removed; no verified per-conversation Consumer delete API, so created probe conversations remain in upstream history",
+        "private_directory_removed": true,
+        "production_account_and_key_files_unchanged": true
+      },
+      "correct_stateless_auto_run": {
+        "model": "copilot-reasoning",
+        "responses_continuation": "explicit function_call plus matching output and user history (Consumer stateless contract)",
+        "listener": "deployed source, real loopback HTTP, private encrypted account/key stores",
+        "refresh_http": 200,
+        "subject_preserved": true,
+        "private_credentials_encrypted": true,
+        "messages_streaming_tool_loop": {
+          "first_http": 200,
+          "tool_use_count": 1,
+          "requested_file_matches": true,
+          "second_http": 200,
+          "final_marker": false,
+          "terminal": "end_turn"
+        },
+        "responses_streaming_tool_loop": {
+          "first_http": 200,
+          "function_call_count": 0
+        },
+        "listener_stopped": true,
+        "created_consumer_probe_conversations": 4,
+        "cleanup_note": "Only private files removed; no verified per-conversation Consumer delete API, so created probe conversations remain in upstream history",
+        "private_directory_removed": true,
+        "production_account_and_key_files_unchanged": true
+      },
+      "named_read_run": {
+        "model": "copilot-reasoning",
+        "first_round_tool_choice": "named Read; continuation auto",
+        "responses_continuation": "explicit function_call plus matching output and user history (Consumer stateless contract)",
+        "listener": "deployed source, real loopback HTTP, private encrypted account/key stores",
+        "refresh_http": 200,
+        "subject_preserved": true,
+        "private_credentials_encrypted": true,
+        "messages_streaming_tool_loop": {
+          "first_http": 200,
+          "tool_use_count": 0,
+          "assistant_text": "⚠️ 上游错误：Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+        },
+        "responses_streaming_tool_loop": {
+          "first_http": 200,
+          "function_call_count": 0,
+          "assistant_text": ""
+        },
+        "listener_stopped": true,
+        "created_consumer_probe_conversations": 4,
+        "cleanup_note": "Only private files removed; no verified per-conversation Consumer delete API, so created probe conversations remain in upstream history",
+        "private_directory_removed": true,
+        "production_account_and_key_files_unchanged": true
+      },
+      "reasoning_quota_observed": {
+        "mode": "reasoning",
+        "next_available_at": "2026-11-02T15:04:57+00:00",
+        "observed_in": "Messages named-tool stream; HTTP 200 carried an upstream throttle warning, not a successful tool call."
+      },
+      "api_tool_acceptance": "partial: Messages previously completed Read/tool_result/end_turn with the fresh file marker; auto behaviour also failed, and Responses did not complete a valid full-history tool loop. Named Read later encountered upstream reasoning-mode quota.",
+      "decision": "No new legacy transport or automatic provider switch. Existing bound Consumer RT renewal can still work; preserve production Personal Substrate selection and keep full_acceptance=false."
+    },
+    "cleanup": {
+      "enterprise_probe_conversations_deleted": 7,
+      "enterprise_probe_conversations_left_in_checked_history": 0,
+      "consumer_native_probe_conversations_created": 1,
+      "observed_consumer_api_created_per_run": [
+        3,
+        4,
+        4
+      ],
+      "earlier_valid_api_probe_creation_count": "not observed; ContextVar recorder did not propagate into the HTTP server tasks. Later counts used a real AsyncSession post observer without replacing responses.",
+      "consumer_probe_conversations_deleted": 0,
+      "consumer_cleanup_blocker": "No verified per-conversation Consumer delete authorization; never delete all history or use unrelated protocol credentials.",
+      "all_private_api_directories_removed": true,
+      "all_private_api_listeners_stopped": true,
+      "production_accounts_and_keys_unchanged_during_each_private_api_probe": true
+    },
+    "acceptance_limits": [
+      "Studio still has no ready account-bound agent in the target store.",
+      "No new userscript sign-in/capture was performed in this follow-up; earlier item-7 renewal evidence is retained, not rerun.",
+      "Consumer reasoning tool mode is throttled until the reported upstream timestamp; Responses full tool-loop acceptance remains incomplete."
+    ],
+    "verification": "Live probes above ran against the deployed target. No source changes or new permanent tests in this follow-up; historical 4464-pass regression was not rerun.",
+    "redaction": "No API keys, access tokens, refresh tokens, cookie values, device codes, tenant/object ids, or account emails in this follow-up record."
+  },
   "not_cleaned": "three single-turn personal-account probe conversations remain in that account's Copilot history (no delete authorization for personal accounts)",
   "redaction": "no keys, tokens or account ids; tokens appear only as truncated hashes elsewhere"
 }
