@@ -11,7 +11,7 @@ import pytest
 
 from m365_copilot_openai_proxy.consumer_adapter import ConsumerClientAdapter
 from m365_copilot_openai_proxy.consumer_client import AccountThrottled, ConsumerCopilotError
-from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError
+from m365_copilot_openai_proxy.substrate_client import SubstrateCopilotError, SubstrateThrottled
 
 
 class FakeConsumerClient:
@@ -212,7 +212,7 @@ def test_adapter_reraises_stable_consumer_error_unchanged():
         raise AssertionError("expected SubstrateCopilotError")
 
 
-def test_adapter_preserves_account_throttle_metadata():
+def test_adapter_normalizes_account_throttle_for_protocol_errors():
     adapter = ConsumerClientAdapter(
         FakeConsumerClient(
             fail=AccountThrottled(
@@ -220,7 +220,7 @@ def test_adapter_preserves_account_throttle_metadata():
             )
         )
     )
-    with pytest.raises(SubstrateCopilotError) as error:
+    with pytest.raises(SubstrateThrottled) as error:
         _collect(adapter.chat_stream("hi"))
     assert isinstance(error.value.__cause__, AccountThrottled)
     assert error.value.next_available_at == "2026-08-13T15:17:13+00:00"

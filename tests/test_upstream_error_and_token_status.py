@@ -103,17 +103,32 @@ def test_detail_is_preserved_either_way():
     assert upstream_http_error(exc).detail == str(exc)
 
 
-def test_account_throttle_maps_to_429_and_retry_after():
-    exc = AccountThrottled(
-        "This Copilot account spent its message quota.",
-        "2026-08-13T15:17:13+00:00",
-    )
+@pytest.mark.parametrize("wrapped", [False, True], ids=["raw", "normalized"])
+@pytest.mark.parametrize(
+    ("reset_at", "retry_after"),
+    [
+        ("2026-08-13T15:17:13+00:00", "10"),
+        ("2026-08-13T15:17:03.001+00:00", "1"),
+        ("2026-08-13T15:17:02+00:00", "1"),
+        ("", None),
+        ("invalid", None),
+    ],
+)
+def test_account_throttle_maps_to_429_and_retry_after(wrapped, reset_at, retry_after):
+    exc = AccountThrottled("This Copilot account spent its message quota.", reset_at)
+    if wrapped:
+        translated = SubstrateThrottled(str(exc))
+        translated.__cause__ = exc
+        exc = translated
     response = upstream_http_error(
         exc,
         now=datetime(2026, 8, 13, 15, 17, 3, tzinfo=timezone.utc),
     )
     assert response.status_code == 429
-    assert response.headers["Retry-After"] == "10"
+    if retry_after is None:
+        assert response.headers is None
+    else:
+        assert response.headers == {"Retry-After": retry_after}
     assert response.detail == str(exc)
 
 

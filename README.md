@@ -819,11 +819,27 @@ userscript `1.0.83` 在 `https://copilot.com` 推送个人 JWE 时，同时采�
 
 ### 最近请求受限，不等于整个账户不可用
 
-Consumer 上游 `chatMessageError: throttled` 的 `nextAvailableAt` 是该次请求的重试提示。代理保留真实 HTTP 429 / `Retry-After`，但不据此阻止后续请求，也不把它解释为网页、其他模式或 Personal Substrate 全部不可用。
+Consumer 上游 `chatMessageError: throttled` 的 `nextAvailableAt` 是该次请求的重试提示。代理将该次配额失败归类为 `rate_limit_error`，非流式保留真实 HTTP 429 / `Retry-After`；但不据此阻止后续请求，也不把它解释为网页、其他模式或 Personal Substrate 全部不可用。
+
+Chat Completions / Responses 的非流式错误还带 `error.code=rate_limit_exceeded`；Messages 使用标准 `error.type=rate_limit_error`。流式请求已经发送 HTTP 200 时，不再修改状态码或补写 `Retry-After`，而按协议报告失败：
+
+| 流式协议 | Consumer 配额失败的实际结束形态 |
+| --- | --- |
+| Chat Completions | 正文错误说明与 `m365_error.type=rate_limit_error`，随后发送传输结束块和 `[DONE]`；传输结束不代表请求成功 |
+| Anthropic Messages | `error` 事件，`error.type=rate_limit_error`；不发送成功的 `message_stop` / `end_turn` |
+| OpenAI Responses | `error(code=rate_limit_error)` 后接 `response.failed(error.code=rate_limit_exceeded)`；不发送 `response.completed` |
+
+本次只统一配额异常分类，不新增配额重试、切换模式、切换账户或切换 provider。
 
 管理页和用户页显示「最近请求受限 · mode」，悬停可见记录时间与上游重试提示。API 的 `throttled_until`、`throttled_mode`、`throttled_at` 保存最后一次观察；旧记录没有模式时显示「模式未记录」。同模式后续完整、非空成功会清除旧观察；其他模式成功、空回复、失败或提前断流不会清除。已在执行的旧请求不能清除开始后才出现的新限流记录。切换 provider 或 Microsoft 个人主体会丢弃旧观察，原身份的迟到结果也不会写回新身份；单纯刷新同一身份的凭据不代表额度恢复。
 
 排查网页可聊、代理不可聊时，先核对 Key 绑定账户、实际协议和 mode；不要删除限额记录或反复刷新凭据来掩盖上游拒绝。
+
+2026-11-02 配额分类修复验证：目标容器真实 Consumer `reasoning` 上游的三协议 × 非流式/流式 **6/6** 错误场景通过，三个非流式 `Retry-After` 均与实际 `nextAvailableAt` 匹配。Router、Messages、Responses 完成真实 `Read` 工具闭环；Personal Substrate 完成油猴推送、两次无聊天新 JWE、重启后续期，以及两种流式 API 跨真实 WebSocket `401` 的工具续轮。
+
+本次提交前全量回归：**4486 passed、3 skipped**；本地测试不替代上述真实 API 与续期验收。
+
+**仍未通过完整七项验收。** `Claude_Fable` 原生请求未生成工具调用；Studio 缺少就绪的主体绑定 agent，实际回退 Router；Consumer 日配额拒绝工具初轮，未伪造后续工具结果。逐项结果与脱敏证据见[本次修复记录](docs/evidence/fox-improvements-2026-11-01.json)中的 `quota_error_fix`。
 
 
 ### 1. 配置出站代理（仅在服务器直连不到 Copilot 时）

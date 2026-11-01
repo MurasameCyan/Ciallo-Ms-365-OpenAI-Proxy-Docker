@@ -601,6 +601,1289 @@
     "verification": "Live probes above ran against the deployed target. No source changes or new permanent tests in this follow-up; historical 4464-pass regression was not rerun.",
     "redaction": "No API keys, access tokens, refresh tokens, cookie values, device codes, tenant/object ids, or account emails in this follow-up record."
   },
+  "quota_error_fix": {
+    "date": "2026-11-02",
+    "scope": "Selected item 1 only: normalize Consumer upstream quota exceptions across Chat Completions, Messages and Responses. No new retry, account/mode/provider switching, or startup-runtime feature.",
+    "acceptance_status": "partial; fix-specific six-scenario quota normalization passes, full seven-item readiness is not claimed",
+    "implementation": {
+      "consumer_adapter.py": "QuotaError follows the shared Substrate throttling exception path while retaining real quota reset metadata.",
+      "routes_api_common.py": "The shared quota classification and Retry-After mapping cover Consumer as well as Substrate errors.",
+      "substrate_client.py": "The common throttled exception accepts the Consumer quota message and retry hint.",
+      "tests": [
+        "tests/test_consumer_quota_errors.py",
+        "tests/test_consumer_adapter.py",
+        "tests/test_upstream_error_and_token_status.py"
+      ],
+      "nonstream_contract": {
+        "http": 429,
+        "error_type": "rate_limit_error",
+        "openai_error_code": "rate_limit_exceeded",
+        "retry_after": "ceil of actual upstream reset minus response time; not a local RPM throttle"
+      },
+      "stream_contract": {
+        "http_after_commit": 200,
+        "chat": "m365_error.type=rate_limit_error then transport stop/[DONE]",
+        "messages": "error.type=rate_limit_error, no successful message_stop/end_turn",
+        "responses": "error.code=rate_limit_error then response.failed/error.code=rate_limit_exceeded, no response.completed"
+      }
+    },
+    "verification": {
+      "command": "PYTHONPATH=src python -m pytest -q",
+      "cwd": "fox worktree",
+      "exit_code": 0,
+      "passed": 4486,
+      "skipped": 3,
+      "warnings": 11,
+      "seconds": 107.48,
+      "note": "Fresh full run before commit; tested the worktree source, not the root editable package."
+    },
+    "deployment": {
+      "target_container": "ciallo-ms365-proxy-multi",
+      "source_files": {
+        "consumer_adapter.py": {
+          "sha256": "c07e2792872dc49ecbf98674d1f238b80a35dcb7957ca5e93f0197525a4009fc",
+          "bytes": 4515,
+          "matches": true
+        },
+        "routes_api_common.py": {
+          "sha256": "4acd9a0f351715bb7dbc87b2ffc7c032cea83b86aeecb3e9578bd5106a815e52",
+          "bytes": 21952,
+          "matches": true
+        },
+        "substrate_client.py": {
+          "sha256": "6874975dbd55ab15bee2f88f53ee907859c7381a846d5d3f1a3d5554be5226fc",
+          "bytes": 52538,
+          "matches": true
+        }
+      },
+      "health_http": 200,
+      "restart_exit_code": 0,
+      "rollback_backup": "/tmp/fox-quota-backup-20261101-160859",
+      "current_method": "Applied and restarted target container; current container writable layer retains the fix across restart. Recreating from an older image does not retain a hot patch; fox publication follows the commit."
+    },
+    "mandatory_matrix": [
+      {
+        "item": 1,
+        "requested_planner": "native",
+        "sync_text": {
+          "http": 200,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-store"
+          },
+          "error_codes": [],
+          "events": [],
+          "data_done": false,
+          "tool_calls": [],
+          "finish_reason": "stop",
+          "text_chars": 45,
+          "expected_marker": "FOX_ENT_SYNC_fafd88589bdd419287257851c8fd96f7",
+          "marker_exact": true,
+          "marker_present": true,
+          "observed_marker": "FOX_ENT_SYNC_fafd88589bdd419287257851c8fd96f7"
+        },
+        "echo_markers": {
+          "sync": "FOX_ENT_SYNC_fafd88589bdd419287257851c8fd96f7",
+          "stream": "FOX_ENT_STREAM_510f90f0842d41919f0ecaccdc9013dd"
+        },
+        "stream_text": {
+          "http": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "text/event-stream; charset=utf-8"
+          },
+          "error_codes": [],
+          "events": [],
+          "data_done": true,
+          "tool_calls": [],
+          "finish_reason": [
+            "stop"
+          ],
+          "text_chars": 47,
+          "expected_marker": "FOX_ENT_STREAM_510f90f0842d41919f0ecaccdc9013dd",
+          "marker_exact": true,
+          "marker_present": true,
+          "observed_marker": "FOX_ENT_STREAM_510f90f0842d41919f0ecaccdc9013dd"
+        },
+        "tool_generation": {
+          "http": 200,
+          "headers": {
+            "x-m365-tool-calling": "unknown",
+            "content-type": "application/json",
+            "cache-control": "no-store"
+          },
+          "error_codes": [],
+          "events": [],
+          "data_done": false,
+          "tool_calls": [],
+          "finish_reason": "stop",
+          "text_chars": 235,
+          "expected_marker": null,
+          "marker_exact": false,
+          "marker_present": false
+        },
+        "status": "partial",
+        "tool_closed_loop": false,
+        "blocker": "Claude_Fable native request returned HTTP 200, header unknown, finish stop, but generated no Read tool_call; no tool execution or continuation was fabricated. Sync and stream exact random echoes passed.",
+        "native_planner_not_router": true,
+        "tool_continuation": {
+          "http": null,
+          "executed": false,
+          "reason": "Native did not emit any tool_call, so no call ID exists to answer."
+        },
+        "name": "M365 direct/native path"
+      },
+      {
+        "item": 2,
+        "requested_planner": "router",
+        "configuration": {
+          "http": 200,
+          "tone": "Claude_Fable",
+          "tool_planning_mode": "router"
+        },
+        "tool_generation": {
+          "http": 200,
+          "headers": {
+            "x-m365-tool-calling": "router",
+            "content-type": "application/json",
+            "cache-control": "no-store"
+          },
+          "error_codes": [],
+          "events": [],
+          "data_done": false,
+          "tool_calls": [
+            {
+              "id": "call_a0700aa48e104586b0d839c1",
+              "type": "function",
+              "function": {
+                "name": "Read",
+                "arguments": "{\"file_path\": \"/tmp/fox-quota-enterprise-marker.txt\"}"
+              }
+            }
+          ],
+          "finish_reason": "tool_calls",
+          "text_chars": 0,
+          "expected_marker": null,
+          "marker_exact": false,
+          "marker_present": false
+        },
+        "tool_closed_loop": true,
+        "tool_execution": {
+          "executor": "functions.read",
+          "path": "ssh://m365-server/tmp/fox-quota-enterprise-marker.txt",
+          "actual_output": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099\n",
+          "file_marker_matches": true,
+          "initial_prompt_contains_file_marker": false
+        },
+        "tool_call_id": "call_a0700aa48e104586b0d839c1",
+        "continuation": {
+          "http": 200,
+          "headers": {
+            "x-m365-tool-calling": "router",
+            "content-type": "application/json",
+            "cache-control": "no-store"
+          },
+          "error_codes": [],
+          "events": [],
+          "data_done": false,
+          "tool_calls": [],
+          "finish_reason": "stop",
+          "text_chars": 52,
+          "expected_marker": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099",
+          "marker_exact": true,
+          "marker_present": true,
+          "observed_marker": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099"
+        },
+        "status": "pass",
+        "name": "Router planning/tool path"
+      },
+      {
+        "item": 3,
+        "requested_planner": "studio",
+        "configuration": {
+          "http": 200,
+          "tone": "Claude_Fable",
+          "tool_planning_mode": "studio"
+        },
+        "prerequisite": {
+          "studio_agent_id_present": false,
+          "studio_agent_ready": false
+        },
+        "tool_generation": {
+          "http": 200,
+          "headers": {
+            "x-m365-tool-calling": "router",
+            "content-type": "application/json",
+            "cache-control": "no-store"
+          },
+          "error_codes": [],
+          "events": [],
+          "data_done": false,
+          "tool_calls": [
+            {
+              "id": "call_85047a166c6048ee8766fcfe",
+              "type": "function",
+              "function": {
+                "name": "Read",
+                "arguments": "{\"file_path\": \"/tmp/fox-quota-enterprise-marker.txt\"}"
+              }
+            }
+          ],
+          "finish_reason": "tool_calls",
+          "text_chars": 0,
+          "expected_marker": null,
+          "marker_exact": false,
+          "marker_present": false
+        },
+        "status": "partial",
+        "studio_path_pass": false,
+        "tool_closed_loop": false,
+        "blocker": "No ready subject-bound Studio agent. Requested Studio must not count as pass when header indicates Router fallback.",
+        "tool_continuation": {
+          "http": null,
+          "executed": false,
+          "reason": "Only Studio planning selection was required; actual planner was Router, so no Studio loop was claimed."
+        },
+        "name": "Studio planning/tool path"
+      },
+      {
+        "item": 4,
+        "api": "/v1/messages",
+        "stream": true,
+        "requested_planner": "router",
+        "tool_generation": {
+          "http": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "x-m365-tool-calling": "router",
+            "content-type": "text/event-stream; charset=utf-8"
+          },
+          "error_codes": [],
+          "events": [
+            "message_start",
+            "ping",
+            "content_block_start",
+            "content_block_stop",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop"
+          ],
+          "data_done": false,
+          "tool_uses": [
+            {
+              "type": "tool_use",
+              "id": "call_2263ab39b32c42fe99979437",
+              "name": "Read",
+              "input": {
+                "file_path": "/tmp/fox-quota-enterprise-marker.txt"
+              }
+            }
+          ],
+          "stop_reason": "tool_use",
+          "message_ids": [
+            "msg_3ffc2efddc824faf9f6ca4a50b911066"
+          ],
+          "text_chars": 0,
+          "expected_marker": null,
+          "marker_exact": false,
+          "marker_present": false
+        },
+        "tool_closed_loop": true,
+        "tool_execution": {
+          "executor": "functions.read",
+          "path": "/tmp/fox-quota-enterprise-marker.txt",
+          "actual_output": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099\n",
+          "file_marker_matches": true
+        },
+        "tool_use_id": "call_2263ab39b32c42fe99979437",
+        "continuation": {
+          "http": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "x-m365-tool-calling": "router",
+            "content-type": "text/event-stream; charset=utf-8"
+          },
+          "error_codes": [],
+          "events": [
+            "message_start",
+            "ping",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop"
+          ],
+          "data_done": false,
+          "tool_uses": [],
+          "stop_reason": "end_turn",
+          "message_ids": [
+            "msg_0cf4c1e1a52343e7a7954f7daad96f0e"
+          ],
+          "text_chars": 52,
+          "expected_marker": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099",
+          "marker_exact": true,
+          "marker_present": true,
+          "observed_marker": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099"
+        },
+        "status": "pass",
+        "name": "Anthropic Messages API including API-level tool loop"
+      },
+      {
+        "item": 5,
+        "api": "/v1/responses",
+        "stream": true,
+        "requested_planner": "router",
+        "tool_generation": {
+          "http": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "x-m365-tool-calling": "router",
+            "content-type": "text/event-stream; charset=utf-8"
+          },
+          "error_codes": [],
+          "events": [
+            "response.created",
+            "response.in_progress",
+            "response.output_item.added",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+            "response.output_item.done",
+            "response.completed"
+          ],
+          "data_done": false,
+          "function_calls": [
+            {
+              "id": "fc_d570f484071d4d32897fbf5e5af98f3e",
+              "type": "function_call",
+              "call_id": "call_8106af44eaf74444942d4f1f",
+              "name": "Read",
+              "arguments": "{\"file_path\": \"/tmp/fox-quota-enterprise-marker.txt\"}",
+              "status": "completed"
+            }
+          ],
+          "response_status": "completed",
+          "text_chars": 0,
+          "expected_marker": null,
+          "marker_exact": false,
+          "marker_present": false
+        },
+        "tool_closed_loop": true,
+        "tool_execution": {
+          "executor": "functions.read",
+          "path": "/tmp/fox-quota-enterprise-marker.txt",
+          "actual_output": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099\n",
+          "file_marker_matches": true
+        },
+        "call_id": "call_8106af44eaf74444942d4f1f",
+        "continuation": {
+          "http": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "x-m365-tool-calling": "router",
+            "content-type": "text/event-stream; charset=utf-8"
+          },
+          "error_codes": [],
+          "events": [
+            "response.created",
+            "response.in_progress",
+            "response.output_item.added",
+            "response.content_part.added",
+            "response.output_text.delta",
+            "response.output_text.done",
+            "response.content_part.done",
+            "response.output_item.done",
+            "response.completed"
+          ],
+          "data_done": false,
+          "function_calls": [],
+          "response_status": "completed",
+          "text_chars": 52,
+          "expected_marker": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099",
+          "marker_exact": true,
+          "marker_present": true,
+          "observed_marker": "FOX_ENTERPRISE_FILE_56063d36a06c445f9de2fb164ba0f099"
+        },
+        "status": "pass",
+        "name": "OpenAI Responses API including API-level tool loop"
+      },
+      {
+        "item": 6,
+        "name": "Microsoft 365 Personal/Consumer including personal Substrate JWE",
+        "status": "partial",
+        "personal_substrate": {
+          "http": 200,
+          "provider": "m365",
+          "is_personal": true,
+          "jwe_format": true,
+          "protocol_epoch": 3,
+          "marker": "PERSONAL_SUBSTRATE_3140e556f0ee4a14",
+          "reply": "PERSONAL_SUBSTRATE_3140e556f0ee4a14",
+          "marker_matches": true,
+          "transport_done": true
+        },
+        "consumer_mode": "reasoning",
+        "consumer_quota_normalization": {
+          "passed": 6,
+          "total": 6,
+          "all_scenarios_have_real_upstream_throttled": true
+        },
+        "consumer_successful_tool_loop": "blocked",
+        "blocker": "真实 Consumer reasoning 上游当前返回 chatMessageError/errorCode=throttled，nextAvailableAt=2026-11-02T15:04:57+00:00；三协议的 named Read 初轮均未产生可执行工具调用，每日配额重置前无法完成 Read → tool_result → 最终答复闭环。未发送、未合成 continuation，未切换模式或 provider。"
+      },
+      {
+        "item": 7,
+        "name": "Personal Substrate unattended browser-renewal runtime",
+        "status": "pass",
+        "authenticated_capture_origin": "https://copilot.com/",
+        "userscript_capture": {
+          "actual_push_button_clicked": true,
+          "observed_token_push": {
+            "path": "/user/account/token",
+            "http": 200,
+            "token_parts": 5,
+            "personal_session": true,
+            "cookie_count": 12,
+            "activate": true,
+            "has_issuer_expiry": false
+          },
+          "saved": {
+            "provider": "m365",
+            "epoch": 3,
+            "token_sha256": "a6a60f6b3f181119",
+            "token_source": "manual",
+            "issuer_expires_at": 0.0,
+            "personal_session_present": true,
+            "broker_present": false,
+            "subject_sha256": "ddd1db7238dd5197"
+          }
+        },
+        "initial_incomplete_capture": {
+          "corrected_cookie_count": 45,
+          "session_cookie_count": 21,
+          "initial_two_renewals_count_as_pass": false,
+          "initial_renewals": {
+            "before_sha256": "a6a60f6b3f181119",
+            "renewals": [
+              {
+                "ordinal": 1,
+                "http": 200,
+                "refreshed": false,
+                "seconds": 127.72,
+                "new_jwe": false,
+                "sha256": "a6a60f6b3f181119",
+                "subject_preserved": true,
+                "epoch_preserved": true,
+                "issuer_expires_at": 0.0,
+                "expiry_source": "capture_age",
+                "broker_rotated": false,
+                "chat_sent_during_issuance": false
+              },
+              {
+                "ordinal": 2,
+                "http": 200,
+                "refreshed": false,
+                "seconds": 125.81,
+                "new_jwe": false,
+                "sha256": "a6a60f6b3f181119",
+                "subject_preserved": true,
+                "epoch_preserved": true,
+                "issuer_expires_at": 0.0,
+                "expiry_source": "capture_age",
+                "broker_rotated": false,
+                "chat_sent_during_issuance": false
+              }
+            ],
+            "two_distinct_jwes": false,
+            "provider": "m365",
+            "protocol_epoch": 3
+          },
+          "correction": "Completed browser Cookie capture after restoring session cookies with nonpositive expires treated as session lifetime rather than already expired. No runtime source change or capture-age success claim."
+        },
+        "two_fresh_jwes_after_capture": {
+          "before_sha256": "a6a60f6b3f181119",
+          "renewals": [
+            {
+              "ordinal": 1,
+              "http": 200,
+              "refreshed": true,
+              "seconds": 57.01,
+              "new_jwe": true,
+              "sha256": "21ed8f9ab8ac6153",
+              "subject_preserved": true,
+              "epoch_preserved": true,
+              "issuer_expires_at": 1793581217.6529,
+              "expiry_source": "issuer",
+              "broker_rotated": true,
+              "chat_sent_during_issuance": false
+            },
+            {
+              "ordinal": 2,
+              "http": 200,
+              "refreshed": true,
+              "seconds": 1.38,
+              "new_jwe": true,
+              "sha256": "2f259cdf0e1e67ac",
+              "subject_preserved": true,
+              "epoch_preserved": true,
+              "issuer_expires_at": 1793581219.6236596,
+              "expiry_source": "issuer",
+              "broker_rotated": true,
+              "chat_sent_during_issuance": false
+            }
+          ],
+          "two_distinct_jwes": true,
+          "provider": "m365",
+          "protocol_epoch": 3
+        },
+        "restart": {
+          "container_restart_exit_code": 0,
+          "post_restart_renewal": {
+            "loaded_after_restart": {
+              "epoch": 3,
+              "subject_sha256": "ddd1db7238dd5197",
+              "token_sha256": "2f259cdf0e1e67ac",
+              "broker_present": true
+            },
+            "http": 200,
+            "refreshed": true,
+            "seconds": 1.62,
+            "new_jwe": true,
+            "epoch_preserved": true,
+            "subject_preserved": true,
+            "broker_present": true,
+            "expiry_source": "issuer"
+          }
+        },
+        "encrypted_session_persistence": {
+          "profile_count": 0,
+          "encrypted_session_field_type": "dict",
+          "encrypted_session_envelope_keys": [
+            "__enc__",
+            "ct",
+            "n"
+          ],
+          "session_marked_sensitive": true,
+          "plaintext_token_absent": true,
+          "plaintext_cookie_values_absent": true,
+          "broker_present": true
+        },
+        "real_upgrade_control": {
+          "valid_control_upgrade": 101,
+          "controlled_bad_tag_upgrade": 401,
+          "bad_tag_keeps_supported_jwe_shape": true,
+          "business_invocations": 0,
+          "stored_token_untouched": true
+        },
+        "streaming_tool_first_rounds": {
+          "messages": {
+            "http": 200,
+            "tool_count": 1,
+            "event_types": [
+              "message_start",
+              "ping",
+              "content_block_start",
+              "content_block_stop",
+              "content_block_start",
+              "content_block_delta",
+              "content_block_stop",
+              "message_delta",
+              "message_stop"
+            ],
+            "planner": "router"
+          },
+          "responses": {
+            "http": 200,
+            "tool_count": 1,
+            "event_types": [
+              "response.created",
+              "response.in_progress",
+              "response.output_item.added",
+              "response.function_call_arguments.delta",
+              "response.function_call_arguments.done",
+              "response.output_item.done",
+              "response.completed"
+            ],
+            "planner": "router"
+          }
+        },
+        "actual_tool_execution": {
+          "executor": "functions.read",
+          "path": "ssh://m365-server/tmp/fox-quota-personal-marker.txt",
+          "initial_prompt_contains_result_marker": false,
+          "result_marker": "FOX_PERSONAL_TOOL_RESULT_6f753c0832e04f74839b7a01469a295b"
+        },
+        "streaming_continuations_across_real_401": [
+          {
+            "protocol": "messages",
+            "http": 200,
+            "controlled_actual_upgrade_401": 401,
+            "fault": "single cryptographic JWE authentication-tag mutation; no fake WebSocket",
+            "supported_jwe_shape": true,
+            "probe_business_invocations": 0,
+            "new_issuer_jwe_after_recovery": true,
+            "expiry_source": "issuer",
+            "subject_preserved": true,
+            "epoch_preserved": true,
+            "provider": "m365",
+            "terminal": "end_turn",
+            "event_types": [
+              "message_start",
+              "ping",
+              "content_block_start",
+              "content_block_delta",
+              "content_block_stop",
+              "message_delta",
+              "message_stop"
+            ],
+            "marker": "FOX_PERSONAL_TOOL_RESULT_6f753c0832e04f74839b7a01469a295b",
+            "reply": "FOX_PERSONAL_TOOL_RESULT_6f753c0832e04f74839b7a01469a295b",
+            "marker_matches": true,
+            "issuer_token_sha256": "656f8a0dd74fef2e",
+            "fault_cleanup_fresh_token_retained": true
+          },
+          {
+            "protocol": "responses",
+            "http": 200,
+            "controlled_actual_upgrade_401": 401,
+            "fault": "single cryptographic JWE authentication-tag mutation; no fake WebSocket",
+            "supported_jwe_shape": true,
+            "probe_business_invocations": 0,
+            "new_issuer_jwe_after_recovery": true,
+            "expiry_source": "issuer",
+            "subject_preserved": true,
+            "epoch_preserved": true,
+            "provider": "m365",
+            "terminal": "completed",
+            "event_types": [
+              "response.created",
+              "response.in_progress",
+              "response.output_item.added",
+              "response.content_part.added",
+              "response.output_text.delta",
+              "response.output_text.done",
+              "response.content_part.done",
+              "response.output_item.done",
+              "response.completed"
+            ],
+            "marker": "FOX_PERSONAL_TOOL_RESULT_6f753c0832e04f74839b7a01469a295b",
+            "reply": "FOX_PERSONAL_TOOL_RESULT_6f753c0832e04f74839b7a01469a295b",
+            "marker_matches": true,
+            "issuer_token_sha256": "f6ff13d3b94f76bb",
+            "fault_cleanup_fresh_token_retained": true
+          }
+        ],
+        "temporary_runtime_teardown": {
+          "personal_substrate_profiles": 0,
+          "camoufox_or_firefox_processes": 0,
+          "owned_capture_chrome_pid_count": 0,
+          "owned_capture_chrome_exit_check": 0,
+          "ssh_capture_tunnel_stopped": true,
+          "existing_omp_managed_chrome_profile_retained": "Pre-existing managed browser cache is not a temporary renewal profile; deliberately not deleted."
+        }
+      }
+    ],
+    "consumer_quota_wire_evidence": [
+      {
+        "protocol": "chat",
+        "stream": false,
+        "marker": "FOX_CONSUMER_CHAT_N_f30347b5dbcd4a7ca86ce2494d18f10c",
+        "model": "copilot-reasoning",
+        "file_path": "/app/README.md",
+        "tool_choice": {
+          "type": "function",
+          "function": {
+            "name": "Read"
+          }
+        },
+        "http": 429,
+        "headers": {
+          "retry-after": "81574",
+          "content-type": "application/json"
+        },
+        "started_epoch": 1793550319.406941,
+        "finished_epoch": 1793550323.4030724,
+        "marker_echoed": false,
+        "sse_event_names": [],
+        "done_sentinel": false,
+        "account_after": {
+          "throttled_mode": "reasoning",
+          "throttled_until": 1793631897.0,
+          "throttled_at": 1793550323.3761444,
+          "consumer_updated_at": 1793549708.3598075,
+          "consumer_refresh_token_updated_at": 1793549708.3598027,
+          "consumer_token_expires_at": 1793578507.3597946
+        },
+        "observed_upstream_quota": [
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          }
+        ],
+        "retry_after_verification": {
+          "actual_seconds": 81574,
+          "expected_seconds_at_receive": 81574,
+          "matches_reset": true
+        },
+        "status": "pass",
+        "passed": true,
+        "upstream_quota_proven": true,
+        "not_local_rpm_limit": true,
+        "error_shape_matches_contract": true,
+        "terminal": "HTTP 429 protocol error envelope",
+        "frames": [
+          {
+            "top_level_fields": [
+              "error"
+            ],
+            "error": {
+              "type": "rate_limit_error",
+              "code": "rate_limit_exceeded",
+              "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+            }
+          }
+        ],
+        "first_round_tool_call_available": false,
+        "continuation_sent": false,
+        "successful_tool_completion": false
+      },
+      {
+        "protocol": "chat",
+        "stream": true,
+        "marker": "FOX_CONSUMER_CHAT_S_8caf96afa1d34beab0e8eaac1d5add9e",
+        "model": "copilot-reasoning",
+        "file_path": "/app/README.md",
+        "tool_choice": {
+          "type": "function",
+          "function": {
+            "name": "Read"
+          }
+        },
+        "http": 200,
+        "headers": {
+          "x-m365-tool-calling": "verified",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "started_epoch": 1793550326.0495033,
+        "finished_epoch": 1793550329.4638674,
+        "marker_echoed": false,
+        "sse_event_names": [],
+        "done_sentinel": true,
+        "account_after": {
+          "throttled_mode": "reasoning",
+          "throttled_until": 1793631897.0,
+          "throttled_at": 1793550329.4392686,
+          "consumer_updated_at": 1793549708.3598075,
+          "consumer_refresh_token_updated_at": 1793549708.3598027,
+          "consumer_token_expires_at": 1793578507.3597946
+        },
+        "observed_upstream_quota": [
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          }
+        ],
+        "retry_after_verification": {
+          "actual_seconds": null,
+          "expected_seconds_at_receive": 81568,
+          "matches_reset": null
+        },
+        "status": "pass",
+        "passed": true,
+        "upstream_quota_proven": true,
+        "not_local_rpm_limit": true,
+        "error_shape_matches_contract": true,
+        "terminal": "choices chunk with m365_error.type=rate_limit_error; transport finish_reason=stop then [DONE]",
+        "frames": [
+          {
+            "object": "chat.completion.chunk",
+            "top_level_fields": [
+              "id",
+              "object",
+              "created",
+              "model",
+              "choices"
+            ],
+            "choices": [
+              {
+                "finish_reason": null,
+                "delta_fields": [
+                  "role"
+                ],
+                "tool_call_count": 0
+              }
+            ]
+          },
+          {
+            "object": "chat.completion.chunk",
+            "top_level_fields": [
+              "id",
+              "object",
+              "created",
+              "model",
+              "choices",
+              "m365_error"
+            ],
+            "m365_error": {
+              "type": "rate_limit_error",
+              "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+            },
+            "choices": [
+              {
+                "finish_reason": null,
+                "delta_fields": [
+                  "content"
+                ],
+                "tool_call_count": 0
+              }
+            ]
+          },
+          {
+            "object": "chat.completion.chunk",
+            "top_level_fields": [
+              "id",
+              "object",
+              "created",
+              "model",
+              "choices",
+              "usage"
+            ],
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "delta_fields": [],
+                "tool_call_count": 0
+              }
+            ]
+          }
+        ],
+        "first_round_tool_call_available": false,
+        "continuation_sent": false,
+        "successful_tool_completion": false
+      },
+      {
+        "protocol": "messages",
+        "stream": false,
+        "marker": "FOX_CONSUMER_MESSAGES_N_f9f33417e3cc459d9f7afc8037779670",
+        "model": "copilot-reasoning",
+        "file_path": "/app/README.md",
+        "tool_choice": {
+          "type": "tool",
+          "name": "Read"
+        },
+        "http": 429,
+        "headers": {
+          "retry-after": "81561",
+          "content-type": "application/json"
+        },
+        "started_epoch": 1793550333.1612408,
+        "finished_epoch": 1793550336.637989,
+        "marker_echoed": false,
+        "sse_event_names": [],
+        "done_sentinel": false,
+        "account_after": {
+          "throttled_mode": "reasoning",
+          "throttled_until": 1793631897.0,
+          "throttled_at": 1793550336.6101968,
+          "consumer_updated_at": 1793549708.3598075,
+          "consumer_refresh_token_updated_at": 1793549708.3598027,
+          "consumer_token_expires_at": 1793578507.3597946
+        },
+        "observed_upstream_quota": [
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          }
+        ],
+        "retry_after_verification": {
+          "actual_seconds": 81561,
+          "expected_seconds_at_receive": 81561,
+          "matches_reset": true
+        },
+        "status": "pass",
+        "passed": true,
+        "upstream_quota_proven": true,
+        "not_local_rpm_limit": true,
+        "error_shape_matches_contract": true,
+        "terminal": "HTTP 429 protocol error envelope",
+        "frames": [
+          {
+            "type": "error",
+            "top_level_fields": [
+              "type",
+              "error"
+            ],
+            "error": {
+              "type": "rate_limit_error",
+              "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+            }
+          }
+        ],
+        "first_round_tool_call_available": false,
+        "continuation_sent": false,
+        "successful_tool_completion": false
+      },
+      {
+        "protocol": "messages",
+        "stream": true,
+        "marker": "FOX_CONSUMER_MESSAGES_S_8f5dd914d43d46ac8aa8d3566e76d00f",
+        "model": "copilot-reasoning",
+        "file_path": "/app/README.md",
+        "tool_choice": {
+          "type": "tool",
+          "name": "Read"
+        },
+        "http": 200,
+        "headers": {
+          "x-m365-tool-calling": "verified",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "started_epoch": 1793550339.1899896,
+        "finished_epoch": 1793550342.8362358,
+        "marker_echoed": false,
+        "sse_event_names": [
+          "message_start",
+          "ping",
+          "error"
+        ],
+        "done_sentinel": false,
+        "account_after": {
+          "throttled_mode": "reasoning",
+          "throttled_until": 1793631897.0,
+          "throttled_at": 1793550342.811416,
+          "consumer_updated_at": 1793549708.3598075,
+          "consumer_refresh_token_updated_at": 1793549708.3598027,
+          "consumer_token_expires_at": 1793578507.3597946
+        },
+        "observed_upstream_quota": [
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          }
+        ],
+        "retry_after_verification": {
+          "actual_seconds": null,
+          "expected_seconds_at_receive": 81555,
+          "matches_reset": null
+        },
+        "status": "pass",
+        "passed": true,
+        "upstream_quota_proven": true,
+        "not_local_rpm_limit": true,
+        "error_shape_matches_contract": true,
+        "terminal": "event:error / error.type=rate_limit_error; no message_stop or end_turn",
+        "frames": [
+          {
+            "type": "message_start",
+            "top_level_fields": [
+              "type",
+              "message"
+            ]
+          },
+          {
+            "type": "ping",
+            "top_level_fields": [
+              "type"
+            ]
+          },
+          {
+            "type": "error",
+            "top_level_fields": [
+              "type",
+              "error"
+            ],
+            "error": {
+              "type": "rate_limit_error",
+              "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+            }
+          }
+        ],
+        "first_round_tool_call_available": false,
+        "continuation_sent": false,
+        "successful_tool_completion": false
+      },
+      {
+        "protocol": "responses",
+        "stream": false,
+        "marker": "FOX_CONSUMER_RESPONSES_N_f28f75b26f6c4168bbf691099095f3d7",
+        "model": "copilot-reasoning",
+        "file_path": "/app/README.md",
+        "tool_choice": {
+          "type": "function",
+          "name": "Read"
+        },
+        "http": 429,
+        "headers": {
+          "retry-after": "81549",
+          "content-type": "application/json"
+        },
+        "started_epoch": 1793550345.1727633,
+        "finished_epoch": 1793550348.6443121,
+        "marker_echoed": false,
+        "sse_event_names": [],
+        "done_sentinel": false,
+        "account_after": {
+          "throttled_mode": "reasoning",
+          "throttled_until": 1793631897.0,
+          "throttled_at": 1793550348.6173048,
+          "consumer_updated_at": 1793549708.3598075,
+          "consumer_refresh_token_updated_at": 1793549708.3598027,
+          "consumer_token_expires_at": 1793578507.3597946
+        },
+        "observed_upstream_quota": [
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          }
+        ],
+        "retry_after_verification": {
+          "actual_seconds": 81549,
+          "expected_seconds_at_receive": 81549,
+          "matches_reset": true
+        },
+        "status": "pass",
+        "passed": true,
+        "upstream_quota_proven": true,
+        "not_local_rpm_limit": true,
+        "error_shape_matches_contract": true,
+        "terminal": "HTTP 429 protocol error envelope",
+        "frames": [
+          {
+            "top_level_fields": [
+              "error"
+            ],
+            "error": {
+              "type": "rate_limit_error",
+              "code": "rate_limit_exceeded",
+              "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+            }
+          }
+        ],
+        "first_round_tool_call_available": false,
+        "continuation_sent": false,
+        "successful_tool_completion": false
+      },
+      {
+        "protocol": "responses",
+        "stream": true,
+        "marker": "FOX_CONSUMER_RESPONSES_S_89b7ac988bfd4db49c2d7463524fee9a",
+        "model": "copilot-reasoning",
+        "file_path": "/app/README.md",
+        "tool_choice": {
+          "type": "function",
+          "name": "Read"
+        },
+        "http": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "started_epoch": 1793550350.281214,
+        "finished_epoch": 1793550353.7560046,
+        "marker_echoed": false,
+        "sse_event_names": [
+          "response.created",
+          "response.in_progress",
+          "error",
+          "response.failed"
+        ],
+        "done_sentinel": false,
+        "account_after": {
+          "throttled_mode": "reasoning",
+          "throttled_until": 1793631897.0,
+          "throttled_at": 1793550353.7308025,
+          "consumer_updated_at": 1793549708.3598075,
+          "consumer_refresh_token_updated_at": 1793549708.3598027,
+          "consumer_token_expires_at": 1793578507.3597946
+        },
+        "observed_upstream_quota": [
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          },
+          {
+            "event": "chatMessageError",
+            "errorCode": "throttled",
+            "errorDetail": {
+              "type": "throttled",
+              "nextAvailableAt": "2026-11-02T15:04:57+00:00"
+            }
+          }
+        ],
+        "retry_after_verification": {
+          "actual_seconds": null,
+          "expected_seconds_at_receive": 81544,
+          "matches_reset": null
+        },
+        "status": "pass",
+        "passed": true,
+        "upstream_quota_proven": true,
+        "not_local_rpm_limit": true,
+        "error_shape_matches_contract": true,
+        "terminal": "error.code=rate_limit_error then response.failed/error.code=rate_limit_exceeded; no response.completed",
+        "frames": [
+          {
+            "type": "response.created",
+            "top_level_fields": [
+              "type",
+              "response",
+              "sequence_number"
+            ]
+          },
+          {
+            "type": "response.in_progress",
+            "top_level_fields": [
+              "type",
+              "response",
+              "sequence_number"
+            ]
+          },
+          {
+            "type": "error",
+            "code": "rate_limit_error",
+            "top_level_fields": [
+              "type",
+              "code",
+              "message",
+              "param",
+              "sequence_number"
+            ],
+            "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00."
+          },
+          {
+            "type": "response.failed",
+            "top_level_fields": [
+              "type",
+              "response",
+              "sequence_number"
+            ],
+            "response": {
+              "status": "failed",
+              "error": {
+                "message": "Copilot throttled this request (mode=reasoning); upstream reported nextAvailableAt=2026-11-02T15:04:57+00:00.",
+                "code": "rate_limit_exceeded"
+              }
+            }
+          }
+        ],
+        "first_round_tool_call_available": false,
+        "continuation_sent": false,
+        "successful_tool_completion": false
+      }
+    ],
+    "consumer_renewal": {
+      "succeeded": true,
+      "source_saved_token_was_expired": true,
+      "consumer_token_currently_valid": true,
+      "renewed_at_epoch": 1793549708.3598075,
+      "rt_updated_at_epoch": 1793549708.3598027,
+      "token_expires_at_epoch": 1793578507.3597946,
+      "rt_rotation_resave_owner": "Main; preserve rotated RT to source inactive ChatAI slot before deleting temporary account"
+    },
+    "rotated_consumer_grant_retained_in_inactive_source_slot": {
+      "http": 200,
+      "provider": "m365",
+      "rotated_consumer_grant_retained": true,
+      "consumer_token_retained": true,
+      "source_jwe_unchanged": true,
+      "source_personal_session_unchanged": true,
+      "source_epoch_unchanged": true,
+      "no_protocol_switch": true
+    },
+    "quota_recollection_limits": {
+      "initial_six_scenario_batch_stdout_was_actual_none": true,
+      "initial_batch_artifact_id": null,
+      "initial_batch_per_scenario_passes_not_claimed": true,
+      "initial_batch_account_throttled_mode": "reasoning",
+      "initial_batch_reset_epoch": 1793631897,
+      "original_stdout_not_recoverable": true,
+      "parent_authorized_one_controlled_six_request_recollection": true,
+      "recollection_started_more_than_60s_after_initial_batch": true,
+      "responses_persisted_immediately_per_request": "/tmp/fox-quota-consumer-proof.json",
+      "durable_filtered_proof_recovered_via_ascii_base64": true,
+      "no_retry_feature_or_provider_mode_throttle_modification": true
+    },
+    "cleanup": {
+      "precisely_owned_enterprise_conversations_deleted": 8,
+      "enterprise_cloud_delete_http": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "enterprise_cloud_delete_warnings": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "owned_personal_local_bindings_removed": 3,
+      "owned_local_bindings_remaining": 0,
+      "owned_keys_delete_http": [
+        200,
+        200,
+        200
+      ],
+      "owned_consumer_account_delete_http": 200,
+      "consumer_proof_file_absent": true,
+      "owned_host_artifacts_removed": true,
+      "original_account_inventory_and_key_configuration_preserved": true,
+      "original_personal_provider": "m365",
+      "original_personal_epoch": 3,
+      "original_personal_session_usable": true,
+      "original_personal_broker_present": true,
+      "no_cloud_history_sweep": true,
+      "personal_and_consumer_cloud_conversations": "Remain where no verified per-conversation delete authorization is available; no unrelated credentials or whole-history deletion used."
+    },
+    "post_cleanup_original_key_streaming_smoke": {
+      "http": 200,
+      "marker_matches": true,
+      "transport_done": true,
+      "source_provider": "m365",
+      "source_epoch": 3,
+      "source_usable_personal_session": true,
+      "source_broker_present": true,
+      "source_expiry_source": "issuer"
+    },
+    "remaining_acceptance_blockers": [
+      "Claude_Fable native request returned HTTP 200, header unknown, finish stop, but generated no Read tool_call; no tool execution or continuation was fabricated. Sync and stream exact random echoes passed.",
+      "No ready subject-bound Studio agent. Requested Studio must not count as pass when header indicates Router fallback.",
+      "真实 Consumer reasoning 上游当前返回 chatMessageError/errorCode=throttled，nextAvailableAt=2026-11-02T15:04:57+00:00；三协议的 named Read 初轮均未产生可执行工具调用，每日配额重置前无法完成 Read → tool_result → 最终答复闭环。未发送、未合成 continuation，未切换模式或 provider。"
+    ],
+    "redaction": "No API keys, tokens, refresh grants, cookie values, account ids, account emails, or encoded Response session ids. Credential/subject SHA-256 values are truncated to 16 hex characters; deployed source-file SHA-256 values remain complete."
+  },
   "not_cleaned": "three single-turn personal-account probe conversations remain in that account's Copilot history (no delete authorization for personal accounts)",
   "redaction": "no keys, tokens or account ids; tokens appear only as truncated hashes elsewhere"
 }

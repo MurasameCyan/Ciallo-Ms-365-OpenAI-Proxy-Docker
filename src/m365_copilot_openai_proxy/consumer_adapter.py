@@ -15,18 +15,18 @@ single seam between them, so the routes need no per-provider branching:
   ``session`` argument. Consumer is stateless: the full transcript is re-sent as
   ``additional_context`` every turn, so a fresh conversation per turn loses no
   context.
-* It re-raises upstream failures as ``SubstrateCopilotError`` so the existing
-  route error mapping keeps working unchanged.
+* It preserves quota and network failures as typed ``SubstrateCopilotError``
+  subclasses so both streaming and HTTP route error mapping keep working.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from .consumer_client import ConsumerCopilotClient, ConsumerCopilotError, ConsumerNetworkError
+from .consumer_client import AccountThrottled, ConsumerCopilotClient, ConsumerCopilotError, ConsumerNetworkError
 from .consumer_prompt import compact_consumer_prompt
 from .sse_stream import closing_stream
-from .substrate_client import SubstrateCopilotError, SubstrateNetworkError
+from .substrate_client import SubstrateCopilotError, SubstrateNetworkError, SubstrateThrottled
 from .substrate_parse import _combine_text
 
 
@@ -75,11 +75,12 @@ class ConsumerClientAdapter:
             detail = str(exc)
             if self.mode_status == "experimental" and not isinstance(exc, ConsumerNetworkError):
                 detail = f"{detail}；{_EXPERIMENTAL_MODE_HINT}"
-            translated = (
-                SubstrateNetworkError(detail)
-                if isinstance(exc, ConsumerNetworkError)
-                else SubstrateCopilotError(detail)
-            )
+            if isinstance(exc, AccountThrottled):
+                translated = SubstrateThrottled(detail)
+            elif isinstance(exc, ConsumerNetworkError):
+                translated = SubstrateNetworkError(detail)
+            else:
+                translated = SubstrateCopilotError(detail)
             # Keep the reset timestamp across the route-contract adapter. The
             # HTTP layer uses it to return a useful Retry-After instead of
             # treating an account quota refusal as a generic 502.

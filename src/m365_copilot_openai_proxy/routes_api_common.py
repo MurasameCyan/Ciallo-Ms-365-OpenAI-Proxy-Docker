@@ -60,11 +60,8 @@ def upstream_http_error(
     because the substrate client does not expose typed subclasses for them.
     """
     detail = str(exc)
-    throttled = exc if isinstance(exc, SubstrateThrottled) else exc.__cause__
-    if isinstance(throttled, SubstrateThrottled):
-        # M365 does not currently include a reset timestamp in this frame. Do not
-        # invent Retry-After; the typed status lets clients apply their own backoff.
-        return HTTPException(status_code=429, detail=detail)
+    # Check the Consumer cause before its normalized SubstrateThrottled wrapper
+    # so the shared streaming type does not hide its upstream retry timestamp.
     throttled = exc if isinstance(exc, AccountThrottled) else exc.__cause__
     if isinstance(throttled, AccountThrottled):
         headers = None
@@ -72,6 +69,11 @@ def upstream_http_error(
         if seconds is not None:
             headers = {"Retry-After": str(max(1, math.ceil(seconds)))}
         return HTTPException(status_code=429, detail=detail, headers=headers)
+    throttled = exc if isinstance(exc, SubstrateThrottled) else exc.__cause__
+    if isinstance(throttled, SubstrateThrottled):
+        # M365 does not currently include a reset timestamp in this frame. Do not
+        # invent Retry-After; the typed status lets clients apply their own backoff.
+        return HTTPException(status_code=429, detail=detail)
     network = exc if isinstance(exc, SubstrateNetworkError) else exc.__cause__
     if isinstance(network, SubstrateNetworkError):
         return UpstreamNetworkHTTPError(detail)

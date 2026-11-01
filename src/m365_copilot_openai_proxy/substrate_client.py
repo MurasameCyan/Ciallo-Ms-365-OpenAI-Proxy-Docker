@@ -267,7 +267,7 @@ class SubstrateCopilotError(RuntimeError):
 
 
 class SubstrateThrottled(SubstrateCopilotError):
-    """M365 accepted the turn shape but temporarily refused it as throttled."""
+    """An upstream request was temporarily refused as throttled."""
 
     upstream_result = "Throttled"
 
